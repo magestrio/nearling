@@ -1,0 +1,32 @@
+# ADR-012: What the contract records for outfits, and how a purchase is written
+
+**Status:** Accepted — OD-600 → A «Сразу своей записью» (the user, 2026-10-28): a purchase is the server's own `outfit_buy` transaction at the tap, the project pays its gas; the tech defaults of this ADR accepted («Принимаю все», 2026-10-28). Applied user decisions: outfits live on chain and stay with the owner (critic MAJOR 10, 2026-10-27); 10 items — 3 for the streak, 3 for riddles, 4 bought ≈ 1¢ (Product defaults, OD-8); streak items at 1, 3 and 7 days (OD-380); riddle items only for solved riddles, on the 1st, 3rd and 7th, the day after with the verdict (OD-590 → B, 2026-10-28); a bought item is paid from any food if the pet stays «Full», starter food spent on it returns to the project (OD-591 → A, 2026-10-28); each earned item given once, purchases stop only on the gas service pause (ux defaults 2026-10-28); a solved riddle counts as soon as its answer is revealed on chain, whether or not the owner comes (critic MAJOR 1 → «Сразу при раскрытии», 2026-10-28); the wardrobe cut to 7 items — streak 1 and 3 days, the first solved riddle, 4 bought — and over the daily cap a purchase shows «не прошло» (critic cuts 1–2 → «Резать оба», 2026-10-28). These narrow the 10 items, the 7-day streak item and the 3rd and 7th riddle items above. With 12 starter thoughts (OD-1310, 2026-10-28) a purchase from starter food alone leaves no pet «Full», so no outfit is bought from starter food; the contract and the server's checks are unchanged.
+**Date:** 2026-10-28
+**Deciders:** the user (OD-600); tech-architect (proposal)
+
+## Context
+The wardrobe is part of «не перепишут и не сотрут»: what a pet owns must be on chain, go with it on a gift and outlive the server (§3 › Отличие) — and it is the `nfts` track's «hold inventory». Items are not separate NFTs (Out of v1). Three things reach the chain: an earned streak item, an earned riddle item, a purchase. The contract sees the streak (`Streak contract`) but not the riddle answers — they are private in D1 (`Ritual data`), so whether a riddle was solved is only the server's word. A stolen server key must not be able to hand out «earned» items at will or drain a pet beyond the existing caps.
+
+## Decision
+- **The items are a field of the pet record**: which of the 7 ids (0–6, kinds fixed in code) the pet has — a fixed-size field, storage paid at birth from the pool, readable via `pet_view` and `nft_token`. No method removes an item; there is no refund or resale.
+- **Streak items: written by `streak_mark` itself.** When a mark brings the streak to 1 or 3 days and the pet lacks that item, the same call writes it. No extra transaction; a stolen key can grant them only through streak marks, which already grow at most +1 a day (ADR-010).
+- **The riddle item: `outfit_grant(token_id)`, server account only.** There is one riddle item, so the method takes no item and can grant nothing else. The server calls it when the first reveal on chain (`Riddle reveal contract`) matches the owner's answer kept in D1 — at the reveal, whether or not the owner comes; the notice waits for the next visit. No solved-riddle count is kept: the contract field already says whether the item was given. The contract accepts it only for a pet that lacks it, and not before the UTC day after the birth day (`block_timestamp`) — exactly when a living owner could have it (answer on the birth day, reveal the next).
+- **Purchases (OD-600 → A): `outfit_buy(token_id, item)`, server account only, its own transaction at the tap.** Only a bought item the pet lacks; the price a code constant, one for the four, changed only by an upgrade (ADR-003), like the hire fee; taken from project food first, then given food, to the treasury (OD-591); not more than the pet's food; counted with thoughts in the 0.05 NEAR daily cap. «Stays Full» and the daily cap with undebited thoughts are the server's checks; over the cap the player sees «не прошло», like a contract rejection.
+- **One event for all three:** NEP-297 `outfit` {token_id, item, via streak|riddle|bought, price for a purchase}.
+- **Pause:** on the gas service pause grants and purchases wait; the NEAR AI pause does not stop them. A grant that did not land is sent again until it does.
+
+## Options Considered
+
+### Riddle items — each solved riddle on chain, the contract counts (not chosen, decided by default)
+A `riddle_solved(token_id, day)` write per correct answer; the contract grants on the first. The contract still can't check the answer (it is private), so trust is the same; it makes every solved day public for good and costs a transaction per solved riddle (≤ 100 pets × 14 days ≈ 1,400 × ≈ $0.0023 ≈ $3.2 [hypothesis]). The chosen way publishes only one grant time per pet.
+
+### OD-600 Option A: its own transaction at the tap (chosen)
++~0 Scenarios. «Куплено» shows after the write, ~1–2 s (finality ~1.2 s [fact: near-contract › What the player sees]), and is never taken back. Gas ≈ $0.0023 per purchase paid by the project [hypothesis: ~5 Tgas, as the debit], ≤ 4 per pet: ≤ 400 × ≈ $0.0023 ≈ $0.9 for the playtest at most [estimate: arithmetic].
+
+### OD-600 Option B: an entry in the session batch `debit_session` (not chosen)
++~1 Scenario, changes `Session debit contract` (critic-clean). No gas on top, but the item reaches the chain only when the session closes (up to 10 minutes, `Pet food data`): either «куплено» waits that long, or the server shows the item at once and a rejected batch takes it away — a visible case the player can lose an item in.
+
+## Consequences
+- Public for good: which items each pet has, every grant with its time — so when a pet reached a 1- and 3-day streak and its first solved riddle — and every purchase with its price.
+- A stolen server key: the riddle item to any pet, once, not before the day after its birth; streak items only via streak marks; purchases of the four bought items from a pet's own food into the treasury, inside the daily cap — ≤ 4 prices per pet for its whole life; it can't take an item away. «Earned» on chain therefore means «granted by the server within these bounds». Revocation as ADR-002.
+- Gas for the project: riddle grants ≤ 1 per pet ≈ 100 × ≈ $0.0023 ≈ $0.23, purchases ≤ $0.9 under A, ≤ ~$1.1 together [estimate]; storage of the item field — a few bytes inside the 2–3 KB pet record [hypothesis]. Handed to product-lead for §4 › Траты проекта.

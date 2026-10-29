@@ -1,0 +1,32 @@
+# ADR-010: What the streak records on chain and who can break it
+
+**Status:** Accepted — the user's decision 2026-10-28, OD-371 → «Сервер при записи серии» (Option A). Applied user decisions: the streak lives on chain (critic MAJOR 10); one automatic freeze per 7 days (Product defaults); OD-360 → «Сон серию не трогает»; freezes unlimited (ux defaults 2026-10-28); OD-381 → «Одна при рождении»; the defaults below accepted by the user 2026-10-28 («Принимаю все»); critic BLOCKER 1 → «Сразу честный прогноз» and critic MAJOR 2 → «День рождения — не пропуск» (2026-10-28); a later add-daily-ritual round: critic BLOCKER 1 → «Да, день засчитан», critic MAJOR 2 → «Строка ожидания, день не закрывается» (2026-10-28).
+**Date:** 2026-10-28
+**Deciders:** the user (OD-371, defaults); tech-architect (proposal)
+
+## Context
+The streak counts consecutive UTC days with a completed ritual; it lives in the contract, goes with the pet on a gift and outlives the server (§3 › Отличие). A missed day spends a freeze; without one the streak starts over — never silently. A day the pet falls asleep in counts when sleep took only the parts a sleeping pet can't do — the question and the riddle; days the pet ended asleep before that, and days with nothing available, neither grow nor break it (OD-360, `Ritual day rule`, `Ritual data`). A stolen server key must not be able to wipe streaks (ux-architect's handover). The ritual itself happens off chain: the contract sees neither the diary nor the riddle answer.
+
+## Decision
+The server tells the contract which days do not count: each `streak_mark` carries `skipped`, the number of days without an available ritual since the last counted day (the pet slept, nothing was available, a mark that did not land by the end of the next day); the contract rejects `skipped` larger than the gap (Option A, OD-371). On the gas pause marks wait for it to lift; the NEAR AI pause does not stop them.
+
+## Accepted defaults
+- **No reset method.** The only write is `streak_mark(token_id, day, skipped)`: +1 for one day. The contract derives the break itself from the last counted day, the freezes and `skipped`: missed = days between − `skipped`; enough freezes → they are spent and the streak grows; otherwise the streak is 1 and the freezes 0. Every 7th day adds a freeze. A new pet starts with one freeze (OD-381), written at birth; storage for the streak fields is part of the pet record paid from the pool.
+- **The first mark (critic MAJOR 2, the user's decision).** At birth the pet has no last counted day. The first `streak_mark` sets the streak to 1, spends nothing and ignores `skipped`: the days before it are not misses, so the birth freeze survives a pet whose owner starts the ritual later. `day` is never before the birth day; a ritual done on the birth day counts as usual.
+- **The forecast (critic BLOCKER 1, the user's decision).** A break and the freezes it spends reach the chain only with the next mark, after the next completed ritual; until then the chain keeps the old number — also for a gifted pet's new owner. On return the server shows the coming number at once, marked as not yet on chain: it applies the same rule to the streak, freezes and last counted day read from the contract and the days without a ritual it keeps in D1 (`Ritual data`). The chain stays the record; the forecast is never written anywhere.
+- **Which day.** The server assigns a completed ritual to the UTC day of its own clock; the contract accepts `day` = today or yesterday by `block_timestamp` and later than the last counted day — so a ritual finished at 23:59 is not counted for the next day, and +1 can happen at most once a day per pet, also after a gift that day. A mark that does not land by the end of the next day is lost; the server passes that day as skipped in the next mark, so the player does not lose the streak for our failure.
+- **When.** The server writes the mark right after the ritual completes — also when it completes with the owner away: the pet fell asleep, or the diary's first 30 minutes ran out with the riddle answered; never while the diary is still being written. The time of the transaction shows when the owner finished — already public through the session debits of the same visit (`Session debit contract`), so nothing new is exposed; batching the marks after midnight would hide the hour but put the on-chain number a day behind Diary screen.
+- **What becomes public, for good:** the streak, the freezes, the last counted day, and an NEP-297 `streak` event {token_id, day, streak, freezes, spent} per counted day — that is, every UTC day the owner completed the ritual.
+
+## Options Considered (OD-371 — who tells the contract which days do not count)
+
+### Option A: the server, as `skipped` in each mark (chosen)
++~0 Scenarios; no change to finished contracts. The contract rejects `skipped` larger than the gap, so the server can excuse but never invent a miss. A stolen key can still break a streak: it marks a pet that slept since its last mark with `skipped = 0`. Bound: only such pets, only until revocation (ADR-002), public for good; the user's full key can repair the state by an upgrade (ADR-003). The thief gains nothing.
+
+### Option B: the contract tracks sleep itself from the pet's food
+The contract records when a debit brings the food below one cheap thought and when a feed or snack lifts it. +~3 Scenarios; changes `Session debit contract`, `Pet feed contract`, `Pet snack contract` (critic-clean). The contract sees sleep later than the server does (undebited thoughts), so a freeze can go for a day the player saw as sleep; days with nothing available for other reasons (the service pause) would break the streak.
+
+## Consequences
+- A stolen server key: +1 per pet per day at most (today or yesterday), freezes only by the 7-day rule; under A it can restart the streak of a pet that slept since its last mark.
+- On the gas pause no marks go out; those not written by the end of the next day become skipped days.
+- Gas: ≤ 1 transaction per pet per day — ≈ 1,400 for 100 pets over 14 days, ≈ $3.2 at the debit's ~5 Tgas [hypothesis: §4 › Цена мысли; a mark should be cheaper] — handed to product-lead for §4 › Траты проекта.
