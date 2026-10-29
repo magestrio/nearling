@@ -68,6 +68,8 @@ If keyless archive access ends, we don't pay (OD-1120 → «Too old to check her
 ## Consequences
 - §8 › «Уходит из браузера» has the FastNEAR row; the intro sentence of §8 names the exception; «Хранение» names FastNEAR with retention unknown.
 - A broken pointer from our server shows as `Verification flow` › «не сошлось», not as a pass (`Verification reads data` › «указатель не ведёт к чеку»).
+- A debited receipt's model, price in NEAR, tokens and «cut» come from the receipt read on chain, never from the pointer; the cents are that price at the NEAR→USD rate the pointer records for it, and a pointer whose fields differ from the receipt is «не сошлось»; the owner's browser checks the receipt's tokens and «cut» against `usage` and `finish_reason` in the signed response bytes (the user, 2026-10-29, re-gate add-verification MAJOR 1, MINOR 3).
+- When our server can't read the owner on chain (its RPC limit or failure), it answers «сеть не читается», not «не владелец», and gives no bytes (`Verification reads data` › «сервер не прочитал сеть»; re-gate add-verification MINOR 5).
 - An unreachable or rate-limiting RPC gives no mark and no fallback to our server's word (`Verification reads data` › «сеть не отвечает»); the viewer sees `Verification screen` › «сеть не читается».
 - Cost $0, also if keyless archive access ends (OD-1120): then older items are checked only on the explorer, outside the page; FastNEAR Dev ($69/month) is not bought.
 - The character seal of a pet hatched more than ~a day ago reads its birth event from the archive: with the archive closed it falls under «архив закрыт» too.
