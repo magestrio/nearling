@@ -1,0 +1,9 @@
+/* The game's design system, ported. tokens.css and components.css are copies of
+   design/bundle/ds/tokens.css and design/ds/components.css, byte for byte: a visual change goes to the
+   designer and comes back as a new copy, never an edit here.
+   DS version note (design/ds/README.md): 0.18 · 2026-10-29 — 0.18: MotionToggle («Pause motion» / «Play motion»,
+   `add-pet` › `Pet motion rule`) in the corner of the pet's figure through PetStage `motion`, icons `pause`, `play`.
+   0.17: TextField with an `action` keeps its error and hint right under the input on the phone.
+   The React components of design/ds/components.js are ported by the first change whose frames use them. */
+@import './tokens.css';
+@import './components.css';

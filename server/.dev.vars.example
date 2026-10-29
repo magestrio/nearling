@@ -1,0 +1,24 @@
+# Copy to server/.dev.vars (gitignored) and type the values yourself. Names only here, values empty.
+# The same names are Worker secrets per env: `npx wrangler secret put <NAME> --env dev` (typed, never pasted into a chat).
+
+# NEAR AI Cloud key (dev key, spend_limit $5)
+NEARAI_API_KEY=
+
+# Privy app (public values; also plain vars in wrangler.jsonc)
+PRIVY_APP_ID=
+PRIVY_JWKS_URL=
+# Did Privy's dashboard ask for a privacy-policy URL? yes / no
+PRIVY_ASKED_PRIVACY_URL=
+
+# Full-access key of the gas account (ADR-006)
+NEAR_GAS_ACCOUNT_KEY=
+
+# Function-call key of the server account, this contract only (ADR-002) - set when add-pet lands
+NEAR_SERVER_KEY=
+
+# The user's own lists (PRODUCT.md section 8): words a pet's name may not contain; riddle texts and answers
+INSULT_LIST=
+RIDDLE_LIST=
+
+# Optional: only if the free RPC throttles
+FASTNEAR_API_KEY=

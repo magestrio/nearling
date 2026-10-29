@@ -1,0 +1,13 @@
+build/
+target/
+node_modules/
+dist/
+.wrangler/
+.DS_Store
+
+# local secrets and env files; the example with empty values is committed
+.dev.vars
+.dev.vars.*
+!.dev.vars.example
+.env*
+!.env.example

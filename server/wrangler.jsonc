@@ -1,0 +1,109 @@
+{
+  // The game's Worker. Top level: local dev only (`wrangler dev`, no remote). A named env deploys
+  // as its own Worker `<name>-<env>`; bindings, vars and secrets.required are not inherited, so each
+  // env declares all of them. Every wrangler command carries --env; never a bare `wrangler deploy`.
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "nearling",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-10-01",
+  "workers_dev": true,
+  "preview_urls": false,
+
+  // The web client, built by plain Vite into web/dist, served by this Worker: one origin with the API.
+  // /api/* and /health reach the Worker first; every other path is an asset or index.html.
+  "assets": {
+    "directory": "../web/dist",
+    "not_found_handling": "single-page-application",
+    "run_worker_first": ["/api/*", "/health"]
+  },
+
+  // Workers Logs without the per-request invocation record (ADR-020).
+  "observability": {
+    "enabled": true,
+    "logs": { "invocation_logs": false }
+  },
+
+  "version_metadata": { "binding": "CF_VERSION_METADATA" },
+
+  "vars": {
+    "ENVIRONMENT": "local",
+    "NEAR_NETWORK": "testnet"
+  },
+  "d1_databases": [
+    { "binding": "DB", "database_name": "nearling-db-local", "database_id": "00000000-0000-0000-0000-000000000000", "migrations_dir": "migrations/db" },
+    { "binding": "EVENTS", "database_name": "nearling-events-local", "database_id": "00000000-0000-0000-0000-000000000000", "migrations_dir": "migrations/events" }
+  ],
+
+  "env": {
+    "dev": {
+      "workers_dev": true,
+      "preview_urls": false,
+      "assets": {
+        "directory": "../web/dist",
+        "not_found_handling": "single-page-application",
+        "run_worker_first": ["/api/*", "/health"]
+      },
+      "observability": {
+        "enabled": true,
+        "logs": { "invocation_logs": false }
+      },
+      "version_metadata": { "binding": "CF_VERSION_METADATA" },
+      "vars": {
+        "ENVIRONMENT": "dev",
+        "NEAR_NETWORK": "testnet",
+        "NEAR_RPC_URL": "https://rpc.testnet.near.org",
+        "CONTRACT_ID": "nearling-dev.testnet",
+        "SERVER_ACCOUNT_ID": "nearling-dev-server.testnet",
+        "GAS_ACCOUNT_ID": "nearling-dev-gas.testnet",
+        "TREASURY_ACCOUNT_ID": "nearling-dev-treasury.testnet",
+        "PRIVY_APP_ID": "cmvtjc1q100s30gl22hfxq7ap",
+        "PRIVY_JWKS_URL": "https://auth.privy.io/api/v1/apps/cmvtjc1q100s30gl22hfxq7ap/jwks.json",
+        // Canonical NEAR AI Cloud ids, read from GET /v1/models on 2026-10-29 (ADR-005); never aliases.
+        "MODEL_CHEAP": "z-ai/glm-5.3-flash",
+        "MODEL_STRONG": "Qwen/Qwen3.6-35B-A3B-FP8"
+      },
+      "d1_databases": [
+        { "binding": "DB", "database_name": "nearling-db-dev", "database_id": "6bd873d3-77b9-401f-a548-ac7dc2ca8237", "migrations_dir": "migrations/db" },
+        { "binding": "EVENTS", "database_name": "nearling-events-dev", "database_id": "9334227d-ad92-4d14-8051-b8452171fcae", "migrations_dir": "migrations/events" }
+      ],
+      // Names that exist on the Worker `nearling-dev`. A name is added here when the change that reads
+      // it lands (NEAR_SERVER_KEY, INSULT_LIST, RIDDLE_LIST).
+      "secrets": { "required": ["NEARAI_API_KEY", "NEAR_GAS_ACCOUNT_KEY"] }
+    },
+
+    // prod: names only. Its ids, accounts and Privy app are the main session's, at R1 mainnet; the
+    // zero ids make a deploy fail instead of provisioning a database. Nobody runs --env prod before R1.
+    "prod": {
+      "workers_dev": true,
+      "preview_urls": false,
+      "assets": {
+        "directory": "../web/dist",
+        "not_found_handling": "single-page-application",
+        "run_worker_first": ["/api/*", "/health"]
+      },
+      "observability": {
+        "enabled": true,
+        "logs": { "invocation_logs": false }
+      },
+      "version_metadata": { "binding": "CF_VERSION_METADATA" },
+      "vars": {
+        "ENVIRONMENT": "prod",
+        "NEAR_NETWORK": "mainnet",
+        "NEAR_RPC_URL": "",
+        "CONTRACT_ID": "",
+        "SERVER_ACCOUNT_ID": "",
+        "GAS_ACCOUNT_ID": "",
+        "TREASURY_ACCOUNT_ID": "",
+        "PRIVY_APP_ID": "",
+        "PRIVY_JWKS_URL": "",
+        "MODEL_CHEAP": "z-ai/glm-5.3-flash",
+        "MODEL_STRONG": "Qwen/Qwen3.6-35B-A3B-FP8"
+      },
+      "d1_databases": [
+        { "binding": "DB", "database_name": "nearling-db-prod", "database_id": "00000000-0000-0000-0000-000000000000", "migrations_dir": "migrations/db" },
+        { "binding": "EVENTS", "database_name": "nearling-events-prod", "database_id": "00000000-0000-0000-0000-000000000000", "migrations_dir": "migrations/events" }
+      ],
+      "secrets": { "required": ["NEARAI_API_KEY", "NEAR_GAS_ACCOUNT_KEY"] }
+    }
+  }
+}
