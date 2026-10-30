@@ -1,0 +1,16 @@
+/* The box the live pet is drawn in: the DS's `ds-pet` sizes (design/ds/README.md › Pet) as the still's <img> gets
+   them, from tokens only. The canvas fills it; the pet is framed inside by the camera, not by this box. */
+.pet-figure__box { position: relative; width: 100%; height: 100%; }
+/* out of the size calculation: a canvas's default 300 px width must not floor the box. The 3D canvas stands the same
+   way, larger than the box (PetFigure.tsx › BLEED) */
+.pet-figure__canvas { width: 100%; height: 100%; display: block; position: absolute; inset: var(--space-0); }
+/* the stills are 1192 × 1423 and sit in the DS's `ds-pet` as an <img> of height `auto` under a max height: the live
+   figure takes the same proportion at that height, so the rail and the plate lay out around it as around the still */
+.pet-figure--hero { height: var(--size-pet-hero-max-height); width: auto; aspect-ratio: 1192 / 1423; max-width: min(var(--size-pet-hero), 100%); min-width: var(--space-0); }
+.pet-figure--md { width: min(var(--size-pet-md), 100%); height: var(--size-pet-md); }
+.pet-figure--sm { width: var(--size-pet-sm); height: var(--size-pet-sm); }
+.ds-stage--compact .pet-figure--hero { height: var(--size-pet-compact-max-height); }
+@media (min-width: 768px) {
+  .pet-figure--hero { height: var(--size-pet-hero-max-height-desktop); }
+  .ds-stage--compact .pet-figure--hero { height: var(--size-pet-hero-max-height-desktop); }
+}

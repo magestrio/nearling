@@ -7,6 +7,8 @@ const PORT = 5199;
 export default defineConfig({
   outputDir: '../build/playwright',
   fullyParallel: true,
+  // the 3D pet is drawn by software GL here (swiftshader): several pages at once starve each other for seconds
+  expect: { timeout: 15_000 },
   reporter: [['list']],
   use: {
     baseURL: `http://127.0.0.1:${PORT}`,
@@ -21,6 +23,7 @@ export default defineConfig({
   },
   projects: [
     { name: 'e2e', testDir: './e2e', testIgnore: '**/screens/**', testMatch: '**/*.spec.ts' },
-    { name: 'screens', testDir: './e2e/screens', testMatch: '**/*.spec.ts', use: { deviceScaleFactor: 2 } },
+    // `{time}` of the frames is 02:00: 00:00 UTC seen from UTC+2 (design/BRIEF.md §1)
+    { name: 'screens', testDir: './e2e/screens', testMatch: '**/*.spec.ts', use: { deviceScaleFactor: 2, timezoneId: 'Etc/GMT-2' } },
   ],
 });

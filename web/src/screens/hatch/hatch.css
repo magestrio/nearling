@@ -1,0 +1,3 @@
+/* The Hatch screen's form wraps the DS Centerpiece without adding a box: Enter in the name field submits it, and the
+   page's layout (a flex column whose one child fills it) stays the DS's. */
+.hatch-form { display: contents; }

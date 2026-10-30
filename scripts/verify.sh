@@ -130,7 +130,8 @@ step_screens() {
       return 1
     fi
     local pattern
-    pattern="^($(printf '%s' "$ids" | paste -sd'|' -)) · "
+    # -g matches "<project> <file> <title>", so the id is held by the space before it, not by ^.
+    pattern=" ($(printf '%s' "$ids" | paste -sd'|' -)) · "
     (cd web && npx playwright test --project=screens -g "$pattern")
   else
     (cd web && npx playwright test --project=screens)

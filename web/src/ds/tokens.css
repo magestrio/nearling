@@ -31,6 +31,7 @@
   --color-role-trust: #17D9D4;
   --color-error: #FF7966;
   --color-scrim: #000000A3;
+  --color-scrim-strong: #000000E3;
 }
 :root {
   --font-width-display: 112%;
@@ -72,6 +73,7 @@
   --size-pet-hero-max-height-desktop: 52dvh;
   --size-pet-compact-max-height: 26dvh;
   --size-pet-md: 14rem;
+  --size-item-picture: 6rem;
   --size-pet-sm: 3rem;
   --size-cell-width: 1.125rem;
   --size-cell-height: 0.5rem;

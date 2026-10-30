@@ -34,6 +34,9 @@
     { "binding": "EVENTS", "database_name": "nearling-events-local", "database_id": "00000000-0000-0000-0000-000000000000", "migrations_dir": "migrations/events" }
   ],
 
+  "durable_objects": { "bindings": [{ "name": "PET_DESK", "class_name": "PetDesk" }, { "name": "LIMITER", "class_name": "Limiter" }, { "name": "GUEST_VIEW", "class_name": "GuestView" }, { "name": "SERVER_KEY", "class_name": "ServerKey" }] },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["PetDesk", "Limiter", "GuestView", "ServerKey"] }],
+
   "env": {
     "dev": {
       "workers_dev": true,
@@ -51,24 +54,32 @@
       "vars": {
         "ENVIRONMENT": "dev",
         "NEAR_NETWORK": "testnet",
-        "NEAR_RPC_URL": "https://rpc.testnet.near.org",
+        "NEAR_RPC_URL": "https://test.rpc.fastnear.com",
         "CONTRACT_ID": "nearling-dev.testnet",
         "SERVER_ACCOUNT_ID": "nearling-dev-server.testnet",
         "GAS_ACCOUNT_ID": "nearling-dev-gas.testnet",
         "TREASURY_ACCOUNT_ID": "nearling-dev-treasury.testnet",
         "PRIVY_APP_ID": "cmvtjc1q100s30gl22hfxq7ap",
         "PRIVY_JWKS_URL": "https://auth.privy.io/api/v1/apps/cmvtjc1q100s30gl22hfxq7ap/jwks.json",
-        // Canonical NEAR AI Cloud ids, read from GET /v1/models on 2026-10-29 (ADR-005); never aliases.
-        "MODEL_CHEAP": "z-ai/glm-5.3-flash",
-        "MODEL_STRONG": "Qwen/Qwen3.6-35B-A3B-FP8"
+        // The canonical NEAR AI Cloud model id (ADR-005 > Init check), never an alias. The rates are USD per
+        // million tokens (volatile); NEAR_USD_RATE is the user's, changed by a config edit and a deploy.
+        "MODEL_ID": "Qwen/Qwen3.8-27B",
+        "PRICE_IN_USD_PER_MTOK": "0.04",
+        "PRICE_OUT_USD_PER_MTOK": "1.35",
+        "NEAR_USD_RATE": "4.59"
       },
       "d1_databases": [
         { "binding": "DB", "database_name": "nearling-db-dev", "database_id": "6bd873d3-77b9-401f-a548-ac7dc2ca8237", "migrations_dir": "migrations/db" },
         { "binding": "EVENTS", "database_name": "nearling-events-dev", "database_id": "9334227d-ad92-4d14-8051-b8452171fcae", "migrations_dir": "migrations/events" }
       ],
+      // Durable Objects (ADR-021): PetDesk spends one pet's thoughts one at a time, Limiter and GuestView
+      // hold their counts and copies in memory only, ServerKey queues the server key's transactions.
+      "durable_objects": { "bindings": [{ "name": "PET_DESK", "class_name": "PetDesk" }, { "name": "LIMITER", "class_name": "Limiter" }, { "name": "GUEST_VIEW", "class_name": "GuestView" }, { "name": "SERVER_KEY", "class_name": "ServerKey" }] },
+      "migrations": [{ "tag": "v1", "new_sqlite_classes": ["PetDesk", "Limiter", "GuestView", "ServerKey"] }],
+      "triggers": { "crons": ["* * * * *"] },
       // Names that exist on the Worker `nearling-dev`. A name is added here when the change that reads
-      // it lands (NEAR_SERVER_KEY, INSULT_LIST, RIDDLE_LIST).
-      "secrets": { "required": ["NEARAI_API_KEY", "NEAR_GAS_ACCOUNT_KEY"] }
+      // it lands (RIDDLE_LIST is add-riddle's).
+      "secrets": { "required": ["NEARAI_API_KEY", "NEAR_GAS_ACCOUNT_KEY", "NEAR_SERVER_KEY", "INSULT_LIST"] }
     },
 
     // prod: names only. Its ids, accounts and Privy app are the main session's, at R1 mainnet; the
@@ -96,14 +107,19 @@
         "TREASURY_ACCOUNT_ID": "",
         "PRIVY_APP_ID": "",
         "PRIVY_JWKS_URL": "",
-        "MODEL_CHEAP": "z-ai/glm-5.3-flash",
-        "MODEL_STRONG": "Qwen/Qwen3.6-35B-A3B-FP8"
+        "MODEL_ID": "Qwen/Qwen3.8-27B",
+        "PRICE_IN_USD_PER_MTOK": "0.04",
+        "PRICE_OUT_USD_PER_MTOK": "1.35",
+        "NEAR_USD_RATE": ""
       },
       "d1_databases": [
         { "binding": "DB", "database_name": "nearling-db-prod", "database_id": "00000000-0000-0000-0000-000000000000", "migrations_dir": "migrations/db" },
         { "binding": "EVENTS", "database_name": "nearling-events-prod", "database_id": "00000000-0000-0000-0000-000000000000", "migrations_dir": "migrations/events" }
       ],
-      "secrets": { "required": ["NEARAI_API_KEY", "NEAR_GAS_ACCOUNT_KEY"] }
+      "durable_objects": { "bindings": [{ "name": "PET_DESK", "class_name": "PetDesk" }, { "name": "LIMITER", "class_name": "Limiter" }, { "name": "GUEST_VIEW", "class_name": "GuestView" }, { "name": "SERVER_KEY", "class_name": "ServerKey" }] },
+      "migrations": [{ "tag": "v1", "new_sqlite_classes": ["PetDesk", "Limiter", "GuestView", "ServerKey"] }],
+      "triggers": { "crons": ["* * * * *"] },
+      "secrets": { "required": ["NEARAI_API_KEY", "NEAR_GAS_ACCOUNT_KEY", "NEAR_SERVER_KEY", "INSULT_LIST"] }
     }
   }
 }

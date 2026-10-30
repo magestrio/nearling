@@ -7,7 +7,7 @@ import { PrivySigner, publicKeyFromImplicitAccount } from '../near/privySigner';
 import { nearRpc } from '../seams/rpc';
 import { useAuth } from '../seams/auth';
 import { workerApi } from '../seams/worker';
-import { rememberReturnPlace } from './returnPlace';
+import { rememberReturnPlace } from '../signin/returnPlace';
 import './day1.css';
 
 /** 0.001 NEAR in yoctoNEAR. */

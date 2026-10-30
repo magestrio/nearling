@@ -443,6 +443,51 @@
   .ds-pet-row__link[aria-current="page"] { border-color: Highlight; }
 }
 
+/* ── Wardrobe: the items as tiles — the picture, the name, the one action ──────────────────────────────── */
+.ds-item-grid {
+  list-style: none;
+  margin: var(--space-0);
+  padding: var(--space-0);
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-3);
+}
+.ds-item {
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-3);
+  min-width: var(--space-0);
+  padding: var(--space-4) var(--space-3) var(--space-3);
+  border: var(--stroke-selected) solid transparent;
+  border-radius: var(--radius-lg);
+  background: var(--color-bg-raised);
+  text-align: center;
+}
+.ds-item--worn { border-color: var(--color-selected); }
+.ds-item__picture { display: block; width: 100%; height: var(--size-item-picture); object-fit: contain; }
+.ds-item__name { overflow-wrap: anywhere; }
+/* the action at the tile's foot, so a row's actions line up whatever the names' length */
+.ds-item__action { display: flex; flex-direction: column; align-items: stretch; gap: var(--space-2); width: 100%; margin-block-start: auto; }
+/* not earned yet: the picture muted, the name as bright as any (the condition says why) */
+.ds-item--locked .ds-item__picture { opacity: var(--opacity-dim); }
+.ds-item-grid--dense { grid-auto-flow: row dense; }
+.ds-item-note { grid-column: 1 / -1; }
+.ds-item__condition { display: flex; align-items: center; justify-content: center; min-height: var(--size-target-compact); color: var(--color-text-secondary); }
+@media (min-width: 768px) {
+  .ds-item-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--space-4); }
+}
+@media (prefers-contrast: more) {
+  .ds-item { border-color: var(--color-line-border-more); }
+  .ds-item--worn { border-color: var(--color-selected); }
+  .ds-item__condition { color: var(--color-text-secondary-more); }
+}
+@media (forced-colors: active) {
+  .ds-item { border-color: CanvasText; }
+  .ds-item--worn { border-color: Highlight; }
+}
+
 /* ── Pet plate: the name in its one slot, the fullness, the owner's extras ──────────────────────────────── */
 .ds-plate { display: flex; flex-direction: column; align-items: center; gap: var(--space-3); text-align: center; }
 .ds-plate__name { margin: var(--space-0); font-stretch: var(--font-width-display); overflow-wrap: anywhere; }
@@ -627,7 +672,10 @@
 @media (hover: hover) {
   .ds-message__verify:hover { color: var(--color-role-trust); }
 }
-.ds-message--thinking { flex-direction: row; align-items: center; gap: var(--space-2); color: var(--color-text-secondary); }
+.ds-message--thinking { color: var(--color-text-secondary); }
+.ds-message__thinking { display: flex; align-items: center; gap: var(--space-2); }
+/* the wait line sits under the words, clear of the dots */
+.ds-message__wait { padding-inline-start: calc(3 * var(--size-dot) + 2 * var(--space-1) + var(--space-2)); }
 @keyframes ds-message-in {
   from { opacity: 0; transform: translateY(var(--shift-enter)); }
   to { opacity: 1; transform: none; }
@@ -911,6 +959,102 @@
   .ds-sheet { border: var(--stroke-hairline) solid CanvasText; }
 }
 
+/* ── Menu: a dropdown of actions under the header's end control ─────────────────────────────────────────── */
+.ds-menu-layer { position: fixed; inset: var(--space-0); z-index: var(--layer-sheet); pointer-events: none; }
+.ds-menu {
+  position: absolute;
+  inset-block-start: var(--size-header);
+  inset-inline-end: var(--space-gutter-phone);
+  box-sizing: border-box;
+  width: min(var(--size-popover-width), calc(100% - 2 * var(--space-gutter-phone)));
+  padding: var(--space-2);
+  border: var(--stroke-hairline) solid var(--color-line-hairline);
+  border-radius: var(--radius-lg);
+  background: var(--color-bg-raised);
+  pointer-events: auto;
+  animation: ds-popover-in var(--duration-short) var(--easing-enter) both;
+}
+.ds-menu__note { margin: var(--space-0); padding: var(--space-2) var(--space-3) var(--space-3); color: var(--color-text-secondary); overflow-wrap: anywhere; border-block-end: var(--stroke-hairline) solid var(--color-line-hairline); }
+.ds-menu__list { display: flex; flex-direction: column; margin: var(--space-0); padding: var(--space-2) var(--space-0) var(--space-0); list-style: none; }
+.ds-menu__item {
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  width: 100%;
+  min-height: var(--size-target);
+  padding: var(--space-2) var(--space-3);
+  border: var(--stroke-control) solid transparent;
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--color-text-primary);
+  font-family: inherit;
+  text-align: start;
+  cursor: pointer;
+  transition: background-color var(--duration-micro) var(--easing-standard);
+}
+.ds-menu__item:focus-visible { outline: var(--stroke-focus) solid var(--color-focus); outline-offset: calc(-1 * var(--stroke-focus)); }
+@media (hover: hover) {
+  .ds-menu__item:hover { background: var(--color-line-hairline); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ds-menu { animation-name: ds-sheet-fade; }
+  .ds-menu__item { transition: none; }
+}
+@media (forced-colors: active) {
+  .ds-menu { border-color: CanvasText; }
+}
+
+/* ── Actions: one moment's actions — stacked full width on the phone, side by side on the desktop ─────────── */
+.ds-actions { display: flex; flex-direction: column; gap: var(--space-2); }
+
+/* ── Verification: the receipt card, the marks, the record, the receipts ───────────────────────────────── */
+.ds-receipt { display: flex; flex-direction: column; gap: var(--space-3); padding: var(--space-4); border: var(--stroke-hairline) solid var(--color-line-hairline); border-radius: var(--radius-lg); background: var(--color-bg-raised); }
+.ds-receipt__title { margin: var(--space-0); }
+.ds-receipt__paid { display: flex; flex-direction: column; gap: var(--space-2); }
+/* the tear: what was paid above, what it proves below */
+.ds-receipt__tear { width: 100%; margin: var(--space-1) var(--space-0); border: var(--space-0); border-block-start: var(--stroke-control) dashed var(--color-line-border); }
+.ds-receipt__marks { display: flex; flex-direction: column; gap: var(--space-3); margin: var(--space-0); padding: var(--space-0); list-style: none; }
+.ds-receipt__foot { display: flex; flex-direction: column; gap: var(--space-2); }
+.ds-mono { color: var(--color-text-secondary); font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.ds-mono-link { display: inline-flex; align-items: center; gap: var(--space-1); min-height: var(--size-target); }
+.ds-mark { display: flex; align-items: flex-start; gap: var(--space-2); }
+.ds-mark__sign { display: inline-grid; flex: none; place-items: center; color: var(--color-role-trust); }
+/* a check that failed is the heaviest thing under the tear: a hairline field the card's width, the ✕ in a tile */
+.ds-mark--fail { margin-inline: calc(-1 * var(--space-3)); padding: var(--space-3); border-radius: var(--radius-md); background: var(--color-line-hairline); }
+.ds-mark--fail .ds-mark__sign { width: var(--size-icon-lg); height: var(--size-icon-lg); border-radius: var(--radius-sm); background: var(--color-bg-canvas); color: var(--color-error); }
+.ds-mark__body { display: flex; flex-direction: column; gap: var(--space-1); min-width: var(--space-0); }
+.ds-mark__why { color: var(--color-text-primary); }
+.ds-record { display: flex; flex-direction: column; gap: var(--space-2); margin: var(--space-0); padding: var(--space-0); list-style: none; }
+.ds-record-item { display: flex; flex-direction: column; align-items: flex-start; gap: var(--space-1); padding: var(--space-3) var(--space-4); border-radius: var(--radius-md); background: var(--color-bg-raised); }
+.ds-record-item__proof { margin: var(--space-0); color: var(--color-text-secondary); }
+.ds-receipt-list { display: flex; flex-direction: column; gap: var(--space-1); margin: var(--space-0); padding: var(--space-0); list-style: none; }
+.ds-receipt-row { box-sizing: border-box; display: flex; align-items: center; gap: var(--space-3); min-height: var(--size-target); padding: var(--space-2) var(--space-3); border: var(--stroke-selected) solid transparent; border-radius: var(--radius-md); color: var(--color-text-primary); text-decoration: none; transition: background-color var(--duration-micro) var(--easing-standard); }
+.ds-receipt-row[aria-current="page"] { border-color: var(--color-selected); }
+.ds-receipt-row__text { display: flex; flex: 1 1 auto; flex-wrap: wrap; gap: var(--space-1) var(--space-3); min-width: var(--space-0); }
+.ds-receipt-row__model { color: var(--color-text-secondary); }
+.ds-receipt-row__note { color: var(--color-text-primary); }
+/* the price never breaks from its unit: the time, the model and the note give way */
+.ds-receipt-row__price { flex: none; white-space: nowrap; }
+/* the open row is ringed by the selected outline; its focus ring stands outside it, a gap of the ground between */
+.ds-receipt-row[aria-current="page"]:focus-visible { outline-offset: var(--stroke-focus-offset); }
+.ds-receipt-call__marks { padding-block-start: var(--space-2); }
+/* a call of the thought: under a hairline, its name, its token line, the cut-off */
+.ds-receipt-call { display: flex; flex-direction: column; gap: var(--space-1); padding-block-start: var(--space-3); border-block-start: var(--stroke-hairline) solid var(--color-line-hairline); }
+.ds-receipt-call__title { margin: var(--space-0); }
+.ds-receipt-call__cut { color: var(--color-text-primary); }
+.ds-receipt-row:focus-visible { outline: var(--stroke-focus) solid var(--color-focus); outline-offset: calc(-1 * var(--stroke-focus)); }
+@media (hover: hover) {
+  .ds-receipt-row:hover { background: var(--color-line-hairline); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ds-receipt-row { transition: none; }
+}
+@media (forced-colors: active) {
+  .ds-receipt, .ds-record-item, .ds-mark--fail { border: var(--stroke-hairline) solid CanvasText; }
+  .ds-receipt-row[aria-current="page"] { border-color: Highlight; }
+}
+
 /* ── Segmented: a choice that applies at once ───────────────────────────────────────────────────────────── */
 .ds-segmented {
   display: inline-flex;
@@ -1039,6 +1183,7 @@
   .ds-split--end { grid-template-columns: minmax(0, 2fr) minmax(0, 3fr); }
   .ds-split--fill { display: grid; grid-template-rows: minmax(0, 1fr); align-items: stretch; }
   .ds-split--fill > .ds-split__start { align-self: center; }
+  /* lead — the open receipt tops the end column; the record holds the start column */
   .ds-button--compact { min-height: var(--size-target-compact); padding-inline: var(--space-3); }
   .ds-icon-button--compact { width: var(--size-target-compact); height: var(--size-target-compact); }
   .ds-link--standalone { min-height: var(--size-target-compact); }
@@ -1059,6 +1204,13 @@
   .ds-split__end { position: relative; }
   .ds-sheet-layer--column { position: absolute; }
   .ds-sheet-layer--column .ds-sheet { width: 100%; border: var(--stroke-hairline) solid var(--color-line-hairline); border-radius: var(--radius-lg); }
+  /* centered — a dialog alone on the page: a card in the middle over the scrim */
+  .ds-sheet-layer--centered { align-items: center; justify-content: center; padding: var(--space-6); }
+  /* the strong scrim: the page's own primary must not read as the dialog's third button */
+  .ds-sheet-layer--centered .ds-sheet__scrim { display: block; background: var(--color-scrim-strong); }
+  .ds-sheet-layer--centered .ds-sheet { max-height: 100%; border: var(--stroke-hairline) solid var(--color-line-hairline); border-radius: var(--radius-xl); animation-name: ds-sheet-fade; }
+  .ds-menu { inset-inline-end: max(var(--space-gutter-desktop), calc((100% - var(--size-content-wide)) / 2 + var(--space-gutter-desktop))); }
+  .ds-actions { flex-direction: row; flex-wrap: wrap; justify-content: center; }
   .ds-centerpiece { justify-content: center; gap: var(--space-5); }
   .ds-centerpiece--scroll .ds-centerpiece__body { flex: none; overflow: visible; }
   .ds-centerpiece__body { flex: none; padding-block: var(--space-0); }

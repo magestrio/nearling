@@ -37,20 +37,29 @@ export async function captureFrame(page: Page, frame: ManifestFrame, viewport: V
   await page.setViewportSize(VIEWPORTS[viewport]);
   await page.addInitScript((fakes) => {
     (globalThis as { __NEARLING_FAKES__?: unknown }).__NEARLING_FAKES__ = fakes;
-  }, fixture.fakes ?? {});
+  }, { pet: { hold: true }, ...fixture.fakes });
+  if (fixture.beforeLoad) await fixture.beforeLoad(page);
   await page.goto(fixture.route);
   await page.evaluate(() => document.fonts.ready);
   if (fixture.prepare) await fixture.prepare(page);
-  // The pet module installs this hook (in the e2e mode only) to hold its idle loop on one frame.
+  // The pet module installs this hook (in the e2e mode only): the pet, held on its still, has drawn.
   await page.evaluate(() => (globalThis as { __nearlingFreeze?: () => void }).__nearlingFreeze?.());
   if ((frame.scroll ?? 'top') === 'end') await scrollToEnd(page);
 
+  const elsewhere = new Set((fixture.otherChange ?? []).map((o) => o.line));
   for (const line of frame.copy ?? []) {
-    await expect(page.getByText(copyPattern(line)).first(), `copy «${line}» of ${frame.id}`).toBeVisible();
+    if (elsewhere.has(line)) continue;
+    // a line is on the page as text, or as a field's placeholder
+    const pattern = copyPattern(line);
+    // the frame may carry the line twice, one copy per viewport (the desktop's foot, the phone's card): one visible is enough
+    await expect(page.getByText(pattern).or(page.getByPlaceholder(pattern)).filter({ visible: true }).first(), `copy «${line}» of ${frame.id}`).toBeVisible();
   }
 
   fs.mkdirSync(CMP_DIR, { recursive: true });
   const out = path.join(OUT_DIR, `${frame.id}.${viewport}.png`);
+  // Chromium headless on software GL: the first screenshot of a page with a WebGL canvas comes out without it (measured
+  // in the build of add-pet); the one after is right
+  if ((await page.locator('canvas').count()) > 0) await page.screenshot({ type: 'jpeg', quality: 1 });
   await page.screenshot({ path: out });
   return out;
 }

@@ -6,6 +6,9 @@ export interface AuthApi {
   authenticated: boolean;
   /** The 64-hex implicit account of the player's embedded NEAR wallet; null until the wallet exists. */
   nearAccountId: string | null;
+  /** Signed in with Google, and making the NEAR wallet failed. `authenticated` stays false; the next `login()` tries the
+   *  wallet again. */
+  walletFailed: boolean;
   /** Google sign-in. Call it straight from the tap's handler: iOS Safari blocks anything later. */
   login(): void;
   logout(): Promise<void>;

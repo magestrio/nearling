@@ -1,0 +1,4442 @@
+{
+ "0-baby-full": {
+  "tokenId": "0",
+  "stage": "baby",
+  "state": "full",
+  "hue": "lavender",
+  "accent": "#9797FF",
+  "body": {
+   "kind": "half-dome",
+   "r": 1.1838708528783173,
+   "height": 1.4350060043251143,
+   "edge": 0.45
+  },
+  "scale": 0.6125528847978069,
+  "tilt": 0,
+  "ring": null,
+  "top": null,
+  "tail": null,
+  "face": {
+   "expression": "happy"
+  },
+  "glow": {
+   "strength": 4,
+   "radius": 0.52,
+   "radiusShare": 1,
+   "belowFace": false
+  },
+  "pool": {
+   "strength": 0.45
+  },
+  "posture": null,
+  "signature": "half-dome||none|",
+  "label": "half-dome",
+  "growth": 0.6
+ },
+ "0-baby-hungry": {
+  "tokenId": "0",
+  "stage": "baby",
+  "state": "hungry",
+  "hue": "lavender",
+  "accent": "#9797FF",
+  "body": {
+   "kind": "half-dome",
+   "r": 1.1838708528783173,
+   "height": 1.4350060043251143,
+   "edge": 0.45
+  },
+  "scale": 0.6125528847978069,
+  "tilt": 0,
+  "ring": null,
+  "top": null,
+  "tail": null,
+  "face": {
+   "expression": "drowsy"
+  },
+  "glow": {
+   "strength": 1,
+   "radius": 0.52,
+   "radiusShare": 1,
+   "belowFace": false
+  },
+  "pool": {
+   "strength": 0.1125
+  },
+  "posture": {
+   "squash": 0.93,
+   "pitch": 0.1,
+   "topPitch": 0.12,
+   "topDrop": 0.04
+  },
+  "signature": "half-dome||none|",
+  "label": "half-dome",
+  "growth": 0.6
+ },
+ "0-baby-asleep": {
+  "tokenId": "0",
+  "stage": "baby",
+  "state": "asleep",
+  "hue": "lavender",
+  "accent": "#9797FF",
+  "body": {
+   "kind": "half-dome",
+   "r": 1.1838708528783173,
+   "height": 1.4350060043251143,
+   "edge": 0.45
+  },
+  "scale": 0.6125528847978069,
+  "tilt": 0,
+  "ring": null,
+  "top": null,
+  "tail": null,
+  "face": {
+   "expression": "asleep"
+  },
+  "glow": {
+   "strength": 1.2,
+   "radius": 0.312,
+   "radiusShare": 0.6,
+   "belowFace": true
+  },
+  "pool": {
+   "strength": 0.0135
+  },
+  "posture": {
+   "squash": 0.96,
+   "pitch": 0,
+   "topPitch": 0,
+   "topDrop": 0.02
+  },
+  "signature": "half-dome||none|",
+  "label": "half-dome",
+  "growth": 0.6
+ },
+ "0-baby-thinking": {
+  "tokenId": "0",
+  "stage": "baby",
+  "state": "thinking",
+  "hue": "lavender",
+  "accent": "#9797FF",
+  "body": {
+   "kind": "half-dome",
+   "r": 1.1838708528783173,
+   "height": 1.4350060043251143,
+   "edge": 0.45
+  },
+  "scale": 0.6125528847978069,
+  "tilt": 0,
+  "ring": null,
+  "top": null,
+  "tail": null,
+  "face": {
+   "expression": "thinking"
+  },
+  "glow": {
+   "strength": 4,
+   "radius": 0.52,
+   "radiusShare": 1,
+   "belowFace": false
+  },
+  "pool": {
+   "strength": 0.45
+  },
+  "posture": null,
+  "signature": "half-dome||none|",
+  "label": "half-dome",
+  "growth": 0.6
+ },
+ "0-baby-waking": {
+  "tokenId": "0",
+  "stage": "baby",
+  "state": "waking",
+  "hue": "lavender",
+  "accent": "#9797FF",
+  "body": {
+   "kind": "half-dome",
+   "r": 1.1838708528783173,
+   "height": 1.4350060043251143,
+   "edge": 0.45
+  },
+  "scale": 0.6125528847978069,
+  "tilt": 0,
+  "ring": null,
+  "top": null,
+  "tail": null,
+  "face": {
+   "expression": "boot"
+  },
+  "glow": {
+   "strength": 1.8,
+   "radius": 0.52,
+   "radiusShare": 1,
+   "belowFace": false
+  },
+  "pool": {
+   "strength": 0.2025
+  },
+  "posture": null,
+  "signature": "half-dome||none|",
+  "label": "half-dome",
+  "growth": 0.6
+ },
+ "0-teen-full": {
+  "tokenId": "0",
+  "stage": "teen",
+  "state": "full",
+  "hue": "lavender",
+  "accent": "#9797FF",
+  "body": {
+   "kind": "half-dome",
+   "r": 1.1838708528783173,
+   "height": 1.3798134656972252,
+   "edge": 0.36
+  },
+  "scale": 0.8274849540934345,
+  "tilt": 0,
+  "ring": null,
+  "top": {
+   "kind": "sphere",
+   "cone": {
+    "radius": 0.1370641743578017,
+    "height": 0.31691578230820594,
+    "tilt": -0.03258152754977345
+   },
+   "sphere": {
+    "radius": 0.15972816735040396
+   },
+   "cap": {
+    "frac": 0.8679370721802115,
+    "height": 0.2065102705033496,
+    "tilt": -0.05911831639707089
+   },
+   "nub": {
+    "radius": 0.06528659262461588,
+    "length": 0.06063743798877113,
+    "tilt": 0.11876587746664882
+   }
+  },
+  "tail": null,
+  "face": {
+   "expression": "happy"
+  },
+  "glow": {
+   "strength": 4,
+   "radius": 0.52,
+   "radiusShare": 1,
+   "belowFace": false
+  },
+  "pool": {
+   "strength": 0.45
+  },
+  "posture": null,
+  "signature": "half-dome||sphere|",
+  "label": "half-dome + sphere top",
+  "growth": 0.8
+ },
+ "0-teen-hungry": {
+  "tokenId": "0",
+  "stage": "teen",
+  "state": "hungry",
+  "hue": "lavender",
+  "accent": "#9797FF",
+  "body": {
+   "kind": "half-dome",
+   "r": 1.1838708528783173,
+   "height": 1.3798134656972252,
+   "edge": 0.36
+  },
+  "scale": 0.8274849540934345,
+  "tilt": 0,
+  "ring": null,
+  "top": {
+   "kind": "sphere",
+   "cone": {
+    "radius": 0.1370641743578017,
+    "height": 0.31691578230820594,
+    "tilt": -0.03258152754977345
+   },
+   "sphere": {
+    "radius": 0.15972816735040396
+   },
+   "cap": {
+    "frac": 0.8679370721802115,
+    "height": 0.2065102705033496,
+    "tilt": -0.05911831639707089
+   },
+   "nub": {
+    "radius": 0.06528659262461588,
+    "length": 0.06063743798877113,
+    "tilt": 0.11876587746664882
+   }
+  },
+  "tail": null,
+  "face": {
+   "expression": "drowsy"
+  },
+  "glow": {
+   "strength": 1,
+   "radius": 0.52,
+   "radiusShare": 1,
+   "belowFace": false
+  },
+  "pool": {
+   "strength": 0.1125
+  },
+  "posture": {
+   "squash": 0.93,
+   "pitch": 0.1,
+   "topPitch": 0.12,
+   "topDrop": 0.04
+  },
+  "signature": "half-dome||sphere|",
+  "label": "half-dome + sphere top",
+  "growth": 0.8
+ },
+ "0-teen-asleep": {
+  "tokenId": "0",
+  "stage": "teen",
+  "state": "asleep",
+  "hue": "lavender",
+  "accent": "#9797FF",
+  "body": {
+   "kind": "half-dome",
+   "r": 1.1838708528783173,
+   "height": 1.3798134656972252,
+   "edge": 0.36
+  },
+  "scale": 0.8274849540934345,
+  "tilt": 0,
+  "ring": null,
+  "top": {
+   "kind": "sphere",
+   "cone": {
+    "radius": 0.1370641743578017,
+    "height": 0.31691578230820594,
+    "tilt": -0.03258152754977345
+   },
+   "sphere": {
+    "radius": 0.15972816735040396
+   },
+   "cap": {
+    "frac": 0.8679370721802115,
+    "height": 0.2065102705033496,
+    "tilt": -0.05911831639707089
+   },
+   "nub": {
+    "radius": 0.06528659262461588,
+    "length": 0.06063743798877113,
+    "tilt": 0.11876587746664882
+   }
+  },
+  "tail": null,
+  "face": {
+   "expression": "asleep"
+  },
+  "glow": {
+   "strength": 1.2,
+   "radius": 0.312,
+   "radiusShare": 0.6,
+   "belowFace": true
+  },
+  "pool": {
+   "strength": 0.0135
+  },
+  "posture": {
+   "squash": 0.96,
+   "pitch": 0,
+   "topPitch": 0,
+   "topDrop": 0.02
+  },
+  "signature": "half-dome||sphere|",
+  "label": "half-dome + sphere top",
+  "growth": 0.8
+ },
+ "0-teen-thinking": {
+  "tokenId": "0",
+  "stage": "teen",
+  "state": "thinking",
+  "hue": "lavender",
+  "accent": "#9797FF",
+  "body": {
+   "kind": "half-dome",
+   "r": 1.1838708528783173,
+   "height": 1.3798134656972252,
+   "edge": 0.36
+  },
+  "scale": 0.8274849540934345,
+  "tilt": 0,
+  "ring": null,
+  "top": {
+   "kind": "sphere",
+   "cone": {
+    "radius": 0.1370641743578017,
+    "height": 0.31691578230820594,
+    "tilt": -0.03258152754977345
+   },
+   "sphere": {
+    "radius": 0.15972816735040396
+   },
+   "cap": {
+    "frac": 0.8679370721802115,
+    "height": 0.2065102705033496,
+    "tilt": -0.05911831639707089
+   },
+   "nub": {
+    "radius": 0.06528659262461588,
+    "length": 0.06063743798877113,
+    "tilt": 0.11876587746664882
+   }
+  },
+  "tail": null,
+  "face": {
+   "expression": "thinking"
+  },
+  "glow": {
+   "strength": 4,
+   "radius": 0.52,
+   "radiusShare": 1,
+   "belowFace": false
+  },
+  "pool": {
+   "strength": 0.45
+  },
+  "posture": null,
+  "signature": "half-dome||sphere|",
+  "label": "half-dome + sphere top",
+  "growth": 0.8
+ },
+ "0-teen-waking": {
+  "tokenId": "0",
+  "stage": "teen",
+  "state": "waking",
+  "hue": "lavender",
+  "accent": "#9797FF",
+  "body": {
+   "kind": "half-dome",
+   "r": 1.1838708528783173,
+   "height": 1.3798134656972252,
+   "edge": 0.36
+  },
+  "scale": 0.8274849540934345,
+  "tilt": 0,
+  "ring": null,
+  "top": {
+   "kind": "sphere",
+   "cone": {
+    "radius": 0.1370641743578017,
+    "height": 0.31691578230820594,
+    "tilt": -0.03258152754977345
+   },
+   "sphere": {
+    "radius": 0.15972816735040396
+   },
+   "cap": {
+    "frac": 0.8679370721802115,
+    "height": 0.2065102705033496,
+    "tilt": -0.05911831639707089
+   },
+   "nub": {
+    "radius": 0.06528659262461588,
+    "length": 0.06063743798877113,
+    "tilt": 0.11876587746664882
+   }
+  },
+  "tail": null,
+  "face": {
+   "expression": "boot"
+  },
+  "glow": {
+   "strength": 1.8,
+   "radius": 0.52,
+   "radiusShare": 1,
+   "belowFace": false
+  },
+  "pool": {
+   "strength": 0.2025
+  },
+  "posture": null,
+  "signature": "half-dome||sphere|",
+  "label": "half-dome + sphere top",
+  "growth": 0.8
+ },
+ "0-adult-full": {
+  "tokenId": "0",
+  "stage": "adult",
+  "state": "full",
+  "hue": "lavender",
+  "accent": "#9797FF",
+  "body": {
+   "kind": "half-dome",
+   "r": 1.1838708528783173,
+   "height": 1.1038507725577802
+  },
+  "scale": 1.1142264316114598,
+  "tilt": 0,
+  "ring": null,
+  "top": {
+   "kind": "sphere",
+   "cone": {
+    "radius": 0.2741283487156034,
+    "height": 0.6338315646164119,
+    "tilt": -0.03258152754977345
+   },
+   "sphere": {
+    "radius": 0.3194563347008079
+   },
+   "cap": {
+    "frac": 0.8679370721802115,
+    "height": 0.4130205410066992,
+    "tilt": -0.05911831639707089
+   },
+   "nub": {
+    "radius": 0.13057318524923175,
+    "length": 0.12127487597754226,
+    "tilt": 0.11876587746664882
+   }
+  },
+  "tail": null,
+  "face": {
+   "expression": "happy"
+  },
+  "glow": {
+   "strength": 4,
+   "radius": 0.52,
+   "radiusShare": 1,
+   "belowFace": false
+  },
+  "pool": {
+   "strength": 0.45
+  },
+  "posture": null,
+  "signature": "half-dome||sphere|",
+  "label": "half-dome + sphere top"
+ },
+ "0-adult-hungry": {
+  "tokenId": "0",
+  "stage": "adult",
+  "state": "hungry",
+  "hue": "lavender",
+  "accent": "#9797FF",
+  "body": {
+   "kind": "half-dome",
+   "r": 1.1838708528783173,
+   "height": 1.1038507725577802
+  },
+  "scale": 1.1142264316114598,
+  "tilt": 0,
+  "ring": null,
+  "top": {
+   "kind": "sphere",
+   "cone": {
+    "radius": 0.2741283487156034,
+    "height": 0.6338315646164119,
+    "tilt": -0.03258152754977345
+   },
+   "sphere": {
+    "radius": 0.3194563347008079
+   },
+   "cap": {
+    "frac": 0.8679370721802115,
+    "height": 0.4130205410066992,
+    "tilt": -0.05911831639707089
+   },
+   "nub": {
+    "radius": 0.13057318524923175,
+    "length": 0.12127487597754226,
+    "tilt": 0.11876587746664882
+   }
+  },
+  "tail": null,
+  "face": {
+   "expression": "drowsy"
+  },
+  "glow": {
+   "strength": 1,
+   "radius": 0.52,
+   "radiusShare": 1,
+   "belowFace": false
+  },
+  "pool": {
+   "strength": 0.1125
+  },
+  "posture": {
+   "squash": 0.93,
+   "pitch": 0.1,
+   "topPitch": 0.12,
+   "topDrop": 0.04
+  },
+  "signature": "half-dome||sphere|",
+  "label": "half-dome + sphere top"
+ },
+ "0-adult-asleep": {
+  "tokenId": "0",
+  "stage": "adult",
+  "state": "asleep",
+  "hue": "lavender",
+  "accent": "#9797FF",
+  "body": {
+   "kind": "half-dome",
+   "r": 1.1838708528783173,
+   "height": 1.1038507725577802
+  },
+  "scale": 1.1142264316114598,
+  "tilt": 0,
+  "ring": null,
+  "top": {
+   "kind": "sphere",
+   "cone": {
+    "radius": 0.2741283487156034,
+    "height": 0.6338315646164119,
+    "tilt": -0.03258152754977345
+   },
+   "sphere": {
+    "radius": 0.3194563347008079
+   },
+   "cap": {
+    "frac": 0.8679370721802115,
+    "height": 0.4130205410066992,
+    "tilt": -0.05911831639707089
+   },
+   "nub": {
+    "radius": 0.13057318524923175,
+    "length": 0.12127487597754226,
+    "tilt": 0.11876587746664882
+   }
+  },
+  "tail": null,
+  "face": {
+   "expression": "asleep"
+  },
+  "glow": {
+   "strength": 1.2,
+   "radius": 0.312,
+   "radiusShare": 0.6,
+   "belowFace": true
+  },
+  "pool": {
+   "strength": 0.0135
+  },
+  "posture": {
+   "squash": 0.96,
+   "pitch": 0,
+   "topPitch": 0,
+   "topDrop": 0.02
+  },
+  "signature": "half-dome||sphere|",
+  "label": "half-dome + sphere top"
+ },
+ "0-adult-thinking": {
+  "tokenId": "0",
+  "stage": "adult",
+  "state": "thinking",
+  "hue": "lavender",
+  "accent": "#9797FF",
+  "body": {
+   "kind": "half-dome",
+   "r": 1.1838708528783173,
+   "height": 1.1038507725577802
+  },
+  "scale": 1.1142264316114598,
+  "tilt": 0,
+  "ring": null,
+  "top": {
+   "kind": "sphere",
+   "cone": {
+    "radius": 0.2741283487156034,
+    "height": 0.6338315646164119,
+    "tilt": -0.03258152754977345
+   },
+   "sphere": {
+    "radius": 0.3194563347008079
+   },
+   "cap": {
+    "frac": 0.8679370721802115,
+    "height": 0.4130205410066992,
+    "tilt": -0.05911831639707089
+   },
+   "nub": {
+    "radius": 0.13057318524923175,
+    "length": 0.12127487597754226,
+    "tilt": 0.11876587746664882
+   }
+  },
+  "tail": null,
+  "face": {
+   "expression": "thinking"
+  },
+  "glow": {
+   "strength": 4,
+   "radius": 0.52,
+   "radiusShare": 1,
+   "belowFace": false
+  },
+  "pool": {
+   "strength": 0.45
+  },
+  "posture": null,
+  "signature": "half-dome||sphere|",
+  "label": "half-dome + sphere top"
+ },
+ "0-adult-waking": {
+  "tokenId": "0",
+  "stage": "adult",
+  "state": "waking",
+  "hue": "lavender",
+  "accent": "#9797FF",
+  "body": {
+   "kind": "half-dome",
+   "r": 1.1838708528783173,
+   "height": 1.1038507725577802
+  },
+  "scale": 1.1142264316114598,
+  "tilt": 0,
+  "ring": null,
+  "top": {
+   "kind": "sphere",
+   "cone": {
+    "radius": 0.2741283487156034,
+    "height": 0.6338315646164119,
+    "tilt": -0.03258152754977345
+   },
+   "sphere": {
+    "radius": 0.3194563347008079
+   },
+   "cap": {
+    "frac": 0.8679370721802115,
+    "height": 0.4130205410066992,
+    "tilt": -0.05911831639707089
+   },
+   "nub": {
+    "radius": 0.13057318524923175,
+    "length": 0.12127487597754226,
+    "tilt": 0.11876587746664882
+   }
+  },
+  "tail": null,
+  "face": {
+   "expression": "boot"
+  },
+  "glow": {
+   "strength": 1.8,
+   "radius": 0.52,
+   "radiusShare": 1,
+   "belowFace": false
+  },
+  "pool": {
+   "strength": 0.2025
+  },
+  "posture": null,
+  "signature": "half-dome||sphere|",
+  "label": "half-dome + sphere top"
+ },
+ "1-baby-full": {
+  "tokenId": "1",
+  "stage": "baby",
+  "state": "full",
+  "hue": "yellow",
+  "accent": "#FFE02A",
+  "body": {
+   "kind": "sphere",
+   "rx": 1,
+   "ry": 0.9756760185258463
+  },
+  "scale": 0.569875421547331,
+  "tilt": 0,
+  "ring": null,
+  "top": null,
+  "tail": null,
+  "face": {
+   "expression": "happy"
+  },
+  "glow": {
+   "strength": 4,
+   "radius": 0.52,
+   "radiusShare": 1,
+   "belowFace": false
+  },
+  "pool": {
+   "strength": 0.45
+  },
+  "posture": null,
+  "signature": "sphere||none|",
+  "label": "sphere",
+  "growth": 0.6
+ },
+ "1-baby-hungry": {
+  "tokenId": "1",
+  "stage": "baby",
+  "state": "hungry",
+  "hue": "yellow",
+  "accent": "#FFE02A",
+  "body": {
+   "kind": "sphere",
+   "rx": 1,
+   "ry": 0.9756760185258463
+  },
+  "scale": 0.569875421547331,
+  "tilt": 0,
+  "ring": null,
+  "top": null,
+  "tail": null,
+  "face": {
+   "expression": "drowsy"
+  },
+  "glow": {
+   "strength": 1,
+   "radius": 0.52,
+   "radiusShare": 1,
+   "belowFace": false
+  },
+  "pool": {
+   "strength": 0.1125
+  },
+  "posture": {
+   "squash": 0.93,
+   "pitch": 0.1,
+   "topPitch": 0.12,
+   "topDrop": 0.04
+  },
+  "signature": "sphere||none|",
+  "label": "sphere",
+  "growth": 0.6
+ },
+ "1-baby-asleep": {
+  "tokenId": "1",
+  "stage": "baby",
+  "state": "asleep",
+  "hue": "yellow",
+  "accent": "#FFE02A",
+  "body": {
+   "kind": "sphere",
+   "rx": 1,
+   "ry": 0.9756760185258463
+  },
+  "scale": 0.569875421547331,
+  "tilt": 0,
+  "ring": null,
+  "top": null,
+  "tail": null,
+  "face": {
+   "expression": "asleep"
+  },
+  "glow": {
+   "strength": 1.2,
+   "radius": 0.312,
+   "radiusShare": 0.6,
+   "belowFace": true
+  },
+  "pool": {
+   "strength": 0.0135
+  },
+  "posture": {
+   "squash": 0.96,
+   "pitch": 0,
+   "topPitch": 0,
+   "topDrop": 0.02
+  },
+  "signature": "sphere||none|",
+  "label": "sphere",
+  "growth": 0.6
+ },
+ "1-baby-thinking": {
+  "tokenId": "1",
+  "stage": "baby",
+  "state": "thinking",
+  "hue": "yellow",
+  "accent": "#FFE02A",
+  "body": {
+   "kind": "sphere",
+   "rx": 1,
+   "ry": 0.9756760185258463
+  },
+  "scale": 0.569875421547331,
+  "tilt": 0,
+  "ring": null,
+  "top": null,
+  "tail": null,
+  "face": {
+   "expression": "thinking"
+  },
+  "glow": {
+   "strength": 4,
+   "radius": 0.52,
+   "radiusShare": 1,
+   "belowFace": false
+  },
+  "pool": {
+   "strength": 0.45
+  },
+  "posture": null,
+  "signature": "sphere||none|",
+  "label": "sphere",
+  "growth": 0.6
+ },
+ "1-baby-waking": {
+  "tokenId": "1",
+  "stage": "baby",
+  "state": "waking",
+  "hue": "yellow",
+  "accent": "#FFE02A",
+  "body": {
+   "kind": "sphere",
+   "rx": 1,
+   "ry": 0.9756760185258463
+  },
+  "scale": 0.569875421547331,
+  "tilt": 0,
+  "ring": null,
+  "top": null,
+  "tail": null,
+  "face": {
+   "expression": "boot"
+  },
+  "glow": {
+   "strength": 1.8,
+   "radius": 0.52,
+   "radiusShare": 1,
+   "belowFace": false
+  },
+  "pool": {
+   "strength": 0.2025
+  },
+  "posture": null,
+  "signature": "sphere||none|",
+  "label": "sphere",
+  "growth": 0.6
+ },
+ "1-teen-full": {
+  "tokenId": "1",
+  "stage": "teen",
+  "state": "full",
+  "hue": "yellow",
+  "accent": "#FFE02A",
+  "body": {
+   "kind": "sphere",
+   "rx": 1,
+   "ry": 0.9878380092629231
+  },
+  "scale": 0.7567027211020676,
+  "tilt": 0,
+  "ring": null,
+  "top": {
+   "kind": "sphere",
+   "cone": {
+    "radius": 0.1600991171482019,
+    "height": 0.33542361735599113,
+    "tilt": 0.02934901446104049
+   },
+   "sphere": {
+    "radius": 0.11018057515844704
+   },
+   "cap": {
+    "frac": 0.7620439319871366,
+    "height": 0.1776367044565268,
+    "tilt": 0.07709989938884974
+   },
+   "nub": {
+    "radius": 0.06694178751553409,
+    "length": 0.1217740545165725,
+    "tilt": 0.043383190152235324
+   }
+  },
+  "tail": null,
+  "face": {
+   "expression": "happy"
+  },
+  "glow": {
+   "strength": 4,
+   "radius": 0.52,
+   "radiusShare": 1,
+   "belowFace": false
+  },
+  "pool": {
+   "strength": 0.45
+  },
+  "posture": null,
+  "signature": "sphere||sphere|",
+  "label": "sphere + sphere top",
+  "growth": 0.8
+ },
+ "1-teen-hungry": {
+  "tokenId": "1",
+  "stage": "teen",
+  "state": "hungry",
+  "hue": "yellow",
+  "accent": "#FFE02A",
+  "body": {
+   "kind": "sphere",
+   "rx": 1,
+   "ry": 0.9878380092629231
+  },
+  "scale": 0.7567027211020676,
+  "tilt": 0,
+  "ring": null,
+  "top": {
+   "kind": "sphere",
+   "cone": {
+    "radius": 0.1600991171482019,
+    "height": 0.33542361735599113,
+    "tilt": 0.02934901446104049
+   },
+   "sphere": {
+    "radius": 0.11018057515844704
+   },
+   "cap": {
+    "frac": 0.7620439319871366,
+    "height": 0.1776367044565268,
+    "tilt": 0.07709989938884974
+   },
+   "nub": {
+    "radius": 0.06694178751553409,
+    "length": 0.1217740545165725,
+    "tilt": 0.043383190152235324
+   }
+  },
+  "tail": null,
+  "face": {
+   "expression": "drowsy"
+  },
+  "glow": {
+   "strength": 1,
+   "radius": 0.52,
+   "radiusShare": 1,
+   "belowFace": false
+  },
+  "pool": {
+   "strength": 0.1125
+  },
+  "posture": {
+   "squash": 0.93,
+   "pitch": 0.1,
+   "topPitch": 0.12,
+   "topDrop": 0.04
+  },
+  "signature": "sphere||sphere|",
+  "label": "sphere + sphere top",
+  "growth": 0.8
+ },
+ "1-teen-asleep": {
+  "tokenId": "1",
+  "stage": "teen",
+  "state": "asleep",
+  "hue": "yellow",
+  "accent": "#FFE02A",
+  "body": {
+   "kind": "sphere",
+   "rx": 1,
+   "ry": 0.9878380092629231
+  },
+  "scale": 0.7567027211020676,
+  "tilt": 0,
+  "ring": null,
+  "top": {
+   "kind": "sphere",
+   "cone": {
+    "radius": 0.1600991171482019,
+    "height": 0.33542361735599113,
+    "tilt": 0.02934901446104049
+   },
+   "sphere": {
+    "radius": 0.11018057515844704
+   },
+   "cap": {
+    "frac": 0.7620439319871366,
+    "height": 0.1776367044565268,
+    "tilt": 0.07709989938884974
+   },
+   "nub": {
+    "radius": 0.06694178751553409,
+    "length": 0.1217740545165725,
+    "tilt": 0.043383190152235324
+   }
+  },
+  "tail": null,
+  "face": {
+   "expression": "asleep"
+  },
+  "glow": {
+   "strength": 1.2,
+   "radius": 0.312,
+   "radiusShare": 0.6,
+   "belowFace": true
+  },
+  "pool": {
+   "strength": 0.0135
+  },
+  "posture": {
+   "squash": 0.96,
+   "pitch": 0,
+   "topPitch": 0,
+   "topDrop": 0.02
+  },
+  "signature": "sphere||sphere|",
+  "label": "sphere + sphere top",
+  "growth": 0.8
+ },
+ "1-teen-thinking": {
+  "tokenId": "1",
+  "stage": "teen",
+  "state": "thinking",
+  "hue": "yellow",
+  "accent": "#FFE02A",
+  "body": {
+   "kind": "sphere",
+   "rx": 1,
+   "ry": 0.9878380092629231
+  },
+  "scale": 0.7567027211020676,
+  "tilt": 0,
+  "ring": null,
+  "top": {
+   "kind": "sphere",
+   "cone": {
+    "radius": 0.1600991171482019,
+    "height": 0.33542361735599113,
+    "tilt": 0.02934901446104049
+   },
+   "sphere": {
+    "radius": 0.11018057515844704
+   },
+   "cap": {
+    "frac": 0.7620439319871366,
+    "height": 0.1776367044565268,
+    "tilt": 0.07709989938884974
+   },
+   "nub": {
+    "radius": 0.06694178751553409,
+    "length": 0.1217740545165725,
+    "tilt": 0.043383190152235324
+   }
+  },
+  "tail": null,
+  "face": {
+   "expression": "thinking"
+  },
+  "glow": {
+   "strength": 4,
+   "radius": 0.52,
+   "radiusShare": 1,
+   "belowFace": false
+  },
+  "pool": {
+   "strength": 0.45
+  },
+  "posture": null,
+  "signature": "sphere||sphere|",
+  "label": "sphere + sphere top",
+  "growth": 0.8
+ },
+ "1-teen-waking": {
+  "tokenId": "1",
+  "stage": "teen",
+  "state": "waking",
+  "hue": "yellow",
+  "accent": "#FFE02A",
+  "body": {
+   "kind": "sphere",
+   "rx": 1,
+   "ry": 0.9878380092629231
+  },
+  "scale": 0.7567027211020676,
+  "tilt": 0,
+  "ring": null,
+  "top": {
+   "kind": "sphere",
+   "cone": {
+    "radius": 0.1600991171482019,
+    "height": 0.33542361735599113,
+    "tilt": 0.02934901446104049
+   },
+   "sphere": {
+    "radius": 0.11018057515844704
+   },
+   "cap": {
+    "frac": 0.7620439319871366,
+    "height": 0.1776367044565268,
+    "tilt": 0.07709989938884974
+   },
+   "nub": {
+    "radius": 0.06694178751553409,
+    "length": 0.1217740545165725,
+    "tilt": 0.043383190152235324
+   }
+  },
+  "tail": null,
+  "face": {
+   "expression": "boot"
+  },
+  "glow": {
+   "strength": 1.8,
+   "radius": 0.52,
+   "radiusShare": 1,
+   "belowFace": false
+  },
+  "pool": {
+   "strength": 0.2025
+  },
+  "posture": null,
+  "signature": "sphere||sphere|",
+  "label": "sphere + sphere top",
+  "growth": 0.8
+ },
+ "1-adult-full": {
+  "tokenId": "1",
+  "stage": "adult",
+  "state": "full",
+  "hue": "yellow",
+  "accent": "#FFE02A",
+  "body": {
+   "kind": "sphere",
+   "rx": 1,
+   "ry": 0.9756760185258463
+  },
+  "scale": 0.9497923692455515,
+  "tilt": 0,
+  "ring": null,
+  "top": {
+   "kind": "sphere",
+   "cone": {
+    "radius": 0.3201982342964038,
+    "height": 0.6708472347119823,
+    "tilt": 0.02934901446104049
+   },
+   "sphere": {
+    "radius": 0.22036115031689407
+   },
+   "cap": {
+    "frac": 0.7620439319871366,
+    "height": 0.3552734089130536,
+    "tilt": 0.07709989938884974
+   },
+   "nub": {
+    "radius": 0.13388357503106818,
+    "length": 0.243548109033145,
+    "tilt": 0.043383190152235324
+   }
+  },
+  "tail": null,
+  "face": {
+   "expression": "happy"
+  },
+  "glow": {
+   "strength": 4,
+   "radius": 0.52,
+   "radiusShare": 1,
+   "belowFace": false
+  },
+  "pool": {
+   "strength": 0.45
+  },
+  "posture": null,
+  "signature": "sphere||sphere|",
+  "label": "sphere + sphere top"
+ },
+ "1-adult-hungry": {
+  "tokenId": "1",
+  "stage": "adult",
+  "state": "hungry",
+  "hue": "yellow",
+  "accent": "#FFE02A",
+  "body": {
+   "kind": "sphere",
+   "rx": 1,
+   "ry": 0.9756760185258463
+  },
+  "scale": 0.9497923692455515,
+  "tilt": 0,
+  "ring": null,
+  "top": {
+   "kind": "sphere",
+   "cone": {
+    "radius": 0.3201982342964038,
+    "height": 0.6708472347119823,
+    "tilt": 0.02934901446104049
+   },
+   "sphere": {
+    "radius": 0.22036115031689407
+   },
+   "cap": {
+    "frac": 0.7620439319871366,
+    "height": 0.3552734089130536,
+    "tilt": 0.07709989938884974
+   },
+   "nub": {
+    "radius": 0.13388357503106818,
+    "length": 0.243548109033145,
+    "tilt": 0.043383190152235324
+   }
+  },
+  "tail": null,
+  "face": {
+   "expression": "drowsy"
+  },
+  "glow": {
+   "strength": 1,
+   "radius": 0.52,
+   "radiusShare": 1,
+   "belowFace": false
+  },
+  "pool": {
+   "strength": 0.1125
+  },
+  "posture": {
+   "squash": 0.93,
+   "pitch": 0.1,
+   "topPitch": 0.12,
+   "topDrop": 0.04
+  },
+  "signature": "sphere||sphere|",
+  "label": "sphere + sphere top"
+ },
+ "1-adult-asleep": {
+  "tokenId": "1",
+  "stage": "adult",
+  "state": "asleep",
+  "hue": "yellow",
+  "accent": "#FFE02A",
+  "body": {
+   "kind": "sphere",
+   "rx": 1,
+   "ry": 0.9756760185258463
+  },
+  "scale": 0.9497923692455515,
+  "tilt": 0,
+  "ring": null,
+  "top": {
+   "kind": "sphere",
+   "cone": {
+    "radius": 0.3201982342964038,
+    "height": 0.6708472347119823,
+    "tilt": 0.02934901446104049
+   },
+   "sphere": {
+    "radius": 0.22036115031689407
+   },
+   "cap": {
+    "frac": 0.7620439319871366,
+    "height": 0.3552734089130536,
+    "tilt": 0.07709989938884974
+   },
+   "nub": {
+    "radius": 0.13388357503106818,
+    "length": 0.243548109033145,
+    "tilt": 0.043383190152235324
+   }
+  },
+  "tail": null,
+  "face": {
+   "expression": "asleep"
+  },
+  "glow": {
+   "strength": 1.2,
+   "radius": 0.312,
+   "radiusShare": 0.6,
+   "belowFace": true
+  },
+  "pool": {
+   "strength": 0.0135
+  },
+  "posture": {
+   "squash": 0.96,
+   "pitch": 0,
+   "topPitch": 0,
+   "topDrop": 0.02
+  },
+  "signature": "sphere||sphere|",
+  "label": "sphere + sphere top"
+ },
+ "1-adult-thinking": {
+  "tokenId": "1",
+  "stage": "adult",
+  "state": "thinking",
+  "hue": "yellow",
+  "accent": "#FFE02A",
+  "body": {
+   "kind": "sphere",
+   "rx": 1,
+   "ry": 0.9756760185258463
+  },
+  "scale": 0.9497923692455515,
+  "tilt": 0,
+  "ring": null,
+  "top": {
+   "kind": "sphere",
+   "cone": {
+    "radius": 0.3201982342964038,
+    "height": 0.6708472347119823,
+    "tilt": 0.02934901446104049
+   },
+   "sphere": {
+    "radius": 0.22036115031689407
+   },
+   "cap": {
+    "frac": 0.7620439319871366,
+    "height": 0.3552734089130536,
+    "tilt": 0.07709989938884974
+   },
+   "nub": {
+    "radius": 0.13388357503106818,
+    "length": 0.243548109033145,
+    "tilt": 0.043383190152235324
+   }
+  },
+  "tail": null,
+  "face": {
+   "expression": "thinking"
+  },
+  "glow": {
+   "strength": 4,
+   "radius": 0.52,
+   "radiusShare": 1,
+   "belowFace": false
+  },
+  "pool": {
+   "strength": 0.45
+  },
+  "posture": null,
+  "signature": "sphere||sphere|",
+  "label": "sphere + sphere top"
+ },
+ "1-adult-waking": {
+  "tokenId": "1",
+  "stage": "adult",
+  "state": "waking",
+  "hue": "yellow",
+  "accent": "#FFE02A",
+  "body": {
+   "kind": "sphere",
+   "rx": 1,
+   "ry": 0.9756760185258463
+  },
+  "scale": 0.9497923692455515,
+  "tilt": 0,
+  "ring": null,
+  "top": {
+   "kind": "sphere",
+   "cone": {
+    "radius": 0.3201982342964038,
+    "height": 0.6708472347119823,
+    "tilt": 0.02934901446104049
+   },
+   "sphere": {
+    "radius": 0.22036115031689407
+   },
+   "cap": {
+    "frac": 0.7620439319871366,
+    "height": 0.3552734089130536,
+    "tilt": 0.07709989938884974
+   },
+   "nub": {
+    "radius": 0.13388357503106818,
+    "length": 0.243548109033145,
+    "tilt": 0.043383190152235324
+   }
+  },
+  "tail": null,
+  "face": {
+   "expression": "boot"
+  },
+  "glow": {
+   "strength": 1.8,
+   "radius": 0.52,
+   "radiusShare": 1,
+   "belowFace": false
+  },
+  "pool": {
+   "strength": 0.2025
+  },
+  "posture": null,
+  "signature": "sphere||sphere|",
+  "label": "sphere + sphere top"
+ },
+ "2-baby-full": {
+  "tokenId": "2",
+  "stage": "baby",
+  "state": "full",
+  "hue": "coral",
+  "accent": "#FF7966",
+  "body": {
+   "kind": "lying-capsule",
+   "r": 0.691718962257728,
+   "length": 0.47217981216381305
+  },
+  "scale": 0.6599980480138209,
+  "tilt": 0,
+  "ring": null,
+  "top": null,
+  "tail": null,
+  "face": {
+   "expression": "happy"
+  },
+  "glow": {
+   "strength": 4,
+   "radius": 0.52,
+   "radiusShare": 1,
+   "belowFace": false
+  },
+  "pool": {
+   "strength": 0.45
+  },
+  "posture": null,
+  "signature": "lying-capsule||none|",
+  "label": "lying capsule",
+  "growth": 0.6
+ },
+ "2-baby-hungry": {
+  "tokenId": "2",
+  "stage": "baby",
+  "state": "hungry",
+  "hue": "coral",
+  "accent": "#FF7966",
+  "body": {
+   "kind": "lying-capsule",
+   "r": 0.691718962257728,
+   "length": 0.47217981216381305
+  },
+  "scale": 0.6599980480138209,
+  "tilt": 0,
+  "ring": null,
+  "top": null,
+  "tail": null,
+  "face": {
+   "expression": "drowsy"
+  },
+  "glow": {
+   "strength": 1,
+   "radius": 0.52,
+   "radiusShare": 1,
+   "belowFace": false
+  },
+  "pool": {
+   "strength": 0.1125
+  },
+  "posture": {
+   "squash": 0.93,
+   "pitch": 0.1,
+   "topPitch": 0.12,
+   "topDrop": 0.04
+  },
+  "signature": "lying-capsule||none|",
+  "label": "lying capsule",
+  "growth": 0.6
+ },
+ "2-baby-asleep": {
+  "tokenId": "2",
+  "stage": "baby",
+  "state": "asleep",
+  "hue": "coral",
+  "accent": "#FF7966",
+  "body": {
+   "kind": "lying-capsule",
+   "r": 0.691718962257728,
+   "length": 0.47217981216381305
+  },
+  "scale": 0.6599980480138209,
+  "tilt": 0,
+  "ring": null,
+  "top": null,
+  "tail": null,
+  "face": {
+   "expression": "asleep"
+  },
+  "glow": {
+   "strength": 1.2,
+   "radius": 0.312,
+   "radiusShare": 0.6,
+   "belowFace": true
+  },
+  "pool": {
+   "strength": 0.0135
+  },
+  "posture": {
+   "squash": 0.96,
+   "pitch": 0,
+   "topPitch": 0,
+   "topDrop": 0.02
+  },
+  "signature": "lying-capsule||none|",
+  "label": "lying capsule",
+  "growth": 0.6
+ },
+ "2-baby-thinking": {
+  "tokenId": "2",
+  "stage": "baby",
+  "state": "thinking",
+  "hue": "coral",
+  "accent": "#FF7966",
+  "body": {
+   "kind": "lying-capsule",
+   "r": 0.691718962257728,
+   "length": 0.47217981216381305
+  },
+  "scale": 0.6599980480138209,
+  "tilt": 0,
+  "ring": null,
+  "top": null,
+  "tail": null,
+  "face": {
+   "expression": "thinking"
+  },
+  "glow": {
+   "strength": 4,
+   "radius": 0.52,
+   "radiusShare": 1,
+   "belowFace": false
+  },
+  "pool": {
+   "strength": 0.45
+  },
+  "posture": null,
+  "signature": "lying-capsule||none|",
+  "label": "lying capsule",
+  "growth": 0.6
+ },
+ "2-baby-waking": {
+  "tokenId": "2",
+  "stage": "baby",
+  "state": "waking",
+  "hue": "coral",
+  "accent": "#FF7966",
+  "body": {
+   "kind": "lying-capsule",
+   "r": 0.691718962257728,
+   "length": 0.47217981216381305
+  },
+  "scale": 0.6599980480138209,
+  "tilt": 0,
+  "ring": null,
+  "top": null,
+  "tail": null,
+  "face": {
+   "expression": "boot"
+  },
+  "glow": {
+   "strength": 1.8,
+   "radius": 0.52,
+   "radiusShare": 1,
+   "belowFace": false
+  },
+  "pool": {
+   "strength": 0.2025
+  },
+  "posture": null,
+  "signature": "lying-capsule||none|",
+  "label": "lying capsule",
+  "growth": 0.6
+ },
+ "2-teen-full": {
+  "tokenId": "2",
+  "stage": "teen",
+  "state": "full",
+  "hue": "coral",
+  "accent": "#FF7966",
+  "body": {
+   "kind": "lying-capsule",
+   "r": 0.691718962257728,
+   "length": 0.47217981216381305
+  },
+  "scale": 0.8799973973517612,
+  "tilt": 0,
+  "ring": null,
+  "top": {
+   "kind": "nub",
+   "cone": {
+    "radius": 0.1574515382340178,
+    "height": 0.2837607857014518,
+    "tilt": -0.03130425956100226
+   },
+   "sphere": {
+    "radius": 0.12135223810095341
+   },
+   "cap": {
+    "frac": 0.9128742062486708,
+    "height": 0.16497770036803558,
+    "tilt": -0.07197955891489982
+   },
+   "nub": {
+    "radius": 0.08030792735284194,
+    "length": 0.07837783810100518,
+    "tilt": -0.05737669102381915
+   }
+  },
+  "tail": null,
+  "face": {
+   "expression": "happy"
+  },
+  "glow": {
+   "strength": 4,
+   "radius": 0.52,
+   "radiusShare": 1,
+   "belowFace": false
+  },
+  "pool": {
+   "strength": 0.45
+  },
+  "posture": null,
+  "signature": "lying-capsule||nub|",
+  "label": "lying capsule + capsule nub",
+  "growth": 0.8
+ },
+ "2-teen-hungry": {
+  "tokenId": "2",
+  "stage": "teen",
+  "state": "hungry",
+  "hue": "coral",
+  "accent": "#FF7966",
+  "body": {
+   "kind": "lying-capsule",
+   "r": 0.691718962257728,
+   "length": 0.47217981216381305
+  },
+  "scale": 0.8799973973517612,
+  "tilt": 0,
+  "ring": null,
+  "top": {
+   "kind": "nub",
+   "cone": {
+    "radius": 0.1574515382340178,
+    "height": 0.2837607857014518,
+    "tilt": -0.03130425956100226
+   },
+   "sphere": {
+    "radius": 0.12135223810095341
+   },
+   "cap": {
+    "frac": 0.9128742062486708,
+    "height": 0.16497770036803558,
+    "tilt": -0.07197955891489982
+   },
+   "nub": {
+    "radius": 0.08030792735284194,
+    "length": 0.07837783810100518,
+    "tilt": -0.05737669102381915
+   }
+  },
+  "tail": null,
+  "face": {
+   "expression": "drowsy"
+  },
+  "glow": {
+   "strength": 1,
+   "radius": 0.52,
+   "radiusShare": 1,
+   "belowFace": false
+  },
+  "pool": {
+   "strength": 0.1125
+  },
+  "posture": {
+   "squash": 0.93,
+   "pitch": 0.1,
+   "topPitch": 0.12,
+   "topDrop": 0.04
+  },
+  "signature": "lying-capsule||nub|",
+  "label": "lying capsule + capsule nub",
+  "growth": 0.8
+ },
+ "2-teen-asleep": {
+  "tokenId": "2",
+  "stage": "teen",
+  "state": "asleep",
+  "hue": "coral",
+  "accent": "#FF7966",
+  "body": {
+   "kind": "lying-capsule",
+   "r": 0.691718962257728,
+   "length": 0.47217981216381305
+  },
+  "scale": 0.8799973973517612,
+  "tilt": 0,
+  "ring": null,
+  "top": {
+   "kind": "nub",
+   "cone": {
+    "radius": 0.1574515382340178,
+    "height": 0.2837607857014518,
+    "tilt": -0.03130425956100226
+   },
+   "sphere": {
+    "radius": 0.12135223810095341
+   },
+   "cap": {
+    "frac": 0.9128742062486708,
+    "height": 0.16497770036803558,
+    "tilt": -0.07197955891489982
+   },
+   "nub": {
+    "radius": 0.08030792735284194,
+    "length": 0.07837783810100518,
+    "tilt": -0.05737669102381915
+   }
+  },
+  "tail": null,
+  "face": {
+   "expression": "asleep"
+  },
+  "glow": {
+   "strength": 1.2,
+   "radius": 0.312,
+   "radiusShare": 0.6,
+   "belowFace": true
+  },
+  "pool": {
+   "strength": 0.0135
+  },
+  "posture": {
+   "squash": 0.96,
+   "pitch": 0,
+   "topPitch": 0,
+   "topDrop": 0.02
+  },
+  "signature": "lying-capsule||nub|",
+  "label": "lying capsule + capsule nub",
+  "growth": 0.8
+ },
+ "2-teen-thinking": {
+  "tokenId": "2",
+  "stage": "teen",
+  "state": "thinking",
+  "hue": "coral",
+  "accent": "#FF7966",
+  "body": {
+   "kind": "lying-capsule",
+   "r": 0.691718962257728,
+   "length": 0.47217981216381305
+  },
+  "scale": 0.8799973973517612,
+  "tilt": 0,
+  "ring": null,
+  "top": {
+   "kind": "nub",
+   "cone": {
+    "radius": 0.1574515382340178,
+    "height": 0.2837607857014518,
+    "tilt": -0.03130425956100226
+   },
+   "sphere": {
+    "radius": 0.12135223810095341
+   },
+   "cap": {
+    "frac": 0.9128742062486708,
+    "height": 0.16497770036803558,
+    "tilt": -0.07197955891489982
+   },
+   "nub": {
+    "radius": 0.08030792735284194,
+    "length": 0.07837783810100518,
+    "tilt": -0.05737669102381915
+   }
+  },
+  "tail": null,
+  "face": {
+   "expression": "thinking"
+  },
+  "glow": {
+   "strength": 4,
+   "radius": 0.52,
+   "radiusShare": 1,
+   "belowFace": false
+  },
+  "pool": {
+   "strength": 0.45
+  },
+  "posture": null,
+  "signature": "lying-capsule||nub|",
+  "label": "lying capsule + capsule nub",
+  "growth": 0.8
+ },
+ "2-teen-waking": {
+  "tokenId": "2",
+  "stage": "teen",
+  "state": "waking",
+  "hue": "coral",
+  "accent": "#FF7966",
+  "body": {
+   "kind": "lying-capsule",
+   "r": 0.691718962257728,
+   "length": 0.47217981216381305
+  },
+  "scale": 0.8799973973517612,
+  "tilt": 0,
+  "ring": null,
+  "top": {
+   "kind": "nub",
+   "cone": {
+    "radius": 0.1574515382340178,
+    "height": 0.2837607857014518,
+    "tilt": -0.03130425956100226
+   },
+   "sphere": {
+    "radius": 0.12135223810095341
+   },
+   "cap": {
+    "frac": 0.9128742062486708,
+    "height": 0.16497770036803558,
+    "tilt": -0.07197955891489982
+   },
+   "nub": {
+    "radius": 0.08030792735284194,
+    "length": 0.07837783810100518,
+    "tilt": -0.05737669102381915
+   }
+  },
+  "tail": null,
+  "face": {
+   "expression": "boot"
+  },
+  "glow": {
+   "strength": 1.8,
+   "radius": 0.52,
+   "radiusShare": 1,
+   "belowFace": false
+  },
+  "pool": {
+   "strength": 0.2025
+  },
+  "posture": null,
+  "signature": "lying-capsule||nub|",
+  "label": "lying capsule + capsule nub",
+  "growth": 0.8
+ },
+ "2-adult-full": {
+  "tokenId": "2",
+  "stage": "adult",
+  "state": "full",
+  "hue": "coral",
+  "accent": "#FF7966",
+  "body": {
+   "kind": "lying-capsule",
+   "r": 0.691718962257728,
+   "length": 0.9443596243276261
+  },
+  "scale": 0.9980988499009982,
+  "tilt": 0,
+  "ring": null,
+  "top": {
+   "kind": "nub",
+   "cone": {
+    "radius": 0.3149030764680356,
+    "height": 0.5675215714029036,
+    "tilt": -0.03130425956100226
+   },
+   "sphere": {
+    "radius": 0.24270447620190683
+   },
+   "cap": {
+    "frac": 0.9128742062486708,
+    "height": 0.32995540073607116,
+    "tilt": -0.07197955891489982
+   },
+   "nub": {
+    "radius": 0.16061585470568387,
+    "length": 0.15675567620201036,
+    "tilt": -0.05737669102381915
+   }
+  },
+  "tail": {
+   "radius": 0.32974070936441424
+  },
+  "face": {
+   "expression": "happy"
+  },
+  "glow": {
+   "strength": 4,
+   "radius": 0.52,
+   "radiusShare": 1,
+   "belowFace": false
+  },
+  "pool": {
+   "strength": 0.45
+  },
+  "posture": null,
+  "signature": "lying-capsule||nub|tail",
+  "label": "lying capsule + capsule nub + sphere tail"
+ },
+ "2-adult-hungry": {
+  "tokenId": "2",
+  "stage": "adult",
+  "state": "hungry",
+  "hue": "coral",
+  "accent": "#FF7966",
+  "body": {
+   "kind": "lying-capsule",
+   "r": 0.691718962257728,
+   "length": 0.9443596243276261
+  },
+  "scale": 0.9980988499009982,
+  "tilt": 0,
+  "ring": null,
+  "top": {
+   "kind": "nub",
+   "cone": {
+    "radius": 0.3149030764680356,
+    "height": 0.5675215714029036,
+    "tilt": -0.03130425956100226
+   },
+   "sphere": {
+    "radius": 0.24270447620190683
+   },
+   "cap": {
+    "frac": 0.9128742062486708,
+    "height": 0.32995540073607116,
+    "tilt": -0.07197955891489982
+   },
+   "nub": {
+    "radius": 0.16061585470568387,
+    "length": 0.15675567620201036,
+    "tilt": -0.05737669102381915
+   }
+  },
+  "tail": {
+   "radius": 0.32974070936441424
+  },
+  "face": {
+   "expression": "drowsy"
+  },
+  "glow": {
+   "strength": 1,
+   "radius": 0.52,
+   "radiusShare": 1,
+   "belowFace": false
+  },
+  "pool": {
+   "strength": 0.1125
+  },
+  "posture": {
+   "squash": 0.93,
+   "pitch": 0.1,
+   "topPitch": 0.12,
+   "topDrop": 0.04
+  },
+  "signature": "lying-capsule||nub|tail",
+  "label": "lying capsule + capsule nub + sphere tail"
+ },
+ "2-adult-asleep": {
+  "tokenId": "2",
+  "stage": "adult",
+  "state": "asleep",
+  "hue": "coral",
+  "accent": "#FF7966",
+  "body": {
+   "kind": "lying-capsule",
+   "r": 0.691718962257728,
+   "length": 0.9443596243276261
+  },
+  "scale": 0.9980988499009982,
+  "tilt": 0,
+  "ring": null,
+  "top": {
+   "kind": "nub",
+   "cone": {
+    "radius": 0.3149030764680356,
+    "height": 0.5675215714029036,
+    "tilt": -0.03130425956100226
+   },
+   "sphere": {
+    "radius": 0.24270447620190683
+   },
+   "cap": {
+    "frac": 0.9128742062486708,
+    "height": 0.32995540073607116,
+    "tilt": -0.07197955891489982
+   },
+   "nub": {
+    "radius": 0.16061585470568387,
+    "length": 0.15675567620201036,
+    "tilt": -0.05737669102381915
+   }
+  },
+  "tail": {
+   "radius": 0.32974070936441424
+  },
+  "face": {
+   "expression": "asleep"
+  },
+  "glow": {
+   "strength": 1.2,
+   "radius": 0.312,
+   "radiusShare": 0.6,
+   "belowFace": true
+  },
+  "pool": {
+   "strength": 0.0135
+  },
+  "posture": {
+   "squash": 0.96,
+   "pitch": 0,
+   "topPitch": 0,
+   "topDrop": 0.02
+  },
+  "signature": "lying-capsule||nub|tail",
+  "label": "lying capsule + capsule nub + sphere tail"
+ },
+ "2-adult-thinking": {
+  "tokenId": "2",
+  "stage": "adult",
+  "state": "thinking",
+  "hue": "coral",
+  "accent": "#FF7966",
+  "body": {
+   "kind": "lying-capsule",
+   "r": 0.691718962257728,
+   "length": 0.9443596243276261
+  },
+  "scale": 0.9980988499009982,
+  "tilt": 0,
+  "ring": null,
+  "top": {
+   "kind": "nub",
+   "cone": {
+    "radius": 0.3149030764680356,
+    "height": 0.5675215714029036,
+    "tilt": -0.03130425956100226
+   },
+   "sphere": {
+    "radius": 0.24270447620190683
+   },
+   "cap": {
+    "frac": 0.9128742062486708,
+    "height": 0.32995540073607116,
+    "tilt": -0.07197955891489982
+   },
+   "nub": {
+    "radius": 0.16061585470568387,
+    "length": 0.15675567620201036,
+    "tilt": -0.05737669102381915
+   }
+  },
+  "tail": {
+   "radius": 0.32974070936441424
+  },
+  "face": {
+   "expression": "thinking"
+  },
+  "glow": {
+   "strength": 4,
+   "radius": 0.52,
+   "radiusShare": 1,
+   "belowFace": false
+  },
+  "pool": {
+   "strength": 0.45
+  },
+  "posture": null,
+  "signature": "lying-capsule||nub|tail",
+  "label": "lying capsule + capsule nub + sphere tail"
+ },
+ "2-adult-waking": {
+  "tokenId": "2",
+  "stage": "adult",
+  "state": "waking",
+  "hue": "coral",
+  "accent": "#FF7966",
+  "body": {
+   "kind": "lying-capsule",
+   "r": 0.691718962257728,
+   "length": 0.9443596243276261
+  },
+  "scale": 0.9980988499009982,
+  "tilt": 0,
+  "ring": null,
+  "top": {
+   "kind": "nub",
+   "cone": {
+    "radius": 0.3149030764680356,
+    "height": 0.5675215714029036,
+    "tilt": -0.03130425956100226
+   },
+   "sphere": {
+    "radius": 0.24270447620190683
+   },
+   "cap": {
+    "frac": 0.9128742062486708,
+    "height": 0.32995540073607116,
+    "tilt": -0.07197955891489982
+   },
+   "nub": {
+    "radius": 0.16061585470568387,
+    "length": 0.15675567620201036,
+    "tilt": -0.05737669102381915
+   }
+  },
+  "tail": {
+   "radius": 0.32974070936441424
+  },
+  "face": {
+   "expression": "boot"
+  },
+  "glow": {
+   "strength": 1.8,
+   "radius": 0.52,
+   "radiusShare": 1,
+   "belowFace": false
+  },
+  "pool": {
+   "strength": 0.2025
+  },
+  "posture": null,
+  "signature": "lying-capsule||nub|tail",
+  "label": "lying capsule + capsule nub + sphere tail"
+ },
+ "5-baby-full": {
+  "tokenId": "5",
+  "stage": "baby",
+  "state": "full",
+  "hue": "aqua",
+  "accent": "#17D9D4",
+  "body": {
+   "kind": "half-dome",
+   "r": 1.2745211406378076,
+   "height": 1.467412241633283,
+   "edge": 0.45
+  },
+  "scale": 0.5475668037585806,
+  "tilt": 0.12206625243648886,
+  "ring": null,
+  "top": null,
+  "tail": null,
+  "face": {
+   "expression": "happy"
+  },
+  "glow": {
+   "strength": 4,
+   "radius": 0.52,
+   "radiusShare": 1,
+   "belowFace": false
+  },
+  "pool": {
+   "strength": 0.45
+  },
+  "posture": null,
+  "signature": "half-dome||none|",
+  "label": "half-dome (leaning)",
+  "growth": 0.6
+ },
+ "5-baby-hungry": {
+  "tokenId": "5",
+  "stage": "baby",
+  "state": "hungry",
+  "hue": "aqua",
+  "accent": "#17D9D4",
+  "body": {
+   "kind": "half-dome",
+   "r": 1.2745211406378076,
+   "height": 1.467412241633283,
+   "edge": 0.45
+  },
+  "scale": 0.5475668037585806,
+  "tilt": 0.12206625243648886,
+  "ring": null,
+  "top": null,
+  "tail": null,
+  "face": {
+   "expression": "drowsy"
+  },
+  "glow": {
+   "strength": 1,
+   "radius": 0.52,
+   "radiusShare": 1,
+   "belowFace": false
+  },
+  "pool": {
+   "strength": 0.1125
+  },
+  "posture": {
+   "squash": 0.93,
+   "pitch": 0.1,
+   "topPitch": 0.12,
+   "topDrop": 0.04
+  },
+  "signature": "half-dome||none|",
+  "label": "half-dome (leaning)",
+  "growth": 0.6
+ },
+ "5-baby-asleep": {
+  "tokenId": "5",
+  "stage": "baby",
+  "state": "asleep",
+  "hue": "aqua",
+  "accent": "#17D9D4",
+  "body": {
+   "kind": "half-dome",
+   "r": 1.2745211406378076,
+   "height": 1.467412241633283,
+   "edge": 0.45
+  },
+  "scale": 0.5475668037585806,
+  "tilt": 0.12206625243648886,
+  "ring": null,
+  "top": null,
+  "tail": null,
+  "face": {
+   "expression": "asleep"
+  },
+  "glow": {
+   "strength": 1.2,
+   "radius": 0.312,
+   "radiusShare": 0.6,
+   "belowFace": true
+  },
+  "pool": {
+   "strength": 0.0135
+  },
+  "posture": {
+   "squash": 0.96,
+   "pitch": 0,
+   "topPitch": 0,
+   "topDrop": 0.02
+  },
+  "signature": "half-dome||none|",
+  "label": "half-dome (leaning)",
+  "growth": 0.6
+ },
+ "5-baby-thinking": {
+  "tokenId": "5",
+  "stage": "baby",
+  "state": "thinking",
+  "hue": "aqua",
+  "accent": "#17D9D4",
+  "body": {
+   "kind": "half-dome",
+   "r": 1.2745211406378076,
+   "height": 1.467412241633283,
+   "edge": 0.45
+  },
+  "scale": 0.5475668037585806,
+  "tilt": 0.12206625243648886,
+  "ring": null,
+  "top": null,
+  "tail": null,
+  "face": {
+   "expression": "thinking"
+  },
+  "glow": {
+   "strength": 4,
+   "radius": 0.52,
+   "radiusShare": 1,
+   "belowFace": false
+  },
+  "pool": {
+   "strength": 0.45
+  },
+  "posture": null,
+  "signature": "half-dome||none|",
+  "label": "half-dome (leaning)",
+  "growth": 0.6
+ },
+ "5-baby-waking": {
+  "tokenId": "5",
+  "stage": "baby",
+  "state": "waking",
+  "hue": "aqua",
+  "accent": "#17D9D4",
+  "body": {
+   "kind": "half-dome",
+   "r": 1.2745211406378076,
+   "height": 1.467412241633283,
+   "edge": 0.45
+  },
+  "scale": 0.5475668037585806,
+  "tilt": 0.12206625243648886,
+  "ring": null,
+  "top": null,
+  "tail": null,
+  "face": {
+   "expression": "boot"
+  },
+  "glow": {
+   "strength": 1.8,
+   "radius": 0.52,
+   "radiusShare": 1,
+   "belowFace": false
+  },
+  "pool": {
+   "strength": 0.2025
+  },
+  "posture": null,
+  "signature": "half-dome||none|",
+  "label": "half-dome (leaning)",
+  "growth": 0.6
+ },
+ "5-teen-full": {
+  "tokenId": "5",
+  "stage": "teen",
+  "state": "full",
+  "hue": "aqua",
+  "accent": "#17D9D4",
+  "body": {
+   "kind": "half-dome",
+   "r": 1.2745211406378076,
+   "height": 1.410973309262772,
+   "edge": 0.36
+  },
+  "scale": 0.7396966085970181,
+  "tilt": 0.12206625243648886,
+  "ring": null,
+  "top": {
+   "kind": "cap",
+   "cone": {
+    "radius": 0.16294870072044432,
+    "height": 0.29613746533286756,
+    "tilt": -0.10863585446029901
+   },
+   "sphere": {
+    "radius": 0.10208131104707718
+   },
+   "cap": {
+    "frac": 0.756583496928215,
+    "height": 0.18926446460420265,
+    "tilt": 0.037931728996336456
+   },
+   "nub": {
+    "radius": 0.07354556103004142,
+    "length": 0.0522822359809652,
+    "tilt": 0.03361985720694066
+   }
+  },
+  "tail": null,
+  "face": {
+   "expression": "happy"
+  },
+  "glow": {
+   "strength": 4,
+   "radius": 0.52,
+   "radiusShare": 1,
+   "belowFace": false
+  },
+  "pool": {
+   "strength": 0.45
+  },
+  "posture": null,
+  "signature": "half-dome||cap|",
+  "label": "half-dome + half-dome cap (leaning)",
+  "growth": 0.8
+ },
+ "5-teen-hungry": {
+  "tokenId": "5",
+  "stage": "teen",
+  "state": "hungry",
+  "hue": "aqua",
+  "accent": "#17D9D4",
+  "body": {
+   "kind": "half-dome",
+   "r": 1.2745211406378076,
+   "height": 1.410973309262772,
+   "edge": 0.36
+  },
+  "scale": 0.7396966085970181,
+  "tilt": 0.12206625243648886,
+  "ring": null,
+  "top": {
+   "kind": "cap",
+   "cone": {
+    "radius": 0.16294870072044432,
+    "height": 0.29613746533286756,
+    "tilt": -0.10863585446029901
+   },
+   "sphere": {
+    "radius": 0.10208131104707718
+   },
+   "cap": {
+    "frac": 0.756583496928215,
+    "height": 0.18926446460420265,
+    "tilt": 0.037931728996336456
+   },
+   "nub": {
+    "radius": 0.07354556103004142,
+    "length": 0.0522822359809652,
+    "tilt": 0.03361985720694066
+   }
+  },
+  "tail": null,
+  "face": {
+   "expression": "drowsy"
+  },
+  "glow": {
+   "strength": 1,
+   "radius": 0.52,
+   "radiusShare": 1,
+   "belowFace": false
+  },
+  "pool": {
+   "strength": 0.1125
+  },
+  "posture": {
+   "squash": 0.93,
+   "pitch": 0.1,
+   "topPitch": 0.12,
+   "topDrop": 0.04
+  },
+  "signature": "half-dome||cap|",
+  "label": "half-dome + half-dome cap (leaning)",
+  "growth": 0.8
+ },
+ "5-teen-asleep": {
+  "tokenId": "5",
+  "stage": "teen",
+  "state": "asleep",
+  "hue": "aqua",
+  "accent": "#17D9D4",
+  "body": {
+   "kind": "half-dome",
+   "r": 1.2745211406378076,
+   "height": 1.410973309262772,
+   "edge": 0.36
+  },
+  "scale": 0.7396966085970181,
+  "tilt": 0.12206625243648886,
+  "ring": null,
+  "top": {
+   "kind": "cap",
+   "cone": {
+    "radius": 0.16294870072044432,
+    "height": 0.29613746533286756,
+    "tilt": -0.10863585446029901
+   },
+   "sphere": {
+    "radius": 0.10208131104707718
+   },
+   "cap": {
+    "frac": 0.756583496928215,
+    "height": 0.18926446460420265,
+    "tilt": 0.037931728996336456
+   },
+   "nub": {
+    "radius": 0.07354556103004142,
+    "length": 0.0522822359809652,
+    "tilt": 0.03361985720694066
+   }
+  },
+  "tail": null,
+  "face": {
+   "expression": "asleep"
+  },
+  "glow": {
+   "strength": 1.2,
+   "radius": 0.312,
+   "radiusShare": 0.6,
+   "belowFace": true
+  },
+  "pool": {
+   "strength": 0.0135
+  },
+  "posture": {
+   "squash": 0.96,
+   "pitch": 0,
+   "topPitch": 0,
+   "topDrop": 0.02
+  },
+  "signature": "half-dome||cap|",
+  "label": "half-dome + half-dome cap (leaning)",
+  "growth": 0.8
+ },
+ "5-teen-thinking": {
+  "tokenId": "5",
+  "stage": "teen",
+  "state": "thinking",
+  "hue": "aqua",
+  "accent": "#17D9D4",
+  "body": {
+   "kind": "half-dome",
+   "r": 1.2745211406378076,
+   "height": 1.410973309262772,
+   "edge": 0.36
+  },
+  "scale": 0.7396966085970181,
+  "tilt": 0.12206625243648886,
+  "ring": null,
+  "top": {
+   "kind": "cap",
+   "cone": {
+    "radius": 0.16294870072044432,
+    "height": 0.29613746533286756,
+    "tilt": -0.10863585446029901
+   },
+   "sphere": {
+    "radius": 0.10208131104707718
+   },
+   "cap": {
+    "frac": 0.756583496928215,
+    "height": 0.18926446460420265,
+    "tilt": 0.037931728996336456
+   },
+   "nub": {
+    "radius": 0.07354556103004142,
+    "length": 0.0522822359809652,
+    "tilt": 0.03361985720694066
+   }
+  },
+  "tail": null,
+  "face": {
+   "expression": "thinking"
+  },
+  "glow": {
+   "strength": 4,
+   "radius": 0.52,
+   "radiusShare": 1,
+   "belowFace": false
+  },
+  "pool": {
+   "strength": 0.45
+  },
+  "posture": null,
+  "signature": "half-dome||cap|",
+  "label": "half-dome + half-dome cap (leaning)",
+  "growth": 0.8
+ },
+ "5-teen-waking": {
+  "tokenId": "5",
+  "stage": "teen",
+  "state": "waking",
+  "hue": "aqua",
+  "accent": "#17D9D4",
+  "body": {
+   "kind": "half-dome",
+   "r": 1.2745211406378076,
+   "height": 1.410973309262772,
+   "edge": 0.36
+  },
+  "scale": 0.7396966085970181,
+  "tilt": 0.12206625243648886,
+  "ring": null,
+  "top": {
+   "kind": "cap",
+   "cone": {
+    "radius": 0.16294870072044432,
+    "height": 0.29613746533286756,
+    "tilt": -0.10863585446029901
+   },
+   "sphere": {
+    "radius": 0.10208131104707718
+   },
+   "cap": {
+    "frac": 0.756583496928215,
+    "height": 0.18926446460420265,
+    "tilt": 0.037931728996336456
+   },
+   "nub": {
+    "radius": 0.07354556103004142,
+    "length": 0.0522822359809652,
+    "tilt": 0.03361985720694066
+   }
+  },
+  "tail": null,
+  "face": {
+   "expression": "boot"
+  },
+  "glow": {
+   "strength": 1.8,
+   "radius": 0.52,
+   "radiusShare": 1,
+   "belowFace": false
+  },
+  "pool": {
+   "strength": 0.2025
+  },
+  "posture": null,
+  "signature": "half-dome||cap|",
+  "label": "half-dome + half-dome cap (leaning)",
+  "growth": 0.8
+ },
+ "5-adult-full": {
+  "tokenId": "5",
+  "stage": "adult",
+  "state": "full",
+  "hue": "aqua",
+  "accent": "#17D9D4",
+  "body": {
+   "kind": "half-dome",
+   "r": 1.2745211406378076,
+   "height": 1.1287786474102177
+  },
+  "scale": 0.9960175210377201,
+  "tilt": 0.12206625243648886,
+  "ring": {
+   "tube": 0.14163309110328554,
+   "gap": 1.2505275332555175,
+   "tilt": [
+    0.03390606567263603,
+    0,
+    0.03546168061904609
+   ]
+  },
+  "top": {
+   "kind": "cap+sphere",
+   "cone": {
+    "radius": 0.32589740144088863,
+    "height": 0.5922749306657351,
+    "tilt": -0.10863585446029901
+   },
+   "sphere": {
+    "radius": 0.20416262209415437
+   },
+   "cap": {
+    "frac": 0.756583496928215,
+    "height": 0.3785289292084053,
+    "tilt": 0.037931728996336456
+   },
+   "nub": {
+    "radius": 0.14709112206008285,
+    "length": 0.1045644719619304,
+    "tilt": 0.03361985720694066
+   }
+  },
+  "tail": null,
+  "face": {
+   "expression": "happy"
+  },
+  "glow": {
+   "strength": 4,
+   "radius": 0.52,
+   "radiusShare": 1,
+   "belowFace": false
+  },
+  "pool": {
+   "strength": 0.45
+  },
+  "posture": null,
+  "signature": "half-dome|ring|cap+sphere|",
+  "label": "half-dome + torus ring + half-dome cap + sphere (leaning)"
+ },
+ "5-adult-hungry": {
+  "tokenId": "5",
+  "stage": "adult",
+  "state": "hungry",
+  "hue": "aqua",
+  "accent": "#17D9D4",
+  "body": {
+   "kind": "half-dome",
+   "r": 1.2745211406378076,
+   "height": 1.1287786474102177
+  },
+  "scale": 0.9960175210377201,
+  "tilt": 0.12206625243648886,
+  "ring": {
+   "tube": 0.14163309110328554,
+   "gap": 1.2505275332555175,
+   "tilt": [
+    0.03390606567263603,
+    0,
+    0.03546168061904609
+   ]
+  },
+  "top": {
+   "kind": "cap+sphere",
+   "cone": {
+    "radius": 0.32589740144088863,
+    "height": 0.5922749306657351,
+    "tilt": -0.10863585446029901
+   },
+   "sphere": {
+    "radius": 0.20416262209415437
+   },
+   "cap": {
+    "frac": 0.756583496928215,
+    "height": 0.3785289292084053,
+    "tilt": 0.037931728996336456
+   },
+   "nub": {
+    "radius": 0.14709112206008285,
+    "length": 0.1045644719619304,
+    "tilt": 0.03361985720694066
+   }
+  },
+  "tail": null,
+  "face": {
+   "expression": "drowsy"
+  },
+  "glow": {
+   "strength": 1,
+   "radius": 0.52,
+   "radiusShare": 1,
+   "belowFace": false
+  },
+  "pool": {
+   "strength": 0.1125
+  },
+  "posture": {
+   "squash": 0.93,
+   "pitch": 0.1,
+   "topPitch": 0.12,
+   "topDrop": 0.04
+  },
+  "signature": "half-dome|ring|cap+sphere|",
+  "label": "half-dome + torus ring + half-dome cap + sphere (leaning)"
+ },
+ "5-adult-asleep": {
+  "tokenId": "5",
+  "stage": "adult",
+  "state": "asleep",
+  "hue": "aqua",
+  "accent": "#17D9D4",
+  "body": {
+   "kind": "half-dome",
+   "r": 1.2745211406378076,
+   "height": 1.1287786474102177
+  },
+  "scale": 0.9960175210377201,
+  "tilt": 0.12206625243648886,
+  "ring": {
+   "tube": 0.14163309110328554,
+   "gap": 1.2505275332555175,
+   "tilt": [
+    0.03390606567263603,
+    0,
+    0.03546168061904609
+   ]
+  },
+  "top": {
+   "kind": "cap+sphere",
+   "cone": {
+    "radius": 0.32589740144088863,
+    "height": 0.5922749306657351,
+    "tilt": -0.10863585446029901
+   },
+   "sphere": {
+    "radius": 0.20416262209415437
+   },
+   "cap": {
+    "frac": 0.756583496928215,
+    "height": 0.3785289292084053,
+    "tilt": 0.037931728996336456
+   },
+   "nub": {
+    "radius": 0.14709112206008285,
+    "length": 0.1045644719619304,
+    "tilt": 0.03361985720694066
+   }
+  },
+  "tail": null,
+  "face": {
+   "expression": "asleep"
+  },
+  "glow": {
+   "strength": 1.2,
+   "radius": 0.312,
+   "radiusShare": 0.6,
+   "belowFace": true
+  },
+  "pool": {
+   "strength": 0.0135
+  },
+  "posture": {
+   "squash": 0.96,
+   "pitch": 0,
+   "topPitch": 0,
+   "topDrop": 0.02
+  },
+  "signature": "half-dome|ring|cap+sphere|",
+  "label": "half-dome + torus ring + half-dome cap + sphere (leaning)"
+ },
+ "5-adult-thinking": {
+  "tokenId": "5",
+  "stage": "adult",
+  "state": "thinking",
+  "hue": "aqua",
+  "accent": "#17D9D4",
+  "body": {
+   "kind": "half-dome",
+   "r": 1.2745211406378076,
+   "height": 1.1287786474102177
+  },
+  "scale": 0.9960175210377201,
+  "tilt": 0.12206625243648886,
+  "ring": {
+   "tube": 0.14163309110328554,
+   "gap": 1.2505275332555175,
+   "tilt": [
+    0.03390606567263603,
+    0,
+    0.03546168061904609
+   ]
+  },
+  "top": {
+   "kind": "cap+sphere",
+   "cone": {
+    "radius": 0.32589740144088863,
+    "height": 0.5922749306657351,
+    "tilt": -0.10863585446029901
+   },
+   "sphere": {
+    "radius": 0.20416262209415437
+   },
+   "cap": {
+    "frac": 0.756583496928215,
+    "height": 0.3785289292084053,
+    "tilt": 0.037931728996336456
+   },
+   "nub": {
+    "radius": 0.14709112206008285,
+    "length": 0.1045644719619304,
+    "tilt": 0.03361985720694066
+   }
+  },
+  "tail": null,
+  "face": {
+   "expression": "thinking"
+  },
+  "glow": {
+   "strength": 4,
+   "radius": 0.52,
+   "radiusShare": 1,
+   "belowFace": false
+  },
+  "pool": {
+   "strength": 0.45
+  },
+  "posture": null,
+  "signature": "half-dome|ring|cap+sphere|",
+  "label": "half-dome + torus ring + half-dome cap + sphere (leaning)"
+ },
+ "5-adult-waking": {
+  "tokenId": "5",
+  "stage": "adult",
+  "state": "waking",
+  "hue": "aqua",
+  "accent": "#17D9D4",
+  "body": {
+   "kind": "half-dome",
+   "r": 1.2745211406378076,
+   "height": 1.1287786474102177
+  },
+  "scale": 0.9960175210377201,
+  "tilt": 0.12206625243648886,
+  "ring": {
+   "tube": 0.14163309110328554,
+   "gap": 1.2505275332555175,
+   "tilt": [
+    0.03390606567263603,
+    0,
+    0.03546168061904609
+   ]
+  },
+  "top": {
+   "kind": "cap+sphere",
+   "cone": {
+    "radius": 0.32589740144088863,
+    "height": 0.5922749306657351,
+    "tilt": -0.10863585446029901
+   },
+   "sphere": {
+    "radius": 0.20416262209415437
+   },
+   "cap": {
+    "frac": 0.756583496928215,
+    "height": 0.3785289292084053,
+    "tilt": 0.037931728996336456
+   },
+   "nub": {
+    "radius": 0.14709112206008285,
+    "length": 0.1045644719619304,
+    "tilt": 0.03361985720694066
+   }
+  },
+  "tail": null,
+  "face": {
+   "expression": "boot"
+  },
+  "glow": {
+   "strength": 1.8,
+   "radius": 0.52,
+   "radiusShare": 1,
+   "belowFace": false
+  },
+  "pool": {
+   "strength": 0.2025
+  },
+  "posture": null,
+  "signature": "half-dome|ring|cap+sphere|",
+  "label": "half-dome + torus ring + half-dome cap + sphere (leaning)"
+ },
+ "9-baby-full": {
+  "tokenId": "9",
+  "stage": "baby",
+  "state": "full",
+  "hue": "mint",
+  "accent": "#00EC97",
+  "body": {
+   "kind": "capsule",
+   "r": 0.8836432578228415,
+   "length": 0.3100212898105383
+  },
+  "scale": 0.4865007784863113,
+  "tilt": 0,
+  "ring": null,
+  "top": null,
+  "tail": null,
+  "face": {
+   "expression": "happy"
+  },
+  "glow": {
+   "strength": 4,
+   "radius": 0.52,
+   "radiusShare": 1,
+   "belowFace": false
+  },
+  "pool": {
+   "strength": 0.45
+  },
+  "posture": null,
+  "signature": "capsule||none|",
+  "label": "capsule",
+  "growth": 0.6
+ },
+ "9-baby-hungry": {
+  "tokenId": "9",
+  "stage": "baby",
+  "state": "hungry",
+  "hue": "mint",
+  "accent": "#00EC97",
+  "body": {
+   "kind": "capsule",
+   "r": 0.8836432578228415,
+   "length": 0.3100212898105383
+  },
+  "scale": 0.4865007784863113,
+  "tilt": 0,
+  "ring": null,
+  "top": null,
+  "tail": null,
+  "face": {
+   "expression": "drowsy"
+  },
+  "glow": {
+   "strength": 1,
+   "radius": 0.52,
+   "radiusShare": 1,
+   "belowFace": false
+  },
+  "pool": {
+   "strength": 0.1125
+  },
+  "posture": {
+   "squash": 0.93,
+   "pitch": 0.1,
+   "topPitch": 0.12,
+   "topDrop": 0.04
+  },
+  "signature": "capsule||none|",
+  "label": "capsule",
+  "growth": 0.6
+ },
+ "9-baby-asleep": {
+  "tokenId": "9",
+  "stage": "baby",
+  "state": "asleep",
+  "hue": "mint",
+  "accent": "#00EC97",
+  "body": {
+   "kind": "capsule",
+   "r": 0.8836432578228415,
+   "length": 0.3100212898105383
+  },
+  "scale": 0.4865007784863113,
+  "tilt": 0,
+  "ring": null,
+  "top": null,
+  "tail": null,
+  "face": {
+   "expression": "asleep"
+  },
+  "glow": {
+   "strength": 1.2,
+   "radius": 0.312,
+   "radiusShare": 0.6,
+   "belowFace": true
+  },
+  "pool": {
+   "strength": 0.0135
+  },
+  "posture": {
+   "squash": 0.96,
+   "pitch": 0,
+   "topPitch": 0,
+   "topDrop": 0.02
+  },
+  "signature": "capsule||none|",
+  "label": "capsule",
+  "growth": 0.6
+ },
+ "9-baby-thinking": {
+  "tokenId": "9",
+  "stage": "baby",
+  "state": "thinking",
+  "hue": "mint",
+  "accent": "#00EC97",
+  "body": {
+   "kind": "capsule",
+   "r": 0.8836432578228415,
+   "length": 0.3100212898105383
+  },
+  "scale": 0.4865007784863113,
+  "tilt": 0,
+  "ring": null,
+  "top": null,
+  "tail": null,
+  "face": {
+   "expression": "thinking"
+  },
+  "glow": {
+   "strength": 4,
+   "radius": 0.52,
+   "radiusShare": 1,
+   "belowFace": false
+  },
+  "pool": {
+   "strength": 0.45
+  },
+  "posture": null,
+  "signature": "capsule||none|",
+  "label": "capsule",
+  "growth": 0.6
+ },
+ "9-baby-waking": {
+  "tokenId": "9",
+  "stage": "baby",
+  "state": "waking",
+  "hue": "mint",
+  "accent": "#00EC97",
+  "body": {
+   "kind": "capsule",
+   "r": 0.8836432578228415,
+   "length": 0.3100212898105383
+  },
+  "scale": 0.4865007784863113,
+  "tilt": 0,
+  "ring": null,
+  "top": null,
+  "tail": null,
+  "face": {
+   "expression": "boot"
+  },
+  "glow": {
+   "strength": 1.8,
+   "radius": 0.52,
+   "radiusShare": 1,
+   "belowFace": false
+  },
+  "pool": {
+   "strength": 0.2025
+  },
+  "posture": null,
+  "signature": "capsule||none|",
+  "label": "capsule",
+  "growth": 0.6
+ },
+ "9-teen-full": {
+  "tokenId": "9",
+  "stage": "teen",
+  "state": "full",
+  "hue": "mint",
+  "accent": "#00EC97",
+  "body": {
+   "kind": "capsule",
+   "r": 0.8836432578228415,
+   "length": 0.3100212898105383
+  },
+  "scale": 0.6486677046484152,
+  "tilt": 0,
+  "ring": null,
+  "top": {
+   "kind": "cone",
+   "cone": {
+    "radius": 0.16322214726125822,
+    "height": 0.2627621391962748,
+    "tilt": -0.055878789648413654
+   },
+   "sphere": {
+    "radius": 0.12249826818704605
+   },
+   "cap": {
+    "frac": 0.86757663753815,
+    "height": 0.2091183943185024,
+    "tilt": 0.07456014096736908
+   },
+   "nub": {
+    "radius": 0.08507976122549735,
+    "length": 0.11952969796257093,
+    "tilt": -0.028455958189442757
+   }
+  },
+  "tail": null,
+  "face": {
+   "expression": "happy"
+  },
+  "glow": {
+   "strength": 4,
+   "radius": 0.52,
+   "radiusShare": 1,
+   "belowFace": false
+  },
+  "pool": {
+   "strength": 0.45
+  },
+  "posture": null,
+  "signature": "capsule||cone|",
+  "label": "capsule + cone top",
+  "growth": 0.8
+ },
+ "9-teen-hungry": {
+  "tokenId": "9",
+  "stage": "teen",
+  "state": "hungry",
+  "hue": "mint",
+  "accent": "#00EC97",
+  "body": {
+   "kind": "capsule",
+   "r": 0.8836432578228415,
+   "length": 0.3100212898105383
+  },
+  "scale": 0.6486677046484152,
+  "tilt": 0,
+  "ring": null,
+  "top": {
+   "kind": "cone",
+   "cone": {
+    "radius": 0.16322214726125822,
+    "height": 0.2627621391962748,
+    "tilt": -0.055878789648413654
+   },
+   "sphere": {
+    "radius": 0.12249826818704605
+   },
+   "cap": {
+    "frac": 0.86757663753815,
+    "height": 0.2091183943185024,
+    "tilt": 0.07456014096736908
+   },
+   "nub": {
+    "radius": 0.08507976122549735,
+    "length": 0.11952969796257093,
+    "tilt": -0.028455958189442757
+   }
+  },
+  "tail": null,
+  "face": {
+   "expression": "drowsy"
+  },
+  "glow": {
+   "strength": 1,
+   "radius": 0.52,
+   "radiusShare": 1,
+   "belowFace": false
+  },
+  "pool": {
+   "strength": 0.1125
+  },
+  "posture": {
+   "squash": 0.93,
+   "pitch": 0.1,
+   "topPitch": 0.12,
+   "topDrop": 0.04
+  },
+  "signature": "capsule||cone|",
+  "label": "capsule + cone top",
+  "growth": 0.8
+ },
+ "9-teen-asleep": {
+  "tokenId": "9",
+  "stage": "teen",
+  "state": "asleep",
+  "hue": "mint",
+  "accent": "#00EC97",
+  "body": {
+   "kind": "capsule",
+   "r": 0.8836432578228415,
+   "length": 0.3100212898105383
+  },
+  "scale": 0.6486677046484152,
+  "tilt": 0,
+  "ring": null,
+  "top": {
+   "kind": "cone",
+   "cone": {
+    "radius": 0.16322214726125822,
+    "height": 0.2627621391962748,
+    "tilt": -0.055878789648413654
+   },
+   "sphere": {
+    "radius": 0.12249826818704605
+   },
+   "cap": {
+    "frac": 0.86757663753815,
+    "height": 0.2091183943185024,
+    "tilt": 0.07456014096736908
+   },
+   "nub": {
+    "radius": 0.08507976122549735,
+    "length": 0.11952969796257093,
+    "tilt": -0.028455958189442757
+   }
+  },
+  "tail": null,
+  "face": {
+   "expression": "asleep"
+  },
+  "glow": {
+   "strength": 1.2,
+   "radius": 0.312,
+   "radiusShare": 0.6,
+   "belowFace": true
+  },
+  "pool": {
+   "strength": 0.0135
+  },
+  "posture": {
+   "squash": 0.96,
+   "pitch": 0,
+   "topPitch": 0,
+   "topDrop": 0.02
+  },
+  "signature": "capsule||cone|",
+  "label": "capsule + cone top",
+  "growth": 0.8
+ },
+ "9-teen-thinking": {
+  "tokenId": "9",
+  "stage": "teen",
+  "state": "thinking",
+  "hue": "mint",
+  "accent": "#00EC97",
+  "body": {
+   "kind": "capsule",
+   "r": 0.8836432578228415,
+   "length": 0.3100212898105383
+  },
+  "scale": 0.6486677046484152,
+  "tilt": 0,
+  "ring": null,
+  "top": {
+   "kind": "cone",
+   "cone": {
+    "radius": 0.16322214726125822,
+    "height": 0.2627621391962748,
+    "tilt": -0.055878789648413654
+   },
+   "sphere": {
+    "radius": 0.12249826818704605
+   },
+   "cap": {
+    "frac": 0.86757663753815,
+    "height": 0.2091183943185024,
+    "tilt": 0.07456014096736908
+   },
+   "nub": {
+    "radius": 0.08507976122549735,
+    "length": 0.11952969796257093,
+    "tilt": -0.028455958189442757
+   }
+  },
+  "tail": null,
+  "face": {
+   "expression": "thinking"
+  },
+  "glow": {
+   "strength": 4,
+   "radius": 0.52,
+   "radiusShare": 1,
+   "belowFace": false
+  },
+  "pool": {
+   "strength": 0.45
+  },
+  "posture": null,
+  "signature": "capsule||cone|",
+  "label": "capsule + cone top",
+  "growth": 0.8
+ },
+ "9-teen-waking": {
+  "tokenId": "9",
+  "stage": "teen",
+  "state": "waking",
+  "hue": "mint",
+  "accent": "#00EC97",
+  "body": {
+   "kind": "capsule",
+   "r": 0.8836432578228415,
+   "length": 0.3100212898105383
+  },
+  "scale": 0.6486677046484152,
+  "tilt": 0,
+  "ring": null,
+  "top": {
+   "kind": "cone",
+   "cone": {
+    "radius": 0.16322214726125822,
+    "height": 0.2627621391962748,
+    "tilt": -0.055878789648413654
+   },
+   "sphere": {
+    "radius": 0.12249826818704605
+   },
+   "cap": {
+    "frac": 0.86757663753815,
+    "height": 0.2091183943185024,
+    "tilt": 0.07456014096736908
+   },
+   "nub": {
+    "radius": 0.08507976122549735,
+    "length": 0.11952969796257093,
+    "tilt": -0.028455958189442757
+   }
+  },
+  "tail": null,
+  "face": {
+   "expression": "boot"
+  },
+  "glow": {
+   "strength": 1.8,
+   "radius": 0.52,
+   "radiusShare": 1,
+   "belowFace": false
+  },
+  "pool": {
+   "strength": 0.2025
+  },
+  "posture": null,
+  "signature": "capsule||cone|",
+  "label": "capsule + cone top",
+  "growth": 0.8
+ },
+ "9-adult-full": {
+  "tokenId": "9",
+  "stage": "adult",
+  "state": "full",
+  "hue": "mint",
+  "accent": "#00EC97",
+  "body": {
+   "kind": "capsule",
+   "r": 0.8836432578228415,
+   "length": 0.6200425796210766
+  },
+  "scale": 0.7612697106786073,
+  "tilt": 0,
+  "ring": {
+   "tube": 0.12176128837279974,
+   "gap": 1.2305970896966756,
+   "tilt": [
+    0.07396374531090259,
+    0,
+    -0.08983154867775739
+   ]
+  },
+  "top": {
+   "kind": "cone",
+   "cone": {
+    "radius": 0.32644429452251644,
+    "height": 0.5255242783925496,
+    "tilt": -0.055878789648413654
+   },
+   "sphere": {
+    "radius": 0.2449965363740921
+   },
+   "cap": {
+    "frac": 0.86757663753815,
+    "height": 0.4182367886370048,
+    "tilt": 0.07456014096736908
+   },
+   "nub": {
+    "radius": 0.1701595224509947,
+    "length": 0.23905939592514186,
+    "tilt": -0.028455958189442757
+   }
+  },
+  "tail": null,
+  "face": {
+   "expression": "happy"
+  },
+  "glow": {
+   "strength": 4,
+   "radius": 0.52,
+   "radiusShare": 1,
+   "belowFace": false
+  },
+  "pool": {
+   "strength": 0.45
+  },
+  "posture": null,
+  "signature": "capsule|ring|cone|",
+  "label": "capsule + torus ring + cone top"
+ },
+ "9-adult-hungry": {
+  "tokenId": "9",
+  "stage": "adult",
+  "state": "hungry",
+  "hue": "mint",
+  "accent": "#00EC97",
+  "body": {
+   "kind": "capsule",
+   "r": 0.8836432578228415,
+   "length": 0.6200425796210766
+  },
+  "scale": 0.7612697106786073,
+  "tilt": 0,
+  "ring": {
+   "tube": 0.12176128837279974,
+   "gap": 1.2305970896966756,
+   "tilt": [
+    0.07396374531090259,
+    0,
+    -0.08983154867775739
+   ]
+  },
+  "top": {
+   "kind": "cone",
+   "cone": {
+    "radius": 0.32644429452251644,
+    "height": 0.5255242783925496,
+    "tilt": -0.055878789648413654
+   },
+   "sphere": {
+    "radius": 0.2449965363740921
+   },
+   "cap": {
+    "frac": 0.86757663753815,
+    "height": 0.4182367886370048,
+    "tilt": 0.07456014096736908
+   },
+   "nub": {
+    "radius": 0.1701595224509947,
+    "length": 0.23905939592514186,
+    "tilt": -0.028455958189442757
+   }
+  },
+  "tail": null,
+  "face": {
+   "expression": "drowsy"
+  },
+  "glow": {
+   "strength": 1,
+   "radius": 0.52,
+   "radiusShare": 1,
+   "belowFace": false
+  },
+  "pool": {
+   "strength": 0.1125
+  },
+  "posture": {
+   "squash": 0.93,
+   "pitch": 0.1,
+   "topPitch": 0.12,
+   "topDrop": 0.04
+  },
+  "signature": "capsule|ring|cone|",
+  "label": "capsule + torus ring + cone top"
+ },
+ "9-adult-asleep": {
+  "tokenId": "9",
+  "stage": "adult",
+  "state": "asleep",
+  "hue": "mint",
+  "accent": "#00EC97",
+  "body": {
+   "kind": "capsule",
+   "r": 0.8836432578228415,
+   "length": 0.6200425796210766
+  },
+  "scale": 0.7612697106786073,
+  "tilt": 0,
+  "ring": {
+   "tube": 0.12176128837279974,
+   "gap": 1.2305970896966756,
+   "tilt": [
+    0.07396374531090259,
+    0,
+    -0.08983154867775739
+   ]
+  },
+  "top": {
+   "kind": "cone",
+   "cone": {
+    "radius": 0.32644429452251644,
+    "height": 0.5255242783925496,
+    "tilt": -0.055878789648413654
+   },
+   "sphere": {
+    "radius": 0.2449965363740921
+   },
+   "cap": {
+    "frac": 0.86757663753815,
+    "height": 0.4182367886370048,
+    "tilt": 0.07456014096736908
+   },
+   "nub": {
+    "radius": 0.1701595224509947,
+    "length": 0.23905939592514186,
+    "tilt": -0.028455958189442757
+   }
+  },
+  "tail": null,
+  "face": {
+   "expression": "asleep"
+  },
+  "glow": {
+   "strength": 1.2,
+   "radius": 0.312,
+   "radiusShare": 0.6,
+   "belowFace": true
+  },
+  "pool": {
+   "strength": 0.0135
+  },
+  "posture": {
+   "squash": 0.96,
+   "pitch": 0,
+   "topPitch": 0,
+   "topDrop": 0.02
+  },
+  "signature": "capsule|ring|cone|",
+  "label": "capsule + torus ring + cone top"
+ },
+ "9-adult-thinking": {
+  "tokenId": "9",
+  "stage": "adult",
+  "state": "thinking",
+  "hue": "mint",
+  "accent": "#00EC97",
+  "body": {
+   "kind": "capsule",
+   "r": 0.8836432578228415,
+   "length": 0.6200425796210766
+  },
+  "scale": 0.7612697106786073,
+  "tilt": 0,
+  "ring": {
+   "tube": 0.12176128837279974,
+   "gap": 1.2305970896966756,
+   "tilt": [
+    0.07396374531090259,
+    0,
+    -0.08983154867775739
+   ]
+  },
+  "top": {
+   "kind": "cone",
+   "cone": {
+    "radius": 0.32644429452251644,
+    "height": 0.5255242783925496,
+    "tilt": -0.055878789648413654
+   },
+   "sphere": {
+    "radius": 0.2449965363740921
+   },
+   "cap": {
+    "frac": 0.86757663753815,
+    "height": 0.4182367886370048,
+    "tilt": 0.07456014096736908
+   },
+   "nub": {
+    "radius": 0.1701595224509947,
+    "length": 0.23905939592514186,
+    "tilt": -0.028455958189442757
+   }
+  },
+  "tail": null,
+  "face": {
+   "expression": "thinking"
+  },
+  "glow": {
+   "strength": 4,
+   "radius": 0.52,
+   "radiusShare": 1,
+   "belowFace": false
+  },
+  "pool": {
+   "strength": 0.45
+  },
+  "posture": null,
+  "signature": "capsule|ring|cone|",
+  "label": "capsule + torus ring + cone top"
+ },
+ "9-adult-waking": {
+  "tokenId": "9",
+  "stage": "adult",
+  "state": "waking",
+  "hue": "mint",
+  "accent": "#00EC97",
+  "body": {
+   "kind": "capsule",
+   "r": 0.8836432578228415,
+   "length": 0.6200425796210766
+  },
+  "scale": 0.7612697106786073,
+  "tilt": 0,
+  "ring": {
+   "tube": 0.12176128837279974,
+   "gap": 1.2305970896966756,
+   "tilt": [
+    0.07396374531090259,
+    0,
+    -0.08983154867775739
+   ]
+  },
+  "top": {
+   "kind": "cone",
+   "cone": {
+    "radius": 0.32644429452251644,
+    "height": 0.5255242783925496,
+    "tilt": -0.055878789648413654
+   },
+   "sphere": {
+    "radius": 0.2449965363740921
+   },
+   "cap": {
+    "frac": 0.86757663753815,
+    "height": 0.4182367886370048,
+    "tilt": 0.07456014096736908
+   },
+   "nub": {
+    "radius": 0.1701595224509947,
+    "length": 0.23905939592514186,
+    "tilt": -0.028455958189442757
+   }
+  },
+  "tail": null,
+  "face": {
+   "expression": "boot"
+  },
+  "glow": {
+   "strength": 1.8,
+   "radius": 0.52,
+   "radiusShare": 1,
+   "belowFace": false
+  },
+  "pool": {
+   "strength": 0.2025
+  },
+  "posture": null,
+  "signature": "capsule|ring|cone|",
+  "label": "capsule + torus ring + cone top"
+ },
+ "12-baby-full": {
+  "tokenId": "12",
+  "stage": "baby",
+  "state": "full",
+  "hue": "mint",
+  "accent": "#00EC97",
+  "body": {
+   "kind": "half-dome",
+   "r": 1.2887085661292077,
+   "height": 1.413745632239152,
+   "edge": 0.45
+  },
+  "scale": 0.41592376553051064,
+  "tilt": 0,
+  "ring": null,
+  "top": null,
+  "tail": null,
+  "face": {
+   "expression": "happy"
+  },
+  "glow": {
+   "strength": 4,
+   "radius": 0.52,
+   "radiusShare": 1,
+   "belowFace": false
+  },
+  "pool": {
+   "strength": 0.45
+  },
+  "posture": null,
+  "signature": "half-dome||none|",
+  "label": "half-dome",
+  "growth": 0.6
+ },
+ "12-baby-hungry": {
+  "tokenId": "12",
+  "stage": "baby",
+  "state": "hungry",
+  "hue": "mint",
+  "accent": "#00EC97",
+  "body": {
+   "kind": "half-dome",
+   "r": 1.2887085661292077,
+   "height": 1.413745632239152,
+   "edge": 0.45
+  },
+  "scale": 0.41592376553051064,
+  "tilt": 0,
+  "ring": null,
+  "top": null,
+  "tail": null,
+  "face": {
+   "expression": "drowsy"
+  },
+  "glow": {
+   "strength": 1,
+   "radius": 0.52,
+   "radiusShare": 1,
+   "belowFace": false
+  },
+  "pool": {
+   "strength": 0.1125
+  },
+  "posture": {
+   "squash": 0.93,
+   "pitch": 0.1,
+   "topPitch": 0.12,
+   "topDrop": 0.04
+  },
+  "signature": "half-dome||none|",
+  "label": "half-dome",
+  "growth": 0.6
+ },
+ "12-baby-asleep": {
+  "tokenId": "12",
+  "stage": "baby",
+  "state": "asleep",
+  "hue": "mint",
+  "accent": "#00EC97",
+  "body": {
+   "kind": "half-dome",
+   "r": 1.2887085661292077,
+   "height": 1.413745632239152,
+   "edge": 0.45
+  },
+  "scale": 0.41592376553051064,
+  "tilt": 0,
+  "ring": null,
+  "top": null,
+  "tail": null,
+  "face": {
+   "expression": "asleep"
+  },
+  "glow": {
+   "strength": 1.2,
+   "radius": 0.312,
+   "radiusShare": 0.6,
+   "belowFace": true
+  },
+  "pool": {
+   "strength": 0.0135
+  },
+  "posture": {
+   "squash": 0.96,
+   "pitch": 0,
+   "topPitch": 0,
+   "topDrop": 0.02
+  },
+  "signature": "half-dome||none|",
+  "label": "half-dome",
+  "growth": 0.6
+ },
+ "12-baby-thinking": {
+  "tokenId": "12",
+  "stage": "baby",
+  "state": "thinking",
+  "hue": "mint",
+  "accent": "#00EC97",
+  "body": {
+   "kind": "half-dome",
+   "r": 1.2887085661292077,
+   "height": 1.413745632239152,
+   "edge": 0.45
+  },
+  "scale": 0.41592376553051064,
+  "tilt": 0,
+  "ring": null,
+  "top": null,
+  "tail": null,
+  "face": {
+   "expression": "thinking"
+  },
+  "glow": {
+   "strength": 4,
+   "radius": 0.52,
+   "radiusShare": 1,
+   "belowFace": false
+  },
+  "pool": {
+   "strength": 0.45
+  },
+  "posture": null,
+  "signature": "half-dome||none|",
+  "label": "half-dome",
+  "growth": 0.6
+ },
+ "12-baby-waking": {
+  "tokenId": "12",
+  "stage": "baby",
+  "state": "waking",
+  "hue": "mint",
+  "accent": "#00EC97",
+  "body": {
+   "kind": "half-dome",
+   "r": 1.2887085661292077,
+   "height": 1.413745632239152,
+   "edge": 0.45
+  },
+  "scale": 0.41592376553051064,
+  "tilt": 0,
+  "ring": null,
+  "top": null,
+  "tail": null,
+  "face": {
+   "expression": "boot"
+  },
+  "glow": {
+   "strength": 1.8,
+   "radius": 0.52,
+   "radiusShare": 1,
+   "belowFace": false
+  },
+  "pool": {
+   "strength": 0.2025
+  },
+  "posture": null,
+  "signature": "half-dome||none|",
+  "label": "half-dome",
+  "growth": 0.6
+ },
+ "12-teen-full": {
+  "tokenId": "12",
+  "stage": "teen",
+  "state": "full",
+  "hue": "mint",
+  "accent": "#00EC97",
+  "body": {
+   "kind": "half-dome",
+   "r": 1.2887085661292077,
+   "height": 1.3593708002299536,
+   "edge": 0.36
+  },
+  "scale": 0.5618627657593805,
+  "tilt": 0,
+  "ring": null,
+  "top": {
+   "kind": "nub",
+   "cone": {
+    "radius": 0.1677260985178873,
+    "height": 0.31344652629340997,
+    "tilt": 0.033351704869419324
+   },
+   "sphere": {
+    "radius": 0.13663794901687654
+   },
+   "cap": {
+    "frac": 0.7928604489658028,
+    "height": 0.17879637212492527,
+    "tilt": 0.06720377657562494
+   },
+   "nub": {
+    "radius": 0.07119643972022459,
+    "length": 0.1054154303681571,
+    "tilt": 0.05770593329798429
+   }
+  },
+  "tail": null,
+  "face": {
+   "expression": "happy"
+  },
+  "glow": {
+   "strength": 4,
+   "radius": 0.52,
+   "radiusShare": 1,
+   "belowFace": false
+  },
+  "pool": {
+   "strength": 0.45
+  },
+  "posture": null,
+  "signature": "half-dome||nub|",
+  "label": "half-dome + capsule nub",
+  "growth": 0.8
+ },
+ "12-teen-hungry": {
+  "tokenId": "12",
+  "stage": "teen",
+  "state": "hungry",
+  "hue": "mint",
+  "accent": "#00EC97",
+  "body": {
+   "kind": "half-dome",
+   "r": 1.2887085661292077,
+   "height": 1.3593708002299536,
+   "edge": 0.36
+  },
+  "scale": 0.5618627657593805,
+  "tilt": 0,
+  "ring": null,
+  "top": {
+   "kind": "nub",
+   "cone": {
+    "radius": 0.1677260985178873,
+    "height": 0.31344652629340997,
+    "tilt": 0.033351704869419324
+   },
+   "sphere": {
+    "radius": 0.13663794901687654
+   },
+   "cap": {
+    "frac": 0.7928604489658028,
+    "height": 0.17879637212492527,
+    "tilt": 0.06720377657562494
+   },
+   "nub": {
+    "radius": 0.07119643972022459,
+    "length": 0.1054154303681571,
+    "tilt": 0.05770593329798429
+   }
+  },
+  "tail": null,
+  "face": {
+   "expression": "drowsy"
+  },
+  "glow": {
+   "strength": 1,
+   "radius": 0.52,
+   "radiusShare": 1,
+   "belowFace": false
+  },
+  "pool": {
+   "strength": 0.1125
+  },
+  "posture": {
+   "squash": 0.93,
+   "pitch": 0.1,
+   "topPitch": 0.12,
+   "topDrop": 0.04
+  },
+  "signature": "half-dome||nub|",
+  "label": "half-dome + capsule nub",
+  "growth": 0.8
+ },
+ "12-teen-asleep": {
+  "tokenId": "12",
+  "stage": "teen",
+  "state": "asleep",
+  "hue": "mint",
+  "accent": "#00EC97",
+  "body": {
+   "kind": "half-dome",
+   "r": 1.2887085661292077,
+   "height": 1.3593708002299536,
+   "edge": 0.36
+  },
+  "scale": 0.5618627657593805,
+  "tilt": 0,
+  "ring": null,
+  "top": {
+   "kind": "nub",
+   "cone": {
+    "radius": 0.1677260985178873,
+    "height": 0.31344652629340997,
+    "tilt": 0.033351704869419324
+   },
+   "sphere": {
+    "radius": 0.13663794901687654
+   },
+   "cap": {
+    "frac": 0.7928604489658028,
+    "height": 0.17879637212492527,
+    "tilt": 0.06720377657562494
+   },
+   "nub": {
+    "radius": 0.07119643972022459,
+    "length": 0.1054154303681571,
+    "tilt": 0.05770593329798429
+   }
+  },
+  "tail": null,
+  "face": {
+   "expression": "asleep"
+  },
+  "glow": {
+   "strength": 1.2,
+   "radius": 0.312,
+   "radiusShare": 0.6,
+   "belowFace": true
+  },
+  "pool": {
+   "strength": 0.0135
+  },
+  "posture": {
+   "squash": 0.96,
+   "pitch": 0,
+   "topPitch": 0,
+   "topDrop": 0.02
+  },
+  "signature": "half-dome||nub|",
+  "label": "half-dome + capsule nub",
+  "growth": 0.8
+ },
+ "12-teen-thinking": {
+  "tokenId": "12",
+  "stage": "teen",
+  "state": "thinking",
+  "hue": "mint",
+  "accent": "#00EC97",
+  "body": {
+   "kind": "half-dome",
+   "r": 1.2887085661292077,
+   "height": 1.3593708002299536,
+   "edge": 0.36
+  },
+  "scale": 0.5618627657593805,
+  "tilt": 0,
+  "ring": null,
+  "top": {
+   "kind": "nub",
+   "cone": {
+    "radius": 0.1677260985178873,
+    "height": 0.31344652629340997,
+    "tilt": 0.033351704869419324
+   },
+   "sphere": {
+    "radius": 0.13663794901687654
+   },
+   "cap": {
+    "frac": 0.7928604489658028,
+    "height": 0.17879637212492527,
+    "tilt": 0.06720377657562494
+   },
+   "nub": {
+    "radius": 0.07119643972022459,
+    "length": 0.1054154303681571,
+    "tilt": 0.05770593329798429
+   }
+  },
+  "tail": null,
+  "face": {
+   "expression": "thinking"
+  },
+  "glow": {
+   "strength": 4,
+   "radius": 0.52,
+   "radiusShare": 1,
+   "belowFace": false
+  },
+  "pool": {
+   "strength": 0.45
+  },
+  "posture": null,
+  "signature": "half-dome||nub|",
+  "label": "half-dome + capsule nub",
+  "growth": 0.8
+ },
+ "12-teen-waking": {
+  "tokenId": "12",
+  "stage": "teen",
+  "state": "waking",
+  "hue": "mint",
+  "accent": "#00EC97",
+  "body": {
+   "kind": "half-dome",
+   "r": 1.2887085661292077,
+   "height": 1.3593708002299536,
+   "edge": 0.36
+  },
+  "scale": 0.5618627657593805,
+  "tilt": 0,
+  "ring": null,
+  "top": {
+   "kind": "nub",
+   "cone": {
+    "radius": 0.1677260985178873,
+    "height": 0.31344652629340997,
+    "tilt": 0.033351704869419324
+   },
+   "sphere": {
+    "radius": 0.13663794901687654
+   },
+   "cap": {
+    "frac": 0.7928604489658028,
+    "height": 0.17879637212492527,
+    "tilt": 0.06720377657562494
+   },
+   "nub": {
+    "radius": 0.07119643972022459,
+    "length": 0.1054154303681571,
+    "tilt": 0.05770593329798429
+   }
+  },
+  "tail": null,
+  "face": {
+   "expression": "boot"
+  },
+  "glow": {
+   "strength": 1.8,
+   "radius": 0.52,
+   "radiusShare": 1,
+   "belowFace": false
+  },
+  "pool": {
+   "strength": 0.2025
+  },
+  "posture": null,
+  "signature": "half-dome||nub|",
+  "label": "half-dome + capsule nub",
+  "growth": 0.8
+ },
+ "12-adult-full": {
+  "tokenId": "12",
+  "stage": "adult",
+  "state": "full",
+  "hue": "mint",
+  "accent": "#00EC97",
+  "body": {
+   "kind": "half-dome",
+   "r": 1.2887085661292077,
+   "height": 1.087496640183963
+  },
+  "scale": 0.7565603959932924,
+  "tilt": 0,
+  "ring": null,
+  "top": {
+   "kind": "nub",
+   "cone": {
+    "radius": 0.3354521970357746,
+    "height": 0.6268930525868199,
+    "tilt": 0.033351704869419324
+   },
+   "sphere": {
+    "radius": 0.2732758980337531
+   },
+   "cap": {
+    "frac": 0.7928604489658028,
+    "height": 0.35759274424985055,
+    "tilt": 0.06720377657562494
+   },
+   "nub": {
+    "radius": 0.14239287944044918,
+    "length": 0.2108308607363142,
+    "tilt": 0.05770593329798429
+   }
+  },
+  "tail": null,
+  "face": {
+   "expression": "happy"
+  },
+  "glow": {
+   "strength": 4,
+   "radius": 0.52,
+   "radiusShare": 1,
+   "belowFace": false
+  },
+  "pool": {
+   "strength": 0.45
+  },
+  "posture": null,
+  "signature": "half-dome||nub|",
+  "label": "half-dome + capsule nub"
+ },
+ "12-adult-hungry": {
+  "tokenId": "12",
+  "stage": "adult",
+  "state": "hungry",
+  "hue": "mint",
+  "accent": "#00EC97",
+  "body": {
+   "kind": "half-dome",
+   "r": 1.2887085661292077,
+   "height": 1.087496640183963
+  },
+  "scale": 0.7565603959932924,
+  "tilt": 0,
+  "ring": null,
+  "top": {
+   "kind": "nub",
+   "cone": {
+    "radius": 0.3354521970357746,
+    "height": 0.6268930525868199,
+    "tilt": 0.033351704869419324
+   },
+   "sphere": {
+    "radius": 0.2732758980337531
+   },
+   "cap": {
+    "frac": 0.7928604489658028,
+    "height": 0.35759274424985055,
+    "tilt": 0.06720377657562494
+   },
+   "nub": {
+    "radius": 0.14239287944044918,
+    "length": 0.2108308607363142,
+    "tilt": 0.05770593329798429
+   }
+  },
+  "tail": null,
+  "face": {
+   "expression": "drowsy"
+  },
+  "glow": {
+   "strength": 1,
+   "radius": 0.52,
+   "radiusShare": 1,
+   "belowFace": false
+  },
+  "pool": {
+   "strength": 0.1125
+  },
+  "posture": {
+   "squash": 0.93,
+   "pitch": 0.1,
+   "topPitch": 0.12,
+   "topDrop": 0.04
+  },
+  "signature": "half-dome||nub|",
+  "label": "half-dome + capsule nub"
+ },
+ "12-adult-asleep": {
+  "tokenId": "12",
+  "stage": "adult",
+  "state": "asleep",
+  "hue": "mint",
+  "accent": "#00EC97",
+  "body": {
+   "kind": "half-dome",
+   "r": 1.2887085661292077,
+   "height": 1.087496640183963
+  },
+  "scale": 0.7565603959932924,
+  "tilt": 0,
+  "ring": null,
+  "top": {
+   "kind": "nub",
+   "cone": {
+    "radius": 0.3354521970357746,
+    "height": 0.6268930525868199,
+    "tilt": 0.033351704869419324
+   },
+   "sphere": {
+    "radius": 0.2732758980337531
+   },
+   "cap": {
+    "frac": 0.7928604489658028,
+    "height": 0.35759274424985055,
+    "tilt": 0.06720377657562494
+   },
+   "nub": {
+    "radius": 0.14239287944044918,
+    "length": 0.2108308607363142,
+    "tilt": 0.05770593329798429
+   }
+  },
+  "tail": null,
+  "face": {
+   "expression": "asleep"
+  },
+  "glow": {
+   "strength": 1.2,
+   "radius": 0.312,
+   "radiusShare": 0.6,
+   "belowFace": true
+  },
+  "pool": {
+   "strength": 0.0135
+  },
+  "posture": {
+   "squash": 0.96,
+   "pitch": 0,
+   "topPitch": 0,
+   "topDrop": 0.02
+  },
+  "signature": "half-dome||nub|",
+  "label": "half-dome + capsule nub"
+ },
+ "12-adult-thinking": {
+  "tokenId": "12",
+  "stage": "adult",
+  "state": "thinking",
+  "hue": "mint",
+  "accent": "#00EC97",
+  "body": {
+   "kind": "half-dome",
+   "r": 1.2887085661292077,
+   "height": 1.087496640183963
+  },
+  "scale": 0.7565603959932924,
+  "tilt": 0,
+  "ring": null,
+  "top": {
+   "kind": "nub",
+   "cone": {
+    "radius": 0.3354521970357746,
+    "height": 0.6268930525868199,
+    "tilt": 0.033351704869419324
+   },
+   "sphere": {
+    "radius": 0.2732758980337531
+   },
+   "cap": {
+    "frac": 0.7928604489658028,
+    "height": 0.35759274424985055,
+    "tilt": 0.06720377657562494
+   },
+   "nub": {
+    "radius": 0.14239287944044918,
+    "length": 0.2108308607363142,
+    "tilt": 0.05770593329798429
+   }
+  },
+  "tail": null,
+  "face": {
+   "expression": "thinking"
+  },
+  "glow": {
+   "strength": 4,
+   "radius": 0.52,
+   "radiusShare": 1,
+   "belowFace": false
+  },
+  "pool": {
+   "strength": 0.45
+  },
+  "posture": null,
+  "signature": "half-dome||nub|",
+  "label": "half-dome + capsule nub"
+ },
+ "12-adult-waking": {
+  "tokenId": "12",
+  "stage": "adult",
+  "state": "waking",
+  "hue": "mint",
+  "accent": "#00EC97",
+  "body": {
+   "kind": "half-dome",
+   "r": 1.2887085661292077,
+   "height": 1.087496640183963
+  },
+  "scale": 0.7565603959932924,
+  "tilt": 0,
+  "ring": null,
+  "top": {
+   "kind": "nub",
+   "cone": {
+    "radius": 0.3354521970357746,
+    "height": 0.6268930525868199,
+    "tilt": 0.033351704869419324
+   },
+   "sphere": {
+    "radius": 0.2732758980337531
+   },
+   "cap": {
+    "frac": 0.7928604489658028,
+    "height": 0.35759274424985055,
+    "tilt": 0.06720377657562494
+   },
+   "nub": {
+    "radius": 0.14239287944044918,
+    "length": 0.2108308607363142,
+    "tilt": 0.05770593329798429
+   }
+  },
+  "tail": null,
+  "face": {
+   "expression": "boot"
+  },
+  "glow": {
+   "strength": 1.8,
+   "radius": 0.52,
+   "radiusShare": 1,
+   "belowFace": false
+  },
+  "pool": {
+   "strength": 0.2025
+  },
+  "posture": null,
+  "signature": "half-dome||nub|",
+  "label": "half-dome + capsule nub"
+ }
+}
