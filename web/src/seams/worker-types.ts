@@ -12,6 +12,8 @@ export class WorkerError extends Error {
   constructor(
     readonly status: number,
     readonly code: string,
+    /** the parsed body of the refusal, for the few that carry more than a code (`sign_in_refused`) */
+    readonly body: unknown = null,
   ) {
     super(`worker ${status} ${code}`);
   }
@@ -53,6 +55,8 @@ export type PetView =
       pendingText: string | null;
       /** the newest thought with a reply: a page without it reads the conversation again */
       lastThought: string | null;
+      /** how many times the memory was cleared: a tab with an older number reads the conversation again */
+      memoryEpoch: number;
       ownedCount: number;
     } & PetBase);
 
@@ -65,6 +69,9 @@ export interface HatchStatus {
   until?: string;
   /** a signed-in player who hatched a pet they still own */
   already?: { tokenId: string; name: string };
+  /** a closed answer to a session whose player has no pet of their own now (`add-pet` › Hatch screen › `no exit`): no way
+   *  out is offered; absent for a visitor and for a player with a pet */
+  noPets?: true;
 }
 
 export interface Me {
@@ -74,7 +81,7 @@ export interface Me {
   ownedCount: number;
 }
 
-export type ThoughtCode = 'ai_unavailable' | 'empty_paid' | 'asleep' | 'tired' | 'too_hungry' | 'paused' | 'chain_unreachable';
+export type ThoughtCode = 'ai_unavailable' | 'empty_paid' | 'asleep' | 'tired' | 'too_hungry' | 'paused' | 'chain_unreachable' | 'memory_cleared';
 export type PetEvent = 'fell_asleep' | 'daily_cap_reached' | 'woke';
 export interface Thought {
   id: string;
@@ -113,6 +120,25 @@ export interface Conversation {
   before: number | null;
 }
 
+/** `GET /api/sign-in` (Sign-in data): what a browser with no session may do before Google. Nothing about players. */
+export type SignInGate = { state: 'open' } | { state: 'closed_new' | 'closed_all'; until: string };
+
+/** Why the server did not open a session after Google (`POST /api/session`, `403 sign_in_refused`): `mau` — closed to new
+ *  players, `ceiling` — closed to everyone. `until` is 00:00 UTC of the 1st, ISO. */
+export interface SignInRefusal {
+  reason: 'mau' | 'ceiling';
+  until: string;
+}
+
+/** `POST /api/session`: the session is open, or the server refused to open it. Any other answer is a `WorkerError`:
+ *  `401 signed_out` (the token is no session), `503 auth_unavailable`, status 0 (no answer). */
+export type SessionResult = { ok: true } | { refused: SignInRefusal };
+
+/** `POST /api/pets/:id/memory/clear` — `resolve` is `200`. Refusals (`WorkerError`): `401 signed_out`, `403 not_owner`,
+ *  `404 no_pet`, `429 rate_limited`, `503 chain_unreachable` / `auth_unavailable`, `500 clear_failed` (the server says
+ *  nothing was erased); status 0 or another 5xx — the outcome is unknown. */
+export type ClearMemoryCode = 'signed_out' | 'not_owner' | 'no_pet' | 'rate_limited' | 'chain_unreachable' | 'auth_unavailable' | 'clear_failed';
+
 /** The identity token of the player, or null for a visitor. */
 export type Token = string | null;
 
@@ -133,4 +159,13 @@ export interface WorkerApi {
   greeting(token: Token, tokenId: string): Promise<{ job: string | null }>;
   /** «Try again» under a wake thought that did not come: the job, null with nothing to retry. */
   retryWake(token: Token, tokenId: string): Promise<{ job: string | null }>;
+  /** The exchange after Google, once per page load with a Privy session. `fresh`: this load came back from Google; `from`:
+   *  where the sign-in began (a page, or Home). Outside the request limit. */
+  session(token: Token, body: { fresh: boolean; from?: 'link' | 'home' }): Promise<SessionResult>;
+  /** «Sign out» on the server (ADR-022); `204`. Takes at most `END_SESSION_TIMEOUT_MS`. */
+  endSession(token: Token): Promise<void>;
+  /** The state of the sign-in, read before Google. Sent with no token: a stale one would be a `401`. */
+  signInState(): Promise<SignInGate>;
+  /** The owner erases the pet's memory. */
+  clearMemory(token: Token, tokenId: string): Promise<{ ok: true }>;
 }

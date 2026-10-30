@@ -2,6 +2,7 @@
 // fullness from it. The same numbers for every viewer (Pet food data).
 import type { PetRecord } from '../chain';
 import { utcDay } from '../http';
+import { memoryEpoch } from './forget';
 import { DAILY_CAP_YOCTO, deepEstimate, deepEstimateUsd12, fullness, minCallPrice, type Fullness, type PriceEnv } from '../pricing';
 
 /** The exact prices of the thoughts answered but not yet debited on the network, summed. Their
@@ -27,7 +28,8 @@ export async function fullnessOf(db: D1Database, tokenId: string, pet: PetRecord
  * line (the input hint «Say hi to {name}…»). Decided here, not by the client from the log. */
 export async function hello(db: D1Database, tokenId: string): Promise<boolean> {
   const row = await db
-    .prepare('SELECT 1 AS found FROM thoughts WHERE token_id = ? AND player_text IS NOT NULL LIMIT 1')
+    // An erased reply still says the owner wrote: a clear leaves the hint at «Talk to…», not «Say hi to…».
+    .prepare("SELECT 1 AS found FROM thoughts WHERE token_id = ? AND (player_text IS NOT NULL OR (erased_at IS NOT NULL AND kind IN ('reply', 'deep'))) LIMIT 1")
     .bind(tokenId)
     .first<{ found: number }>();
   return row === null;
@@ -104,6 +106,8 @@ export interface OwnerFields {
   pendingText: string | null;
   /** the newest thought with a reply: a page that has not got it reads the conversation again */
   lastThought: string | null;
+  /** How many times the memory was cleared: a tab whose number is older reads the conversation again. */
+  memoryEpoch: number;
 }
 
 interface PendingRow {
@@ -142,5 +146,6 @@ export async function ownerFields(env: Env, tokenId: string, pet: PetRecord, pau
     pendingKind: pending?.kind ?? null,
     pendingText: pendingLine(pending),
     lastThought: last?.id ?? null,
+    memoryEpoch: await memoryEpoch(env.DB, tokenId),
   };
 }

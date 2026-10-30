@@ -95,6 +95,12 @@ export function Dock({ children }: { children?: ReactNode }) {
   return <div className="ds-dock">{children}</div>;
 }
 
+/** The actions of one moment that stand as peers (Home's «Hatch your pet» and «Sign in»): stacked and full width on the
+ *  phone, side by side and centred on the desktop. Not a control: no motion, hover, focus or keys of its own. */
+export function Actions({ children }: { children?: ReactNode }) {
+  return <div className="ds-actions">{children}</div>;
+}
+
 /** Content that stands in a different place on each viewport: where it shows it adds no box of its own. */
 export function Only({ on, children }: { on: 'phone' | 'desktop'; children?: ReactNode }) {
   return <div className={`ds-only ds-only--${on}`}>{children}</div>;

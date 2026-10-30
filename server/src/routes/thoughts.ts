@@ -7,6 +7,7 @@ import { ChainUnreachable, petView, stageOf, type PetRecord } from '../chain';
 import { requireSession, TOKEN_ID, type AppContext, type AppEnv } from '../http';
 import { hasVisible } from '../name/clean';
 import { desk, enqueueJob, jobOf } from '../pet/desk';
+import { memoryEpoch } from '../pet/forget';
 import { ownerFields } from '../pet/view';
 import { wakeIfFed } from '../pet/wake';
 import { isPaused, pauseReason } from '../servicePause';
@@ -18,7 +19,7 @@ const MAX_LINE_CODE_POINTS = 500;
 const CONVERSATION_PAGE = 50;
 
 /** The owner's pet, or the response to send instead. */
-async function ownedPet(c: AppContext): Promise<{ pet: PetRecord; id: string } | Response> {
+export async function ownedPet(c: AppContext): Promise<{ pet: PetRecord; id: string } | Response> {
   const session = requireSession(c);
   if (session instanceof Response) return session;
   const id = c.req.param('id') ?? '';
@@ -64,6 +65,9 @@ thoughtRoutes.post('/api/pets/:id/thoughts', async (c) => {
 thoughtRoutes.post('/api/pets/:id/greeting', async (c) => {
   const owned = await ownedPet(c);
   if (owned instanceof Response) return owned;
+  // A pet whose memory was cleared does not speak first again, even if its greeting never landed
+  // (`Memory deletion flow` › «стёр»).
+  if ((await memoryEpoch(c.env.DB, owned.id)) > 0) return c.json({ job: null }, 202);
   const existing = await c.env.DB.prepare(
     "SELECT id FROM jobs WHERE token_id = ? AND kind = 'greeting' AND status IN ('queued', 'running') ORDER BY created_at LIMIT 1",
   )
@@ -128,16 +132,20 @@ thoughtRoutes.get('/api/pets/:id/state', async (c) => {
       events.push(...(result.events ?? []));
       if (result.code !== undefined) out.code = result.code;
       if (result.thoughtId !== undefined) {
-        const thought = await c.env.DB.prepare("SELECT id, kind, reply_text, cut, reasked, price_yocto, price_usd_micros FROM thoughts WHERE id = ?").bind(result.thoughtId).first<{
+        const thought = await c.env.DB.prepare("SELECT id, kind, reply_text, erased_at, cut, reasked, price_yocto, price_usd_micros FROM thoughts WHERE id = ?").bind(result.thoughtId).first<{
           id: string;
           kind: string;
-          reply_text: string;
+          reply_text: string | null;
+          erased_at: number | null;
           cut: string | null;
           reasked: number;
           price_yocto: string;
           price_usd_micros: number;
         }>();
-        if (thought !== null) {
+        if (thought !== null && thought.reply_text === null && thought.erased_at !== null) {
+          // The answer came after the owner cleared the memory: it is not shown (`Memory deletion data` › «ответ в пути»).
+          out.code = 'memory_cleared';
+        } else if (thought !== null) {
           out.thought = {
             id: thought.id,
             text: thought.reply_text,

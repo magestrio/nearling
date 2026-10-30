@@ -8,6 +8,11 @@ export function markNewborn(tokenId: string): void {
   newborn = tokenId;
 }
 
+/** A sign-out leaves no pet of the player's in the tab (`Sign-out flow` › «вышел»). */
+export function clearNewborn(): void {
+  newborn = null;
+}
+
 /** True for the first Pet screen of the pet this tab just hatched. */
 export function useBirth(tokenId: string): boolean {
   const [birth] = useState(() => newborn === tokenId);

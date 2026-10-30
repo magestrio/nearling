@@ -206,12 +206,13 @@ test('сервер недоступен: «We can\'t reach the game…» is hear
 });
 
 // spec: add-pet › Sleep and wake flow › разбудил друг при открытой странице
-test('разбудил друг при открытой странице: the focus that went to the sleep line comes back to the field', async ({ page }) => {
+test('разбудил друг при открытой странице: the field keeps the focus while it is off, and still has it when the pet wakes', async ({ page }) => {
   await openWith(page, '/pet/9', { auth: SIGNED_IN, worker: OWNER });
   await expect(log(page)).toContainText('Start with the chart, then.');
   await setWorker(page, { pets: { '9': ASLEEP }, petState: {} });
   await lookAgain(page);
-  await expect(page.locator('#pet-sleep-line')).toBeFocused();
+  await expect(field(page)).toHaveAttribute('aria-disabled', 'true');
+  await expect(field(page)).toBeFocused();
   await setWorker(page, { pets: { '9': PIXEL }, petState: { events: ['woke'], friend: 'Maya' } });
   await lookAgain(page);
   await expect(page.getByText('Maya fed Pixel.')).toBeVisible();

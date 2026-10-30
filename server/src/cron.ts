@@ -7,6 +7,7 @@ import { utcDay } from './http';
 import { keyIsValid } from './nearai';
 import { desk, enqueueJob, STALE_RUNNING_MS } from './pet/desk';
 import { clearPause, gasReserve, lastProbe, noteProbe, pauseReason, setPause } from './servicePause';
+import { monthOf } from './signin';
 
 /** The diary is put to the pets that do not sleep in the first 30 minutes of the UTC day. */
 const DIARY_WINDOW_MS = 30 * 60_000;
@@ -86,9 +87,12 @@ export async function pause(env: Env, nowMs: number): Promise<void> {
   }
 }
 
-async function clean(env: Env, nowMs: number): Promise<void> {
+export async function clean(env: Env, nowMs: number): Promise<void> {
   await env.DB.batch([
     env.DB.prepare("DELETE FROM jobs WHERE created_at < ? AND status IN ('done', 'failed')").bind(nowMs - 86_400_000),
     env.DB.prepare('DELETE FROM empty_answers WHERE day < ?').bind(utcDay(nowMs) - 1),
+    // Refusals of past months (Sign-in data › «новый месяц»); the ended sessions after 24 hours (ADR-022).
+    env.DB.prepare('DELETE FROM sign_in_refusals WHERE month <> ?').bind(monthOf(nowMs)),
+    env.DB.prepare('DELETE FROM ended_sessions WHERE ended_at < ?').bind(nowMs - 86_400_000),
   ]);
 }

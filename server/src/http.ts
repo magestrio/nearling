@@ -7,6 +7,7 @@
 import type { Context } from 'hono';
 import { createMiddleware } from 'hono/factory';
 import { identify, type Session } from './auth';
+import { monthOf } from './signin';
 
 export type AppEnv = { Bindings: Env; Variables: { session: Session | null } };
 export type AppContext = Context<AppEnv>;
@@ -28,6 +29,18 @@ export const gate = createMiddleware<AppEnv>(async (c, next) => {
   if (identity.kind === 'invalid') return c.json({ code: 'signed_out' }, 401);
   // A token nobody could judge: the player stays signed in and sees `Connection rule`.
   if (identity.kind === 'unavailable') return c.json({ code: 'auth_unavailable' }, 503);
+  if (identity.kind === 'session') {
+    // A valid token alone opens nothing: the player needs a row (the exchange of `POST /api/session`
+    // made it) and a session that was not ended by a sign-out (ADR-022).
+    const { sub, sid } = identity.session;
+    const row = await c.env.DB.prepare('SELECT month, EXISTS (SELECT 1 FROM ended_sessions WHERE sid = ?1) AS ended FROM players WHERE sub = ?2')
+      .bind(sid, sub)
+      .first<{ month: string; ended: number }>();
+    if (row === null || row.ended === 1) return c.json({ code: 'signed_out' }, 401);
+    // A request with a session counts as played this month, with no cap: the session is alive.
+    const month = monthOf(Date.now());
+    if (row.month !== month) await c.env.DB.prepare('UPDATE players SET month = ?1 WHERE sub = ?2 AND month <> ?1').bind(month, sub).run();
+  }
   c.set('session', identity.kind === 'session' ? identity.session : null);
   await next();
   return undefined;

@@ -27,6 +27,12 @@ export function navigate(path: string): void {
   window.dispatchEvent(new Event(EVENT));
 }
 
+/** Loads the address afresh, replacing the history entry: a page restored from the back-forward cache has its old state in
+ *  memory, and a full load is what drops it. */
+export function replaceLocation(path: string): void {
+  window.location.replace(path);
+}
+
 /** Follows a link inside the app: a new history entry, so Back works. */
 export function go(path: string): void {
   window.history.pushState(null, '', path);

@@ -213,10 +213,19 @@ test('closed, from a friend\'s pet: «Back to Biscuit» leads to the friend\'s P
 });
 
 // spec: add-pet › Hatch screen › выход на главную
-test('closed, not from a friend: «Go home» leads to the home address', async ({ page }) => {
-  await openWith(page, '/hatch', { auth: SIGNED_IN, worker: { hatchStatus: { open: false, reason: 'pool' } } });
+test('closed, not from a friend, no session: «Go home» leads to the home address', async ({ page }) => {
+  await openWith(page, '/hatch', { worker: { hatchStatus: { open: false, reason: 'pool' } } });
   await page.getByRole('link', { name: 'Go home' }).click();
   await expect(page).toHaveURL(/\/$/);
+  await expect(page.getByRole('heading', { level: 1, name: /^This pet pays for its own thoughts/ })).toBeVisible();
+});
+
+// spec: add-pet › Hatch screen › выход на главную
+test('closed, not from a friend, a pet of their own: «Go home» leads to the home address, which leads on to the pet', async ({ page }) => {
+  const me = { accountId: 'a'.repeat(64), hatched: { tokenId: '9', name: 'Pixel' }, currentPet: { tokenId: '9', name: 'Pixel' }, ownedCount: 1 };
+  await openWith(page, '/hatch', { auth: SIGNED_IN, worker: { ...OWNER, me, hatchStatus: { open: false, reason: 'pool' } } });
+  await page.getByRole('link', { name: 'Go home' }).click();
+  await expect(page).toHaveURL(/\/pet\/9$/);
 });
 
 // spec: add-pet › Hatch screen › выход к питомцу друга × the pet in the address doesn't exist
@@ -242,6 +251,32 @@ test('closed for a player who already hatched: the closed line, not «already ha
   });
   await expect(page.getByText('New pets are paused for now. You can still feed and visit pets you know.').first()).toBeVisible();
   await expect(page.getByText("You've already hatched a pet — one per player.")).toHaveCount(0);
+});
+
+// spec: add-pet › Hatch screen › no exit
+test('no exit: a signed-in player with no pet, not from a friend\'s pet — the closed line alone, no button; «Account» and the name stay', async ({ page }) => {
+  await openWith(page, '/hatch', { auth: SIGNED_IN, worker: { hatchStatus: { open: false, reason: 'daily', noPets: true } } });
+  await nameField(page).fill('Pixel');
+  await expect(page.getByText(/^That's all the new pets for today\. Hatching is back at \d\d:\d\d\. You can still feed and visit pets you know\.$/).first()).toBeVisible();
+  await expect(page.getByRole('link', { name: 'Go home' })).toHaveCount(0);
+  await expect(page.getByRole('link', { name: /^Back to/ })).toHaveCount(0);
+  await expect(hatchButton(page)).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Account' })).toBeVisible();
+  await expect(nameField(page)).toHaveValue('Pixel');
+});
+
+// spec: add-pet › Hatch screen › no exit
+test('no exit: a friend\'s pet that exists still wins — «Back to Biscuit»', async ({ page }) => {
+  await openWith(page, '/hatch?from=2', { auth: SIGNED_IN, worker: { hatchStatus: { open: false, reason: 'daily', noPets: true } } });
+  await expect(page.getByRole('link', { name: 'Back to Biscuit' })).toBeVisible();
+  await expect(page.getByRole('link', { name: 'Go home' })).toHaveCount(0);
+});
+
+// spec: add-pet › Hatch screen › no exit
+test('no exit: a player with a pet of their own (the answer has no `noPets`) keeps «Go home»', async ({ page }) => {
+  await openWith(page, '/hatch', { auth: SIGNED_IN, worker: { hatchStatus: { open: false, reason: 'daily' } } });
+  await expect(page.getByRole('link', { name: 'Go home' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Account' })).toBeVisible();
 });
 
 // spec: add-pet › Connection rule › сервер недоступен

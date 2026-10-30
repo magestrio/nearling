@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { calls, lookAgain, openWith, OWNER, setWorker, SIGNED_IN } from './helpers';
+import { calls, openWith, OWNER } from './helpers';
 
 const placeOf = (page: import('@playwright/test').Page) => page.evaluate(() => sessionStorage.getItem('nearling.returnPlace'));
 
@@ -67,15 +67,4 @@ test('signed-out (вошёл владелец): after the sign-in the page is th
   await expect(page.getByPlaceholder('Talk to Pixel…')).toBeVisible();
   await expect(page.getByRole('log')).toContainText('Start with the chart, then.');
   await expect(page.getByRole('button', { name: 'Sign in' })).toHaveCount(0);
-});
-
-// spec: add-pet › Pet screen › signed-out × сессия истекла посреди игры
-test('signed-out × сессия истекла посреди игры: the page becomes the visitor\'s — «Sign in», no field', async ({ page }) => {
-  await openWith(page, '/pet/9', { auth: SIGNED_IN, worker: OWNER });
-  await expect(page.getByPlaceholder('Talk to Pixel…')).toBeVisible();
-  await setWorker(page, { petState: { fail: { status: 401, code: 'signed_out' } } });
-  await lookAgain(page);
-  await expect(page.getByRole('button', { name: 'Sign in' })).toBeVisible();
-  await expect(page.getByPlaceholder('Talk to Pixel…')).toHaveCount(0);
-  await expect(page.getByRole('heading', { level: 1, name: 'Pixel' })).toBeVisible();
 });

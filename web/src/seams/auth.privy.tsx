@@ -2,9 +2,9 @@
 // lazily by auth.tsx: a browser with no session does not load it until a tap that needs it.
 import { PrivyProvider, getIdentityToken, useLoginWithOAuth, usePrivy, type PrivyClientConfig } from '@privy-io/react-auth';
 import { useCreateWallet, useSignRawHash } from '@privy-io/react-auth/extended-chains';
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { config } from '../config';
-import type { AuthApi } from './auth-context';
+import type { ProviderApi, SignInError } from './auth-context';
 import { useNearWallet } from './nearWallet';
 import { makeTokenKeeper } from './token';
 
@@ -19,9 +19,16 @@ function hexToBytes(hex: string): Uint8Array {
 
 /** Publishes what Privy knows as an AuthApi to the provider above, which hands it to the whole app. A session with no
  *  NEAR wallet is no sign-in yet: the app is told once the wallet exists, and the first token it gets carries it. */
-function Bridge({ onApi }: { onApi: (api: AuthApi) => void }) {
+function Bridge({ onApi }: { onApi: (api: ProviderApi) => void }) {
   const { ready, authenticated, user, logout } = usePrivy();
-  const { initOAuth } = useLoginWithOAuth();
+  const [signInError, setSignInError] = useState<SignInError | null>(null);
+  // This load came back from Google: Privy strips `privy_oauth_code` from the address once it has read it, so it is looked
+  // at in the first render, before any effect of the SDK has run.
+  const [freshSignIn] = useState(() => /[?&]privy_oauth_code=/.test(window.location.search));
+  const { initOAuth } = useLoginWithOAuth({
+    // the player closed Google's window, or something else went wrong (`Sign-in flow` › «отменил вход», «вход не удался»)
+    onError: useCallback((code: string) => setSignInError(code === 'oauth_user_denied' || code === 'exited_auth_flow' ? 'cancelled' : 'failed'), []),
+  });
   const { createWallet } = useCreateWallet();
   const { signRawHash } = useSignRawHash();
   const tokens = useMemo(() => makeTokenKeeper(getIdentityToken), []);
@@ -38,6 +45,7 @@ function Bridge({ onApi }: { onApi: (api: AuthApi) => void }) {
     return wallet && 'address' in wallet ? wallet.address : null;
   }, [user]);
 
+  const email = user?.google?.email ?? null;
   const create = useCallback(async () => (await privy.current.createWallet({ chainType: 'near' })).wallet.address, []);
   const wallet = useNearWallet({ ready, authenticated, linked, create, onCreated: tokens.forget });
   const nearAccountId = wallet.account;
@@ -47,18 +55,39 @@ function Bridge({ onApi }: { onApi: (api: AuthApi) => void }) {
     if (!authenticated) tokens.forget();
   }, [authenticated, tokens]);
 
-  const api = useMemo<AuthApi>(
+  const api = useMemo<ProviderApi>(
     () => ({
       ready: ready && !wallet.making,
       authenticated: signedIn,
       nearAccountId,
       walletFailed: wallet.failed,
+      email,
+      freshSignIn,
+      signInError,
       login() {
+        setSignInError(null);
         // Signed in with Google and the wallet is what is missing: the tap tries the wallet again. Any other tap goes to
         // Google, also when Privy still says `authenticated` (the Worker refused the session, or it ended in another tab):
         // a retry then changes nothing and the button would be dead.
-        if (authenticated && nearAccountId === null) wallet.retry();
-        else void privy.current.initOAuth({ provider: 'google' });
+        // The address is `/` only when Privy reads it (`Sign-in return data`): the tap that began the sign-in wrote the place
+        // into the tab, and the tab goes back to it from there. A sign-in that does not start puts the address back.
+        const place = window.location.pathname + window.location.search + window.location.hash;
+        window.history.replaceState(null, '', '/');
+        if (authenticated && nearAccountId === null) {
+          wallet.retry();
+          return;
+        }
+        void (async () => {
+          try {
+            await privy.current.initOAuth({ provider: 'google' });
+          } catch {
+            if (window.location.pathname === '/') window.history.replaceState(null, '', place);
+            setSignInError('failed');
+          }
+        })();
+      },
+      clearSignInError() {
+        setSignInError(null);
       },
       async logout() {
         tokens.forget();
@@ -72,14 +101,14 @@ function Bridge({ onApi }: { onApi: (api: AuthApi) => void }) {
         return hexToBytes(signature);
       },
     }),
-    [ready, wallet.making, wallet.failed, wallet.retry, signedIn, authenticated, nearAccountId, create, tokens],
+    [ready, wallet.making, wallet.failed, wallet.retry, signedIn, authenticated, nearAccountId, create, tokens, email, freshSignIn, signInError],
   );
 
   useEffect(() => onApi(api), [api, onApi]);
   return null;
 }
 
-export function PrivyHost({ onApi }: { onApi: (api: AuthApi) => void }) {
+export function PrivyHost({ onApi }: { onApi: (api: ProviderApi) => void }) {
   return (
     <PrivyProvider appId={config.privyAppId} config={PRIVY_CONFIG}>
       <Bridge onApi={onApi} />

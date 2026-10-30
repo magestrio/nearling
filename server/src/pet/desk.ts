@@ -20,6 +20,11 @@ interface Row {
   payload: string | null;
 }
 
+/** A claimed job with the pet's memory epoch as it stood in the very statement that claimed it. */
+interface Claimed extends Row {
+  epoch: number;
+}
+
 export function jobOf(row: Row): ThoughtJob {
   const data = row.payload === null ? {} : (JSON.parse(row.payload) as Record<string, unknown>);
   switch (row.kind) {
@@ -83,11 +88,13 @@ export class PetDesk extends DurableObject<Env> {
       .bind(JSON.stringify({ code: 'ai_unavailable' }), tokenId, Date.now() - STALE_RUNNING_MS)
       .run();
     for (;;) {
+      // The epoch comes with the claim, in one statement: a clear that lands before it fails this job
+      // (`forgetStatements`), one that lands after it differs from `epoch`, and `think` erases the words.
       const row = await this.env.DB.prepare(
-        "UPDATE jobs SET status = 'running' WHERE id = (SELECT id FROM jobs WHERE token_id = ? AND status = 'queued' ORDER BY created_at, rowid LIMIT 1) AND status = 'queued' RETURNING id, kind, mode, payload",
+        "UPDATE jobs SET status = 'running' WHERE id = (SELECT id FROM jobs WHERE token_id = ?1 AND status = 'queued' ORDER BY created_at, rowid LIMIT 1) AND status = 'queued' RETURNING id, kind, mode, payload, COALESCE((SELECT memory_epoch FROM pets WHERE token_id = ?1), 0) AS epoch",
       )
         .bind(tokenId)
-        .first<Row>();
+        .first<Claimed>();
       if (row === null) {
         await this.rest(tokenId);
         return;
@@ -97,7 +104,7 @@ export class PetDesk extends DurableObject<Env> {
       let result: JobResult;
       let status = 'done';
       try {
-        result = await run(this.env, tokenId, jobOf(row));
+        result = await run(this.env, tokenId, jobOf(row), row.epoch);
       } catch {
         console.log('job_failed');
         result = { code: 'ai_unavailable' };
@@ -108,8 +115,12 @@ export class PetDesk extends DurableObject<Env> {
         await this.env.DB.prepare('UPDATE pets SET diary_day = ? WHERE token_id = ?').bind(utcDay(Date.now()), tokenId).run();
       }
       // The line itself leaves the row when the job is over; the thought's text lives in `thoughts`.
+      // A failed wake thought keeps what its «Try again» needs, read from the column: the copy this
+      // loop took at the start would bring back a friend's name the owner has cleared since.
       const keep = row.kind === 'wake' && 'code' in result && result.code === 'ai_unavailable';
-      await this.env.DB.prepare('UPDATE jobs SET status = ?, result = ?, payload = ? WHERE id = ?').bind(status, JSON.stringify(result), keep ? row.payload : null, row.id).run();
+      await this.env.DB.prepare('UPDATE jobs SET status = ?1, result = ?2, payload = CASE WHEN ?3 = 1 THEN payload END WHERE id = ?4')
+        .bind(status, JSON.stringify(result), keep ? 1 : 0, row.id)
+        .run();
     }
   }
 

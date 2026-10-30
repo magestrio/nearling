@@ -11,6 +11,9 @@ export interface Session {
   sub: string;
   /** The embedded wallet's NEAR implicit account: 64 lowercase hex. */
   accountId: string;
+  /** Privy's opaque session id (the token's `sid`): what a sign-out records (ADR-022). `null` when the
+   * token carries none; then a sign-out records nothing. */
+  sid: string | null;
 }
 
 export type Identity =
@@ -96,7 +99,9 @@ export async function identify(req: Request, env: Pick<Env, 'PRIVY_APP_ID' | 'PR
       console.log('auth refused · no NEAR wallet ·', shapeOf(payload['linked_accounts']));
       return { kind: 'invalid' };
     }
-    return { kind: 'session', session: { sub: payload.sub, accountId } };
+    const sid = typeof payload['sid'] === 'string' && payload['sid'] !== '' ? payload['sid'] : null;
+    if (sid === null) console.log('session_no_sid');
+    return { kind: 'session', session: { sub: payload.sub, accountId, sid } };
   } catch (e) {
     // A bad signature, an expired token, a wrong audience: no session.
     const code = (e as { code?: string } | null)?.code ?? '';

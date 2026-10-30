@@ -202,7 +202,7 @@ test('Голоден: «Think hard» is inactive with its note, chatting works',
 // spec: add-pet › Sleep and wake flow › разбудил друг при открытой странице
 test('разбудил друг при открытой странице: without a reload the pet wakes, «Maya fed Pixel.» and its first thought thanks her', async ({ page }) => {
   await openWith(page, '/pet/9', { auth: SIGNED_IN, worker: { ...OWNER, pets: { '9': ASLEEP } } });
-  await expect(page.getByText('Pixel is asleep. A meal will wake Pixel up.')).toBeVisible();
+  await expect(page.getByText('Pixel is asleep. A meal will wake Pixel up.').first()).toBeVisible();
   await expect(page.getByRole('img', { name: 'Pixel, asleep' })).toBeVisible();
   const input = field(page);
   await expect(input).toHaveAttribute('aria-disabled', 'true');

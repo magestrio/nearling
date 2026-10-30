@@ -113,8 +113,12 @@ export class FakeContract {
     return [...this.pets.values()].filter((p) => p.owner_id === account).length;
   }
 
+  /** Views that fail (the node errors) while the rest of the contract answers. */
+  failingViews = new Set<string>();
+
   view(method: string, args: Record<string, unknown>): unknown {
     this.reads.push({ method, args });
+    if (this.failingViews.has(method)) throw new Error(`the fake node fails ${method}`);
     switch (method) {
       case 'pet_view': {
         const before = this.past.get(String(args.token_id)) ?? [];
@@ -407,9 +411,28 @@ const BLOCK_HASH = baseEncode(new Uint8Array(32).fill(7));
 const { privateKey, publicKey } = await generateKeyPair('ES256', { extractable: true });
 const publicJwk = { ...(await exportJWK(publicKey)), kid: 'test-key', alg: 'ES256', use: 'sig' };
 
-/** An identity token as Privy would issue it for `sub`, carrying a NEAR embedded wallet. */
-export async function token(sub: string, accountId: string, opts: { expiresIn?: string; audience?: string; issuer?: string; kid?: string } = {}): Promise<string> {
+export interface TokenOptions {
+  expiresIn?: string;
+  audience?: string;
+  issuer?: string;
+  kid?: string;
+  /** Privy's session id claim; default `sid:<sub>`, `null` leaves the claim out. */
+  sid?: string | null;
+  /** The token is made for a player the server has no row of (a refusal's test, a sign-in's first call). */
+  noPlayer?: boolean;
+}
+
+/** An identity token as Privy would issue it for `sub`, carrying a NEAR embedded wallet. Unless
+ * `noPlayer`, the player has a row of this month, as one who passed the exchange of `POST /api/session`. */
+export async function token(sub: string, accountId: string, opts: TokenOptions = {}): Promise<string> {
+  if (opts.noPlayer !== true) {
+    await env.DB.prepare('INSERT OR IGNORE INTO players (sub, account_id, month, created_at) VALUES (?, ?, ?, ?)')
+      .bind(sub, accountId, new Date().toISOString().slice(0, 7), Date.now())
+      .run();
+  }
+  const sid = opts.sid === undefined ? `sid:${sub}` : opts.sid;
   return new SignJWT({
+    ...(sid === null ? {} : { sid }),
     linked_accounts: JSON.stringify([
       { type: 'google_oauth', subject: 'g-1', name: 'Test Player' },
       { type: 'wallet', chain_type: 'near', address: accountId, wallet_client_type: 'privy' },

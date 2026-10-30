@@ -1,8 +1,14 @@
 import { lazy, Suspense, useEffect } from 'react';
+import { Button, Center, Heading, Live, Page, Shell } from './ds';
 import { go, parseRoute, useLocation } from './route';
+import './account/register';
+import { ClearMemoryLayer } from './account/ClearMemoryLayer';
+import { useAuth } from './seams/auth';
 import { HatchScreen } from './screens/hatch/HatchScreen';
+import { HomeScreen } from './screens/home/HomeScreen';
 import { PetNotFound, PetScreen } from './screens/pet/PetScreen';
 import { ReturnToPlace } from './signin/ReturnToPlace';
+import { SignInLayer } from './signin/signIn';
 
 // The day-1 route exists in dev builds only: with VITE_DEV_ROUTE not 'true' the branch is dead code and the
 // chunk is never emitted.
@@ -24,20 +30,47 @@ function useInternalLinks() {
   }, []);
 }
 
+const UNREACHABLE = "We can't reach the game right now. Try again in a moment.";
+
+/** `Connection rule` › «сервер недоступен» with nothing to show: the exchange that opens the session got no answer. The place
+ *  stays in the tab until it has answered (Home draws its own `home-error`). */
+function ConnectionPage({ tryAgain }: { tryAgain: () => void }) {
+  return (
+    <Shell fill>
+      <Page fill width="narrow">
+        <Center>
+          <Heading level={1} variant="title-2" align="center">
+            {UNREACHABLE}
+          </Heading>
+          <Button onClick={tryAgain}>Try again</Button>
+        </Center>
+      </Page>
+    </Shell>
+  );
+}
+
 export function App() {
   const route = parseRoute(useLocation());
+  const auth = useAuth();
   useInternalLinks();
+  const unreachable = auth.unreachable && route.name !== 'home' && route.name !== 'day1';
   return (
-    <>
-      <ReturnToPlace />
-      {route.name === 'hatch' ? <HatchScreen from={route.from} /> : null}
-      {route.name === 'pet' ? <PetScreen key={route.tokenId} tokenId={route.tokenId} from={route.from} /> : null}
-      {route.name === 'pet-broken' ? <PetNotFound /> : null}
-      {Day1Page && route.name === 'day1' ? (
-        <Suspense fallback={null}>
-          <Day1Page />
-        </Suspense>
-      ) : null}
-    </>
+    <SignInLayer>
+      <ClearMemoryLayer>
+        <ReturnToPlace />
+        <Live>{unreachable ? UNREACHABLE : ''}</Live>
+        {unreachable ? <ConnectionPage tryAgain={auth.retrySession} /> : null}
+        {/* Home draws its own `Connection rule` page (`home-error`), whatever the exchange answered */}
+        {route.name === 'home' ? <HomeScreen /> : null}
+        {!unreachable && route.name === 'hatch' ? <HatchScreen from={route.from} /> : null}
+        {!unreachable && route.name === 'pet' ? <PetScreen key={route.tokenId} tokenId={route.tokenId} from={route.from} /> : null}
+        {!unreachable && route.name === 'pet-broken' ? <PetNotFound /> : null}
+        {Day1Page && route.name === 'day1' ? (
+          <Suspense fallback={null}>
+            <Day1Page />
+          </Suspense>
+        ) : null}
+      </ClearMemoryLayer>
+    </SignInLayer>
   );
 }

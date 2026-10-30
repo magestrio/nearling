@@ -1,8 +1,11 @@
 import { useId, type FormEvent, type ReactNode } from 'react';
 import { Block, Button, Center, Centerpiece, Header, Heading, Nest, Note, Page, Shell, Stack, Text, TextField } from '../../ds';
+import { AccountControl } from '../../account/AccountControl';
 import { resetTime } from '../../lib/time';
 import { petPath } from '../../route';
 import { useAuth } from '../../seams/auth';
+import { SignInOutcome } from '../../signin/SignInOutcome';
+import { useSignIn } from '../../signin/signIn';
 import { useHatch } from './useHatch';
 import './hatch.css';
 
@@ -44,6 +47,7 @@ function Why({ line, tone = 'plain', children }: { line: string; tone?: 'plain' 
 export function HatchScreen({ from }: { from: string | null }) {
   const auth = useAuth();
   const hatch = useHatch(from);
+  const { begin } = useSignIn();
   const titleId = useId();
   const { view, name, cleaned, birth } = hatch;
 
@@ -52,27 +56,33 @@ export function HatchScreen({ from }: { from: string | null }) {
     if (view.kind === 'form') void hatch.submit();
   };
 
+  // «Account» stands in the header of every screen where the player has a session (`Account menu screen`)
+  const header = auth.authenticated ? <Header end={<AccountControl />} /> : null;
+
   if (view.kind === 'already') {
     return (
-      <Shell accent="none" header={<Header />}>
+      <Shell accent="none" header={<Header end={<AccountControl />} />}>
         <Page fill width="narrow">
           <Center>
             <Heading level={1} variant="lead" align="center" measure>
               You've already hatched a pet — one per player.
             </Heading>
             <Button href={petPath(view.tokenId)}>{`Go to ${view.name}`}</Button>
+            <SignInOutcome text={name} />
           </Center>
         </Page>
       </Shell>
     );
   }
 
-  // The way out of a closed screen: «Back to {friend_pet}» when the address names a friend's pet that exists, else
-  // «Go home». While the friend's name is being read it is not shown.
+  // The way out of a closed screen: «Back to {friend_pet}» when the address names a friend's pet that exists; a signed-in
+  // player with no pet of their own and no friend's pet has no way out (`add-pet` › `no exit`: the line, «Account» and the
+  // name stay); else «Go home». While the friend's name is being read it is not shown.
+  const noExit = view.kind === 'closed' && view.noPets;
   const wayOut =
     from && hatch.friend === 'loading' ? null : hatch.friend && hatch.friend !== 'loading' ? (
       <Button block href={petPath(hatch.friend.tokenId)}>{`Back to ${hatch.friend.name}`}</Button>
-    ) : (
+    ) : noExit ? null : (
       <Button block href="/">
         Go home
       </Button>
@@ -116,7 +126,7 @@ export function HatchScreen({ from }: { from: string | null }) {
       break;
     case 'signed-out':
       action = (
-        <Button block onClick={hatch.signIn}>
+        <Button block onClick={() => begin('signin')}>
           Sign in with Google to hatch your pet
         </Button>
       );
@@ -145,10 +155,22 @@ export function HatchScreen({ from }: { from: string | null }) {
   }
 
   return (
-    <Shell accent="none" fill header={auth.authenticated ? <Header /> : null}>
+    <Shell accent="none" fill header={header}>
       <Page fill width="narrow">
         <form className="hatch-form" onSubmit={onSubmit} noValidate>
-          <Centerpiece scroll labelledBy={titleId} actions={action} status={line}>
+          {/* under the action in every view: the session can end under any of them, and a tap on «Account» then has the line
+              and «Sign in» here; the name stays */}
+          <Centerpiece
+            scroll
+            labelledBy={titleId}
+            actions={
+              <Stack gap={3}>
+                {action}
+                <SignInOutcome text={name} />
+              </Stack>
+            }
+            status={line}
+          >
             <Stack gap={5}>
               <Nest busy={birth === 'hatching'} />
               <Heading level={1} align="center" id={titleId}>

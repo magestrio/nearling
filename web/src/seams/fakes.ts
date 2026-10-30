@@ -1,6 +1,6 @@
 // State a test hands to the fakes before the page loads (Playwright's addInitScript). Fakes exist
 // only in the e2e mode (VITE_FAKES); no dev or prod build contains this file's users.
-import type { ClosedReason, HatchStatus, Me, PetBase, PetState, Conversation } from './worker-types';
+import type { ClosedReason, HatchStatus, Me, PetBase, PetState, Conversation, SessionResult, SignInGate } from './worker-types';
 
 /** An answer the fake gives instead of a value: the Worker's refusal (status 0 — it never answered). */
 export interface FakeFail {
@@ -11,6 +11,8 @@ export interface FakeWorkerState {
   version?: string;
   /** the wait before «Still working on it…» (ms), instead of the spec's 10 s */
   waitLineMs?: number;
+  /** a Toast stays until the page goes (a capture of its frame takes seconds on software GL) */
+  toastHeld?: boolean;
   /** every answer waits this long (ms), unless its own `*DelayMs` says otherwise */
   delayMs?: number;
   /** `GET /api/hatch`; default `{ open: true }` */
@@ -37,10 +39,34 @@ export interface FakeWorkerState {
   retryWake?: { job: string | null } | FakeFail;
   /** a token is no session any more: every request that carries one is a 401, as the Worker answers */
   sessionExpired?: boolean;
+  /** the exchange of the page load answers `200`, and every request after it that carries a token is a 401: a session that
+   *  ended between the exchange and the page's first request (`Session expiry flow` › `401 на первой загрузке`) */
+  expiredAfterExchange?: boolean;
+  /** `POST /api/session`; default `{ ok: true }` */
+  session?: SessionResult | FakeFail;
+  /** `POST /api/session/end` refused or never answered instead of `204` */
+  endSession?: FakeFail;
+  /** `GET /api/sign-in`; default `{ state: 'open' }` */
+  signIn?: SignInGate | FakeFail;
+  /** `POST …/memory/clear`; default `{ ok: true }` */
+  clearMemory?: { ok: true } | FakeFail;
+  clearMemoryDelayMs?: number;
 }
 
 export interface FakeState {
-  auth?: { authenticated?: boolean; nearAccountId?: string | null; identityToken?: string | null };
+  auth?: {
+    authenticated?: boolean;
+    nearAccountId?: string | null;
+    identityToken?: string | null;
+    /** the Google account's email, shown in the Account menu; default `sam@example.com` */
+    email?: string | null;
+    /** what the next «sign-in with Google» ends in; default `ok`. `cancelled`, `failed`: the page came back from Google with
+     *  that, at `/`. `start_failed`: Google never started (`initOAuth` rejected, Privy did not come), so the page never left
+     *  and the address is the place again. `held`: Google is still starting: the address is `/`, the page still stands. */
+    outcome?: 'ok' | 'cancelled' | 'failed' | 'start_failed' | 'held';
+    /** the page starts as a return from Google (`privy_oauth_code` in the address) */
+    fresh?: boolean;
+  };
   /** `hold`: every pet stands on its still, whatever the viewer chose. Software GL can't play pets for every test. */
   pet?: { hold?: boolean };
   rpc?: { viewResult?: unknown; balanceYocto?: string; txHash?: string; txOk?: boolean };

@@ -23,6 +23,7 @@ const OWNER_VIEW: Record<keyof OwnerView, 'always' | 'sometimes'> = {
   pendingKind: 'always',
   pendingText: 'always',
   lastThought: 'always',
+  memoryEpoch: 'always',
   ownedCount: 'always',
 };
 const STATE: Record<keyof PetState, 'always' | 'sometimes'> = {
@@ -40,6 +41,7 @@ const STATE: Record<keyof PetState, 'always' | 'sometimes'> = {
   pendingKind: 'always',
   pendingText: 'always',
   lastThought: 'always',
+  memoryEpoch: 'always',
   events: 'always',
   pending: 'sometimes',
   jobKind: 'sometimes',

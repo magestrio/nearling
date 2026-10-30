@@ -1,6 +1,6 @@
 // GET /api/hatch (is hatching open, did this player already hatch) and POST /api/hatch (Birth flow).
 import { Hono } from 'hono';
-import { ChainUnreachable, hatchView, PET_MINT_TGAS, petView, type HatchRecord } from '../chain';
+import { ChainUnreachable, hatchView, ownedCount, PET_MINT_TGAS, petView, type HatchRecord } from '../chain';
 import { assembleCharacter } from '../character/presets';
 import { requireSession, type AppContext, type AppEnv } from '../http';
 import { cleanName, hasVisible } from '../name/clean';
@@ -65,9 +65,20 @@ hatchRoutes.get('/api/hatch', async (c) => {
   }
   const state = await openness(c.env, hatch);
   if (!state.open) {
+    // A player with no pet of their own has no way out of a closed screen (`add-pet` › Hatch screen ›
+    // «no exit»): what they own now, one count of the chain, also for `?look=1`.
+    let noPets = false;
+    if (session !== null) {
+      try {
+        noPets = (await ownedCount(c.env, session.accountId)) === 0;
+      } catch (e) {
+        if (e instanceof ChainUnreachable) return unreachable(c);
+        throw e;
+      }
+    }
     // `?look=1`: the screen's own repeat on a closed hatch; the event is for opening it or a tap.
     if (c.req.query('look') !== '1') track('birth_blocked', { reason: state.reason! });
-    return c.json(state);
+    return c.json(noPets ? { ...state, noPets: true } : state);
   }
   if (session === null || hatch.token_id === null) return c.json(state);
   // Hatched before: «already» only while they still own that pet; one given away does not count.

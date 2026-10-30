@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { hasVisible } from '../../lib/nameClean';
 import { formatCents } from '../../lib/price';
-import { petPath } from '../../route';
+import { onClearOutcome } from '../../account/clearMemory';
+import { useLocation } from '../../route';
 import { useAuth } from '../../seams/auth';
+import { takeReturnText } from '../../signin/returnPlace';
 import { WorkerError, waitLineMs, workerApi, type ConversationLine, type JobKind, type Me, type PetState, type PetView, type Thought } from '../../seams/worker';
-import { rememberReturnPlace } from '../../signin/returnPlace';
 import { runAction, takePendingAction } from './parts';
 
 // The Pet screen's state (add-pet › Pet screen, Connection rule): what the page shows is chosen from the answer of
@@ -74,8 +75,6 @@ export function usePetScreen(tokenId: string, from: string | null) {
   const [page, setPage] = useState<PetPage>({ kind: 'loading' });
   const [banner, setBanner] = useState<Banner>(null);
   const [attempt, setAttempt] = useState(0);
-  // the session ended under the open screen (a 401): the page is the visitor's until the player signs in again
-  const [expired, setExpired] = useState(false);
   // null until the history is read
   const [lines, setLines] = useState<Line[] | null>(null);
   const [draft, setDraftState] = useState('');
@@ -91,6 +90,8 @@ export function usePetScreen(tokenId: string, from: string | null) {
   const [failure, setFailure] = useState<Failure | null>(null);
   // the friend's pet this pet's birth came from: «Back to {friend_pet}»
   const [friend, setFriend] = useState<{ tokenId: string; name: string } | null>(null);
+  // a line the screen says once, with a Toast: the pet was given away under a clear (`Memory deletion flow` › «уже не владелец»)
+  const [notice, setNotice] = useState<string | null>(null);
 
   const pageRef = useRef(page);
   // what the player sent with the job on its way, to put it back in the field or retry it when the job is refused
@@ -114,6 +115,8 @@ export function usePetScreen(tokenId: string, from: string | null) {
   const finished = useRef(new Set<string>());
   // «{name} fell asleep.» stands for this sleep
   const sleepLined = useRef(false);
+  // how many times the memory was cleared, as this page knows it: a poll that sees more has a clear of another tab to follow
+  const epoch = useRef(0);
 
   const setDraft = useCallback((text: string) => {
     draftRef.current = text;
@@ -161,14 +164,19 @@ export function usePetScreen(tokenId: string, from: string | null) {
 
   const tokenOf = useCallback(async () => {
     const a = authRef.current;
-    return a.authenticated && !expired ? await a.getIdentityToken() : null;
-  }, [expired]);
+    if (!a.authenticated) return null;
+    const token = await a.getIdentityToken();
+    // a token keeper with no token for a signed-in page: the session ended (`Session expiry flow`), as a `401` says it
+    if (token === null) throw new WorkerError(401, 'signed_out');
+    return token;
+  }, []);
 
-  /** One failure of a request: a dead address, a lost session, or the connection line. */
+  /** One failure of a request: a dead address, a lost session, or the connection line. A `401` ends the session: the page
+   *  stands as it is until a tap needs it — or, before anything was shown, is the visitor's at once. */
   const fail = useCallback((e: unknown, retry: () => void) => {
     const status = statusOf(e);
     retryRef.current = retry;
-    if (status === 401) setExpired(true);
+    if (status === 401) authRef.current.endSession(pageRef.current.kind === 'pet');
     else if (status === 404 && e instanceof WorkerError && e.code === 'no_pet') setPage({ kind: 'not_found' });
     else if (status === 403) setAttempt((a) => a + 1);
     else if (pageRef.current.kind === 'pet') setBanner(status === 429 ? 'busy' : 'offline');
@@ -190,7 +198,10 @@ export function usePetScreen(tokenId: string, from: string | null) {
         if (!live) return;
         setPage({ kind: 'pet', pet });
         setBanner(null);
-        if (pet.viewer === 'owner') adopt(pet);
+        if (pet.viewer === 'owner') {
+          epoch.current = pet.memoryEpoch;
+          adopt(pet);
+        }
       } catch (e) {
         if (live) fail(e, () => setAttempt((a) => a + 1));
       }
@@ -198,10 +209,7 @@ export function usePetScreen(tokenId: string, from: string | null) {
     return () => {
       live = false;
     };
-  }, [auth.ready, auth.authenticated, expired, tokenId, attempt, tokenOf, fail, adopt]);
-
-  // a new sign-in is a new session
-  useEffect(() => setExpired(false), [auth.authenticated]);
+  }, [auth.ready, auth.authenticated, tokenId, attempt, tokenOf, fail, adopt]);
 
   const viewer = page.kind === 'pet' ? page.pet.viewer : null;
 
@@ -332,6 +340,17 @@ export function usePetScreen(tokenId: string, from: string | null) {
     if (was && history && !history.some((l) => l.who === 'player' && l.text === was.text) && draftRef.current === '') setDraft(was.text);
   }, [changeJob, loadLines, setDraft]);
 
+  /** The answer on its way and the lines of this page's own are over: the memory was cleared. The typed draft stays. */
+  const forgetConversation = useCallback(() => {
+    if (jobRef.current !== null) finished.current.add(jobRef.current);
+    changeJob(null);
+    sent.current = null;
+    unconfirmed.current.clear();
+    setFailure(null);
+    // the pet doesn't speak first after a clear (`Memory deletion flow` › «стёр»)
+    greeted.current = true;
+  }, [changeJob]);
+
   const poll = useCallback(async () => {
     if (polling.current) return;
     polling.current = true;
@@ -355,10 +374,20 @@ export function usePetScreen(tokenId: string, from: string | null) {
                 paused: s.paused,
                 deepPrice: s.deepPrice,
                 hello: s.hello,
+                memoryEpoch: s.memoryEpoch,
               },
             }
           : p,
       );
+      // another tab of the owner cleared the memory: nothing of the conversation stays on this page, and what the server holds
+      // is read again; a poll that was on its way before this tab's own clear carries the older number and is not a change
+      if (s.memoryEpoch > epoch.current) {
+        epoch.current = s.memoryEpoch;
+        forgetConversation();
+        setLines([]);
+        void loadLines();
+        return;
+      }
       if (!historyRead.current) void loadLines();
       // the outcome belongs to the job this request asked about; a job that ended meanwhile is not read twice
       const mine = asked !== null && jobRef.current === asked;
@@ -386,6 +415,14 @@ export function usePetScreen(tokenId: string, from: string | null) {
           // the player's line stays in the conversation; a greeting or a wake thought has none
           const kind = s.jobKind === 'wake' || s.jobKind === 'greeting' ? s.jobKind : was ? 'reply' : 'greeting';
           setFailure({ code, kind, lineId: was?.lineId, text: was?.text, mode: was?.mode });
+        } else if (code === 'memory_cleared') {
+          // the memory was cleared while the answer was on its way: its line never lands and the player's own line is gone with
+          // the rest; the conversation is read again (`Memory deletion data` › «ответ в пути»)
+          if (was) {
+            unconfirmed.current.delete(was.lineId);
+            setLines((now) => (now ?? []).filter((l) => l.id !== was.lineId));
+          }
+          void loadLines();
         } else if (was) {
           // asleep, tired, too hungry, paused, no network: nothing happened — the line goes back to the field
           giveBack(was.lineId, was.text);
@@ -417,12 +454,14 @@ export function usePetScreen(tokenId: string, from: string | null) {
     } finally {
       polling.current = false;
     }
-  }, [tokenOf, tokenId, loadLines, fail, giveBack, adopt, jobGone, changeJob]);
+  }, [tokenOf, tokenId, loadLines, fail, giveBack, adopt, jobGone, changeJob, forgetConversation]);
 
   // The owner's page is kept current — food from a friend, the pause lifting, 00:00 UTC — and a thought's answer is
   // fetched; a hidden tab asks nothing, a tab that comes back asks at once.
+  // An ended session stops the polls: no new data loads, and the page stands as it was (`Session expiry flow`).
+  const ended = auth.sessionEnded;
   useEffect(() => {
-    if (viewer !== 'owner') return undefined;
+    if (viewer !== 'owner' || ended) return undefined;
     const timer = setInterval(() => {
       if (!document.hidden) void poll();
     }, job ? POLL_JOB_MS : POLL_IDLE_MS);
@@ -434,7 +473,7 @@ export function usePetScreen(tokenId: string, from: string | null) {
       clearInterval(timer);
       document.removeEventListener('visibilitychange', onVisible);
     };
-  }, [viewer, job, poll]);
+  }, [viewer, ended, job, poll]);
 
   /** «Send» / Enter (`chat`) or «Think hard» (`deep`): the player's line goes into the conversation at once, the
    *  reply comes by the job. */
@@ -442,6 +481,8 @@ export function usePetScreen(tokenId: string, from: string | null) {
     async (raw: string, mode: 'chat' | 'deep' = 'chat') => {
       const text = raw;
       if (!hasVisible(text) || jobRef.current !== null || sendingRef.current || pageRef.current.kind !== 'pet') return;
+      // a session that ended: the line, nothing sent, the text stays in the field
+      if (!authRef.current.needSession()) return;
       const id = `you-${(localLine.current += 1)}`;
       sendingRef.current = true;
       setSending(true);
@@ -459,6 +500,12 @@ export function usePetScreen(tokenId: string, from: string | null) {
         changeJob(answer.job);
         setBanner(null);
       } catch (e) {
+        if (statusOf(e) === 401) {
+          // the session ended under this tap: the same line as when it had ended before; nothing was sent, the text is back
+          giveBack(id, text);
+          authRef.current.endSession(true, true);
+          return;
+        }
         if (draftRef.current === '') {
           // the action did not happen: the line leaves the conversation and stays in the field
           giveBack(id, text);
@@ -509,15 +556,38 @@ export function usePetScreen(tokenId: string, from: string | null) {
 
   const tryAgain = useCallback(() => retryRef.current(), []);
 
-  /** The tap that needs a session — «Sign in», or «Feed {name}» (the action waits through the sign-in). */
-  const signIn = useCallback(
-    (action: 'signin' | 'feed') => {
-      rememberReturnPlace({ path: petPath(tokenId, from), action });
-      window.history.replaceState(null, '', '/');
-      authRef.current.login();
-    },
-    [tokenId, from],
+  // The outcome of the Clear memory dialog, which stands beside the page: «стёр» empties the conversation under the event line;
+  // «уже не владелец» reads the pet again, now a guest's page, with the line (`Memory deletion flow`).
+  useEffect(
+    () =>
+      onClearOutcome((o) => {
+        if (o.tokenId !== tokenId) return;
+        const shown = pageRef.current.kind === 'pet' ? pageRef.current.pet.name : '';
+        if (o.result === 'not_owner') {
+          setNotice(`${shown} belongs to a new owner now, so nothing was erased.`);
+          setAttempt((a) => a + 1);
+          return;
+        }
+        forgetConversation();
+        epoch.current += 1;
+        const id = `event-${(localLine.current += 1)}`;
+        setLines([{ id, who: 'event', text: `${shown}'s memory is clear — same ${shown}, fresh start.`, fresh: true }]);
+      }),
+    [tokenId, forgetConversation],
   );
+  const clearNotice = useCallback(() => setNotice(null), []);
+
+  // The text of a sign-in from the ended-session line, handed back to this address once its view is decided: the owner's field
+  // takes it, unsent; a screen with no such field (the pet was given away, a dead link) takes it and drops it unseen
+  // (`Session expiry flow` › `typed text after sign-in`, `Sign-in return data`).
+  const here = useLocation();
+  const decided = page.kind === 'pet' || page.kind === 'not_found';
+  const ownerNow = viewer === 'owner';
+  useEffect(() => {
+    if (!decided) return;
+    const text = takeReturnText(here);
+    if (text !== null && ownerNow) setDraft(text);
+  }, [decided, ownerNow, here, setDraft]);
 
   // Back from the sign-in with «Feed {name}» tapped: the feeding change takes the action, as the owner or as a guest.
   const pet = page.kind === 'pet' ? page.pet : null;
@@ -544,6 +614,7 @@ export function usePetScreen(tokenId: string, from: string | null) {
     send,
     retryThought,
     tryAgain,
-    signIn,
+    notice,
+    clearNotice,
   };
 }

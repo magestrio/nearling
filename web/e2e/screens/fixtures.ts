@@ -1,7 +1,7 @@
 import type { Page } from '@playwright/test';
 import type { FakeState, FakeWorkerState } from '../../src/seams/fakes';
 import type { Fullness } from '../../src/seams/worker-types';
-import { lookAgain, setWorker } from '../helpers';
+import { CLOSED_ALL, CLOSED_NEW, lookAgain, setWorker, UA } from '../helpers';
 
 /** One frame's state in the real client, on the sample values of design/BRIEF.md §1. */
 export interface ScreenFixture {
@@ -42,6 +42,32 @@ const tapHatch = async (page: Page) => {
   // the frames show the button at rest, not under the pointer that tapped it
   await page.mouse.move(0, 0);
 };
+
+// The frames of the sign-in surfaces stand on a friend's pet, Biscuit, seen by a visitor (design/bundle/screens/pet.js ›
+// signedOut). A frame that needs the in-app browser or a phone hands the page that browser's user agent before it loads: the
+// product detects by user agent, so the capture has to look like the browser it stands for.
+const asBrowser = (userAgent: string) => async (page: Page) => {
+  await page.addInitScript((ua) => Object.defineProperty(navigator, 'userAgent', { get: () => ua }), userAgent);
+};
+/** What a sheet that has just opened still has to finish before the frame is taken: the fonts of its text and its entrance. */
+const settle = (page: Page) =>
+  page.evaluate(async () => {
+    await document.fonts.ready;
+    await Promise.all(
+      document
+        .getAnimations()
+        .filter((a) => a.effect?.getTiming().iterations !== Infinity)
+        .map((a) => a.finished.catch(() => undefined)),
+    );
+  });
+/** the tap that begins a sign-in, then the pointer away: the frames show a control at rest, not under the pointer */
+const tapSignIn = async (page: Page) => {
+  await page.getByRole('button', { name: 'Sign in' }).click();
+  await page.mouse.move(0, 0);
+};
+const FAILED_LINE = "We couldn't sign you in with Google. Try again in a moment.";
+const MAU_LINE = "Looks like you haven't played here this month, so we can't sign you in until December 1. You can still look around.";
+const FALLBACK_LINE = 'Trouble signing in? Try it in your browser.';
 
 const PIXEL = { tokenId: '9', name: 'Pixel', stage: 'adult' as const, fullness: { state: 'full' as const, level: 1 } };
 const BISCUIT = { tokenId: '2', name: 'Biscuit', stage: 'adult' as const, fullness: { state: 'full' as const, level: 1 } };
@@ -86,6 +112,36 @@ const OWNER_ELSEWHERE = [
   { line: 'Auto', change: 'add-pet-work' },
   { line: 'Ask me first', change: 'add-pet-work' },
 ];
+
+/** The parts of the frames of a guest with a pet of their own that `add-pet-work` builds: the advice column */
+const GUEST_ELSEWHERE = [
+  { line: 'Ask {name} for advice…', change: 'add-pet-work' },
+  { line: 'Ask {name} · {price}', change: 'add-pet-work' },
+  { line: "Your {my_pet} pays from its food. {name}'s owner won't see your question or the answer.", change: 'add-pet-work' },
+];
+const ME_PIXEL = { accountId: 'a'.repeat(64), hatched: PIXEL_REF, currentPet: PIXEL_REF, ownedCount: 1 };
+const HOOK = 'This pet pays for its own thoughts. When the money runs out, it falls asleep.';
+const SIGNED_OUT_LINE = "You're signed out. See you soon!";
+const SESSION_LINE = "You've been signed out. Sign in to pick up where you left off.";
+const CLOSED_ALL_WORDS = 'Sign-in is closed for everyone until December 1. You can still look around, and any pet you have is safe.';
+/** the Account button tapped, its menu open and still: the frames show it at rest */
+const openMenu = async (page: Page) => {
+  await page.getByRole('button', { name: 'Account' }).click();
+  await page.getByRole('menu').waitFor();
+  await page.mouse.move(0, 0);
+  await settle(page);
+};
+
+/** «Clear {name}'s memory» from the menu: the dialog open and still */
+const openClearDialog = async (page: Page) => {
+  await page.getByRole('button', { name: 'Account' }).click();
+  await page.getByRole('menuitem', { name: "Clear Pixel's memory" }).click();
+  await page.getByRole('alertdialog').waitFor();
+  await page.mouse.move(0, 0);
+  await settle(page);
+};
+/** the owner's other pet, as the guest's page of the frame `clear-memory-new-owner` offers «Go to your Juno» */
+const JUNO_ME = { accountId: 'a'.repeat(64), hatched: { tokenId: '1', name: 'Juno' }, currentPet: { tokenId: '1', name: 'Juno' }, ownedCount: 1 };
 
 const ownerReady = (page: Page) => page.getByText('Start with the chart, then.').waitFor();
 const typeLine = async (page: Page, text: string) => {
@@ -240,11 +296,7 @@ export const fixtures: Record<string, ScreenFixture> = {
     route: '/pet/2',
     fakes: { auth: SIGNED_IN, worker: { me: { accountId: 'a'.repeat(64), hatched: PIXEL_REF, currentPet: PIXEL_REF, ownedCount: 1 } } },
     prepare: (page) => page.getByRole('link', { name: 'Go to your Pixel' }).waitFor(),
-    otherChange: [
-      { line: 'Ask {name} for advice…', change: 'add-pet-work' },
-      { line: 'Ask {name} · {price}', change: 'add-pet-work' },
-      { line: "Your {my_pet} pays from its food. {name}'s owner won't see your question or the answer.", change: 'add-pet-work' },
-    ],
+    otherChange: GUEST_ELSEWHERE,
   },
 
   // a signed-in player who never hatched
@@ -281,9 +333,12 @@ export const fixtures: Record<string, ScreenFixture> = {
       // the food ran out under the open page: the next look at the pet shows it asleep
       await setWorker(page, { pets: { '9': { ...PIXEL, fullness: { state: 'asleep', level: 0 }, owner: { ownedCount: 2 } } }, petState: { events: ['fell_asleep'] } });
       await lookAgain(page);
-      await page.getByText('Pixel is asleep. A meal will wake Pixel up.').waitFor();
+      // drawn once, and said by the Dock's Live
+      await page.getByText('Pixel is asleep. A meal will wake Pixel up.').first().waitFor();
       await page.getByText('Pixel fell asleep.').waitFor();
       await setWorker(page, { petState: {} });
+      // the field keeps the focus while it is off; the frame shows it at rest, with no ring from the typing
+      await page.getByPlaceholder('Talk to Pixel…').blur();
     },
     otherChange: [{ line: 'Energy', change: 'add-pet-life' }],
   },
@@ -547,5 +602,274 @@ export const fixtures: Record<string, ScreenFixture> = {
       { line: 'Baby', change: 'add-pet-life' },
       { line: '{name} gets a trait when it grows up.', change: 'add-pet-life' },
     ],
+  },
+
+  // Sign-in closed sheet: the tap on «Sign in» while sign-in is closed for new players, then for everyone
+  // spec: add-account › Sign-in closed sheet screen › success (закрыт для новых)
+  'signin-closed-new': {
+    route: '/pet/2',
+    fakes: { worker: { signIn: CLOSED_NEW } },
+    prepare: async (page) => {
+      await tapSignIn(page);
+      await page.getByRole('dialog').waitFor();
+      await settle(page);
+    },
+  },
+  // spec: add-account › Sign-in closed sheet screen › success (закрыт для всех)
+  'signin-closed-all': {
+    route: '/pet/2',
+    fakes: { worker: { signIn: CLOSED_ALL } },
+    prepare: async (page) => {
+      await tapSignIn(page);
+      await page.getByRole('dialog').waitFor();
+      await settle(page);
+    },
+  },
+
+  // Open in browser sheet (phone only): inside X on Android, inside X on an iPhone after «Copy link», and the iPhone's field
+  // when the copy did not work
+  // spec: add-account › Open in browser sheet screen › success (Android)
+  'open-browser-android': {
+    route: '/pet/2',
+    beforeLoad: asBrowser(UA.xOnAndroid),
+    prepare: async (page) => {
+      await tapSignIn(page);
+      await page.getByRole('dialog').getByRole('button', { name: 'Open in browser' }).waitFor();
+      await settle(page);
+    },
+  },
+  // spec: add-account › Open in browser sheet screen › success (iPhone)
+  'open-browser-iphone': {
+    route: '/pet/2',
+    beforeLoad: async (page) => {
+      await asBrowser(UA.xOnIphone)(page);
+      await page.context().grantPermissions(['clipboard-read', 'clipboard-write']);
+    },
+    prepare: async (page) => {
+      await tapSignIn(page);
+      await page.getByRole('button', { name: 'Copy link' }).click();
+      await page.mouse.move(0, 0);
+      await page.getByRole('dialog').getByText('Link copied — paste it into Safari.').last().waitFor();
+      await settle(page);
+    },
+  },
+  // spec: add-account › Open in browser sheet screen › error
+  'open-browser-error': {
+    route: '/pet/2',
+    beforeLoad: async (page) => {
+      await asBrowser(UA.xOnIphone)(page);
+      await page.addInitScript(() => {
+        Object.defineProperty(navigator, 'clipboard', { value: { writeText: () => Promise.reject(new Error('denied')) } });
+      });
+    },
+    prepare: async (page) => {
+      await tapSignIn(page);
+      await page.getByRole('button', { name: 'Copy link' }).click();
+      await page.getByLabel('Copy this link and paste it into Safari:').waitFor();
+      await settle(page);
+    },
+  },
+
+  // Sign-in flow on the Pet screen: Google or the provider failed; a new player refused after Google; a phone's way out
+  // spec: add-account › Sign-in flow › вход не удался
+  'signin-failed': {
+    route: '/pet/2',
+    fakes: { auth: { outcome: 'failed' } },
+    prepare: async (page) => {
+      await tapSignIn(page);
+      await page.getByText(FAILED_LINE).first().waitFor();
+      await settle(page);
+    },
+  },
+  // spec: add-account › Sign-in flow › новый после Google
+  'signin-new-after-google': {
+    route: '/pet/2',
+    fakes: { worker: { session: { refused: { reason: 'mau', until: CLOSED_NEW.until } } } },
+    prepare: async (page) => {
+      await tapSignIn(page);
+      await page.getByText(MAU_LINE).first().waitFor();
+      await settle(page);
+    },
+  },
+  // spec: add-account › Sign-in flow › запасной путь на телефоне
+  'signin-fallback-phone': {
+    route: '/pet/2',
+    fakes: { auth: { outcome: 'cancelled' } },
+    beforeLoad: asBrowser(UA.android),
+    prepare: async (page) => {
+      await tapSignIn(page);
+      await page.getByText(FALLBACK_LINE).first().waitFor();
+      await settle(page);
+    },
+  },
+
+  // Home screen: a visitor with sign-in open; the check on its way; the game not reached; closed for new players, for everyone
+  // spec: add-account › Home screen › signed-out
+  'home-signed-out': { route: '/', prepare: (page) => page.getByRole('button', { name: 'Sign in' }).waitFor() },
+  // spec: add-account › Home screen › loading
+  'home-loading': {
+    route: '/',
+    fakes: { worker: { delayMs: FOREVER } },
+    prepare: (page) => page.getByText('Opening the game…').waitFor(),
+  },
+  // spec: add-account › Home screen › error
+  'home-error': {
+    route: '/',
+    fakes: { worker: { signIn: { fail: { status: 0, code: 'unreachable' } } } },
+    prepare: (page) => page.getByRole('button', { name: 'Try again' }).waitFor(),
+  },
+  // spec: add-account › Home screen › signed-out (вход закрыт)
+  'home-closed': {
+    route: '/',
+    fakes: { worker: { signIn: CLOSED_NEW } },
+    prepare: (page) => page.getByRole('button', { name: 'Played here before? Sign in' }).waitFor(),
+  },
+  // spec: add-account › Home screen › signed-out (вход закрыт)
+  'home-closed-all': {
+    route: '/',
+    fakes: { worker: { signIn: CLOSED_ALL } },
+    prepare: (page) => page.getByText(CLOSED_ALL_WORDS).waitFor(),
+  },
+  // «Sign out» on the owner's page: Home without a session, the Toast, the focus on the h1
+  // spec: add-account › Sign-out flow › вышел
+  'home-signed-out-after': {
+    route: '/pet/9',
+    fakes: { auth: SIGNED_IN, worker: owner() },
+    prepare: async (page) => {
+      await ownerReady(page);
+      await page.getByRole('button', { name: 'Account' }).click();
+      await page.getByRole('menuitem', { name: 'Sign out' }).click();
+      await page.getByRole('heading', { level: 1, name: HOOK }).waitFor();
+      await page.getByText(SIGNED_OUT_LINE).first().waitFor();
+      await page.mouse.move(0, 0);
+      await settle(page);
+    },
+  },
+
+  // Account menu: open under «Account» on the owner's own pet, and on a friend's pet
+  // spec: add-account › Account menu screen › success (владелец)
+  'menu-owner': {
+    route: '/pet/9',
+    fakes: { auth: SIGNED_IN, worker: owner() },
+    prepare: async (page) => {
+      await ownerReady(page);
+      await openMenu(page);
+    },
+    otherChange: OWNER_ELSEWHERE,
+  },
+  // spec: add-account › Account menu screen › success
+  'menu-guest': {
+    route: '/pet/2',
+    fakes: { auth: SIGNED_IN, worker: { me: ME_PIXEL } },
+    prepare: async (page) => {
+      await page.getByRole('link', { name: 'Go to your Pixel' }).waitFor();
+      await openMenu(page);
+    },
+    otherChange: GUEST_ELSEWHERE,
+  },
+
+  // Clear memory dialog over the owner's Pet screen: opened from the menu, what stays (the dialog's end on the phone), the
+  // deletion refused, on its way, done (the typed line kept), the pet already someone else's
+  // spec: add-account › Clear memory dialog screen › success
+  'clear-memory': {
+    route: '/pet/9',
+    fakes: { auth: SIGNED_IN, worker: owner() },
+    prepare: async (page) => {
+      await ownerReady(page);
+      await openClearDialog(page);
+    },
+  },
+  // spec: add-account › Clear memory dialog screen › что останется
+  'clear-memory-stays': {
+    route: '/pet/9',
+    fakes: { auth: SIGNED_IN, worker: owner() },
+    prepare: async (page) => {
+      await ownerReady(page);
+      await openClearDialog(page);
+    },
+  },
+  // spec: add-account › Clear memory dialog screen › error
+  'clear-memory-error': {
+    route: '/pet/9',
+    fakes: { auth: SIGNED_IN, worker: { ...owner(), clearMemory: { fail: { status: 503, code: 'chain_unreachable' } } } },
+    prepare: async (page) => {
+      await ownerReady(page);
+      await openClearDialog(page);
+      await page.getByRole('button', { name: 'Clear memory' }).click();
+      await page.getByRole('button', { name: 'Try again' }).waitFor();
+      await page.mouse.move(0, 0);
+      await settle(page);
+    },
+  },
+  // spec: add-account › Memory deletion flow › стирает
+  'clear-memory-clearing': {
+    route: '/pet/9',
+    fakes: { auth: SIGNED_IN, worker: { ...owner(), clearMemoryDelayMs: FOREVER } },
+    prepare: async (page) => {
+      await ownerReady(page);
+      await openClearDialog(page);
+      await page.getByRole('button', { name: 'Clear memory' }).click();
+      await page.getByRole('button', { name: "Clearing Pixel's memory…" }).waitFor();
+      await page.mouse.move(0, 0);
+      await settle(page);
+    },
+  },
+  // spec: add-account › Memory deletion flow › стёр
+  'clear-memory-done': {
+    route: '/pet/9',
+    fakes: { auth: SIGNED_IN, worker: owner() },
+    prepare: async (page) => {
+      await ownerReady(page);
+      await typeLine(page, TYPED);
+      await openClearDialog(page);
+      await page.getByRole('button', { name: 'Clear memory' }).click();
+      await page.getByText("Pixel's memory is clear — same Pixel, fresh start.").first().waitFor();
+      // the field keeps the focus the dialog gave back, as the frame shows it
+      await page.mouse.move(0, 0);
+      await settle(page);
+    },
+    otherChange: OWNER_ELSEWHERE,
+  },
+  // spec: add-account › Memory deletion flow › уже не владелец
+  'clear-memory-new-owner': {
+    route: '/pet/9',
+    fakes: { auth: SIGNED_IN, worker: { ...owner(), me: JUNO_ME, toastHeld: true } },
+    prepare: async (page) => {
+      await ownerReady(page);
+      await openClearDialog(page);
+      await setWorker(page, { owned: [], clearMemory: { fail: { status: 403, code: 'not_owner' } } });
+      await page.getByRole('button', { name: 'Clear memory' }).click();
+      await page.getByRole('link', { name: 'Go to your Juno' }).waitFor();
+      await page.locator('.ds-toast').waitFor();
+      await page.mouse.move(0, 0);
+      await settle(page);
+    },
+    otherChange: GUEST_ELSEWHERE,
+  },
+
+  // Session expiry flow: the session ended under the owner's page, the typed line kept, «Sign in» in «Send»'s place
+  // spec: add-account › Session expiry flow › сессия кончилась при открытом экране
+  'session-expired': {
+    route: '/pet/9',
+    fakes: { auth: SIGNED_IN, worker: owner() },
+    prepare: async (page) => {
+      await ownerReady(page);
+      await typeLine(page, TYPED);
+      await setWorker(page, { sessionExpired: true });
+      await lookAgain(page);
+      await page.getByRole('button', { name: 'Send' }).click();
+      await page.getByText(SESSION_LINE).first().waitFor();
+      await page.mouse.move(0, 0);
+      await settle(page);
+    },
+    otherChange: OWNER_ELSEWHERE,
+  },
+
+  // Hatch screen › no exit: a signed-in player with no pet of their own, hatching closed for today — the line alone
+  // spec: add-pet › Hatch screen › no exit
+  'hatch-no-exit': {
+    route: '/hatch',
+    fakes: { auth: SIGNED_IN, worker: { hatchStatus: { open: false, reason: 'daily', noPets: true } } },
+    prepare: (page) => typeName(page, 'Pixel'),
   },
 };

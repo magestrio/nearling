@@ -26,6 +26,7 @@ import {
   Text,
   TextLink,
   Thinking,
+  Toast,
   type Accent,
 } from '../../ds';
 import { formatCents } from '../../lib/price';
@@ -38,8 +39,11 @@ import { useBirth } from '../../pet/newborn';
 import { petHeld, PetFigure } from '../../pet/PetFigure';
 import { BOOT_MS, MS, talkMs } from '../../pet/proto/motion.js';
 import { usePetMotion } from '../../pet/proto/useMotion.js';
-import type { PetView } from '../../seams/worker';
-import { hasSlot, runAction, Slot, type Viewer } from './parts';
+import { useAuth } from '../../seams/auth';
+import { toastHeld, type PetView } from '../../seams/worker';
+import { SignInLines, SignInOutcome, useSignInLines } from '../../signin/SignInOutcome';
+import { useSignIn } from '../../signin/signIn';
+import { hasSlot, runAction, Slot, type ActionName, type Viewer } from './parts';
 import { usePetScreen, type Banner as BannerKind, type OwnerView } from './usePetScreen';
 
 // Pet screen (add-pet › Pet screen, Connection rule) built from design/bundle/screens/pet.js: the owner's page is two
@@ -50,7 +54,6 @@ import { usePetScreen, type Banner as BannerKind, type OwnerView } from './usePe
 const UNREACHABLE = "We can't reach the game right now. Try again in a moment.";
 const BUSY = 'Lots of visitors right now. Try again in a minute.';
 const offlineLine = (name: string) => `Can't reach ${name} right now. Nothing's lost — try again in a moment.`;
-const SLEEP_LINE_ID = 'pet-sleep-line';
 const WAIT_LINE = 'Still working on it — long answers can take a minute or two.';
 const lostLine = (name: string) => `${name} lost that thought. Nothing was spent — try again.`;
 const emptyPaidLine = (name: string) => `${name} lost that thought, but it still used a little food. Your message is kept — try again.`;
@@ -161,6 +164,11 @@ function ConnectionBanner({ banner, name, tryAgain }: { banner: BannerKind; name
 
 function OwnerPage({ pet, s }: { pet: OwnerView; s: ReturnType<typeof usePetScreen> }) {
   const { tokenId, name } = pet;
+  const auth = useAuth();
+  // the ended session's line, or what a tap on its «Sign in» came to: the first stands in the field's note and its action in
+  // «Send»'s place, a second (the phone's way to a real browser) under the Composer
+  const signInLines = useSignInLines({ unreachable: offlineLine(name), text: s.draft });
+  const [lead, ...moreLines] = signInLines;
   const figure = useFigure();
   const asleep = pet.fullness.state === 'asleep';
   const hungry = pet.fullness.state === 'hungry';
@@ -172,15 +180,14 @@ function OwnerPage({ pet, s }: { pet: OwnerView; s: ReturnType<typeof usePetScre
   // the boot log of a pet that woke on this page, before its next state
   const [waking, setWaking] = useState(false);
 
-  // The pet fell asleep while this page was open: the focus goes to the sleep line (the field is off), Tab reaches
-  // «Feed {name}»; it woke: the focus comes back to the field, unless the player has gone somewhere else, and the pet
-  // boots — on pause and under reduced motion too, as cuts: the log's three rows, then the next state (DS › Pet ›
-  // Waking). Opened asleep, nothing is moved.
+  // The pet fell asleep while this page was open: the field goes off and keeps the focus, the Live says the sleep line, Tab
+  // reaches «Feed {name}» (DS › Composer › Keyboard: no line inside the Composer takes the focus); it woke: the focus comes
+  // back to the field, unless the player has gone somewhere else, and the pet boots — on pause and under reduced motion too,
+  // as cuts: the log's three rows, then the next state (DS › Pet › Waking). Opened asleep, nothing is moved.
   const wasAsleep = useRef(asleep);
   useEffect(() => {
     const was = wasAsleep.current;
     wasAsleep.current = asleep;
-    if (asleep && !was) document.getElementById(SLEEP_LINE_ID)?.focus();
     if (asleep || !was) return undefined;
     if (document.activeElement === document.body) document.querySelector<HTMLTextAreaElement>('.ds-composer__field')?.focus();
     if (petHeld()) return undefined;
@@ -198,8 +205,13 @@ function OwnerPage({ pet, s }: { pet: OwnerView; s: ReturnType<typeof usePetScre
     return () => clearTimeout(timer);
   }, [said?.id, hub]);
 
+  // Every control that needs a session asks first: with the session ended it shows the line and does nothing else
+  // (`Session expiry flow` › «сессия кончилась при открытом экране»).
+  const act = (name: ActionName) => {
+    if (auth.needSession()) runAction(name, ctx);
+  };
   const feedButton = (compact: boolean, variant?: 'secondary') => (
-    <Button variant={variant} size={compact ? 'compact' : undefined} icon="feed" role="food" haspopup="dialog" onClick={() => runAction('feed', ctx)}>
+    <Button variant={variant} size={compact ? 'compact' : undefined} icon="feed" role="food" haspopup="dialog" onClick={() => act('feed')}>
       {`Feed ${name}`}
     </Button>
   );
@@ -246,11 +258,16 @@ function OwnerPage({ pet, s }: { pet: OwnerView; s: ReturnType<typeof usePetScre
   // (`Pet condition rule` › «Голоден»), and chatting works then.
   const tired = !asleep && pet.tired;
   const paused = !asleep && !tired && pet.paused;
-  const off = asleep || tired || paused;
+  // a tap found the session ended: the field is off with its text, the line is the field's note and «Sign in» (or the «Try
+  // again» of what became of it) stands in «Send»'s place (frame `session-expired`)
+  const signedOut = auth.sessionLine;
+  const off = asleep || tired || paused || signedOut;
   const tiredLine = `${name} is tired for today. Back at ${resetTime(pet.until)}.`;
   const hungryLine = `${name} is too hungry to think hard right now.`;
+  const sleepLine = `${name} is asleep. A meal will wake ${name} up.`;
   const note = asleep ? null : tired ? tiredLine : hungry ? hungryLine : null;
-  const live = bannerLine(s.banner, name) || (paused ? pausedLine(name) : '') || note || '';
+  // the Dock's region says what the field's note says, the asleep line included; the ended session has its own region
+  const live = signedOut ? '' : bannerLine(s.banner, name) || (paused ? pausedLine(name) : '') || (asleep ? sleepLine : '') || note || '';
 
   const state = waking ? 'waking' : s.busy ? 'thinking' : pet.fullness.state;
   const field = (
@@ -262,15 +279,7 @@ function OwnerPage({ pet, s }: { pet: OwnerView; s: ReturnType<typeof usePetScre
         onChange={s.setDraft}
         onSend={(text) => void s.send(text)}
         disabled={off}
-        note={
-          asleep ? (
-            <Note id={SLEEP_LINE_ID} tabIndex={-1}>
-              {`${name} is asleep. A meal will wake ${name} up.`}
-            </Note>
-          ) : note ? (
-            <Note>{note}</Note>
-          ) : null
-        }
+        note={signedOut ? <Note>{lead?.text}</Note> : asleep ? <Note>{sleepLine}</Note> : note ? <Note>{note}</Note> : null}
         start={
           <Button
             variant="secondary"
@@ -278,7 +287,7 @@ function OwnerPage({ pet, s }: { pet: OwnerView; s: ReturnType<typeof usePetScre
             icon="bolt"
             role="mind"
             price={`≈ ${formatCents(pet.deepPrice.cents)}`}
-            off={off || hungry}
+            off={(off && !signedOut) || hungry}
             busy={s.busy}
             onClick={() => void s.send(s.draft, 'deep')}
           >
@@ -286,8 +295,14 @@ function OwnerPage({ pet, s }: { pet: OwnerView; s: ReturnType<typeof usePetScre
           </Button>
         }
         end={
-          asleep ? (
-            <Button size="compact" icon="feed" haspopup="dialog" onClick={() => runAction('feed', ctx)}>
+          signedOut ? (
+            lead?.action ? (
+              <Button size="compact" onClick={lead.action.onClick}>
+                {lead.action.label}
+              </Button>
+            ) : null
+          ) : asleep ? (
+            <Button size="compact" icon="feed" haspopup="dialog" onClick={() => act('feed')}>
               {`Feed ${name}`}
             </Button>
           ) : (
@@ -297,6 +312,7 @@ function OwnerPage({ pet, s }: { pet: OwnerView; s: ReturnType<typeof usePetScre
           )
         }
       />
+      {signedOut ? <SignInLines lines={moreLines} /> : null}
       {asleep ? null : (
         <Only on="desktop">
           <Slot slot="hiring" {...slot} />
@@ -315,7 +331,7 @@ function OwnerPage({ pet, s }: { pet: OwnerView; s: ReturnType<typeof usePetScre
             {`Back to ${s.friend.name}`}
           </Button>
         ) : pet.ownedCount >= 2 ? (
-          <Button variant="ghost" size="compact" icon="pets" haspopup="dialog" onClick={() => runAction('myPets', ctx)}>
+          <Button variant="ghost" size="compact" icon="pets" haspopup="dialog" onClick={() => act('myPets')}>
             My pets
           </Button>
         ) : null
@@ -342,7 +358,7 @@ function OwnerPage({ pet, s }: { pet: OwnerView; s: ReturnType<typeof usePetScre
                   <Rail>
                     <RailItem icon="today" label="Today" href={`/pet/${tokenId}/diary`} role="food" />
                     <RailItem icon="hanger" label="Wardrobe" href={`/pet/${tokenId}/wardrobe`} />
-                    <RailItem icon="gift" label={`Give ${name} away`} haspopup="dialog" onClick={() => runAction('gift', ctx)} />
+                    <RailItem icon="gift" label={`Give ${name} away`} haspopup="dialog" onClick={() => act('gift')} />
                   </Rail>
                 )
               }
@@ -388,6 +404,7 @@ function OwnerPage({ pet, s }: { pet: OwnerView; s: ReturnType<typeof usePetScre
               <Dock>
                 {field}
                 <Live>{live}</Live>
+                <Live alert>{signedOut ? signInLines.map((l) => l.text).join(' ') : ''}</Live>
               </Dock>
             </Stack>
           }
@@ -402,6 +419,8 @@ function OwnerPage({ pet, s }: { pet: OwnerView; s: ReturnType<typeof usePetScre
 function OutsiderPage({ pet, s }: { pet: Exclude<PetView, { viewer: 'owner' }>; s: ReturnType<typeof usePetScreen> }) {
   const { tokenId, name } = pet;
   const figure = useFigure();
+  const { begin } = useSignIn();
+  const auth = useAuth();
   const viewer: Viewer = pet.viewer;
   const asleep = pet.fullness.state === 'asleep';
   const ctx = { tokenId, name, viewer };
@@ -425,7 +444,7 @@ function OutsiderPage({ pet, s }: { pet: Exclude<PetView, { viewer: 'owner' }>; 
       />
     );
   const feed = (
-    <Button block icon="feed" onClick={() => (viewer === 'visitor' ? s.signIn('feed') : runAction('feed', ctx))}>
+    <Button block icon="feed" onClick={() => (viewer === 'visitor' ? begin('feed') : auth.needSession() && runAction('feed', ctx))}>
       {`Feed ${name}`}
     </Button>
   );
@@ -439,7 +458,7 @@ function OutsiderPage({ pet, s }: { pet: Exclude<PetView, { viewer: 'owner' }>; 
               {asleep ? <Text align="center">{`${name} is asleep — food from you would wake ${name} up.`}</Text> : null}
               {feed}
               {viewer === 'visitor' ? (
-                <Button block variant="secondary" onClick={() => s.signIn('signin')}>
+                <Button block variant="secondary" onClick={() => begin('signin')}>
                   Sign in
                 </Button>
               ) : null}
@@ -448,6 +467,8 @@ function OutsiderPage({ pet, s }: { pet: Exclude<PetView, { viewer: 'owner' }>; 
                   Get your own pet
                 </Button>
               ) : null}
+              {/* the outcome of a sign-in, and a guest's line of an ended session, under the action */}
+              <SignInOutcome unreachable={offlineLine(name)} />
             </Stack>
           }
         >
@@ -459,13 +480,20 @@ function OutsiderPage({ pet, s }: { pet: Exclude<PetView, { viewer: 'owner' }>; 
           />
         </Centerpiece>
       </Page>
+      {/* the pet was given away under a clear: the Toast is silent, the screen's own Live says its words */}
+      {s.notice ? (
+        <Toast icon="check" silent onDone={toastHeld() ? undefined : s.clearNotice}>
+          {s.notice}
+        </Toast>
+      ) : null}
     </Shell>
   );
 }
 
 /** What the page itself came to: one live region that stays through the views, so the outcome of «Finding this pet…» is
  *  heard (the views have their own regions once a pet is there). */
-function outcomeLine(page: ReturnType<typeof usePetScreen>['page']): string {
+function outcomeLine(page: ReturnType<typeof usePetScreen>['page'], notice: string | null): string {
+  if (notice) return notice;
   if (page.kind === 'loading') return FINDING;
   if (page.kind === 'not_found') return NOT_FOUND;
   if (page.kind === 'unreachable') return page.busy ? BUSY : UNREACHABLE;
@@ -493,7 +521,7 @@ export function PetScreen({ tokenId, from }: { tokenId: string; from: string | n
   const s = usePetScreen(tokenId, from);
   return (
     <>
-      <Live>{outcomeLine(s.page)}</Live>
+      <Live>{outcomeLine(s.page, s.notice)}</Live>
       <PetView s={s} />
     </>
   );

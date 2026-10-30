@@ -111,7 +111,9 @@ test('asleep (владелец): the field inactive with the typed text, the sle
   await expect(page.getByText('Asleep', { exact: true })).toBeVisible();
   const input = page.getByPlaceholder('Talk to Pixel…');
   await expect(input).toHaveAttribute('aria-disabled', 'true');
-  await expect(page.getByText('Pixel is asleep. A meal will wake Pixel up.')).toBeVisible();
+  // drawn once, and said by the Dock's Live
+  await expect(page.getByText('Pixel is asleep. A meal will wake Pixel up.').first()).toBeVisible();
+  await expect(page.getByRole('status').filter({ hasText: 'Pixel is asleep. A meal will wake Pixel up.' })).toHaveCount(1);
   await expect(page.getByRole('button', { name: 'Send' })).toHaveCount(0);
   await expect(page.getByRole('button', { name: 'Feed Pixel' })).toHaveCount(1);
   await expect(page.getByRole('button', { name: /Think hard/ })).toHaveAttribute('aria-disabled', 'true');
@@ -134,8 +136,9 @@ test('asleep (владелец) × a draft in the field, then feeding: the text 
   await expect(input).toHaveAttribute('aria-disabled', 'true');
   await expect(input).toHaveValue('And if they ask why the chart matters?');
   await expect(page.getByRole('button', { name: 'Send' })).toHaveCount(0);
-  // the focus went to the sleep line
-  await expect(page.locator('#pet-sleep-line')).toBeFocused();
+  // the field going off keeps the focus, and the Live says the sleep line (DS › Composer › Keyboard)
+  await expect(input).toBeFocused();
+  await expect(page.getByRole('status').filter({ hasText: 'Pixel is asleep. A meal will wake Pixel up.' })).toHaveCount(1);
   // a meal came: the field is active again with the same text, and it sends
   await setWorker(page, { pets: { '9': PIXEL } });
   await lookAgain(page);

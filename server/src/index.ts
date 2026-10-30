@@ -2,7 +2,9 @@ import { Hono } from 'hono';
 import { tick } from './cron';
 import { gate, type AppEnv } from './http';
 import { hatchRoutes } from './routes/hatch';
+import { memoryRoutes } from './routes/memory';
 import { petRoutes } from './routes/pets';
+import { exchangeRoutes, sessionRoutes } from './routes/session';
 import { thoughtRoutes } from './routes/thoughts';
 
 const app = new Hono<AppEnv>();
@@ -16,10 +18,15 @@ app.get('/health', (c) =>
   }),
 );
 
-// Every /api route: the request limit first, then the session (src/http.ts).
+// The exchange after Google stands outside the gate: it makes the player's row (routes/session.ts).
+app.route('/', exchangeRoutes);
+
+// Every other /api route: the request limit first, then the session (src/http.ts).
 app.use('/api/*', gate);
+app.route('/', sessionRoutes);
 app.route('/', petRoutes);
 app.route('/', thoughtRoutes);
+app.route('/', memoryRoutes);
 app.route('/', hatchRoutes);
 
 // The cron (`triggers.crons`, every minute): sessions to debit, the diary, the pause of the services.

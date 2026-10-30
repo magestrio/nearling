@@ -226,11 +226,12 @@ describe('Hatch screen', () => {
   ] as const)('is closed for %s: the answer, the event with the reason, and no birth', async (reason, close) => {
     await close();
     // the screen's repeating look sees the same answer and counts as nobody's tap
-    expect((await api('/api/hatch?look=1', { token: await asPlayer() })).body).toEqual({ open: false, reason });
+    // (a player with no pet of their own: the answer carries `noPets`, add-account › Hatch screen › no exit)
+    expect((await api('/api/hatch?look=1', { token: await asPlayer() })).body).toEqual({ open: false, reason, noPets: true });
     expect(h.events()).toEqual([]);
     const open = await api('/api/hatch', { token: await asPlayer() });
     expect(open.status).toBe(200);
-    expect(open.body).toEqual({ open: false, reason });
+    expect(open.body).toEqual({ open: false, reason, noPets: true });
     expect(h.events()).toEqual([{ name: 'birth_blocked', props: { reason } }]);
     const tap = await hatch('Pixel');
     expect(tap.status).toBe(409);
@@ -268,7 +269,7 @@ describe('Hatch screen', () => {
     const chain = h.net().contract;
     chain.bornToday = 50;
     const open = await api('/api/hatch', { token: await asPlayer() });
-    expect(open.body).toEqual({ open: false, reason: 'daily', until: new Date((chain.day + 1) * 86_400_000).toISOString() });
+    expect(open.body).toEqual({ open: false, reason: 'daily', until: new Date((chain.day + 1) * 86_400_000).toISOString(), noPets: true });
     expect(h.events()).toEqual([{ name: 'birth_blocked', props: { reason: 'daily' } }]);
     chain.bornToday = 49;
     expect((await api('/api/hatch', { token: await asPlayer() })).body).toEqual({ open: true });
@@ -282,7 +283,7 @@ describe('Hatch screen', () => {
   ] as const)('with %s the longer cause is told, without a time', async (_label, reason, close) => {
     await close();
     const open = await api('/api/hatch', { token: await asPlayer() });
-    expect(open.body).toEqual({ open: false, reason });
+    expect(open.body).toEqual({ open: false, reason, noPets: true });
     expect(open.body).not.toHaveProperty('until');
     const visitor = await api('/api/hatch');
     expect(visitor.body).toEqual({ open: false, reason });
@@ -319,6 +320,56 @@ describe('Hatch screen', () => {
     chain.addPet('3', NEAR_ACCOUNT(99), { name: 'Away' });
     chain.hatchedBy.set(PLAYER, '3');
     expect((await api('/api/hatch', { token: await asPlayer() })).body).toEqual({ open: true });
+  });
+
+  // spec: add-pet › Hatch screen › no exit
+  it('tells a signed-in player with no pet of their own that a closed hatching has no way out, also on a repeat look', async () => {
+    h.net().contract.pool = 0n;
+    for (const path of ['/api/hatch', '/api/hatch?look=1']) {
+      const res = await api(path, { token: await asPlayer() });
+      expect(res.body, path).toEqual({ open: false, reason: 'pool', noPets: true });
+    }
+    expect(h.net().contract.reads.filter((r) => r.method === 'nft_supply_for_owner').map((r) => r.args)).toEqual([{ account_id: PLAYER }, { account_id: PLAYER }]);
+  });
+
+  // spec: add-pet › Hatch screen › no exit
+  it('counts what the player owns now: a pet given away leaves them with none, a pet given to them is one', async () => {
+    const chain = h.net().contract;
+    chain.pool = 0n;
+    chain.addPet('3', NEAR_ACCOUNT(99), { name: 'Away' });
+    chain.hatchedBy.set(PLAYER, '3'); // they hatched it, and it is somebody else's now
+    expect((await api('/api/hatch', { token: await asPlayer() })).body).toHaveProperty('noPets', true);
+    chain.addPet('4', PLAYER, { name: 'Gifted' });
+    expect((await api('/api/hatch', { token: await asPlayer() })).body).toEqual({ open: false, reason: 'pool' });
+  });
+
+  // spec: add-pet › Hatch screen › no exit
+  it('says nothing of it to a player with a pet or to a visitor, and does not ask the network for a visitor', async () => {
+    const chain = h.net().contract;
+    chain.pool = 0n;
+    chain.addPet('3', PLAYER);
+    chain.hatchedBy.set(PLAYER, '3');
+    const owner = await api('/api/hatch', { token: await asPlayer() });
+    expect(owner.body).toEqual({ open: false, reason: 'pool' });
+    expect(owner.body).not.toHaveProperty('noPets');
+    chain.reads.length = 0;
+    const visitor = await api('/api/hatch');
+    expect(visitor.body).toEqual({ open: false, reason: 'pool' });
+    expect(chain.reads.map((r) => r.method)).not.toContain('nft_supply_for_owner');
+    // open hatching: no count at all
+    chain.pool = 1_000_000_000_000_000_000_000_000n;
+    chain.reads.length = 0;
+    expect((await api('/api/hatch', { token: await token('did:privy:other', NEAR_ACCOUNT(11)) })).body).toEqual({ open: true });
+    expect(chain.reads.map((r) => r.method)).not.toContain('nft_supply_for_owner');
+  });
+
+  // spec: add-pet › Hatch screen › no exit
+  it('answers 503 chain_unreachable when the count cannot be read, never a closed answer without it', async () => {
+    h.net().contract.pool = 0n;
+    // the read of the hatch record works, the count fails: only that method is down
+    h.net().contract.failingViews.add('nft_supply_for_owner');
+    const down = await api('/api/hatch', { token: await asPlayer() });
+    expect(down).toEqual({ status: 503, body: { code: 'chain_unreachable' } });
   });
 
   // spec: add-pet › Hatch screen › error

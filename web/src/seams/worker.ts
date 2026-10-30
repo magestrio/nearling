@@ -2,7 +2,7 @@
 // `privy-id-token` (design.md › Worker); without one it goes as a visitor. A failure is a WorkerError: `status` 0
 // means the Worker never answered, any other is its HTTP status with the `code` of its body (`signed_out`,
 // `rate_limited`, `chain_unreachable`, `not_owner`, `no_pet`, …).
-import type { Conversation, HatchStatus, Health, Me, PetState, PetView, Token, WorkerApi } from './worker-types';
+import type { Conversation, HatchStatus, Health, Me, PetState, PetView, SignInGate, Token, WorkerApi } from './worker-types';
 import { WorkerError } from './worker-types';
 
 export * from './worker-types';
@@ -11,6 +11,8 @@ export * from './worker-types';
 export const REQUEST_TIMEOUT_MS = 15_000;
 /** `POST /api/hatch` may hold: a second tap waits up to 30 s for the first, a transaction up to 25 s. */
 export const HATCH_TIMEOUT_MS = 65_000;
+/** The sign-out does not wait on the server longer than this (`Sign-out data` › `server not reached`). */
+export const END_SESSION_TIMEOUT_MS = 3000;
 
 async function call<T>(path: string, token: Token, init?: { method?: string; body?: unknown; timeoutMs?: number }): Promise<T> {
   let res: Response;
@@ -30,6 +32,8 @@ async function call<T>(path: string, token: Token, init?: { method?: string; bod
     // no answer in time, or a dropped connection: the request and its body share the deadline
     throw new WorkerError(0, 'unreachable');
   }
+  // `204`: an answer with no body (`POST /api/session/end`)
+  if (res.status === 204) return undefined as T;
   let body: unknown = null;
   try {
     body = JSON.parse(text);
@@ -39,7 +43,7 @@ async function call<T>(path: string, token: Token, init?: { method?: string; bod
   }
   if (!res.ok) {
     const code = typeof body === 'object' && body !== null && 'code' in body && typeof body.code === 'string' ? body.code : 'error';
-    throw new WorkerError(res.status, code);
+    throw new WorkerError(res.status, code, body);
   }
   return body as T;
 }
@@ -58,10 +62,30 @@ const real: WorkerApi = {
   say: (token, tokenId, text, mode) => call<{ job: string }>(`/api/pets/${id(tokenId)}/thoughts`, token, { method: 'POST', body: { text, mode } }),
   greeting: (token, tokenId) => call<{ job: string | null }>(`/api/pets/${id(tokenId)}/greeting`, token, { method: 'POST' }),
   retryWake: (token, tokenId) => call<{ job: string | null }>(`/api/pets/${id(tokenId)}/wake`, token, { method: 'POST' }),
+  async session(token, body) {
+    try {
+      return await call<{ ok: true }>('/api/session', token, { method: 'POST', body });
+    } catch (e) {
+      // `403 sign_in_refused { reason, until }`: the one refusal that carries more than its code
+      if (e instanceof WorkerError && e.status === 403 && e.code === 'sign_in_refused') {
+        const { reason, until } = (e.body ?? {}) as { reason?: unknown; until?: unknown };
+        if ((reason === 'mau' || reason === 'ceiling') && typeof until === 'string') return { refused: { reason, until } };
+      }
+      throw e;
+    }
+  },
+  endSession: (token) => call<void>('/api/session/end', token, { method: 'POST', timeoutMs: END_SESSION_TIMEOUT_MS }),
+  signInState: () => call<SignInGate>('/api/sign-in', null),
+  clearMemory: (token, tokenId) => call<{ ok: true }>(`/api/pets/${id(tokenId)}/memory/clear`, token, { method: 'POST' }),
 };
 
 export const workerApi: WorkerApi =
   import.meta.env.VITE_FAKES === 'true' ? (await import('./worker.fake')).fakeWorkerApi : real;
+
+/** A Toast goes after 4 s (DS README). Only the e2e mode's fakes can hold it: a capture of the frame that shows a Toast is taken
+ *  seconds after the page loads on software GL, past the Toast's time. */
+export const toastHeld: () => boolean =
+  import.meta.env.VITE_FAKES === 'true' ? (await import('./worker.fake')).fakeToastHeld : () => false;
 
 /** `Conversation flow` › «долгий ответ»: no reply for this long, and the waiting line appears. Only the e2e mode's
  *  fakes can change it (a capture of a frame that is not about waiting must not catch the line by the clock). */

@@ -3,7 +3,7 @@
 // carry the real codes. Nothing here leaves the machine.
 import { cleanName, hasVisible } from '../lib/nameClean';
 import { fakeState, recordCall, type FakeFail, type FakeWorkerState } from './fakes';
-import { WorkerError, type PetView, type WorkerApi } from './worker-types';
+import { WorkerError, type PetView, type SessionResult, type SignInGate, type WorkerApi } from './worker-types';
 
 const state = (): FakeWorkerState => fakeState().worker ?? {};
 const wait = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
@@ -34,6 +34,7 @@ const OWNER_DEFAULTS = {
   pendingKind: null,
   pendingText: null,
   lastThought: null,
+  memoryEpoch: 0,
   ownedCount: 1,
 };
 
@@ -41,8 +42,16 @@ function petsOf(): NonNullable<FakeWorkerState['pets']> {
   return state().pets ?? { '9': PIXEL, '2': BISCUIT };
 }
 
+/** A token is no session once a test says so (`sessionExpired`): the Worker answers every request that carries one with `401`. */
+function needSession(token: string | null): void {
+  if (token !== null && (state().sessionExpired || (state().expiredAfterExchange && exchanged))) throw new WorkerError(401, 'signed_out');
+}
+/** The exchange of this page load was answered `200`. */
+let exchanged = false;
+
 /** What `GET /api/pets/:id` answers for this viewer. */
 async function viewOf(token: string | null, tokenId: string): Promise<PetView> {
+  needSession(token);
   const ms = state().delayMs ?? 0;
   if (ms > 0) await wait(ms);
   const refused = state().petResult;
@@ -57,7 +66,9 @@ async function viewOf(token: string | null, tokenId: string): Promise<PetView> {
 
 /** How long a thought may be on its way before «Still working on it…» joins the thinking line: 10 s as the spec says;
  *  a capture of a frame that is not about waiting holds it off, the frame that is gets it at once. */
-export const fakeWaitLineMs = (real: number): number => state().waitLineMs ?? real;
+export const fakeToastHeld = (): boolean => state().toastHeld === true;
+
+export const fakeWaitLineMs =(real: number): number => state().waitLineMs ?? real;
 
 export const fakeWorkerApi: WorkerApi = {
   async health() {
@@ -66,11 +77,12 @@ export const fakeWorkerApi: WorkerApi = {
 
   me: async (token) => {
     if (token === null) throw new WorkerError(401, 'signed_out');
+    needSession(token);
     return answer('me', state().me, { accountId: 'a'.repeat(64), hatched: null, currentPet: null, ownedCount: 0 });
   },
 
   hatchStatus: (token, opts) => {
-    if (token !== null && state().sessionExpired) throw new WorkerError(401, 'signed_out');
+    needSession(token);
     // the query the real route takes: `?look=1` is recorded beside the call, so a test can tell a look from a check
     if (opts?.look) recordCall('worker:hatchStatus:look');
     return answer('hatchStatus', state().hatchStatus, { open: true }, state().hatchStatusDelayMs);
@@ -79,6 +91,7 @@ export const fakeWorkerApi: WorkerApi = {
   async hatch(token, name) {
     const s = state();
     if (token === null) throw new WorkerError(401, 'signed_out');
+    needSession(token);
     recordCall(`worker:hatch:${name}`);
     // The server cleans the raw name and refuses one with nothing visible; the list of insults never enters the repo.
     if (!hasVisible(cleanName(name))) {
@@ -105,12 +118,54 @@ export const fakeWorkerApi: WorkerApi = {
     return { ...owner, events: [], ...(job ? { pending: false } : {}), ...configured };
   },
 
-  conversation: () => answer('conversation', state().conversation, { lines: [], more: false, before: null }),
-  say: (_token, _tokenId, _text, mode) => {
+  conversation: (token) => {
+    needSession(token);
+    return answer('conversation', state().conversation, { lines: [], more: false, before: null });
+  },
+  say: (token, _tokenId, _text, mode) => {
+    needSession(token);
     // the mode the tap asked for, beside the plain call record (`worker:say:chat` / `worker:say:deep`)
     recordCall(`worker:say:${mode}`);
     return answer('say', state().say, { job: 'job-1' });
   },
-  greeting: () => answer('greeting', state().greeting, { job: 'job-1' }),
-  retryWake: () => answer('retryWake', state().retryWake, { job: 'job-wake' }),
+  greeting: (token) => {
+    needSession(token);
+    return answer('greeting', state().greeting, { job: 'job-1' });
+  },
+  retryWake: (token) => {
+    needSession(token);
+    return answer('retryWake', state().retryWake, { job: 'job-wake' });
+  },
+
+  session: async (token, body) => {
+    recordCall(`worker:session:${body.fresh ? 'fresh' : 'load'}${body.from ? `:${body.from}` : ''}`);
+    if (token === null || state().sessionExpired) throw new WorkerError(401, 'signed_out');
+    const result = await answer<SessionResult>('session', state().session, { ok: true });
+    exchanged = 'ok' in result;
+    return result;
+  },
+
+  endSession: async (token) => {
+    recordCall('worker:endSession');
+    const refused = state().endSession;
+    if (isFail(refused)) throw new WorkerError(refused.fail.status, refused.fail.code);
+    if (token === null) throw new WorkerError(401, 'signed_out');
+  },
+
+  signInState: () => answer<SignInGate>('signInState', state().signIn, { state: 'open' }),
+
+  clearMemory: async (token, tokenId) => {
+    if (token === null || state().sessionExpired) throw new WorkerError(401, 'signed_out');
+    recordCall(`worker:clearMemory:${tokenId}`);
+    const result = await answer('clearMemory', state().clearMemory, { ok: true as const }, state().clearMemoryDelayMs);
+    // what the real server holds from then on: an empty conversation, one more clear on the pet, no greeting to come
+    const held = fakeState().worker;
+    const pet = petsOf()[tokenId];
+    if (held) {
+      held.conversation = { lines: [], more: false, before: null };
+      held.greeting = { job: null };
+      if (pet) held.pets = { ...petsOf(), [tokenId]: { ...pet, owner: { ...pet.owner, memoryEpoch: (pet.owner?.memoryEpoch ?? 0) + 1 } } };
+    }
+    return result;
+  },
 };

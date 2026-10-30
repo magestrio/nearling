@@ -6,6 +6,7 @@ import { ChainUnreachable, petView, type PetRecord } from './chain';
 import { utcDay } from './http';
 import { complete, replyOf, signatureOf, type CallResult, type Message, type Signed } from './nearai';
 import { hasVisible } from './name/clean';
+import { eraseIfCleared, memoryEpoch } from './pet/forget';
 import { foodState, markTired, type FoodState } from './pet/view';
 import {
   callUsd12,
@@ -112,9 +113,11 @@ async function countEmpty(env: Env, tokenId: string, day: number): Promise<numbe
 }
 
 /** Runs one thought. `job` is what the queue holds; the answer is stored in `jobs.result` (codes,
- * ids and numbers — never the text of a line). */
-export async function run(env: Env, tokenId: string, job: ThoughtJob): Promise<JobResult> {
+ * ids and numbers — never the text of a line). `epoch` is `pets.memory_epoch` as it stood when the
+ * job was claimed (the desk takes it in the claiming statement); a caller with no claim reads it now. */
+export async function run(env: Env, tokenId: string, job: ThoughtJob, epoch?: number): Promise<JobResult> {
   const now = Date.now();
+  const heldEpoch = epoch ?? (await memoryEpoch(env.DB, tokenId));
   if (await isPaused(env.DB, 'thought')) return { code: 'paused' };
 
   let pet: PetRecord | null;
@@ -141,6 +144,9 @@ export async function run(env: Env, tokenId: string, job: ThoughtJob): Promise<J
   if (state === 'asleep') return { code: 'asleep' };
   if (deep && state !== 'full') return { code: 'too_hungry' };
 
+  // `heldEpoch` is older than the memory is read: a clear that lands after the claim makes the
+  // answer's words unwanted (`think` erases them with the thought's own batch); one before the claim
+  // failed the job and never got here.
   const messages = await buildMessages(env.DB, tokenId, pet, job);
   const bound = inputBound(messages);
   const minCall = minCallPrice(env, bound);
@@ -161,7 +167,7 @@ export async function run(env: Env, tokenId: string, job: ThoughtJob): Promise<J
   const reserve = ceilingPrice(env, bound, plan.ceiling) + reaskMin;
   await env.DB.prepare('INSERT OR REPLACE INTO pet_spend (token_id, reserve_yocto, job_id) VALUES (?, ?, ?)').bind(tokenId, reserve.toString(), null).run();
   try {
-    return await think(env, tokenId, pet, job, fs, { messages, bound, plan, deep, reserve });
+    return await think(env, tokenId, pet, job, fs, { messages, bound, plan, deep, reserve, epoch: heldEpoch });
   } finally {
     await env.DB.prepare('DELETE FROM pet_spend WHERE token_id = ?').bind(tokenId).run();
   }
@@ -173,6 +179,8 @@ interface Ctx {
   plan: Plan;
   deep: boolean;
   reserve: bigint;
+  /** `pets.memory_epoch` as it stood before the request was built. */
+  epoch: number;
 }
 
 async function think(env: Env, tokenId: string, pet: PetRecord, job: ThoughtJob, fs: FoodState, ctx: Ctx): Promise<JobResult> {
@@ -284,6 +292,8 @@ async function think(env: Env, tokenId: string, pet: PetRecord, job: ThoughtJob,
         answer.finishReason === 'length' ? 1 : 0,
       ),
     ),
+    // The owner may have cleared the memory while the model was answering: the words go, the receipt stays.
+    ...eraseIfCleared(env.DB, tokenId, thoughtId, ctx.epoch, now),
   ];
   await env.DB.batch(statements);
 

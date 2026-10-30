@@ -44,3 +44,25 @@ export const HISTORY = [
 ];
 /** Pixel with its owner (one pet), the history and Biscuit beside it */
 export const OWNER = { owned: ['9'], pets: { '9': PIXEL, '2': BISCUIT }, conversation: { lines: HISTORY, more: false, before: null } };
+
+// User agents for the tests of the in-app browsers: the ordinary strings of Safari on iPhone and Chrome on an Android phone,
+// with the documented in-app names added (the real ones of X and Telegram are recorded by hand on a real phone). A test
+// hands one to the browser through `test.use({ userAgent })`; the product never spoofs a user agent.
+const IPHONE_UA =
+  'Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Mobile/15E148 Safari/604.1';
+const ANDROID_UA = 'Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Mobile Safari/537.36';
+export const UA = {
+  iphone: IPHONE_UA,
+  android: ANDROID_UA,
+  xOnIphone: `${IPHONE_UA} Twitter for iPhone`,
+  xOnAndroid: `${ANDROID_UA} TwitterAndroid`,
+  telegramOnAndroid: `${ANDROID_UA} Telegram-Android/10.14.0`,
+};
+
+/** `GET /api/sign-in` closed for new players until the 1st of December. */
+export const CLOSED_NEW = { state: 'closed_new' as const, until: '2026-12-01T00:00:00.000Z' };
+/** The same, closed for everyone (the ceiling). */
+export const CLOSED_ALL = { state: 'closed_all' as const, until: '2026-12-01T00:00:00.000Z' };
+
+/** The privy and worker calls the fakes were asked, without the rest. */
+export const privyCalls = async (page: Page): Promise<string[]> => (await calls(page)).filter((c) => c.startsWith('privy:'));
