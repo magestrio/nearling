@@ -169,6 +169,25 @@ test('разбудил: the sheet closes by itself, and Pixel wakes on the page'
   await expect(page.locator('.ds-composer__field')).toBeFocused();
 });
 
+// spec: add-feeding › Own pet feeding flow › разбудил
+test('разбудил: the page learns of the wake while the sheet is still open — the focus comes to the field once the sheet closes', async ({ page }) => {
+  await openWith(page, '/pet/9', {
+    auth: SIGNED_IN,
+    worker: { ...ownerWith(ASLEEP_PIXEL), feedSheet: { fullness: { state: 'asleep', level: 0 }, snack: { state: 'ready' } } },
+  });
+  await page.getByRole('button', { name: 'Feed Pixel' }).click();
+  const dialog = sheet(page);
+  await expect(dialog.getByRole('button', { name: /^Feed · 5¢/ })).toBeVisible();
+  // the wake lands first (the page re-reads under the sheet); the sheet closes after it
+  await setWorker(page, { pets: { '9': PIXEL, '2': BISCUIT }, petState: { events: ['woke'] } });
+  await lookAgain(page);
+  await expect(page.getByRole('img', { name: 'Pixel, full' })).toBeAttached();
+  await expect(dialog).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(dialog).toHaveCount(0);
+  await expect(page.locator('.ds-composer__field')).toBeFocused();
+});
+
 // spec: add-feeding › Own pet feeding flow › открыл кормление
 test('открыл кормление: on a friend\'s page «Feeding your Pixel…», «Yum! Your Pixel is fuller now.» and the failure name the pet «your Pixel»', async ({ page }) => {
   await page.clock.install();

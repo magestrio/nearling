@@ -13,7 +13,8 @@ import { runAction, takePendingAction } from './parts';
 // The Pet screen's state (add-pet › Pet screen, Connection rule): what the page shows is chosen from the answer of
 // `GET /api/pets/:id` — a viewer of `owner | guest | visitor` — and kept as the last known pet; a failed request after
 // that is a banner over it, never a different page. The owner's page polls `GET …/state` every 5 s (1.5 s while a
-// thought is on its way) and not while the tab is hidden. The draft, the lines shown and the pet shown are the tab's
+// thought is on its way) and not while the tab is hidden; a guest's or a visitor's page looks at the pet again every 10 s,
+// the same way (add-pet-life › Pet life data). The draft, the lines shown and the pet shown are the tab's
 // memory (design.md › «Черновик реплики, показанный питомец…»): nothing here touches the browser's storage.
 export type OwnerView = Extract<PetView, { viewer: 'owner' }>;
 
@@ -52,6 +53,9 @@ export interface Failure {
 
 export const POLL_IDLE_MS = 5000;
 export const POLL_JOB_MS = 1500;
+/** A guest's or a visitor's page looks at the pet again this often (`Pet life data`: the face and the stage change on an open
+ *  page «за секунды»); slower than the owner's, since a visitor's copy is up to 15 s old anyway */
+export const POLL_GUEST_MS = 10_000;
 /** `Conversation flow` › «долгий ответ»: no reply for 10 s */
 export const WAIT_MS = 10_000;
 
@@ -278,8 +282,12 @@ export function usePetScreen(tokenId: string, from: string | null) {
       const history = await workerApi.conversation(token, tokenId);
       historyRead.current = true;
       const name = pageRef.current.kind === 'pet' ? pageRef.current.pet.name : '';
+      // a line of a stage change this page did not hold before (the conversation was read already) came while it was open:
+      // it rises in (`Growth flow` › «переход записан позже ответа»); on the first read, and after a clear, nothing is new
+      const known = new Set((linesRef.current ?? []).map((l) => l.id));
+      const reread = linesRef.current !== null && linesRef.current.length > 0;
       const past = history.lines.flatMap((l): Line[] =>
-        l.who === 'pet' ? replyLines(l, name, false) : [{ id: l.id, who: l.who, text: l.text }],
+        l.who === 'pet' ? replyLines(l, name, false) : [{ id: l.id, who: l.who, text: l.text, fresh: reread && l.who === 'event' && !known.has(l.id) ? true : undefined }],
       );
       const held = new Set(past.map((l) => l.id));
       setLines((now) => {
@@ -392,6 +400,9 @@ export function usePetScreen(tokenId: string, from: string | null) {
                 deepPrice: s.deepPrice,
                 hello: s.hello,
                 memoryEpoch: s.memoryEpoch,
+                mood: s.mood,
+                traits: s.traits,
+                energy: s.energy,
               },
             }
           : p,
@@ -491,6 +502,44 @@ export function usePetScreen(tokenId: string, from: string | null) {
       document.removeEventListener('visibilitychange', onVisible);
     };
   }, [viewer, ended, job, poll]);
+
+  // A guest's or a visitor's page looks at the pet again — the face of the day, the stage, the fullness — in the same
+  // places: not in a hidden tab, at once on return, not after the session ended. A pet that is now this player's own
+  // reloads the page as the owner's.
+  const looking = useRef(false);
+  const look = useCallback(async () => {
+    if (looking.current) return;
+    looking.current = true;
+    try {
+      const token = await tokenOf();
+      const view = await workerApi.pet(token, tokenId);
+      if (view.viewer === 'owner') {
+        setAttempt((a) => a + 1);
+        return;
+      }
+      setBanner(null);
+      setPage((p) => (p.kind === 'pet' && p.pet.viewer !== 'owner' ? { kind: 'pet', pet: view } : p));
+    } catch (e) {
+      fail(e, () => void look());
+    } finally {
+      looking.current = false;
+    }
+  }, [tokenOf, tokenId, fail]);
+
+  useEffect(() => {
+    if ((viewer !== 'guest' && viewer !== 'visitor') || ended) return undefined;
+    const timer = setInterval(() => {
+      if (!document.hidden) void look();
+    }, POLL_GUEST_MS);
+    const onVisible = () => {
+      if (!document.hidden) void look();
+    };
+    document.addEventListener('visibilitychange', onVisible);
+    return () => {
+      clearInterval(timer);
+      document.removeEventListener('visibilitychange', onVisible);
+    };
+  }, [viewer, ended, look]);
 
   /** «Send» / Enter (`chat`) or «Think hard» (`deep`): the player's line goes into the conversation at once, the
    *  reply comes by the job. */

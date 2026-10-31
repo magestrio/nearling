@@ -61,7 +61,7 @@ export function harness(): Harness {
       });
     }
     // Clean tables between tests (storage is isolated per file, not per test).
-    for (const table of ['pets', 'thoughts', 'thought_calls', 'memory_notes', 'debit_sessions', 'pet_spend', 'empty_answers', 'jobs', 'project_spend', 'service_pause', 'births_in_flight', 'feedings', 'friend_snacks', 'known_index']) {
+    for (const table of ['pets', 'thoughts', 'thought_calls', 'memory_notes', 'debit_sessions', 'pet_spend', 'empty_answers', 'jobs', 'project_spend', 'service_pause', 'births_in_flight', 'feedings', 'friend_snacks', 'known_index', 'pet_life', 'life_friends', 'pending_growth']) {
       await env.DB.exec(`DELETE FROM ${table}`);
     }
     // The players stay (a token makes its row once), the feeding side of their rows does not.
@@ -102,10 +102,11 @@ export async function say(tk: string, tokenId: string, text: string, mode: 'chat
 /** The input bound (every byte of the messages counted as a token) of a thought that a fresh
  * standard pet would send for this line: a throwaway pet answers it, its request is measured, and
  * the fake's record of calls is cleared. Pets with the same name and character and no history send
- * the same request, so a test can place a limit exactly at the price of that call. */
-export async function learnBound(h: Harness, text: string, mode: 'chat' | 'deep' = 'chat', history: string[] = []): Promise<number> {
+ * the same request, so a test can place a limit exactly at the price of that call. A hungry pet
+ * speaks with the sleepy mood layer (`Mood rule`), a longer request: `hungry` makes the throwaway one too. */
+export async function learnBound(h: Harness, text: string, mode: 'chat' | 'deep' = 'chat', history: string[] = [], hungry = false): Promise<number> {
   const probeOwner = NEAR_ACCOUNT(900);
-  h.net().contract.addPet('9000', probeOwner);
+  h.net().contract.addPet('9000', probeOwner, hungry ? { project_food: (BigInt(env.STARTER_FOOD) / 2n).toString() } : {});
   await seedHistory('9000', history);
   const before = h.net().ai.calls.length;
   await say(await token('did:privy:probe', probeOwner), '9000', text, mode);

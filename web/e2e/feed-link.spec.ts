@@ -52,8 +52,8 @@ async function openOwner(page: Page, what: Browser) {
 // spec: add-feeding › Feed link share data › ссылка ушла
 test('делится: the system menu gets the link and the text and nothing else; nothing is sent to the server', async ({ page }) => {
   await openOwner(page, { share: 'ok', clipboard: 'ok' });
-  // the sheet's own poll goes on; what the tap adds is what is counted
-  const others = async () => (await calls(page)).filter((c) => c !== 'worker:feedSheet');
+  // the sheet's own poll and the page's 5 s look (`worker:petState`, its `:wakes:<n>` form too) go on; what the tap adds is what is counted
+  const others = async () => (await calls(page)).filter((c) => c !== 'worker:feedSheet' && !c.startsWith('worker:petState'));
   const before = await others();
   await ask(page).click();
   await expect.poll(() => shared(page)).toHaveLength(1);

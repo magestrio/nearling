@@ -312,22 +312,85 @@ impl Ctx {
             debit_day: view["debit_day"].as_u64().unwrap(),
             debited_today: amount("debited_today"),
             last_debit_id: view["last_debit_id"].as_u64().unwrap(),
-            stage: Stage::Baby,
+            stage: match view["stage"].as_str().unwrap() {
+                "Baby" => Stage::Baby,
+                "Teen" => Stage::Teen,
+                "Adult" => Stage::Adult,
+                other => panic!("a stage of the contract: {other}"),
+            },
             stage_day: view["stage_day"].as_u64().unwrap(),
             streak: view["streak"].as_u64().unwrap() as u32,
             freezes: view["freezes"].as_u64().unwrap() as u8,
             friend_snack_day: view["friend_snack_day"].as_u64().unwrap(),
             friend_snacks: view["friend_snacks"].as_u64().unwrap() as u8,
             owner_snack_at: view["owner_snack_at"].as_str().unwrap().parse().unwrap(),
+            traits: {
+                let mut traits = [0u8; 2];
+                for (slot, word) in traits.iter_mut().zip(view["traits"].as_array().unwrap()) {
+                    *slot = match word.as_str().unwrap() {
+                        "clever" => 1,
+                        "sociable" => 2,
+                        "hard_working" => 3,
+                        "thoughtful" => 4,
+                        "cozy" => 5,
+                        other => panic!("a trait of the contract: {other}"),
+                    };
+                }
+                traits
+            },
         };
         edit(&mut pet);
+        self.put_record(token_id, VersionedPet::V3(pet)).await
+    }
+
+    /// Writes a record as it is, in any version: a test of an older pet needs the old bytes.
+    pub async fn put_record(&self, token_id: &str, record: VersionedPet) -> anyhow::Result<()> {
         let mut key = b"p".to_vec();
         key.extend(borsh::to_vec(&token_id.to_string())?);
-        let value = borsh::to_vec(&VersionedPet::V2(pet))?;
+        let value = borsh::to_vec(&record)?;
         self.worker
             .patch_state(self.contract.id(), &key, &value)
             .await?;
         Ok(())
+    }
+
+    pub async fn grow_as(
+        &self,
+        caller: &Account,
+        token_id: &str,
+        stage: &str,
+        r#trait: &str,
+    ) -> anyhow::Result<ExecutionFinalResult> {
+        Ok(caller
+            .call(self.contract.id(), "pet_grow")
+            .args_json(json!({ "token_id": token_id, "stage": stage, "trait": r#trait }))
+            .gas(Gas::from_tgas(30))
+            .transact()
+            .await?)
+    }
+
+    pub async fn grow(
+        &self,
+        token_id: &str,
+        stage: &str,
+        r#trait: &str,
+    ) -> anyhow::Result<ExecutionFinalResult> {
+        self.grow_as(&self.server, token_id, stage, r#trait).await
+    }
+
+    pub async fn nft_token(&self, token_id: &str) -> anyhow::Result<Value> {
+        Ok(self
+            .contract
+            .view("nft_token")
+            .args_json(json!({ "token_id": token_id }))
+            .await?
+            .json()?)
+    }
+
+    /// The pet's record one UTC day older: the last stage change "happened yesterday". Like
+    /// `age_births_by_a_day`, this stands in for a clock past 00:00 UTC.
+    pub async fn age_stage_by_a_day(&self, token_id: &str) -> anyhow::Result<()> {
+        self.set_pet(token_id, |pet| pet.stage_day -= 1).await
     }
 
     /// Moves the birth counter's day one day back: the births counted so far "happened

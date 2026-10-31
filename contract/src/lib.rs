@@ -5,6 +5,7 @@ pub mod pet;
 use near_contract_standards::non_fungible_token::core::NonFungibleTokenCore;
 use near_contract_standards::non_fungible_token::enumeration::NonFungibleTokenEnumeration;
 use near_contract_standards::non_fungible_token::events::NftMint;
+use near_contract_standards::non_fungible_token::metadata::TokenMetadata;
 use near_contract_standards::non_fungible_token::{NonFungibleToken, Token, TokenId};
 use near_sdk::json_types::U128;
 use near_sdk::store::key::Sha256;
@@ -13,7 +14,7 @@ use near_sdk::{AccountId, NearToken, PanicOnDefault, Promise, env, near};
 
 use crate::events::{NearlingEvent, SnackKind, ThoughtReceipt, hex};
 use crate::limits::*;
-use crate::pet::{HatchView, Pet, PetView, Stage, VersionedPet};
+use crate::pet::{HatchView, Pet, PetView, Stage, Trait, VersionedPet, token_extra};
 
 /// The state layout of `add-pet`, which `migrate` reads on the dev account: the same prefixes as
 /// `Contract`, without `known`.
@@ -201,7 +202,7 @@ impl Contract {
             .internal_mint_with_refund(token_id.clone(), receiver.clone(), None, None);
         self.pets.insert(
             token_id.clone(),
-            VersionedPet::V2(Pet {
+            VersionedPet::V3(Pet {
                 name,
                 character,
                 born_at: now,
@@ -217,6 +218,7 @@ impl Contract {
                 friend_snack_day: 0,
                 friend_snacks: 0,
                 owner_snack_at: 0,
+                traits: [0, 0],
             }),
         );
         self.hatched.insert(receiver.clone(), token_id.clone());
@@ -431,6 +433,41 @@ impl Contract {
         introduced
     }
 
+    /// Server only, no deposit. Moves the pet into the stage after its own, once in a UTC day (the
+    /// birth counts), with a trait of the five. The trait is stored in the teen's or the adult's
+    /// slot of the fixed-size record, so the call writes no new byte.
+    pub fn pet_grow(&mut self, token_id: TokenId, stage: Stage, r#trait: Trait) {
+        self.assert_server();
+        let mut record = self
+            .pets
+            .get(&token_id)
+            .cloned()
+            .unwrap_or_else(|| fail("no_pet"));
+        let pet = record.current_mut();
+        if pet.stage.next() != Some(stage) {
+            fail("bad_stage");
+        }
+        let day = day_of(env::block_timestamp());
+        if pet.stage_day >= day {
+            fail("stage_today");
+        }
+        pet.stage = stage;
+        pet.stage_day = day;
+        match stage {
+            Stage::Teen => pet.traits[0] = r#trait.code(),
+            Stage::Adult => pet.traits[1] = r#trait.code(),
+            Stage::Baby => unreachable!("Baby is nobody's next stage"),
+        }
+        self.pets.insert(token_id.clone(), record);
+
+        NearlingEvent::Grow {
+            token_id,
+            stage,
+            trait_: r#trait,
+        }
+        .emit();
+    }
+
     pub fn hatch_view(&self, account_id: AccountId) -> HatchView {
         HatchView {
             token_id: self.hatched.get(&account_id).cloned(),
@@ -453,8 +490,17 @@ impl Contract {
         self.known.contains(&(token_id, account_id))
     }
 
+    /// The standard's token; `metadata.extra` holds the pet's stage and traits as JSON, built here
+    /// from the record on every read (NEP-177: `extra` is «anything extra»).
     pub fn nft_token(&self, token_id: TokenId) -> Option<Token> {
-        self.tokens.nft_token(token_id)
+        let mut token = self.tokens.nft_token(token_id.clone())?;
+        if let Some(record) = self.pets.get(&token_id) {
+            token.metadata = Some(TokenMetadata {
+                extra: Some(token_extra(&record.current())),
+                ..Default::default()
+            });
+        }
+        Some(token)
     }
 
     pub fn nft_tokens_for_owner(
@@ -541,8 +587,8 @@ mod tests {
         let mut contract = funded_contract(7_000_000_000_000_000_000_000_000);
         testing_env!(context(server(), 1_000, 0).build());
         let token_id = contract.pet_mint(player(0), "Pixel".into(), "I am curious.".into());
-        let Some(VersionedPet::V2(born)) = contract.pets.get(&token_id).cloned() else {
-            panic!("a birth writes version 2");
+        let Some(VersionedPet::V3(born)) = contract.pets.get(&token_id).cloned() else {
+            panic!("a birth writes version 3");
         };
         let old_record = VersionedPet::V1(crate::pet::PetV1 {
             name: born.name.clone(),
@@ -879,6 +925,82 @@ mod tests {
         assert_eq!(view.given_food.0, 2_500_000_000_000_000_000_000);
         assert_eq!(view.debited_today.0, 2_500_000_000_000_000_000_000);
         assert_eq!(view.last_debit_id, 1);
+    }
+
+    // spec: add-pet-life › Pet growth contract › второе изменение стадии за сутки × the block_timestamp boundary
+    #[test]
+    fn a_stage_changes_once_a_utc_day_at_the_block_timestamp_boundary() {
+        let mut contract = funded_contract(HUGE_POOL);
+        // Born in the last nanosecond of day 4.
+        testing_env!(context(server(), 5 * NS_PER_DAY - 1, 0).build());
+        contract.pet_mint(player(0), "Pixel".into(), "I am curious.".into());
+        assert_eq!(contract.pet_view("0".into()).unwrap().stage_day, 4);
+
+        // The same day, to the last nanosecond: the birth counts.
+        testing_env!(context(server(), 5 * NS_PER_DAY - 1, 0).build());
+        let text = panic_text(|| contract.pet_grow("0".into(), Stage::Teen, Trait::Clever));
+        assert!(text.contains("stage_today"), "{text}");
+        let view = contract.pet_view("0".into()).unwrap();
+        assert_eq!((view.stage, view.stage_day), (Stage::Baby, 4));
+        assert!(view.traits.is_empty());
+
+        // The first nanosecond of day 5 passes.
+        testing_env!(context(server(), 5 * NS_PER_DAY, 0).build());
+        contract.pet_grow("0".into(), Stage::Teen, Trait::Clever);
+        let view = contract.pet_view("0".into()).unwrap();
+        assert_eq!((view.stage, view.stage_day), (Stage::Teen, 5));
+        assert_eq!(view.traits, vec![Trait::Clever]);
+
+        // The transition counts as the day's change: the adult step waits for day 6.
+        testing_env!(context(server(), 6 * NS_PER_DAY - 1, 0).build());
+        let text = panic_text(|| contract.pet_grow("0".into(), Stage::Adult, Trait::Clever));
+        assert!(text.contains("stage_today"), "{text}");
+        testing_env!(context(server(), 6 * NS_PER_DAY, 0).build());
+        contract.pet_grow("0".into(), Stage::Adult, Trait::Clever);
+        let view = contract.pet_view("0".into()).unwrap();
+        assert_eq!(view.stage, Stage::Adult);
+        assert_eq!(view.traits, vec![Trait::Clever, Trait::Clever]);
+    }
+
+    // The record is fixed-size, so a grown pet's value takes the bytes a newborn's did and the
+    // call writes no new byte (the sandbox test `pet_grow.rs` checks the chain's own count).
+    #[test]
+    fn a_grown_pet_takes_the_same_bytes_as_a_newborn() {
+        let mut contract = funded_contract(HUGE_POOL);
+        testing_env!(context(server(), NS_PER_DAY, 0).build());
+        contract.pet_mint(player(0), "Pixel".into(), "I am curious.".into());
+        let size = |contract: &Contract| {
+            near_sdk::borsh::to_vec(contract.pets.get("0").unwrap())
+                .unwrap()
+                .len()
+        };
+        let newborn = size(&contract);
+
+        testing_env!(context(server(), 2 * NS_PER_DAY, 0).build());
+        contract.pet_grow("0".into(), Stage::Teen, Trait::Cozy);
+        assert_eq!(size(&contract), newborn, "the teen step");
+        testing_env!(context(server(), 3 * NS_PER_DAY, 0).build());
+        contract.pet_grow("0".into(), Stage::Adult, Trait::HardWorking);
+        assert_eq!(size(&contract), newborn, "the adult step");
+    }
+
+    #[test]
+    fn the_grow_event_carries_the_token_the_stage_and_the_trait() {
+        let mut contract = funded_contract(HUGE_POOL);
+        testing_env!(context(server(), NS_PER_DAY, 0).build());
+        contract.pet_mint(player(0), "Pixel".into(), "I am curious.".into());
+        testing_env!(context(server(), 2 * NS_PER_DAY, 0).build());
+        contract.pet_grow("0".into(), Stage::Teen, Trait::HardWorking);
+        let logs = get_logs();
+        assert_eq!(logs.len(), 1, "{logs:?}");
+        let json = logs[0].trim_start_matches("EVENT_JSON:");
+        let event: near_sdk::serde_json::Value = near_sdk::serde_json::from_str(json).unwrap();
+        assert_eq!(event["standard"], "nearling");
+        assert_eq!(event["version"], "1.0.0");
+        assert_eq!(event["event"], "grow");
+        assert_eq!(event["data"]["token_id"], "0");
+        assert_eq!(event["data"]["stage"], "Teen");
+        assert_eq!(event["data"]["trait"], "hard_working");
     }
 
     #[test]

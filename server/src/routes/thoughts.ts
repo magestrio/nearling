@@ -188,7 +188,9 @@ thoughtRoutes.get('/api/pets/:id/conversation', async (c) => {
   const page = rows.results.slice(0, CONVERSATION_PAGE).reverse();
   const lines = page.flatMap((t) => [
     ...(t.player_text !== null ? [{ id: `${t.id}:you`, who: 'player', text: t.player_text, at: t.created_at }] : []),
-    ...(t.reply_text !== null
+    // The line of a transition is the game's: a centred line, not the pet's voice (`Growth flow`).
+    ...(t.reply_text !== null && t.kind === 'growth' ? [{ id: t.id, who: 'event', text: t.reply_text, at: t.created_at }] : []),
+    ...(t.reply_text !== null && t.kind !== 'growth'
       ? [{ id: t.id, who: 'pet', text: t.reply_text, at: t.created_at, cut: t.cut, ...(t.kind === 'deep' ? { price: t.price_yocto, priceCents: t.price_usd_micros / 10_000 } : {}) }]
       : []),
   ]);

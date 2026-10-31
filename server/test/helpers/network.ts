@@ -35,7 +35,13 @@ export interface FakePet {
   friend_snack_day: number;
   friend_snacks: number;
   owner_snack_at: string;
+  /** In the order gained, a repeat twice (`pet_view` of the contract). */
+  traits: string[];
 }
+
+/** The traits a `pet_grow` takes (`Trait` of the contract, JSON). */
+const FAKE_TRAITS = ['clever', 'sociable', 'hard_working', 'thoughtful', 'cozy'];
+const NEXT_STAGE: Record<string, string> = { Baby: 'Teen', Teen: 'Adult' };
 
 export type SendMode =
   | 'normal'
@@ -78,8 +84,14 @@ export class FakeContract {
   hatchedBy = new Map<string, string>();
   /** The UTC day of the (faked) clock, as the contract's `block_timestamp` would say. */
   get day(): number {
-    return Math.floor(Date.now() / 86_400_000);
+    return this.dayOverride ?? Math.floor(Date.now() / 86_400_000);
   }
+  /** When set, the chain's day is this number whatever the clock says (a node a moment behind). */
+  dayOverride: number | null = null;
+  /** Every `grow` event: the transitions the contract took. */
+  grows: { token_id: string; stage: string; trait: string }[] = [];
+  /** When set, `pet_grow` fails with this contract code even if its rules would pass. */
+  growFails: string | null = null;
   /** What the next successful transaction burns, yoctoNEAR (`tokens_burnt` of its outcome). */
   burnt = '0';
   /** When set, `debit_session` fails with this contract code even if its rules would pass. */
@@ -141,6 +153,7 @@ export class FakeContract {
       friend_snack_day: 0,
       friend_snacks: 0,
       owner_snack_at: '0',
+      traits: [],
       ...patch,
     };
     this.pets.set(id, pet);
@@ -271,6 +284,23 @@ export class FakeContract {
     return { wrote: kind === 'friend' && this.introduce(tokenId, feeder, 0n) };
   }
 
+  /** The contract's `pet_grow`, in its order of checks: the caller, the pet, the next stage, the day.
+   * A trait outside the list fails at parsing, before the first check. */
+  grow(caller: string, tokenId: string, stage: string, trait: string): { code: string } | null {
+    if (!FAKE_TRAITS.includes(trait)) return { code: 'Failed to deserialize input from JSON' };
+    if (caller !== env.SERVER_ACCOUNT_ID) return { code: 'not_server' };
+    const pet = this.pets.get(tokenId);
+    if (!pet) return { code: 'no_pet' };
+    if (this.growFails !== null) return { code: this.growFails };
+    if (NEXT_STAGE[pet.stage] !== stage) return { code: 'bad_stage' };
+    if (pet.stage_day >= this.day) return { code: 'stage_today' };
+    pet.stage = stage;
+    pet.stage_day = this.day;
+    pet.traits.push(trait);
+    this.grows.push({ token_id: tokenId, stage, trait });
+    return null;
+  }
+
   /** Every accepted `debit_session`. */
   debits: { tokenId: string; debitId: number; thoughts: { price: string; calls: unknown[] }[] }[] = [];
 
@@ -340,6 +370,11 @@ export class FakeContract {
           'code' in result
             ? { Failure: { ActionError: { index: 0, kind: { FunctionCallError: { ExecutionError: `Smart contract panicked: ${result.code}` } } } } }
             : { SuccessValue: btoa(JSON.stringify(result.wrote)) };
+      } else if (call.methodName === 'pet_grow') {
+        const refused = this.grow(tx.signerId, String(args.token_id), String(args.stage), String(args.trait));
+        status = refused
+          ? { Failure: { ActionError: { index: 0, kind: { FunctionCallError: { ExecutionError: `Smart contract panicked: ${refused.code}` } } } } }
+          : { SuccessValue: '' };
       } else if (call.methodName === 'transfer') {
         if (this.transferFails !== null) {
           status = { Failure: { ActionError: { index: 0, kind: { LackBalanceForState: { amount: this.transferFails } } } } };
@@ -444,6 +479,9 @@ export interface AiBehavior {
   signature?: 'ok' | 'gateway' | 'mismatch' | 'never';
   /** The answer takes this long (ms) to come: a second request can arrive while it is in flight. */
   delay?: number;
+  /** Runs while the call is in flight, before it answers: what the world does while the pet thinks
+   * (the clock reaching 00:00 UTC, the owner's page, another desk). */
+  during?: () => void | Promise<void>;
 }
 
 export interface AiCall {
@@ -485,6 +523,7 @@ export class FakeNearAi {
     this.peak = Math.max(this.peak, this.active);
     try {
       if (b.delay) await new Promise((resolve) => setTimeout(resolve, b.delay));
+      await b.during?.();
       return await this.answer(b, body, reqBytes);
     } finally {
       this.active -= 1;

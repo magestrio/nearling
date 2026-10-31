@@ -4,6 +4,7 @@ import {
   Button,
   Center,
   Centerpiece,
+  Cluster,
   Composer,
   Conversation,
   Dock,
@@ -33,6 +34,7 @@ import {
 import { closeFeed, useAddNearRequest, useFeedRequest } from '../../feeding/feedRequest';
 import { FeedLayer } from '../../feeding/FeedLayer';
 import { useFeedLinkOpened } from '../../feeding/useFeedLinkOpened';
+import { energyLine } from '../../life/lines';
 import { formatCents } from '../../lib/price';
 import { resetTime } from '../../lib/time';
 import { hatchPath } from '../../route';
@@ -187,7 +189,7 @@ function OwnerPage({ pet, s }: { pet: OwnerView; s: ReturnType<typeof usePetScre
   const asleep = pet.fullness.state === 'asleep';
   const hungry = pet.fullness.state === 'hungry';
   const hello = pet.hello && !s.spoke;
-  const slot = { tokenId, name, viewer: 'owner' as const, asleep };
+  const slot = { tokenId, name, viewer: 'owner' as const, asleep, life: { stage: pet.stage, traits: pet.traits, energy: pet.energy } };
   const ctx = { tokenId, name, viewer: 'owner' as const };
   const birth = useBirth(tokenId);
   const { hub } = figure;
@@ -197,9 +199,21 @@ function OwnerPage({ pet, s }: { pet: OwnerView; s: ReturnType<typeof usePetScre
   // reaches «Feed {name}» (DS › Composer › Keyboard: no line inside the Composer takes the focus); it woke: the focus comes
   // back to the field, unless the player has gone somewhere else, and the pet boots — on pause and under reduced motion too,
   // as cuts: the log's three rows, then the next state (DS › Pet › Waking). Opened asleep, nothing is moved.
-  const waking = useWaking(asleep, () => {
+  // A wake that lands while a sheet covers the page (inert, it can't take the focus) is owed to the field: when the sheet has
+  // closed, the focus it returned fell to the body — its opener, the Feed button, was replaced by the wake — and goes to the field.
+  const focusOwed = useRef(false);
+  const focusField = () => {
     if (document.activeElement === document.body) document.querySelector<HTMLTextAreaElement>('.ds-composer__field')?.focus();
+  };
+  const waking = useWaking(asleep, () => {
+    if (cover.open) focusOwed.current = true;
+    else focusField();
   });
+  useEffect(() => {
+    if (cover.open || !focusOwed.current) return;
+    focusOwed.current = false;
+    focusField();
+  }, [cover.open]);
 
   // A reply landed: the pet says it, once its eyes have opened (`Conversation flow` › «Ответ»).
   const newest = (s.lines ?? []).filter((l) => l.who === 'pet').at(-1);
@@ -252,7 +266,9 @@ function OwnerPage({ pet, s }: { pet: OwnerView; s: ReturnType<typeof usePetScre
 
   const card = (
     <Stack gap={3}>
-      <Slot slot="growth" {...slot} />
+      <Cluster gap={3}>
+        <Slot slot="growth" {...slot} />
+      </Cluster>
       <CheckLink tokenId={tokenId} name={name} />
       {asleep ? null : <Slot slot="hiring" {...slot} />}
     </Stack>
@@ -270,7 +286,9 @@ function OwnerPage({ pet, s }: { pet: OwnerView; s: ReturnType<typeof usePetScre
   const tiredLine = `${name} is tired for today. Back at ${resetTime(pet.until)}.`;
   const hungryLine = `${name} is too hungry to think hard right now.`;
   const sleepLine = `${name} is asleep. A meal will wake ${name} up.`;
-  const note = asleep ? null : tired ? tiredLine : hungry ? hungryLine : null;
+  // zero energy is not the day's cap: «Think hard» stops for it, chatting does not (`Energy rule`), and its words come before the hunger's
+  const drained = !asleep && !tired && pet.energy === 0;
+  const note = asleep ? null : tired ? tiredLine : drained ? energyLine(name, pet.until) : hungry ? hungryLine : null;
   // the Dock's region says what the field's note says, the asleep line included; the ended session has its own region
   const live = signedOut ? '' : bannerLine(s.banner, name) || (paused ? pausedLine(name) : '') || (asleep ? sleepLine : '') || note || '';
 
@@ -292,7 +310,7 @@ function OwnerPage({ pet, s }: { pet: OwnerView; s: ReturnType<typeof usePetScre
             icon="bolt"
             role="mind"
             price={`≈ ${formatCents(pet.deepPrice.cents)}`}
-            off={(off && !signedOut) || hungry}
+            off={(off && !signedOut) || hungry || drained}
             busy={s.busy}
             onClick={() => void s.send(s.draft, 'deep')}
           >
@@ -359,7 +377,7 @@ function OwnerPage({ pet, s }: { pet: OwnerView; s: ReturnType<typeof usePetScre
             <Inert on={cover.open ? 'phone' : undefined}>
               <PetStage
                 compact
-                pet={<PetFigure tokenId={tokenId} name={name} state={state} stage={pet.stage} size="hero" lost={figure.lost} onLost={figure.onLost} hub={hub} birth={birth} />}
+                pet={<PetFigure tokenId={tokenId} name={name} state={state} stage={pet.stage} mood={asleep ? null : pet.mood} size="hero" lost={figure.lost} onLost={figure.onLost} hub={hub} birth={birth} />}
                 motion={figure.motion}
                 rail={
                   asleep ? null : (
@@ -464,16 +482,19 @@ function OutsiderPage({ pet, s }: { pet: Exclude<PetView, { viewer: 'owner' }>; 
   // a friend's meal wakes the pet on this screen too: the boot, as on the owner's page
   const waking = useWaking(asleep);
   const state = waking ? 'waking' : pet.fullness.state;
+  // the pet falls asleep or wakes while this page is open (it re-reads by itself): the line is said by the page's own region
+  const asleepLine = `${name} is asleep — food from you would wake ${name} up.`;
   const covered = cover.open ? 'phone' : undefined;
   return (
     <Shell accent={accentOf(tokenId)} fill header={<Inert on={covered}>{header}</Inert>}>
       <Inert on={covered}>
         <Page fill width="narrow">
+          <ConnectionBanner banner={s.banner} name={name} tryAgain={s.tryAgain} />
           <Centerpiece
-            status=""
+            status={asleep ? asleepLine : ''}
             actions={
               <Stack gap={2}>
-                {asleep ? <Text align="center">{`${name} is asleep — food from you would wake ${name} up.`}</Text> : null}
+                {asleep ? <Text align="center">{asleepLine}</Text> : null}
                 {feed}
                 {viewer === 'visitor' ? (
                   <Button block variant="secondary" onClick={() => begin('signin')}>
@@ -491,7 +512,7 @@ function OutsiderPage({ pet, s }: { pet: Exclude<PetView, { viewer: 'owner' }>; 
             }
           >
             <PetStage
-              pet={<PetFigure tokenId={tokenId} name={name} state={state} stage={pet.stage} size="hero" lost={figure.lost} onLost={figure.onLost} hub={figure.hub} />}
+              pet={<PetFigure tokenId={tokenId} name={name} state={state} stage={pet.stage} mood={asleep ? null : pet.mood} size="hero" lost={figure.lost} onLost={figure.onLost} hub={figure.hub} />}
               motion={figure.motion}
               plate={<PetPlate name={name} fullness={{ state: pet.fullness.state, level: pet.fullness.state === 'hungry' ? pet.fullness.level : undefined }} />}
               foot={<CheckLink tokenId={tokenId} name={name} />}
@@ -500,6 +521,8 @@ function OutsiderPage({ pet, s }: { pet: Exclude<PetView, { viewer: 'owner' }>; 
         </Page>
       </Inert>
       <FeedLayer pageFullness={pet.fullness} />
+      {/* the connection line is drawn silent over the pet, and said here */}
+      <Live>{bannerLine(s.banner, name)}</Live>
       {/* the pet was given away under a clear: the Toast is silent, the screen's own Live says its words */}
       {s.notice ? (
         <Toast icon="check" silent onDone={toastHeld() ? undefined : s.clearNotice}>

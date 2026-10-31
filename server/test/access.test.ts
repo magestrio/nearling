@@ -20,11 +20,13 @@ describe('Conversation access data', () => {
       name: 'Pixel',
       stage: 'baby',
       fullness: { state: 'full', level: 1 },
+      // the face of the day goes to every viewer (`add-pet-life` › `Pet life display rule` › «гость»)
+      mood: 'calm',
       // the viewer's own meal on its way: nothing of the owner's (`add-feeding` › `Feeding transaction data`)
       myFeed: null,
     });
     // The owner-only fields are not in the answer, and the conversation route does not exist for them yet.
-    for (const field of ['tired', 'paused', 'hello', 'ownedCount', 'pendingJob', 'pendingMode', 'events']) expect(res.body).not.toHaveProperty(field);
+    for (const field of ['tired', 'paused', 'hello', 'ownedCount', 'pendingJob', 'pendingMode', 'events', 'traits', 'energy']) expect(res.body).not.toHaveProperty(field);
   });
 
   // spec: add-pet › Conversation access data › чужой питомец
@@ -68,7 +70,7 @@ describe('Conversation access data', () => {
   it('shows a visitor with no session only the pet, the name, the stage and the fullness, from the shared copy', async () => {
     h.net().contract.addPet('9', OWNER);
     const first = await api('/api/pets/9');
-    expect(first.body).toEqual({ viewer: 'visitor', tokenId: '9', name: 'Pixel', stage: 'baby', fullness: { state: 'full', level: 1 } });
+    expect(first.body).toEqual({ viewer: 'visitor', tokenId: '9', name: 'Pixel', stage: 'baby', fullness: { state: 'full', level: 1 }, mood: 'calm' });
     // The second visitor within 15 s is served from the copy: the network is not read again.
     await api('/api/pets/9');
     await api('/api/pets/9');

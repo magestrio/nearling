@@ -4,6 +4,7 @@ import { go, parseRoute, useLocation } from './route';
 import './account/register';
 import { ClearMemoryLayer } from './account/ClearMemoryLayer';
 import './feeding/register';
+import './life/register';
 import { useAuth } from './seams/auth';
 import { HatchScreen } from './screens/hatch/HatchScreen';
 import { HomeScreen } from './screens/home/HomeScreen';

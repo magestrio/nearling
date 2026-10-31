@@ -1,13 +1,13 @@
 mod common;
 
 use common::*;
+use near_workspaces::types::Gas;
 use nearling_contract::limits::{
     BIRTHS_PER_DAY, MAX_BIRTH_COST, MAX_CHARACTER_BYTES, MAX_NAME_BYTES, OWNER_LIST_ENTRY_BYTES,
 };
-use near_workspaces::types::Gas;
 use serde_json::json;
 
-const CHARACTER:&str = "I'm curious about everything, and I notice the small things.";
+const CHARACTER: &str = "I'm curious about everything, and I notice the small things.";
 
 fn longest_character() -> String {
     "c".repeat(MAX_CHARACTER_BYTES)
@@ -195,6 +195,11 @@ async fn a_birth_records_the_pet_and_enumerates_it() -> anyhow::Result<()> {
         .await?
         .json()?;
     assert_eq!(token["owner_id"], "alice.near");
+    // `add-pet-life`: no trait yet, and the token tells its stage and traits as NEP-177 `extra`.
+    assert_eq!(pet["traits"], json!([]));
+    let extra: serde_json::Value =
+        serde_json::from_str(token["metadata"]["extra"].as_str().unwrap())?;
+    assert_eq!(extra, json!({ "stage": "Baby", "traits": [] }));
     assert_eq!(ctx.pet_view("1").await?, serde_json::Value::Null);
 
     // The pool paid the bytes the chain counted plus the owner-list entry and the starter food.

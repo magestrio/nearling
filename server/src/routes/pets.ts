@@ -2,7 +2,7 @@
 import { Hono } from 'hono';
 import { ChainUnreachable, hatchView, ownedCount, petView, stageOf, type PetRecord } from '../chain';
 import { requireSession, TOKEN_ID, type AppEnv } from '../http';
-import { fullnessOf, ownerFields } from '../pet/view';
+import { fullnessOf, moodFor, ownerFields } from '../pet/view';
 import { pauseReason } from '../servicePause';
 
 export const petRoutes = new Hono<AppEnv>();
@@ -31,7 +31,10 @@ petRoutes.get('/api/pets/:id', async (c) => {
   }
   if (pet === null) return c.json({ code: 'no_pet' }, 404);
 
-  const base = { tokenId: id, name: pet.name, stage: stageOf(pet), fullness: await fullnessOf(c.env.DB, id, pet) };
+  const state = await fullnessOf(c.env.DB, id, pet);
+  // The model's stage and the face's mood go to everyone; the stage as a word, the traits and the
+  // energy only to the owner (`Pet life display rule`).
+  const base = { tokenId: id, name: pet.name, stage: stageOf(pet), fullness: state, mood: await moodFor(c.env.DB, id, state.state, Date.now()) };
   if (session === null) return c.json({ viewer: 'visitor', ...base });
   // The player's own meal or snack on its way for this pet, nobody else's (`Feeding transaction data` ›
   // «outcome with the sheet closed»): a reloaded tab starts to watch its outcome from this.

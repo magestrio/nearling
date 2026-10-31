@@ -32,7 +32,7 @@ test('success (гость): a player who never hatched gets «Get your own pet»
 // spec: add-pet › Pet screen › success (гость)
 test('success (гость): a sleeping pet — «Biscuit is asleep — food from you would wake Biscuit up.»', async ({ page }) => {
   await openWith(page, '/pet/2', { auth: SIGNED_IN, worker: { me: ME, pets: { '2': { ...BISCUIT, fullness: { state: 'asleep', level: 0 } } } } });
-  await expect(page.getByText('Biscuit is asleep — food from you would wake Biscuit up.')).toBeVisible();
+  await expect(page.getByRole('paragraph').filter({ hasText: 'Biscuit is asleep — food from you would wake Biscuit up.' })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Feed Biscuit' })).toBeVisible();
   await expect(page.getByText('Asleep', { exact: true })).toBeVisible();
 });

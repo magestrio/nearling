@@ -7,11 +7,20 @@ import { createElement, type ComponentType, type ReactNode } from 'react';
 // does, a slot draws nothing and an action does nothing — the control stays where the frame has it.
 export type Viewer = 'owner' | 'guest' | 'visitor';
 
+/** What only the owner sees of the pet's life (add-pet-life › Pet life display rule): given by the owner's page alone, so a
+ *  slot that needs it draws nothing for a guest or a visitor. */
+export interface Life {
+  stage: 'baby' | 'teen' | 'adult';
+  traits: string[];
+  energy: number;
+}
+
 export interface SlotProps {
   tokenId: string;
   name: string;
   viewer: Viewer;
   asleep: boolean;
+  life?: Life;
 }
 
 export type SlotName = 'energy' | 'growth' | 'hiring' | 'advice' | 'account';

@@ -1,5 +1,4 @@
-// The DS components of design/ds/components.js, ported. Not here yet (parts of other changes): Energy, Growth, Trait,
-// Segmented and the verification and wardrobe parts. `Pet` is web/src/pet/PetFigure.tsx.
+// The DS components of design/ds/components.js, ported. Not here yet (parts of other changes): Segmented and the verification and wardrobe parts. `Pet` is web/src/pet/PetFigure.tsx.
 export { ActionRow } from './ActionRow';
 export { Banner, Nest, Skeleton } from './Feedback';
 export { Block } from './Block';
@@ -18,7 +17,7 @@ export { Live } from './Live';
 export { Menu, MenuItem } from './Menu';
 export { MotionToggle } from './MotionToggle';
 export { Note } from './Note';
-export { PetPlate, PetStage } from './PetParts';
+export { Energy, Growth, PetPlate, PetStage, Trait, type StageName, type TraitName } from './PetParts';
 export { Rail, RailItem } from './Rail';
 export { Sheet } from './Sheet';
 export { Heading, Hidden, Text } from './Text';

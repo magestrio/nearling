@@ -1,6 +1,8 @@
 use near_sdk::json_types::U128;
 use near_sdk::{AccountId, near};
 
+use crate::pet::{Stage, Trait};
+
 /// How the signature of a call was produced (`near-ai` › signatures).
 #[near(serializers = [json])]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -80,6 +82,16 @@ pub enum NearlingEvent {
         kind: SnackKind,
         #[serde(skip_serializing_if = "Option::is_none")]
         friend: Option<AccountId>,
+    },
+
+    /// A pet grew into `stage` and got `trait` (`Pet growth contract`). The Rust field is
+    /// `trait_`, the JSON key the spec's `trait`.
+    #[event_version("1.0.0")]
+    Grow {
+        token_id: String,
+        stage: Stage,
+        #[serde(rename = "trait")]
+        trait_: Trait,
     },
 }
 

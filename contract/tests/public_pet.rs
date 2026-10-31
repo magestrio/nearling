@@ -46,6 +46,7 @@ async fn the_explorer_shows_the_owner_name_character_food_and_receipts_but_no_wo
             "stage",
             "stage_day",
             "streak",
+            "traits",
         ]
     );
 

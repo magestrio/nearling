@@ -30,11 +30,15 @@ export interface Fullness {
 /** `near`: a portion of NEAR (the id is its transaction's hash); `snack`: a free snack (a random id, no hash). */
 export type FeedSource = 'near' | 'snack';
 
+/** The face of the day (`add-pet-life` › `Mood rule`), the same for every viewer; `null` while the pet sleeps. */
+export type Mood = 'happy' | 'calm' | 'sleepy';
+
 export interface PetBase {
   tokenId: string;
   name: string;
   stage: Stage;
   fullness: Fullness;
+  mood: Mood | null;
 }
 /** With a session only: the player's own meal or snack on its way for this pet (`Feeding transaction data` ›
  *  «outcome with the sheet closed»), `null` when none; a reloaded tab starts to watch its outcome from it. */
@@ -49,7 +53,7 @@ export type PetView =
   | ({
       viewer: 'owner';
       tired: boolean;
-      /** the next 00:00 UTC (ISO), while tired */
+      /** the next 00:00 UTC (ISO), while tired or at zero energy */
       until?: string;
       paused: boolean;
       deepPrice: { cents: number; yocto: string };
@@ -68,6 +72,10 @@ export type PetView =
       memoryEpoch: number;
       /** how many times a meal woke the pet: a page sends its number to `/state?wakes=` and is told of a later wake */
       wakes: number;
+      /** the traits as words, each once, in the order gained (`Pet life display rule`: the owner's only) */
+      traits: string[];
+      /** steps of energy left today, 0…10 (`Energy rule`) */
+      energy: number;
       ownedCount: number;
     } & PetBase &
       MyFeed);
@@ -93,7 +101,7 @@ export interface Me {
   ownedCount: number;
 }
 
-export type ThoughtCode = 'ai_unavailable' | 'empty_paid' | 'asleep' | 'tired' | 'too_hungry' | 'paused' | 'chain_unreachable' | 'memory_cleared';
+export type ThoughtCode = 'ai_unavailable' | 'empty_paid' | 'asleep' | 'tired' | 'no_energy' | 'too_hungry' | 'paused' | 'chain_unreachable' | 'memory_cleared';
 export type PetEvent = 'fell_asleep' | 'daily_cap_reached' | 'woke';
 export interface Thought {
   id: string;
@@ -121,7 +129,8 @@ export type PetState = Omit<Extract<PetView, { viewer: 'owner' }>, 'viewer' | 'o
 };
 export interface ConversationLine {
   id: string;
-  who: 'player' | 'pet';
+  /** `event`: the line of a stage change (`Growth flow`), the game's, not the pet's */
+  who: 'player' | 'pet' | 'event';
   text: string;
   at: number;
   cut?: Thought['cut'];

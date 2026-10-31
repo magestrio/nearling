@@ -13,6 +13,7 @@ const OWNER_VIEW: Record<keyof OwnerView, 'always' | 'sometimes'> = {
   name: 'always',
   stage: 'always',
   fullness: 'always',
+  mood: 'always',
   myFeed: 'always',
   tired: 'always',
   until: 'sometimes',
@@ -26,6 +27,8 @@ const OWNER_VIEW: Record<keyof OwnerView, 'always' | 'sometimes'> = {
   lastThought: 'always',
   memoryEpoch: 'always',
   wakes: 'always',
+  traits: 'always',
+  energy: 'always',
   ownedCount: 'always',
 };
 const STATE: Record<keyof PetState, 'always' | 'sometimes'> = {
@@ -33,6 +36,7 @@ const STATE: Record<keyof PetState, 'always' | 'sometimes'> = {
   name: 'always',
   stage: 'always',
   fullness: 'always',
+  mood: 'always',
   myFeed: 'sometimes',
   tired: 'always',
   until: 'sometimes',
@@ -46,6 +50,8 @@ const STATE: Record<keyof PetState, 'always' | 'sometimes'> = {
   lastThought: 'always',
   memoryEpoch: 'always',
   wakes: 'always',
+  traits: 'always',
+  energy: 'always',
   events: 'always',
   pending: 'sometimes',
   jobKind: 'sometimes',
@@ -77,8 +83,9 @@ describe('the answers the client is typed against', () => {
     const guest = await api('/api/pets/5', { token: await token('did:privy:other', NEAR_ACCOUNT(2)) });
     const visitor = await api('/api/pets/5');
     // a signed-in viewer also gets `myFeed` (their own meal on its way for this pet); a visitor has none
-    expect(Object.keys(guest.body).sort()).toEqual(['fullness', 'myFeed', 'name', 'stage', 'tokenId', 'viewer']);
-    expect(Object.keys(visitor.body).sort()).toEqual(['fullness', 'name', 'stage', 'tokenId', 'viewer']);
+    // and the mood of the day, which every viewer's face shows (`add-pet-life` › `Pet life display rule`)
+    expect(Object.keys(guest.body).sort()).toEqual(['fullness', 'mood', 'myFeed', 'name', 'stage', 'tokenId', 'viewer']);
+    expect(Object.keys(visitor.body).sort()).toEqual(['fullness', 'mood', 'name', 'stage', 'tokenId', 'viewer']);
     for (const { body } of [guest, visitor]) expect(body.stage).toBe('baby');
   });
 

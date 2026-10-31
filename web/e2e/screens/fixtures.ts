@@ -69,8 +69,8 @@ const FAILED_LINE = "We couldn't sign you in with Google. Try again in a moment.
 const MAU_LINE = "Looks like you haven't played here this month, so we can't sign you in until December 1. You can still look around.";
 const FALLBACK_LINE = 'Trouble signing in? Try it in your browser.';
 
-const PIXEL = { tokenId: '9', name: 'Pixel', stage: 'adult' as const, fullness: { state: 'full' as const, level: 1 } };
-const BISCUIT = { tokenId: '2', name: 'Biscuit', stage: 'adult' as const, fullness: { state: 'full' as const, level: 1 } };
+const PIXEL = { tokenId: '9', name: 'Pixel', stage: 'adult' as const, fullness: { state: 'full' as const, level: 1 }, mood: 'happy' as const };
+const BISCUIT = { tokenId: '2', name: 'Biscuit', stage: 'adult' as const, fullness: { state: 'full' as const, level: 1 }, mood: 'happy' as const };
 const PIXEL_REF = { tokenId: '9', name: 'Pixel' };
 /** The typed line kept in the field (design/bundle/screens/pet.js › TYPED) */
 const TYPED = 'And if they ask why the chart matters?';
@@ -104,14 +104,15 @@ function owner(extra: Record<string, unknown> = {}, fullness: Fullness = PIXEL.f
   };
 }
 
-/** The parts of the owner's frames that other changes build: the energy, the stage word, the hiring mode */
+/** The parts of the owner's frames that other changes build: the hiring mode */
 const OWNER_ELSEWHERE = [
-  { line: 'Energy', change: 'add-pet-life' },
-  { line: 'Grown-up', change: 'add-pet-life' },
   { line: 'Hiring: Auto — {name} asks pets it knows when they can help, then tells you what it cost.', change: 'add-pet-work' },
   { line: 'Auto', change: 'add-pet-work' },
   { line: 'Ask me first', change: 'add-pet-work' },
 ];
+
+/** The line of the frame `advice-resting`: the advice column that says it is `add-pet-work`'s (Advice flow), not built yet */
+const RESTING_LINE = { line: '{name} is resting until {time}. Nothing was spent — ask again after that.', change: 'add-pet-work' };
 
 /** The parts of the frames of a guest with a pet of their own that `add-pet-work` builds: the advice column */
 const GUEST_ELSEWHERE = [
@@ -366,6 +367,17 @@ export const fixtures: Record<string, ScreenFixture> = {
     otherChange: GUEST_ELSEWHERE,
   },
 
+  // Biscuit at rest, its energy spent, seen by a player with a pet of their own: the page stands as the guest's; the question's
+  // field and the pet's resting line are the advice column of `add-pet-work`, built after this change: the frame moves there
+  // (the user, 2026-10-31) and this fixture stays until its `req` moves in the manifest. No anchor: this capture can't fail
+  // on the Scenario's THEN, the worker test of `spendEnergy` holds it
+  'advice-resting': {
+    route: '/pet/2',
+    fakes: { auth: SIGNED_IN, worker: { me: ME_PIXEL } },
+    prepare: (page) => page.getByRole('link', { name: 'Go to your Pixel' }).waitFor(),
+    otherChange: [...GUEST_ELSEWHERE, RESTING_LINE],
+  },
+
   // a signed-in player who never hatched
   // spec: add-pet › Pet screen › success (гость)
   'pet-guest-new': {
@@ -381,7 +393,7 @@ export const fixtures: Record<string, ScreenFixture> = {
   'pet-signed-out-asleep': {
     route: '/pet/2',
     fakes: { worker: { pets: { '2': { ...BISCUIT, fullness: { state: 'asleep', level: 0 } } } } },
-    prepare: (page) => page.getByText('Biscuit is asleep — food from you would wake Biscuit up.').waitFor(),
+    prepare: (page) => page.getByRole('paragraph').filter({ hasText: 'Biscuit is asleep — food from you would wake Biscuit up.' }).waitFor(),
   },
 
   // spec: add-pet › Pet screen › loading
@@ -407,7 +419,6 @@ export const fixtures: Record<string, ScreenFixture> = {
       // the field keeps the focus while it is off; the frame shows it at rest, with no ring from the typing
       await page.getByPlaceholder('Talk to Pixel…').blur();
     },
-    otherChange: [{ line: 'Energy', change: 'add-pet-life' }],
   },
 
   // a newborn: no line yet, the greeting on its way
@@ -425,10 +436,6 @@ export const fixtures: Record<string, ScreenFixture> = {
       },
     },
     prepare: (page) => page.getByText('Pixel is thinking…').first().waitFor(),
-    otherChange: [
-      { line: 'Baby', change: 'add-pet-life' },
-      { line: '{name} gets a trait when it grows up.', change: 'add-pet-life' },
-    ],
   },
 
   // the server stopped answering under the open page: the last known pet, the typed line kept
@@ -486,6 +493,19 @@ export const fixtures: Record<string, ScreenFixture> = {
     prepare: async (page) => {
       await ownerReady(page);
       await page.getByText('Pixel is tired for today.').first().waitFor();
+    },
+    otherChange: OWNER_ELSEWHERE,
+  },
+
+  // a grown-up Pixel with its two traits and no energy left: «Think hard» off with the energy's words, chatting and feeding
+  // work; {time} 02:00 at UTC+2
+  // spec: add-pet-life › Energy rule › энергия на нуле
+  'pet-energy-out': {
+    route: '/pet/9',
+    fakes: { auth: SIGNED_IN, worker: owner({ energy: 0, until: MIDNIGHT_UTC }) },
+    prepare: async (page) => {
+      await ownerReady(page);
+      await page.getByText('Pixel worked hard today and is out of energy for big thoughts until').first().waitFor();
     },
     otherChange: OWNER_ELSEWHERE,
   },
@@ -665,10 +685,6 @@ export const fixtures: Record<string, ScreenFixture> = {
       await page.getByText('Hi! I\'m Pixel.').waitFor();
       await page.getByRole('link', { name: 'Back to Biscuit' }).waitFor();
     },
-    otherChange: [
-      { line: 'Baby', change: 'add-pet-life' },
-      { line: '{name} gets a trait when it grows up.', change: 'add-pet-life' },
-    ],
   },
 
   // Sign-in closed sheet: the tap on «Sign in» while sign-in is closed for new players, then for everyone

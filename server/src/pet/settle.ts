@@ -8,6 +8,7 @@ import { utcDay } from '../http';
 import { KNOWN_RECORD_YOCTO, nearUsdRate, SNACK_YOCTO, yoctoToUsdMicros } from '../pricing';
 import { lowerWalletSeen } from '../feeding/wallet';
 import { track } from '../track';
+import { noteFriend, noteMood } from './life';
 import { afterWake, wakeDue, wakeIfFed } from './wake';
 
 export interface FeedingRow {
@@ -64,7 +65,11 @@ export async function settleFeeding(env: Env, row: FeedingRow, outcome: Outcome)
   }
 
   const now = Date.now();
-  const statements: D1PreparedStatement[] = [];
+  // A confirmed meal or snack lifts the pet's mood for the day, the owner's or a friend's (`Mood
+  // rule`); a friend's is also a deed of the window, once per friend (`Trait rule`). A failed meal
+  // returned above and does neither.
+  const statements: D1PreparedStatement[] = noteMood(env.DB, row.token_id, utcDay(now));
+  if (row.via === 'link') statements.push(...noteFriend(env.DB, row.token_id, row.account));
   // A friend's meal or snack is an acquaintance of the pet: a hint for hiring, whether or not the pool
   // paid the chain's record (`pet_knows` is the truth, §8 › Индекс знакомых).
   if (row.via === 'link') {
@@ -88,7 +93,7 @@ export async function settleFeeding(env: Env, row: FeedingRow, outcome: Outcome)
     const rate = nearUsdRate(env.NEAR_USD_RATE);
     if (rate !== null) statements.push(env.DB.prepare('INSERT INTO project_spend (at, kind, usd_micros) VALUES (?, ?, ?)').bind(now, 'storage', yoctoToUsdMicros(KNOWN_RECORD_YOCTO, rate)));
   }
-  if (statements.length > 0) await env.DB.batch(statements);
+  await env.DB.batch(statements);
 
   if (row.source === 'near' && row.deposit_yocto !== null) await lowerWalletSeen(env.DB, row.sub, BigInt(row.deposit_yocto));
 

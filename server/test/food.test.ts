@@ -164,7 +164,8 @@ describe('Sleep and wake flow', () => {
 
   // spec: add-pet › Thought request data › еды не хватает на вызов
   it('uses the ordinary ceiling when the food pays exactly the cheapest call, and charges the usage', async () => {
-    const bound = await learnBound(h, 'Hi', 'chat', MEMORY);
+    // the pet with so little food is hungry: its request carries the sleepy mood layer, so does the probe's
+    const bound = await learnBound(h, 'Hi', 'chat', MEMORY, true);
     const min = minCallPrice(env, bound);
     h.net().contract.addPet('5', OWNER);
     await seedHistory('5', MEMORY);

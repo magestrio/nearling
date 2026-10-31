@@ -3,7 +3,8 @@
 import type { PetRecord } from '../chain';
 import { utcDay } from '../http';
 import { memoryEpoch } from './forget';
-import { DAILY_CAP_YOCTO, deepEstimate, deepEstimateUsd12, fullness, minCallPrice, type Fullness, type PriceEnv } from '../pricing';
+import { DAILY_CAP_YOCTO, deepEstimate, deepEstimateUsd12, fullness, minCallPrice, type Fullness, type FullnessState, type PriceEnv } from '../pricing';
+import { energyLeft, moodOf, readLife, TRAIT_WORD, type Mood } from './life';
 
 /** The exact prices of the thoughts answered but not yet debited on the network, summed. Their
  * reserves (a call in flight) are not here: the fullness does not count them. */
@@ -111,6 +112,12 @@ export interface OwnerFields {
   /** How many times a meal woke the pet: a page that sends a smaller number to `/state?wakes=` is told
    * of the wake (`Sleep and wake flow`); a page learns the number at load and never replays an old wake. */
   wakes: number;
+  /** The face of the day (`Mood rule`): the same for every viewer; null for a pet that sleeps. */
+  mood: Mood | null;
+  /** The traits as words, each once, in the order gained (`Pet life display rule`: the owner's). */
+  traits: string[];
+  /** The steps of energy left today, 0…10 (`Energy rule`): the owner sees it always. */
+  energy: number;
 }
 
 interface PendingRow {
@@ -144,10 +151,15 @@ export async function ownerFields(env: Env, tokenId: string, pet: PetRecord, pau
     .bind(tokenId)
     .first<{ id: string }>();
   const tired = await isTired(env, tokenId, food, now);
+  const state = fullness(food.eff);
+  const life = await readLife(env.DB, tokenId);
+  const today = utcDay(now);
+  const energy = energyLeft(life, today);
   return {
-    fullness: fullness(food.eff),
+    fullness: state,
     tired,
-    ...(tired ? { until: new Date((utcDay(now) + 1) * 86_400_000).toISOString() } : {}),
+    // «Back at {time}» also at zero energy: both end at 00:00 UTC (`Energy rule`).
+    ...(tired || energy === 0 ? { until: new Date((today + 1) * 86_400_000).toISOString() } : {}),
     paused: pausedNow,
     deepPrice: await deepPrice(env, tokenId),
     hello: await hello(env.DB, tokenId),
@@ -158,5 +170,14 @@ export async function ownerFields(env: Env, tokenId: string, pet: PetRecord, pau
     lastThought: last?.id ?? null,
     memoryEpoch: await memoryEpoch(env.DB, tokenId),
     wakes: (await wakeState(env.DB, tokenId)).wakes,
+    mood: moodOf(state.state, life.moodDay, today),
+    traits: [...new Set(pet.traits)].map((t) => TRAIT_WORD[t]),
+    energy,
   };
+}
+
+/** The mood of the day for any viewer, from the pet's fullness (`Mood rule`). The Worker's UTC day. */
+export async function moodFor(db: D1Database, tokenId: string, condition: FullnessState, nowMs: number): Promise<Mood | null> {
+  const row = await db.prepare('SELECT mood_day FROM pet_life WHERE token_id = ?').bind(tokenId).first<{ mood_day: number | null }>();
+  return moodOf(condition, row?.mood_day ?? null, utcDay(nowMs));
 }

@@ -18,8 +18,8 @@ test('signed-out: the pet in its state, its name and fullness, no conversation; 
 
 // spec: add-pet › Pet screen › signed-out
 test('signed-out: a sleeping pet says «Biscuit is asleep — food from you would wake Biscuit up.»', async ({ page }) => {
-  await openWith(page, '/pet/2', { worker: { pets: { '2': { tokenId: '2', name: 'Biscuit', stage: 'adult', fullness: { state: 'asleep', level: 0 } } } } });
-  await expect(page.getByText('Biscuit is asleep — food from you would wake Biscuit up.')).toBeVisible();
+  await openWith(page, '/pet/2', { worker: { pets: { '2': { tokenId: '2', name: 'Biscuit', stage: 'adult', fullness: { state: 'asleep', level: 0 }, mood: null } } } });
+  await expect(page.getByRole('paragraph').filter({ hasText: 'Biscuit is asleep — food from you would wake Biscuit up.' })).toBeVisible();
   await expect(page.getByText('Asleep', { exact: true })).toBeVisible();
 });
 

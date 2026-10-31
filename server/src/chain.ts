@@ -56,9 +56,15 @@ export interface PetRecord {
   friend_snacks: number;
   /** When the owner's last snack was given, ns, as a decimal string (`U64`); `"0"` = never. */
   owner_snack_at: string;
+  /** The traits in the order they were gained, a repeat shown twice (`["clever","clever"]`). */
+  traits: Trait[];
 }
 
 export type Stage = 'baby' | 'teen' | 'adult';
+
+/** A trait as the contract's JSON spells it (`Trait` in `contract/src/pet.rs`), snake_case. */
+export const TRAITS = ['clever', 'sociable', 'hard_working', 'thoughtful', 'cozy'] as const;
+export type Trait = (typeof TRAITS)[number];
 
 /** The stage in the word every answer to the client uses (the contract says `Baby`). */
 export function stageOf(pet: Pick<PetRecord, 'stage'>): Stage {
@@ -87,6 +93,10 @@ export const PET_FEED_FEES_TGAS = 1n;
 
 /** Prepaid gas of `pet_snack`, Tgas; `contract/tests/snack.rs` › `gas_of_a_snack` reads this line. */
 export const PET_SNACK_TGAS = 5n;
+
+/** Prepaid gas of `pet_grow`, Tgas; `contract/tests/pet_grow.rs` › `gas_of_a_grow` reads this line
+ * and grows the worst case with it. */
+export const PET_GROW_TGAS = 5n;
 
 const READ_TIMEOUT_MS = 8_000;
 const SEND_TIMEOUT_MS = 25_000;
@@ -122,6 +132,13 @@ export async function petView(env: Pick<Env, 'NEAR_RPC_URL' | 'CONTRACT_ID'>, to
 
 export function hatchView(env: Pick<Env, 'NEAR_RPC_URL' | 'CONTRACT_ID'>, accountId: string): Promise<HatchRecord> {
   return view<HatchRecord>(env, 'hatch_view', { account_id: accountId });
+}
+
+/** The chain's UTC day now: the contract's own `day_of(block_timestamp)`, which `hatch_view` returns
+ * whichever account is asked (`pet-life` design.md › Chain time). One caller reads it for the counted
+ * day; `ChainUnreachable` when it cannot be read, and the caller takes the Worker's clock. */
+export async function chainDay(env: Pick<Env, 'NEAR_RPC_URL' | 'CONTRACT_ID' | 'SERVER_ACCOUNT_ID'>): Promise<number> {
+  return (await hatchView(env, env.SERVER_ACCOUNT_ID)).day;
 }
 
 /** How many pets the account owns now (NEP-181). */
@@ -224,6 +241,8 @@ const CONTRACT_CODES = [
   'snacks_today',
   'snack_too_soon',
   'feeder_not_owner',
+  'bad_stage',
+  'stage_today',
 ] as const;
 export type ContractCode = (typeof CONTRACT_CODES)[number];
 

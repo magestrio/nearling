@@ -24,7 +24,7 @@ describe('the numbers the Worker shares with the contract', () => {
   it('has the starter food and the birth cost pre-check of contract/src/limits.rs', () => {
     expect(S).toBe(BigInt(env.STARTER_FOOD));
     expect(MAX_BIRTH_COST_YOCTO).toBe(BigInt(env.MAX_BIRTH_COST));
-    // the longest birth: 1,873 bytes of storage and the starter food stay under the pre-check
+    // the longest birth: 1,875 bytes of storage and the starter food stay under the pre-check
     expect(BIRTH_STORAGE_YOCTO + S).toBeLessThanOrEqual(MAX_BIRTH_COST_YOCTO);
   });
 
@@ -89,7 +89,7 @@ describe('the project\'s own costs in dollars', () => {
   // spec: add-pet › Birth flow › вылупился
   it('turns yoctoNEAR into micro-dollars at the rate, rounded up', () => {
     expect(yoctoToUsdMicros(S, 4.59)).toBe(9_180);
-    expect(yoctoToUsdMicros(BIRTH_STORAGE_YOCTO, 4.59)).toBe(85_971);
+    expect(yoctoToUsdMicros(BIRTH_STORAGE_YOCTO, 4.59)).toBe(86_063);
     expect(yoctoToUsdMicros(1n, 4.59)).toBe(1);
     expect(yoctoToUsdMicros(0n, 4.59)).toBe(0);
   });

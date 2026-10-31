@@ -1,5 +1,5 @@
 // The minute cron (`triggers.crons`): the sessions to debit, the diary of the first half hour of a
-// UTC day, the pause of the services and the cleaning of old rows. Each part fails alone: a part
+// UTC day, the pause of the services, the stages to write and the cleaning of old rows. Each part fails alone: a part
 // that throws logs its code and the others still run.
 import { accountBalance, ChainUnreachable } from './chain';
 import { closeAndDebit } from './debit';
@@ -7,6 +7,7 @@ import { utcDay } from './http';
 import { keyIsValid } from './nearai';
 import { askNetwork } from './feeding/inflight';
 import { desk, enqueueJob, STALE_RUNNING_MS } from './pet/desk';
+import { CLAIM_STALE_MS, writeDueGrowth } from './pet/growth';
 import { FEEDINGS_COLUMNS, settleFeeding, type FeedingRow } from './pet/settle';
 import { clearPause, gasReserve, lastProbe, noteProbe, pauseReason, setPause } from './servicePause';
 import { monthOf } from './signin';
@@ -22,6 +23,8 @@ const FEEDINGS_PER_TICK = 10;
 /** The reference block of a portion is past the chain's validity window by then (86,400 blocks). */
 const FEEDING_FAILED_AFTER_MS = 24 * 3_600_000;
 const NO_HASH_FAILED_MS = 5 * 60_000;
+/** At most this many pets get a stage written in a tick. */
+const GROWTH_PER_TICK = 10;
 /** A paused key is tried again at this interval. */
 const PROBE_EVERY_MS = 5 * 60_000;
 
@@ -30,6 +33,7 @@ export async function tick(env: Env, nowMs: number = Date.now()): Promise<void> 
     ['debit', () => closeAndDebit(env, nowMs)],
     ['diary', () => diary(env, nowMs)],
     ['pause', () => pause(env, nowMs)],
+    ['growth', () => growth(env, nowMs)],
     ['feedings', () => settleStaleFeedings(env, nowMs)],
     ['clean', () => clean(env, nowMs)],
   ];
@@ -95,6 +99,18 @@ export async function pause(env: Env, nowMs: number): Promise<void> {
     await clearPause(env.DB);
     console.log('pause_lifted');
   }
+}
+
+/** The transitions not written yet: a retry of a failed or paused write, one that waited for 00:00 UTC,
+ * one whose writer died (its claim is stale). A row refused for today stays out until its day
+ * (`retry_day`), so it costs no read a minute. */
+export async function growth(env: Env, nowMs: number): Promise<void> {
+  const due = await env.DB.prepare(
+    'SELECT DISTINCT token_id FROM pending_growth WHERE (retry_day IS NULL OR retry_day <= ?1) AND (sending_at IS NULL OR sending_at < ?2) ORDER BY created_at LIMIT ?3',
+  )
+    .bind(utcDay(nowMs), nowMs - CLAIM_STALE_MS, GROWTH_PER_TICK)
+    .all<{ token_id: string }>();
+  for (const { token_id } of due.results) await writeDueGrowth(env, token_id);
 }
 
 /** A meal or snack on its way whose tab went away: asked after by its hash a minute on, the

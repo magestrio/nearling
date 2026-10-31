@@ -36,9 +36,11 @@ async function answer<T>(name: string, configured: T | FakeFail | undefined, fal
 }
 
 const PIXEL_RESULT = { tokenId: '9' };
-const PIXEL = { tokenId: '9', name: 'Pixel', stage: 'adult' as const, fullness: { state: 'full' as const, level: 1 } };
-const BISCUIT = { tokenId: '2', name: 'Biscuit', stage: 'adult' as const, fullness: { state: 'full' as const, level: 1 } };
+const PIXEL = { tokenId: '9', name: 'Pixel', stage: 'adult' as const, fullness: { state: 'full' as const, level: 1 }, mood: 'happy' as const };
+const BISCUIT = { tokenId: '2', name: 'Biscuit', stage: 'adult' as const, fullness: { state: 'full' as const, level: 1 }, mood: 'happy' as const };
 const OWNER_DEFAULTS = {
+  traits: ['clever', 'sociable'],
+  energy: 7,
   tired: false,
   paused: false,
   deepPrice: { cents: 0.12, yocto: '260000000000000000000' },

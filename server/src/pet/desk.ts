@@ -7,6 +7,7 @@ import { DurableObject } from 'cloudflare:workers';
 import { utcDay } from '../http';
 import { run, type JobResult } from '../spend';
 import type { ThoughtJob } from '../prompt';
+import { writeDueGrowth } from './growth';
 
 /** A running job older than this belongs to an object that is gone (the longest thought takes ~150 s). */
 export const STALE_RUNNING_MS = 5 * 60_000;
@@ -121,6 +122,14 @@ export class PetDesk extends DurableObject<Env> {
       await this.env.DB.prepare('UPDATE jobs SET status = ?1, result = ?2, payload = CASE WHEN ?3 = 1 THEN payload END WHERE id = ?4')
         .bind(status, JSON.stringify(result), keep ? 1 : 0, row.id)
         .run();
+      // A counted reply left a transition to write: after the result is stored, so the reply reaches
+      // the player first, and before the next job, so the pet's next thought speaks from the new stage.
+      // A write that fails is tried again by the cron; it never takes the queue down with it.
+      try {
+        await writeDueGrowth(this.env, tokenId);
+      } catch {
+        console.log('grow_failed:error');
+      }
     }
   }
 

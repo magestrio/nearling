@@ -7,6 +7,7 @@ import { utcDay } from './http';
 import { complete, replyOf, signatureOf, type CallResult, type Message, type Signed } from './nearai';
 import { hasVisible } from './name/clean';
 import { eraseIfCleared, memoryEpoch } from './pet/forget';
+import { energyLeft, energyOf, moodOf, planCount, readLife, replyStatements } from './pet/life';
 import { foodState, markTired, type FoodState } from './pet/view';
 import {
   callUsd12,
@@ -27,7 +28,7 @@ import { buildMessages, inputBound, type ThoughtJob } from './prompt';
 import { gasIsLow, isPaused, setPause } from './servicePause';
 import { track } from './track';
 
-export type RefusalCode = 'ai_unavailable' | 'empty_paid' | 'asleep' | 'tired' | 'too_hungry' | 'paused' | 'chain_unreachable' | 'no_pet';
+export type RefusalCode = 'ai_unavailable' | 'empty_paid' | 'asleep' | 'tired' | 'no_energy' | 'too_hungry' | 'paused' | 'chain_unreachable' | 'no_pet';
 
 export type JobResult =
   | { code: RefusalCode; events?: string[] }
@@ -142,12 +143,18 @@ export async function run(env: Env, tokenId: string, job: ThoughtJob, epoch?: nu
   const deep = job.kind === 'reply' && job.mode === 'deep';
   const state = fullness(fs.eff).state;
   if (state === 'asleep') return { code: 'asleep' };
+  // At zero energy «Think hard» is refused with the energy's words, also on a hungry pet; nothing is
+  // reserved or called, and a second queued deep job meets the same check (`Energy rule`).
+  const today = utcDay(now);
+  const life = await readLife(env.DB, tokenId);
+  const energy = energyLeft(life, today);
+  if (deep && energy === 0) return { code: 'no_energy' };
   if (deep && state !== 'full') return { code: 'too_hungry' };
 
   // `heldEpoch` is older than the memory is read: a clear that lands after the claim makes the
   // answer's words unwanted (`think` erases them with the thought's own batch); one before the claim
   // failed the job and never got here.
-  const messages = await buildMessages(env.DB, tokenId, pet, job);
+  const messages = await buildMessages(env.DB, tokenId, pet, job, { mood: moodOf(state, life.moodDay, today), energyPercent: energy * 10 });
   const bound = inputBound(messages);
   const minCall = minCallPrice(env, bound);
   // The re-ask of «Think hard» is paid before the first call is allowed to eat the room: 40 output
@@ -253,6 +260,18 @@ async function think(env: Env, tokenId: string, pet: PetRecord, job: ThoughtJob,
   const kind = job.kind === 'reply' ? (job.mode === 'deep' ? 'deep' : 'reply') : job.kind;
   const thoughtId = randomId();
   const sessionId = await openSession(env, tokenId, now);
+  // A visible reply of the owner's line is a deed of the day: the mood, the counted day with the
+  // transition it starts, a «Think hard» step. A greeting, a wake thought, a diary and a thought that
+  // did not come (the empty one is among them) do none of it. All in the thought's own batch.
+  const lives = job.kind === 'reply' && !empty;
+  const life = lives
+    ? replyStatements(env.DB, tokenId, {
+        today: utcDay(now),
+        deep,
+        count: await planCount(env, await readLife(env.DB, tokenId), pet, utcDay(now), deep),
+        now,
+      })
+    : [];
   const statements = [
     env.DB.prepare(
       "INSERT INTO thoughts (id, token_id, created_at, kind, player_text, reply_text, model, price_yocto, price_usd_micros, cut, reasked, payer, session_id, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pet', ?, 'unbilled')",
@@ -294,8 +313,11 @@ async function think(env: Env, tokenId: string, pet: PetRecord, job: ThoughtJob,
     ),
     // The owner may have cleared the memory while the model was answering: the words go, the receipt stays.
     ...eraseIfCleared(env.DB, tokenId, thoughtId, ctx.epoch, now),
+    // Last: a deep reply's step is the batch's last statement, whose `RETURNING` tells the last step.
+    ...life,
   ];
-  await env.DB.batch(statements);
+  const written = await env.DB.batch(statements);
+  if (lives && deep) energyOf(written.at(-1));
 
   // After the thought: asleep when the food is below one scale thought; tired when the cap ran out.
   const events: string[] = [];

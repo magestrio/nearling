@@ -5,6 +5,7 @@ import { ToneMappingMode } from 'postprocessing';
 import { Component, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type ComponentType, type ReactNode } from 'react';
 import { cx } from '../ds/util';
 import { fakeState, recordCall } from '../seams/fakes';
+import type { Mood } from '../seams/worker-types';
 import { canUseWebGL, drawFlat, type PetStageName, type PetState } from './flat';
 import { useMotionPaused } from './motion';
 import { AlphaFromLight } from './proto/AlphaFromLight.js';
@@ -34,7 +35,7 @@ const CANVAS_STYLE = { position: 'absolute', inset: `${((1 - BLEED) / 2) * 100}%
 
 /** The handle a screen gives its pet (useMotion.js › usePetMotion): `fire('talk', { ms })`, and the pointer. */
 export type PetHub = ReturnType<typeof usePetMotion>;
-const MovingPet = Pet as unknown as ComponentType<{ assembly: unknown; motion: PetHub | null; paused: boolean }>;
+const MovingPet = Pet as unknown as ComponentType<{ assembly: unknown; motion: PetHub | null; paused: boolean; face?: string }>;
 
 /** e2e and screens only: `hold` keeps every pet on its still, so software GL is not starved by pages that test
  *  something else. The motion spec plays it. */
@@ -75,6 +76,14 @@ export interface PetFigureProps {
   hub?: PetHub;
   /** the newborn's first show: the pet is born on the screen (`Birth flow` › «вылупился») */
   birth?: boolean;
+  /** the face of the day (add-pet-life › Mood rule): only a Full pet's `calm` changes the face; every other state keeps
+   *  its own, and the picture takes no word of it (`alt` is the state's) */
+  mood?: Mood | null;
+}
+
+/** Full's other mood is the one face the prototype names (face.js › calm); `happy` is Full's own, `sleepy` Hungry's. */
+export function faceOf(state: PetState, mood: Mood | null | undefined): string | undefined {
+  return state === 'full' && mood === 'calm' ? 'calm' : undefined;
 }
 
 function Studio() {
@@ -246,8 +255,9 @@ function Scene3D({
   outfit,
   hub,
   birth,
+  face,
   onLost,
-}: Required<Pick<PetFigureProps, 'tokenId' | 'state' | 'stage'>> & { outfit: string; hub: PetHub; birth: boolean; onLost: () => void }) {
+}: Required<Pick<PetFigureProps, 'tokenId' | 'state' | 'stage'>> & { outfit: string; hub: PetHub; birth: boolean; face: string | undefined; onLost: () => void }) {
   const [level, setLevel] = useState(0);
   const [paused] = useMotionPaused();
   const playing = usePetPlaying();
@@ -278,7 +288,7 @@ function Scene3D({
       <PerformanceMonitor onDecline={() => setLevel((l) => Math.min(MOST_DECLINED, l + 1))} onIncline={() => setLevel((l) => Math.max(0, l - 1))} />
       <Studio />
       <group rotation-y={THREE_QUARTER}>
-        <MovingPet assembly={assembly} motion={hub} paused={!playing} />
+        <MovingPet assembly={assembly} motion={hub} paused={!playing} face={face} />
       </group>
       <Ticker playing={playing} hub={hub} />
       {birth ? <Moment hub={hub} name="birth" /> : null}
@@ -289,7 +299,7 @@ function Scene3D({
   );
 }
 
-function FlatScene({ tokenId, state, stage, outfit }: Required<Pick<PetFigureProps, 'tokenId' | 'state' | 'stage'>> & { outfit: string }) {
+function FlatScene({ tokenId, state, stage, outfit, face }: Required<Pick<PetFigureProps, 'tokenId' | 'state' | 'stage'>> & { outfit: string; face: string | undefined }) {
   const ref = useRef<HTMLCanvasElement>(null);
   useLayoutEffect(() => {
     const canvas = ref.current;
@@ -302,17 +312,17 @@ function FlatScene({ tokenId, state, stage, outfit }: Required<Pick<PetFigurePro
         canvas.width = w;
         canvas.height = h;
       }
-      drawFlat(canvas, { tokenId, stage, state, outfit });
+      drawFlat(canvas, { tokenId, stage, state, outfit, face });
     };
     draw();
     const ro = new ResizeObserver(draw);
     ro.observe(canvas);
     return () => ro.disconnect();
-  }, [tokenId, state, stage, outfit]);
+  }, [tokenId, state, stage, outfit, face]);
   return <canvas ref={ref} className="pet-figure__canvas" />;
 }
 
-export function PetFigure({ tokenId, name, state = 'full', stage = 'adult', outfit, wearing, size = 'hero', decorative, lost: lostProp, onLost, hub, birth = false }: PetFigureProps) {
+export function PetFigure({ tokenId, name, state = 'full', stage = 'adult', outfit, wearing, size = 'hero', decorative, lost: lostProp, onLost, hub, birth = false, mood }: PetFigureProps) {
   // Flat from the start when WebGL can't be had, and from the moment the one context is lost or the scene fails; the
   // actions around the pet work either way.
   const [ownLost, setOwnLost] = useState(false);
@@ -320,20 +330,21 @@ export function PetFigure({ tokenId, name, state = 'full', stage = 'adult', outf
   const flat = (lostProp ?? ownLost) || !canUseWebGL();
   const alt = decorative ? '' : `${name}, ${STATE_WORD[state]}${wearing ? `, wearing the ${wearing}` : ''}`;
   const slug = outfit ?? 'none';
+  const face = faceOf(state, mood);
   const lose = () => {
     setOwnLost(true);
     onLost?.();
   };
   return (
-    <div className={cx('ds-pet', `ds-pet--${size}`, 'pet-figure', `pet-figure--${size}`)} data-illustration="" data-view={flat ? 'flat' : '3d'}>
+    <div className={cx('ds-pet', `ds-pet--${size}`, 'pet-figure', `pet-figure--${size}`)} data-illustration="" data-view={flat ? 'flat' : '3d'} data-face={face} data-stage={stage}>
       <div className="pet-figure__box" role={decorative ? undefined : 'img'} aria-label={decorative ? undefined : alt} aria-hidden={decorative || undefined}>
         {flat ? (
           <FigureBoundary key="flat" onFail={() => undefined}>
-            <FlatScene tokenId={tokenId} state={state} stage={stage} outfit={slug} />
+            <FlatScene tokenId={tokenId} state={state} stage={stage} outfit={slug} face={face} />
           </FigureBoundary>
         ) : (
           <FigureBoundary key="3d" onFail={lose}>
-            <Scene3D tokenId={tokenId} state={state} stage={stage} outfit={slug} hub={hub ?? ownHub} birth={birth} onLost={lose} />
+            <Scene3D tokenId={tokenId} state={state} stage={stage} outfit={slug} hub={hub ?? ownHub} birth={birth} face={face} onLost={lose} />
           </FigureBoundary>
         )}
       </div>

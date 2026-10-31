@@ -13,13 +13,15 @@ export interface FlatOptions {
   state: PetState;
   /** worn item, an outfits slug; none by default (add-wardrobe) */
   outfit?: string;
+  /** a face.js expression in place of the state's own — «full's other mood», `calm` (add-pet-life › Mood rule) */
+  face?: string;
 }
 
 /** Draws the pet on `canvas`, at the canvas's own pixel size, on a transparent ground — the stills' three-quarter view. */
-export function drawFlat(canvas: HTMLCanvasElement, { tokenId, stage, state, outfit }: FlatOptions): void {
+export function drawFlat(canvas: HTMLCanvasElement, { tokenId, stage, state, outfit, face }: FlatOptions): void {
   // the JS file's option types are inferred from its defaults, which leave out `seed`
   const draw = drawFlatPet as (canvas: HTMLCanvasElement, options: Record<string, unknown>) => void;
-  draw(canvas, { seed: tokenId, stage, state, angle: 'three-quarter', outfit: outfit ?? 'none' });
+  draw(canvas, { seed: tokenId, stage, state, angle: 'three-quarter', outfit: outfit ?? 'none', face });
 }
 
 let webgl: boolean | undefined;
