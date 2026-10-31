@@ -64,5 +64,31 @@ export const CLOSED_NEW = { state: 'closed_new' as const, until: '2026-12-01T00:
 /** The same, closed for everyone (the ceiling). */
 export const CLOSED_ALL = { state: 'closed_all' as const, until: '2026-12-01T00:00:00.000Z' };
 
+/** The UTC day of the sample diary (2026-10-31, the frames' day) and the clock that stands in it. */
+export const SAMPLE_DAY = 20_757;
+export const inSampleDay = (page: Page, at = '12:00:00') => page.clock.install({ time: new Date(`2026-10-31T${at}Z`) });
+/** Pixel asleep, for the Pet screen's `asleep` state and the Diary that stood while it fell asleep */
+export const ASLEEP_PIXEL = { ...PIXEL, fullness: { state: 'asleep' as const, level: 0 } };
+
+/** The owner's Diary on the sample day, with the fields of `diary` laid over the sample diary. */
+export async function openDiary(page: Page, diary: Record<string, unknown> = {}, worker: Record<string, unknown> = {}, at?: string): Promise<void> {
+  await inSampleDay(page, at);
+  await openWith(page, '/pet/9/diary', { auth: SIGNED_IN, worker: { ...OWNER, ...worker, diary } });
+}
+
+/** The Pet screen of the owner's Pixel, with the fields of its owner view laid over (`diaryUnread`, `pendingQuestion`, …). */
+export async function openPet(page: Page, owner: Record<string, unknown> = {}, worker: Record<string, unknown> = {}, at?: string): Promise<void> {
+  await inSampleDay(page, at);
+  await openWith(page, '/pet/9', { auth: SIGNED_IN, worker: { ...OWNER, ...worker, pets: { '9': { ...PIXEL, owner }, '2': BISCUIT } } });
+}
+
+/** Changes what Pixel's owner view says from now on (the fake's pets are read at every call). */
+export async function setPixel(page: Page, owner: Record<string, unknown>, base: Record<string, unknown> = {}): Promise<void> {
+  await setWorker(page, { pets: { '9': { ...PIXEL, ...base, owner }, '2': BISCUIT } });
+}
+
+/** A line as the screen draws it: the page's live region says it too, visually hidden, once it came while the screen stood. */
+export const drawn = (page: Page, text: string | RegExp, options?: { exact?: boolean }) => page.getByText(text, options).and(page.locator(':not(.ds-hidden)'));
+
 /** The privy and worker calls the fakes were asked, without the rest. */
 export const privyCalls = async (page: Page): Promise<string[]> => (await calls(page)).filter((c) => c.startsWith('privy:'));

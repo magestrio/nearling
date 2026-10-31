@@ -8,6 +8,7 @@ import { requireSession, TOKEN_ID, type AppContext, type AppEnv } from '../http'
 import { hasVisible } from '../name/clean';
 import { desk, enqueueJob, jobOf } from '../pet/desk';
 import { memoryEpoch } from '../pet/forget';
+import { settleRitual } from '../pet/ritual';
 import { ownerFields, wakeState } from '../pet/view';
 import { wakeIfFed } from '../pet/wake';
 import { isPaused, pauseReason } from '../servicePause';
@@ -37,10 +38,22 @@ export async function ownedPet(c: AppContext): Promise<{ pet: PetRecord; id: str
 }
 
 /** The desk runs the queue now, and its alarm is the fallback. */
-function run(c: AppContext, tokenId: string): void {
+export function run(c: AppContext, tokenId: string): void {
   const stub = desk(c.env, tokenId);
   c.executionCtx.waitUntil(stub.process(tokenId));
   c.executionCtx.waitUntil(stub.arm(tokenId));
+}
+
+/** Ends the ritual and writes what is due to the chain after the response has gone: the response of a
+ * part never waits for a transaction (two reads and a send, a minute at worst), and a mark that lands
+ * later is `Streak rule` › «серия записана позже». A settle that fails is the cron's next minute. */
+export function settleLater(c: AppContext, tokenId: string): void {
+  c.executionCtx.waitUntil(
+    settleRitual(c.env, tokenId).then(
+      () => undefined,
+      () => console.log('settle_failed'),
+    ),
+  );
 }
 
 thoughtRoutes.post('/api/pets/:id/thoughts', async (c) => {

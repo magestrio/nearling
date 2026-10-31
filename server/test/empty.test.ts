@@ -1,5 +1,5 @@
 import { env } from 'cloudflare:workers';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { tick } from '../src/cron';
 import { run } from '../src/spend';
 import { callUsd12, minCallPrice, thoughtPrice, usd12ToMicros } from '../src/pricing';
@@ -93,7 +93,9 @@ describe('Thought request data', () => {
     h.net().ai.push({ content: '', tokensOut: 12 }, { content: '', tokensOut: 12 }, { content: '', tokensOut: 12 }, { content: '', tokensOut: 12 });
     expect((await say(tk, '5', 'one')).code).toBe('ai_unavailable');
     expect((await say(tk, '5', 'two')).code).toBe('ai_unavailable');
-    // an answer of a worker the pet pays goes through the same queue and the same counter
+    // an answer of a worker the pet pays goes through the same queue and the same counter; the diary is
+    // taken in the first 30 minutes of the UTC day (`add-daily-ritual`: a later claim is refused)
+    vi.setSystemTime(Math.floor(Date.now() / 86_400_000) * 86_400_000 + 10 * 60_000);
     const worker = await run(env, '5', { kind: 'diary', day: 1 });
     expect(worker).toEqual({ code: 'ai_unavailable' });
     expect(await thoughts()).toEqual([]);

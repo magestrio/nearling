@@ -52,6 +52,9 @@ Option A (OD-91, the user, 2026-10-27). The server account holds only gas money;
 ## Amendment, 2026-10-29 — numbers from usage pricing
 The thought is paid by usage since 2026-10-29 (the user, Init fix: «Да, платит по факту»; ADR-004 › «Paid by usage»), and §4 now measures food in typical thoughts ≈ 0.076¢. The starter food stays 12 thoughts (OD-1310): ≈ 0.0020 NEAR (was ≈ 0.0026). A birth takes ≈ 0.032 NEAR of the pool (was ≈ 0.0326), so the birth bound of a stolen key is ≈ 50 × 0.032 ≈ 1.6 NEAR ≈ $7.3 a day (was ≈ 1.63 NEAR ≈ $7.5) [estimate: arithmetic, §4 › Лимиты › Рождения; NEAR ≈ $4.59, volatile]; the pool of 4.9 NEAR still holds ≈ 150 births. The debit bound — min(food, 0.05 NEAR) × pets a day — and the key type are unchanged; the contract takes any per-thought price up to 0.005 NEAR, as before. The figures in «Blast radius» above are kept as written on 2026-10-27/28.
 
+## Amendment, 2026-10-31 — the birth as built
+A birth is no longer an estimate: the longest one writes 1,883 bytes, 0.01883 NEAR, and with the starter food takes 0.02083 NEAR of the pool, under `MAX_BIRTH_COST` 0.022 NEAR [arithmetic: 0.02075 NEAR measured in add-pet-life stage 1, + 8 bytes of the streak; add-daily-ritual stage 1 measures it]. The ≈ 0.03 NEAR above stood for a 2.4 KB character; the longest assembly is 568 bytes. The birth bound of a stolen key is ≈ 50 × 0.02083 ≈ 1.04 NEAR ≈ $4.8 a day [NEAR ≈ $4.59, volatile]; PRODUCT.md §8 › Ключи carries it. The figures above are kept as written.
+
 ## Action Items
 1. [x] The user picks the key type (OD-91) — without an allowance, 2026-10-27.
 2. [x] Product-lead: whether the contract also caps births per UTC day — 50 a day (OD-100, the user, 2026-10-27).

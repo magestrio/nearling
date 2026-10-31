@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { hasVisible } from '../../lib/nameClean';
 import { formatCents } from '../../lib/price';
 import { onClearOutcome } from '../../account/clearMemory';
+import { utcDayNow } from '../../diary/useDiary';
 import { hostOf, watchFlight } from '../../feeding/feedFlight';
 import { onFed } from '../../feeding/feedRequest';
 import { useLocation } from '../../route';
@@ -49,6 +50,16 @@ export interface Failure {
   lineId?: string;
   text?: string;
   mode?: 'chat' | 'deep';
+  /** the line was the answer to the question of this UTC day: «Try again» sends it as that answer */
+  question?: number;
+}
+
+/** The answer to the question of the day, on its way or landed, for the Diary to draw under the question until the diary itself
+ *  holds the exchange. `day` null: adopted after a reload, of whatever day the diary shows. */
+export interface Asked {
+  day: number | null;
+  text: string;
+  reply: string | null;
 }
 
 export const POLL_IDLE_MS = 5000;
@@ -73,7 +84,7 @@ export function replyLines(t: Pick<Thought, 'id' | 'text' | 'priceCents'> & { cu
 
 const statusOf = (e: unknown) => (e instanceof WorkerError ? e.status : 0);
 
-export function usePetScreen(tokenId: string, from: string | null) {
+export function usePetScreen(tokenId: string, from: string | null, diary = false) {
   const auth = useAuth();
   const authRef = useRef(auth);
   authRef.current = auth;
@@ -98,10 +109,16 @@ export function usePetScreen(tokenId: string, from: string | null) {
   const [friend, setFriend] = useState<{ tokenId: string; name: string } | null>(null);
   // a line the screen says once, with a Toast: the pet was given away under a clear (`Memory deletion flow` › «уже не владелец»)
   const [notice, setNotice] = useState<string | null>(null);
+  // the answer to the question of the day: on its way or landed, until the Diary holds the exchange (`Daily ritual flow`)
+  const [asked, setAsked] = useState<Asked | null>(null);
+  // an answer to the question the thought refused: back in the Diary's field, with a count so the same words can come twice
+  const [returned, setReturned] = useState<{ text: string; n: number } | null>(null);
+  // the Diary is read again at once: a question's answer landed, or the server says the screen is behind
+  const [nudge, setNudge] = useState(0);
 
   const pageRef = useRef(page);
   // what the player sent with the job on its way, to put it back in the field or retry it when the job is refused
-  const sent = useRef<{ job: string; lineId: string; text: string; mode: 'chat' | 'deep' } | null>(null);
+  const sent = useRef<{ job: string; lineId: string; text: string; mode: 'chat' | 'deep'; question?: number } | null>(null);
   pageRef.current = page;
   const jobRef = useRef(job);
   jobRef.current = job;
@@ -142,10 +159,16 @@ export function usePetScreen(tokenId: string, from: string | null) {
   /** The action did not happen: the line leaves the conversation and returns to the field (unless the player typed
    *  something new meanwhile). */
   const giveBack = useCallback(
-    (lineId: string, text: string) => {
+    (lineId: string, text: string, question?: number) => {
       unconfirmed.current.delete(lineId);
       setLines((now) => (now ?? []).filter((l) => l.id !== lineId));
-      if (draftRef.current === '') setDraft(text);
+      if (question === undefined) {
+        if (draftRef.current === '') setDraft(text);
+      } else {
+        // the answer to the question goes back to the Diary's field, not the Pet screen's
+        setAsked(null);
+        setReturned((r) => ({ text, n: (r?.n ?? 0) + 1 }));
+      }
     },
     [setDraft],
   );
@@ -153,7 +176,7 @@ export function usePetScreen(tokenId: string, from: string | null) {
   /** A job the server has and this tab did not start (a reload, another tab, an answer that was lost): its thinking
    *  line and the player's own line come back, and a line that went after all leaves the field. */
   const adopt = useCallback(
-    (view: Pick<PetState, 'pendingJob' | 'pendingMode' | 'pendingKind' | 'pendingText'>) => {
+    (view: Pick<PetState, 'pendingJob' | 'pendingMode' | 'pendingKind' | 'pendingText' | 'pendingQuestion'>) => {
       const job = view.pendingJob;
       if (!job || jobRef.current !== null || sendingRef.current || finished.current.has(job)) return;
       const mode = view.pendingMode ?? 'chat';
@@ -164,8 +187,14 @@ export function usePetScreen(tokenId: string, from: string | null) {
       const id = `you-${(localLine.current += 1)}`;
       unconfirmed.current.add(id);
       setLines((now) => [...(now ?? []), { id, who: 'player', text, fresh: true }]);
-      sent.current = { job, lineId: id, text, mode };
-      if (draftRef.current === text) setDraft('');
+      const question = view.pendingQuestion ? utcDayNow() : undefined;
+      sent.current = { job, lineId: id, text, mode, question };
+      if (question === undefined) {
+        if (draftRef.current === text) setDraft('');
+      } else {
+        // the answer to the question: its place is the Diary's, under the question
+        setAsked({ day: null, text, reply: null });
+      }
       setSpoke(true);
     },
     [changeJob, setDraft],
@@ -371,6 +400,7 @@ export function usePetScreen(tokenId: string, from: string | null) {
     sent.current = null;
     unconfirmed.current.clear();
     setFailure(null);
+    setAsked(null);
     // the pet doesn't speak first after a clear (`Memory deletion flow` › «стёр»)
     greeted.current = true;
   }, [changeJob]);
@@ -403,6 +433,8 @@ export function usePetScreen(tokenId: string, from: string | null) {
                 mood: s.mood,
                 traits: s.traits,
                 energy: s.energy,
+                diaryUnread: s.diaryUnread,
+                pendingQuestion: s.pendingQuestion,
               },
             }
           : p,
@@ -424,6 +456,11 @@ export function usePetScreen(tokenId: string, from: string | null) {
         const local = sent.current;
         if (local) unconfirmed.current.delete(local.lineId);
         finished.current.add(asked!);
+        if (local?.question !== undefined) {
+          // the pet's reply stands under the question at once; the Diary holds the exchange a moment later
+          setAsked((a) => (a ? { ...a, reply: thought.text } : a));
+          setNudge((n) => n + 1);
+        }
         setLines((now) => {
           const list = now ?? [];
           // the history read meanwhile already holds it, the player's line with it
@@ -442,7 +479,7 @@ export function usePetScreen(tokenId: string, from: string | null) {
         if (code === 'ai_unavailable' || code === 'empty_paid') {
           // the player's line stays in the conversation; a greeting or a wake thought has none
           const kind = s.jobKind === 'wake' || s.jobKind === 'greeting' ? s.jobKind : was ? 'reply' : 'greeting';
-          setFailure({ code, kind, lineId: was?.lineId, text: was?.text, mode: was?.mode });
+          setFailure({ code, kind, lineId: was?.lineId, text: was?.text, mode: was?.mode, question: was?.question });
         } else if (code === 'memory_cleared') {
           // the memory was cleared while the answer was on its way: its line never lands and the player's own line is gone with
           // the rest; the conversation is read again (`Memory deletion data` › «ответ в пути»)
@@ -450,10 +487,11 @@ export function usePetScreen(tokenId: string, from: string | null) {
             unconfirmed.current.delete(was.lineId);
             setLines((now) => (now ?? []).filter((l) => l.id !== was.lineId));
           }
+          setAsked(null);
           void loadLines();
         } else if (was) {
           // asleep, tired, too hungry, paused, no network: nothing happened — the line goes back to the field
-          giveBack(was.lineId, was.text);
+          giveBack(was.lineId, was.text, was.question);
           if (code === 'chain_unreachable') {
             retryRef.current = () => void poll();
             setBanner('offline');
@@ -544,7 +582,7 @@ export function usePetScreen(tokenId: string, from: string | null) {
   /** «Send» / Enter (`chat`) or «Think hard» (`deep`): the player's line goes into the conversation at once, the
    *  reply comes by the job. */
   const send = useCallback(
-    async (raw: string, mode: 'chat' | 'deep' = 'chat') => {
+    async (raw: string, mode: 'chat' | 'deep' = 'chat', question?: number) => {
       const text = raw;
       if (!hasVisible(text) || jobRef.current !== null || sendingRef.current || pageRef.current.kind !== 'pet') return;
       // a session that ended: the line, nothing sent, the text stays in the field
@@ -556,20 +594,47 @@ export function usePetScreen(tokenId: string, from: string | null) {
       setJobMode(mode);
       unconfirmed.current.add(id);
       setLines((now) => [...(now ?? []), { id, who: 'player', text, fresh: true }]);
-      // «Try again» sends a line that is not the field's: what the player typed since stays there
-      if (raw === draftRef.current) setDraft('');
+      // «Try again» sends a line that is not the field's: what the player typed since stays there. The question's answer comes
+      // from the Diary's own field, which the Diary empties itself.
+      if (question === undefined) {
+        if (raw === draftRef.current) setDraft('');
+      } else {
+        setAsked({ day: question, text, reply: null });
+      }
       setSpoke(true);
       try {
         const token = await tokenOf();
-        const answer = await workerApi.say(token, tokenId, text, mode);
-        sent.current = { job: answer.job, lineId: id, text, mode };
+        const answer = question === undefined ? await workerApi.say(token, tokenId, text, mode) : await workerApi.answerQuestion(token, tokenId, { text, day: question });
+        sent.current = { job: answer.job, lineId: id, text, mode, question };
         changeJob(answer.job);
         setBanner(null);
       } catch (e) {
         if (statusOf(e) === 401) {
           // the session ended under this tap: the same line as when it had ended before; nothing was sent, the text is back
-          giveBack(id, text);
+          giveBack(id, text, question);
           authRef.current.endSession(true, true);
+          return;
+        }
+        if (question !== undefined) {
+          const refusal = e instanceof WorkerError && e.status === 409 ? e.code : null;
+          if (refusal === 'already') {
+            // a stale tab: the answer is taken, here or in another tab; the line leaves, the field goes with its text, the screen
+            // catches up (`Daily ritual flow` › «отвечает на вопрос дня»)
+            unconfirmed.current.delete(id);
+            setLines((now) => (now ?? []).filter((l) => l.id !== id));
+            setAsked(null);
+            setNudge((n) => n + 1);
+          } else {
+            giveBack(id, text, question);
+            if (refusal === 'paused') {
+              setPage((p) => (p.kind === 'pet' && p.pet.viewer === 'owner' ? { kind: 'pet', pet: { ...p.pet, paused: true } } : p));
+            } else if (refusal !== null) {
+              // `late` or `no_question`: the day moved on, or the entry is gone; the Diary reads itself again
+              setNudge((n) => n + 1);
+            } else {
+              fail(e, () => setNudge((n) => n + 1));
+            }
+          }
           return;
         }
         if (draftRef.current === '') {
@@ -617,10 +682,12 @@ export function usePetScreen(tokenId: string, from: string | null) {
     if (f.text === undefined) return;
     if (f.lineId) unconfirmed.current.delete(f.lineId);
     setLines((now) => (now ?? []).filter((l) => l.id !== f.lineId));
-    void send(f.text, f.mode);
+    void send(f.text, f.mode, f.question);
   }, [failure, askGreeting, askWake, send]);
 
   const tryAgain = useCallback(() => retryRef.current(), []);
+  /** Reads the pet again: the Diary met a `403`, so the pet may be someone else's now. */
+  const reread = useCallback(() => setAttempt((a) => a + 1), []);
 
   // The outcome of the Clear memory dialog, which stands beside the page: «стёр» empties the conversation under the event line;
   // «уже не владелец» reads the pet again, now a guest's page, with the line (`Memory deletion flow`).
@@ -636,12 +703,15 @@ export function usePetScreen(tokenId: string, from: string | null) {
         }
         forgetConversation();
         epoch.current += 1;
+        // the entry is erased: a Diary that waited to open has nothing to open (`Daily ritual flow` › «сначала действие»)
+        setPage((p) => (p.kind === 'pet' && p.pet.viewer === 'owner' ? { kind: 'pet', pet: { ...p.pet, diaryUnread: false, pendingQuestion: false } } : p));
         const id = `event-${(localLine.current += 1)}`;
         setLines([{ id, who: 'event', text: `${shown}'s memory is clear — same ${shown}, fresh start.`, fresh: true }]);
       }),
     [tokenId, forgetConversation],
   );
   const clearNotice = useCallback(() => setNotice(null), []);
+  const clearAsked = useCallback(() => setAsked(null), []);
 
   // Feed sheet beside the page: each answer of the open sheet carries the pet's fullness, and the plate shows the same one as the
   // sheet's head — also on a guest's page, which has no poll (`Feed sheet screen` › «лист обновляется сам»).
@@ -685,9 +755,11 @@ export function usePetScreen(tokenId: string, from: string | null) {
   const ownerNow = viewer === 'owner';
   useEffect(() => {
     if (!decided) return;
+    // the owner's text on the Diary's address is the Diary's question draft: its own hook takes it
+    if (diary && ownerNow) return;
     const text = takeReturnText(here);
     if (text !== null && ownerNow) setDraft(text);
-  }, [decided, ownerNow, here, setDraft]);
+  }, [decided, ownerNow, here, setDraft, diary]);
 
   // Back from the sign-in with «Feed {name}» tapped: the feeding change takes the action, as the owner or as a guest.
   const pet = page.kind === 'pet' ? page.pet : null;
@@ -714,7 +786,14 @@ export function usePetScreen(tokenId: string, from: string | null) {
     send,
     retryThought,
     tryAgain,
+    reread,
     notice,
     clearNotice,
+    asked,
+    clearAsked,
+    returned,
+    nudge,
+    /** reads the pet's condition now (the Diary met a riddle answer the pet being asleep refused) */
+    look: poll,
   };
 }

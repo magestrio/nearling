@@ -65,7 +65,10 @@ export function App() {
         {/* Home draws its own `Connection rule` page (`home-error`), whatever the exchange answered */}
         {route.name === 'home' ? <HomeScreen /> : null}
         {!unreachable && route.name === 'hatch' ? <HatchScreen from={route.from} /> : null}
-        {!unreachable && route.name === 'pet' ? <PetScreen key={route.tokenId} tokenId={route.tokenId} from={route.from} /> : null}
+        {/* one element for both: the Diary opens over the Pet screen's own state (the pet, the poll, the line being typed) */}
+        {!unreachable && (route.name === 'pet' || route.name === 'diary') ? (
+          <PetScreen key={route.tokenId} tokenId={route.tokenId} from={route.name === 'pet' ? route.from : null} diary={route.name === 'diary'} />
+        ) : null}
         {!unreachable && route.name === 'pet-broken' ? <PetNotFound /> : null}
         {Day1Page && route.name === 'day1' ? (
           <Suspense fallback={null}>

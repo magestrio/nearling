@@ -1,5 +1,6 @@
 // The minute cron (`triggers.crons`): the sessions to debit, the diary of the first half hour of a
-// UTC day, the pause of the services, the stages to write and the cleaning of old rows. Each part fails alone: a part
+// UTC day, the pause of the services, the riddle of the day, the ritual (the close of the days that
+// ended, the open rows of today), the stages to write and the cleaning of old rows. Each part fails alone: a part
 // that throws logs its code and the others still run.
 import { accountBalance, ChainUnreachable } from './chain';
 import { closeAndDebit } from './debit';
@@ -7,13 +8,14 @@ import { utcDay } from './http';
 import { keyIsValid } from './nearai';
 import { askNetwork } from './feeding/inflight';
 import { desk, enqueueJob, STALE_RUNNING_MS } from './pet/desk';
+import { closeDays } from './pet/close';
 import { CLAIM_STALE_MS, writeDueGrowth } from './pet/growth';
+import { DIARY_WINDOW_MS, markDueDays, settleOpenRows } from './pet/ritual';
 import { FEEDINGS_COLUMNS, settleFeeding, type FeedingRow } from './pet/settle';
+import { riddleTick } from './riddle/cron';
 import { clearPause, gasReserve, lastProbe, noteProbe, pauseReason, setPause } from './servicePause';
 import { monthOf } from './signin';
 
-/** The diary is put to the pets that do not sleep in the first 30 minutes of the UTC day. */
-const DIARY_WINDOW_MS = 30 * 60_000;
 /** At most this many calls to NEAR AI at once for the diary (the provider allows ~64 per model, volatile). */
 const DIARY_AT_ONCE = 8;
 /** A meal or snack on its way is asked after by the cron from this age. */
@@ -33,6 +35,8 @@ export async function tick(env: Env, nowMs: number = Date.now()): Promise<void> 
     ['debit', () => closeAndDebit(env, nowMs)],
     ['diary', () => diary(env, nowMs)],
     ['pause', () => pause(env, nowMs)],
+    ['riddle', () => riddleTick(env, nowMs)],
+    ['ritual', () => ritual(env, nowMs)],
     ['growth', () => growth(env, nowMs)],
     ['feedings', () => settleStaleFeedings(env, nowMs)],
     ['clean', () => clean(env, nowMs)],
@@ -60,9 +64,10 @@ export async function diary(env: Env, nowMs: number): Promise<void> {
   const room = DIARY_AT_ONCE - (running?.n ?? 0);
   if (room <= 0) return;
   const pets = await env.DB.prepare(
-    "SELECT token_id FROM pets WHERE slept_at IS NULL AND (diary_day IS NULL OR diary_day < ?) AND token_id NOT IN (SELECT token_id FROM jobs WHERE kind = 'diary' AND status IN ('queued', 'running')) ORDER BY token_id LIMIT ?",
+    // A pet born today has no yesterday to write about (`Diary screen` › «empty»).
+    "SELECT token_id FROM pets WHERE slept_at IS NULL AND born_at < ?3 AND (diary_day IS NULL OR diary_day < ?1) AND token_id NOT IN (SELECT token_id FROM jobs WHERE kind = 'diary' AND status IN ('queued', 'running')) ORDER BY token_id LIMIT ?2",
   )
-    .bind(today, room)
+    .bind(today, room, today * 86_400_000)
     .all<{ token_id: string }>();
   const ids: string[] = [];
   for (const { token_id } of pets.results) {
@@ -70,6 +75,14 @@ export async function diary(env: Env, nowMs: number): Promise<void> {
     ids.push(token_id);
   }
   await Promise.allSettled(ids.flatMap((id) => [desk(env, id).arm(id), desk(env, id).process(id)]));
+}
+
+/** The ritual of the days: the days that ended are closed, the open rows of today are looked at, then the
+ * days whose mark is due are written (`pet/close.ts`, `pet/ritual.ts`, `pet/mark.ts`). */
+export async function ritual(env: Env, nowMs: number): Promise<void> {
+  await closeDays(env, nowMs);
+  await settleOpenRows(env, nowMs);
+  await markDueDays(env, nowMs);
 }
 
 /** Starts and ends the pause of the services (Service pause data). */
@@ -143,5 +156,9 @@ export async function clean(env: Env, nowMs: number): Promise<void> {
     env.DB.prepare('DELETE FROM ended_sessions WHERE ended_at < ?').bind(nowMs - 86_400_000),
     // The friends' snacks of earlier UTC days (§8 › Перекусы друзей: «до конца суток UTC»).
     env.DB.prepare('DELETE FROM friend_snacks WHERE day < ?').bind(utcDay(nowMs)),
+    // The answers to the riddle live to the end of the next day (`Ritual data`), and a revealed riddle's
+    // row as long: an unrevealed one stays until it is revealed, however late (ADR-009).
+    env.DB.prepare('DELETE FROM riddle_answers WHERE day < ?').bind(utcDay(nowMs) - 1),
+    env.DB.prepare('DELETE FROM riddles WHERE revealed_at IS NOT NULL AND day < ?').bind(utcDay(nowMs) - 1),
   ]);
 }

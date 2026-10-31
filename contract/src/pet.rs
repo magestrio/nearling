@@ -108,8 +108,38 @@ pub struct PetV2 {
     pub owner_snack_at: u64,
 }
 
-/// The pet's record, version 3 (`add-pet-life`): version 2 and the traits. Later changes add a
-/// variant of `VersionedPet` and migrate the record on write.
+/// The pet's record, version 3 (`add-pet-life`): version 2 and the traits.
+#[near(serializers = [borsh])]
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct PetV3 {
+    pub name: String,
+    pub character: String,
+    /// Birth time, nanoseconds.
+    pub born_at: u64,
+    pub project_food: u128,
+    pub given_food: u128,
+    /// The UTC day `debited_today` belongs to.
+    pub debit_day: u64,
+    pub debited_today: u128,
+    /// The last accepted `debit_id`; 0 at birth.
+    pub last_debit_id: u64,
+    pub stage: Stage,
+    /// The UTC day of the last stage change, the birth included.
+    pub stage_day: u64,
+    pub streak: u32,
+    pub freezes: u8,
+    /// The UTC day `friend_snacks` belongs to.
+    pub friend_snack_day: u64,
+    /// Snacks from friends in `friend_snack_day`.
+    pub friend_snacks: u8,
+    /// When the owner last took a snack, nanoseconds; 0 = never.
+    pub owner_snack_at: u64,
+    /// `Trait::code`s: the teen's trait, then the adult's; 0 = not yet. Fixed size, paid at birth.
+    pub traits: [u8; 2],
+}
+
+/// The pet's record, version 4 (`add-daily-ritual`): version 3 and the last counted day of the
+/// streak. Later changes add a variant of `VersionedPet` and migrate the record on write.
 #[near(serializers = [borsh])]
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Pet {
@@ -137,9 +167,36 @@ pub struct Pet {
     pub owner_snack_at: u64,
     /// `Trait::code`s: the teen's trait, then the adult's; 0 = not yet. Fixed size, paid at birth.
     pub traits: [u8; 2],
+    /// The UTC day of the last `streak_mark`; 0 = no mark yet. A real day is ~20,700, so 0 is
+    /// nobody's day, and the fixed size keeps the first mark from growing the record.
+    pub last_streak_day: u64,
 }
 
-impl From<PetV2> for Pet {
+impl From<PetV3> for Pet {
+    fn from(old: PetV3) -> Self {
+        Self {
+            name: old.name,
+            character: old.character,
+            born_at: old.born_at,
+            project_food: old.project_food,
+            given_food: old.given_food,
+            debit_day: old.debit_day,
+            debited_today: old.debited_today,
+            last_debit_id: old.last_debit_id,
+            stage: old.stage,
+            stage_day: old.stage_day,
+            streak: old.streak,
+            freezes: old.freezes,
+            friend_snack_day: old.friend_snack_day,
+            friend_snacks: old.friend_snacks,
+            owner_snack_at: old.owner_snack_at,
+            traits: old.traits,
+            last_streak_day: 0,
+        }
+    }
+}
+
+impl From<PetV2> for PetV3 {
     fn from(old: PetV2) -> Self {
         Self {
             name: old.name,
@@ -189,30 +246,60 @@ impl From<PetV1> for PetV2 {
 pub enum VersionedPet {
     V1(PetV1),
     V2(PetV2),
-    V3(Pet),
+    V3(PetV3),
+    V4(Pet),
 }
 
 impl VersionedPet {
-    /// The current record, by value; an older version is read with zero counters and no traits.
+    /// The current record, by value; an older version is read with zero counters, no traits and
+    /// no counted day.
     pub fn current(&self) -> Pet {
         match self {
-            VersionedPet::V1(old) => Pet::from(PetV2::from(old.clone())),
-            VersionedPet::V2(old) => Pet::from(old.clone()),
-            VersionedPet::V3(pet) => pet.clone(),
+            VersionedPet::V1(old) => Pet::from(PetV3::from(PetV2::from(old.clone()))),
+            VersionedPet::V2(old) => Pet::from(PetV3::from(old.clone())),
+            VersionedPet::V3(old) => Pet::from(old.clone()),
+            VersionedPet::V4(pet) => pet.clone(),
         }
     }
 
     /// The current record to change; an older version becomes the current one in place, and
     /// the next write stores it as such.
     pub fn current_mut(&mut self) -> &mut Pet {
-        if !matches!(self, VersionedPet::V3(_)) {
-            *self = VersionedPet::V3(self.current());
+        if !matches!(self, VersionedPet::V4(_)) {
+            *self = VersionedPet::V4(self.current());
         }
         match self {
-            VersionedPet::V3(pet) => pet,
-            VersionedPet::V1(_) | VersionedPet::V2(_) => unreachable!("upgraded above"),
+            VersionedPet::V4(pet) => pet,
+            VersionedPet::V1(_) | VersionedPet::V2(_) | VersionedPet::V3(_) => {
+                unreachable!("upgraded above")
+            }
         }
     }
+}
+
+/// What one `streak_mark` does to the streak (ADR-010): `(streak, freezes, spent)` for a mark of
+/// `day`, with the pet at `(streak, freezes)` and its last counted day `last` (0 = none).
+/// `skipped` is the days between that the server excused. The caller has checked the window and
+/// that `skipped` fits the gap.
+pub fn next_streak(streak: u32, freezes: u8, last: u64, day: u64, skipped: u32) -> (u32, u8, u8) {
+    let (streak, mut freezes, spent) = if last == 0 {
+        // The first mark: the days before it are not misses.
+        (1, freezes, 0)
+    } else {
+        let gap = day.saturating_sub(last).saturating_sub(1);
+        let missed = gap.saturating_sub(u64::from(skipped));
+        if missed <= u64::from(freezes) {
+            // `missed` is at most `freezes`, a byte.
+            let spent = missed as u8;
+            (streak.saturating_add(1), freezes - spent, spent)
+        } else {
+            (1, 0, freezes)
+        }
+    };
+    if streak % 7 == 0 {
+        freezes = freezes.saturating_add(1);
+    }
+    (streak, freezes, spent)
 }
 
 /// What `pet_view` returns: the record and the owner, amounts as decimal strings.
@@ -237,6 +324,8 @@ pub struct PetView {
     pub owner_snack_at: U64,
     /// In the order they were gained; a repeat is listed twice.
     pub traits: Vec<Trait>,
+    /// The UTC day of the last counted streak day; `None` before the first mark.
+    pub last_streak_day: Option<u64>,
 }
 
 impl PetView {
@@ -263,6 +352,7 @@ impl PetView {
                 .iter()
                 .filter_map(|c| Trait::from_code(*c))
                 .collect(),
+            last_streak_day: (pet.last_streak_day != 0).then_some(pet.last_streak_day),
         }
     }
 }
@@ -287,6 +377,19 @@ pub struct HatchView {
     /// Births in the current UTC day; 0 when the counter belongs to an earlier day.
     pub born_today: u32,
     pub pool: U128,
+}
+
+/// What `riddle_view` returns: only what the state already shows.
+#[near(serializers = [json])]
+#[derive(Clone, Debug)]
+pub struct RiddleView {
+    /// The commit of the asked day, 64 lowercase hex characters; `None` when there is none or it
+    /// was revealed.
+    pub hash: Option<String>,
+    /// The storage reserve of the commits, yoctoNEAR.
+    pub reserve: U128,
+    /// What one commit's storage costs, yoctoNEAR.
+    pub commit_cost: U128,
 }
 
 #[cfg(test)]
@@ -334,21 +437,26 @@ mod tests {
         assert_eq!(PetView::new("a.near".parse().unwrap(), &pet).traits, vec![]);
     }
 
+    fn v3_pet() -> PetV3 {
+        PetV3::from(v2_pet())
+    }
+
     #[test]
-    fn a_write_leaves_v3_with_its_food_intact_and_the_stored_variants_still_decode() {
+    fn a_write_leaves_v4_with_its_food_intact_and_the_stored_variants_still_decode() {
         let mut record = VersionedPet::V1(old_pet());
         record.current_mut().given_food += 10_000_000;
         record.current_mut().friend_snacks = 2;
-        let VersionedPet::V3(pet) = &record else {
-            panic!("the record must be V3 after a write");
+        let VersionedPet::V4(pet) = &record else {
+            panic!("the record must be V4 after a write");
         };
         assert_eq!(pet.given_food, 10_003_000);
         assert_eq!(pet.project_food, 2_000);
         assert_eq!(pet.friend_snacks, 2);
         assert_eq!(pet.traits, [0, 0]);
+        assert_eq!(pet.last_streak_day, 0);
 
-        // The bytes on chain: V1 is variant 0, V2 variant 1, V3 variant 2, so a stored V1 or V2
-        // record still decodes.
+        // The bytes on chain: V1 is variant 0, V2 variant 1, V3 variant 2, V4 variant 3, so a
+        // stored older record still decodes.
         let stored_v1 = borsh::to_vec(&VersionedPet::V1(old_pet())).unwrap();
         assert_eq!(stored_v1[0], 0);
         let decoded: VersionedPet = borsh::from_slice(&stored_v1).unwrap();
@@ -358,20 +466,128 @@ mod tests {
         assert_eq!(stored_v2.len() - stored_v1.len(), 17);
         let decoded: VersionedPet = borsh::from_slice(&stored_v2).unwrap();
         assert_eq!(decoded, VersionedPet::V2(v2_pet()));
-        let stored_v3 = borsh::to_vec(&record).unwrap();
+        let stored_v3 = borsh::to_vec(&VersionedPet::V3(v3_pet())).unwrap();
         assert_eq!(stored_v3[0], 2);
         assert_eq!(stored_v3.len() - stored_v2.len(), 2);
+        let decoded: VersionedPet = borsh::from_slice(&stored_v3).unwrap();
+        assert_eq!(decoded, VersionedPet::V3(v3_pet()));
+        let stored_v4 = borsh::to_vec(&record).unwrap();
+        assert_eq!(stored_v4[0], 3);
+        assert_eq!(stored_v4.len() - stored_v3.len(), 8);
+    }
+
+    // spec: add-daily-ritual › Streak contract › сутки засчитаны × a pet of version 3
+    #[test]
+    fn a_v3_record_reads_with_no_counted_day_and_grows_by_eight_bytes_on_its_first_write() {
+        let mut v3 = v3_pet();
+        v3.traits = [Trait::Cozy.code(), 0];
+        v3.streak = 4;
+        v3.freezes = 2;
+        let record = VersionedPet::V3(v3.clone());
+        let pet = record.current();
+        assert_eq!(pet.last_streak_day, 0);
+        assert_eq!(pet.traits, [Trait::Cozy.code(), 0]);
+        assert_eq!((pet.streak, pet.freezes), (4, 2));
+        let view = PetView::new("a.near".parse().unwrap(), &pet);
+        assert_eq!(view.last_streak_day, None, "no mark yet reads as none");
+        assert_eq!(view.traits, vec![Trait::Cozy]);
+
+        let before = borsh::to_vec(&record).unwrap().len();
+        let mut written = record.clone();
+        written.current_mut().last_streak_day = 20_700;
+        assert!(matches!(written, VersionedPet::V4(_)));
+        assert_eq!(borsh::to_vec(&written).unwrap().len(), before + 8);
+        let pet = written.current();
+        assert_eq!(pet.name, v3.name);
+        assert_eq!(pet.traits, v3.traits);
+        let view = PetView::new("a.near".parse().unwrap(), &pet);
+        assert_eq!(view.last_streak_day, Some(20_700));
+    }
+
+    // The mark is a field of fixed size: the first one writes no new byte.
+    #[test]
+    fn a_counted_day_takes_the_bytes_of_none() {
+        let mut record = VersionedPet::V3(v3_pet());
+        record.current_mut();
+        let none = borsh::to_vec(&record).unwrap().len();
+        record.current_mut().last_streak_day = 20_757;
+        assert_eq!(borsh::to_vec(&record).unwrap().len(), none);
+    }
+
+    #[derive(near_sdk::serde::Deserialize)]
+    #[serde(crate = "near_sdk::serde")]
+    struct StreakCase {
+        name: String,
+        streak: u32,
+        freezes: u8,
+        last: u64,
+        day: u64,
+        skipped: u32,
+        streak_after: u32,
+        freezes_after: u8,
+        spent: u8,
+    }
+
+    #[derive(near_sdk::serde::Deserialize)]
+    #[serde(crate = "near_sdk::serde")]
+    struct StreakCases {
+        cases: Vec<StreakCase>,
+    }
+
+    // spec: add-daily-ritual › Streak contract › сутки засчитаны × next_streak, every branch
+    // The same table is read by `server/test/ritual-rules.test.ts`.
+    #[test]
+    fn next_streak_follows_the_shared_table_of_cases() {
+        let table: StreakCases =
+            near_sdk::serde_json::from_str(include_str!("../tests/fixtures/streak-cases.json"))
+                .unwrap();
+        assert!(table.cases.len() >= 12);
+        for case in table.cases {
+            let got = next_streak(case.streak, case.freezes, case.last, case.day, case.skipped);
+            assert_eq!(
+                got,
+                (case.streak_after, case.freezes_after, case.spent),
+                "{}",
+                case.name
+            );
+        }
+    }
+
+    // spec: add-daily-ritual › Streak contract › streak restarts × spent is the freezes the pet had
+    #[test]
+    fn a_break_spends_every_freeze_and_before_minus_spent_is_after() {
+        for freezes in 0..=6u8 {
+            // Seven missed days with none excused: more than any of these pets can cover.
+            let (streak, after, spent) = next_streak(5, freezes, 100, 108, 0);
+            assert_eq!(streak, 1);
+            assert_eq!(after, 0);
+            assert_eq!(spent, freezes);
+            assert_eq!(freezes - spent, after);
+        }
+        // A covered gap: before - spent = after too.
+        let (streak, after, spent) = next_streak(5, 4, 100, 103, 0);
+        assert_eq!((streak, after, spent), (6, 2, 2));
+        // A reset to 1 never lands on a multiple of 7, so it earns no freeze.
+        let (streak, after, _) = next_streak(6, 0, 100, 150, 0);
+        assert_eq!((streak, after), (1, 0));
     }
 
     #[test]
     fn a_record_with_its_traits_filled_takes_the_bytes_of_an_empty_one() {
         let mut record = VersionedPet::V2(v2_pet());
-        let empty = borsh::to_vec(&record).unwrap().len();
+        let v2 = borsh::to_vec(&record).unwrap().len();
+        // The upgrade to the current record: the traits (2) and the counted day (8).
+        let empty = borsh::to_vec(&{
+            record.current_mut();
+            record.clone()
+        })
+        .unwrap()
+        .len();
+        assert_eq!(empty, v2 + 10);
         record.current_mut().traits = [Trait::Cozy.code(), Trait::HardWorking.code()];
-        assert_eq!(borsh::to_vec(&record).unwrap().len(), empty + 2);
-        let again = borsh::to_vec(&record).unwrap().len();
+        assert_eq!(borsh::to_vec(&record).unwrap().len(), empty);
         record.current_mut().traits = [0, 0];
-        assert_eq!(borsh::to_vec(&record).unwrap().len(), again);
+        assert_eq!(borsh::to_vec(&record).unwrap().len(), empty);
     }
 
     #[test]

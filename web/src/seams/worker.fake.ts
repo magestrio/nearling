@@ -6,6 +6,7 @@ import { config } from '../config';
 import { PORTION_YOCTO, toBase64 } from '../feeding/feedTx';
 import { cleanName, hasVisible } from '../lib/nameClean';
 import { publicKeyFromImplicitAccount } from '../near/privySigner';
+import { sampleDiary } from './diary.sample';
 import { fakeState, recordCall, type FakeFail, type FakeWorkerState } from './fakes';
 import {
   WorkerError,
@@ -52,6 +53,8 @@ const OWNER_DEFAULTS = {
   lastThought: null,
   memoryEpoch: 0,
   wakes: 0,
+  diaryUnread: false,
+  pendingQuestion: false,
   ownedCount: 1,
 };
 
@@ -271,6 +274,49 @@ export const fakeWorkerApi: WorkerApi = {
       throw e;
     }
     return answer<WalletInfo>('wallet', state().wallet, { address: fakeAccount(), balance: WALLET_YOCTO, funded: false });
+  },
+
+  diary: async (token, tokenId) => {
+    recordCall('worker:diary');
+    if (token === null) throw new WorkerError(401, 'signed_out');
+    needSession(token);
+    const ms = state().diaryDelayMs ?? state().delayMs ?? 0;
+    if (ms > 0) await wait(ms);
+    if (!petsOf()[tokenId]) throw new WorkerError(404, 'no_pet');
+    const configured = state().diary;
+    if (isFail(configured)) throw new WorkerError(configured.fail.status, configured.fail.code);
+    if (!(state().owned ?? []).includes(tokenId)) throw new WorkerError(403, 'not_owner');
+    return { ...sampleDiary(), ...configured };
+  },
+
+  readDiary: async (token, tokenId, day) => {
+    if (token === null) throw new WorkerError(401, 'signed_out');
+    needSession(token);
+    recordCall(`worker:readDiary:${day}`);
+    return answer('readDiary', state().readDiary, { ok: true as const });
+  },
+
+  answerQuestion: async (token, _tokenId, body) => {
+    if (token === null) throw new WorkerError(401, 'signed_out');
+    needSession(token);
+    recordCall(`worker:answerQuestion:${body.day}`);
+    return answer('answerQuestion', state().answerQuestion, { job: 'job-question' });
+  },
+
+  answerRiddle: async (token, _tokenId, body) => {
+    if (token === null) throw new WorkerError(401, 'signed_out');
+    needSession(token);
+    recordCall(`worker:answerRiddle:${body.day}`);
+    const result = await answer('answerRiddle', state().answerRiddle, { status: 'accepted' as const });
+    // what the real route leaves behind: the day's riddle is answered, with the owner's own words, and no longer a part left
+    const held = fakeState().worker;
+    if (result.status === 'accepted' && held && !isFail(held.diary)) {
+      const now = { ...sampleDiary(), ...held.diary };
+      if (now.riddle.kind === 'open') {
+        held.diary = { ...held.diary, riddle: { kind: 'answered', day: now.riddle.day, text: now.riddle.text, answer: body.text }, parts: now.parts.filter((p) => p !== 'riddle') };
+      }
+    }
+    return result;
   },
 
   clearMemory: async (token, tokenId) => {

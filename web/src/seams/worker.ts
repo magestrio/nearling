@@ -4,6 +4,7 @@
 // `rate_limited`, `chain_unreachable`, `not_owner`, `no_pet`, …).
 import type {
   Conversation,
+  DiaryView,
   FeedOutcome,
   FeedSheetAnswer,
   HatchStatus,
@@ -11,6 +12,7 @@ import type {
   Me,
   PetState,
   PetView,
+  RiddleStatus,
   SignInGate,
   Token,
   WalletInfo,
@@ -106,6 +108,10 @@ const real: WorkerApi = {
   feedOutcome: (token, tokenId, body) => call<FeedOutcome>(`/api/pets/${id(tokenId)}/feed/outcome`, token, { method: 'POST', body }),
   snack: (token, tokenId) => call<FeedOutcome>(`/api/pets/${id(tokenId)}/snack`, token, { method: 'POST', timeoutMs: FEED_SEND_TIMEOUT_MS }),
   wallet: (token) => call<WalletInfo>('/api/wallet', token),
+  diary: (token, tokenId) => call<DiaryView>(`/api/pets/${id(tokenId)}/diary`, token),
+  readDiary: (token, tokenId, day) => call<{ ok: true }>(`/api/pets/${id(tokenId)}/diary/read`, token, { method: 'POST', body: { day } }),
+  answerQuestion: (token, tokenId, body) => call<{ job: string }>(`/api/pets/${id(tokenId)}/diary/answer`, token, { method: 'POST', body }),
+  answerRiddle: (token, tokenId, body) => call<{ status: RiddleStatus }>(`/api/pets/${id(tokenId)}/riddle`, token, { method: 'POST', body }),
 };
 
 export const workerApi: WorkerApi =

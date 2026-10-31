@@ -209,3 +209,55 @@ describe('the Worker seam of feeding', () => {
     ]);
   });
 });
+
+describe('the Worker seam of the Diary', () => {
+  const calls = (fetchMock: ReturnType<typeof vi.fn>) => fetchMock.mock.calls.map((c) => c as unknown as [string, RequestInit]);
+
+  // spec: add-daily-ritual › Diary screen › success
+  it('reads the diary with the token by GET, and keeps the code of a pet that is not theirs any more', async () => {
+    const fetchMock = vi.fn(async () => Response.json({ day: 20757 }));
+    vi.stubGlobal('fetch', fetchMock);
+    await workerApi.diary('t', '9');
+    expect(calls(fetchMock)[0]).toMatchObject(['/api/pets/9/diary', { method: 'GET', headers: { 'privy-id-token': 't' } }]);
+    vi.stubGlobal('fetch', vi.fn(async () => Response.json({ code: 'not_owner' }, { status: 403 })));
+    await expect(workerApi.diary('t', '9')).rejects.toMatchObject({ status: 403, code: 'not_owner' });
+  });
+
+  // spec: add-daily-ritual › Daily ritual flow › встречает дневником
+  it('sends the read mark with the diary\'s day by POST', async () => {
+    const fetchMock = vi.fn(async () => Response.json({ ok: true }));
+    vi.stubGlobal('fetch', fetchMock);
+    expect(await workerApi.readDiary('t', '9', 20757)).toEqual({ ok: true });
+    const [url, init] = calls(fetchMock)[0]!;
+    expect(`${init.method} ${url}`).toBe('POST /api/pets/9/diary/read');
+    expect(JSON.parse(init.body as string)).toEqual({ day: 20757 });
+  });
+
+  // spec: add-daily-ritual › Daily ritual flow › отвечает на вопрос дня
+  it('sends the answer to the question as text and day, takes the 202 job, and keeps the code of a 409', async () => {
+    const fetchMock = vi.fn(async () => Response.json({ job: 'j' }, { status: 202 }));
+    vi.stubGlobal('fetch', fetchMock);
+    expect(await workerApi.answerQuestion('t', '9', { text: 'It did.', day: 20757 })).toEqual({ job: 'j' });
+    const [url, init] = calls(fetchMock)[0]!;
+    expect(url).toBe('/api/pets/9/diary/answer');
+    expect(JSON.parse(init.body as string)).toEqual({ text: 'It did.', day: 20757 });
+    for (const code of ['paused', 'late', 'no_question', 'already']) {
+      vi.stubGlobal('fetch', vi.fn(async () => Response.json({ code }, { status: 409 })));
+      await expect(workerApi.answerQuestion('t', '9', { text: 'It did.', day: 20757 })).rejects.toMatchObject({ status: 409, code });
+    }
+  });
+
+  // spec: add-daily-ritual › Riddle rule › ответ принят
+  it('sends the riddle answer with the day it was typed for, takes its status, and keeps the code of a 409', async () => {
+    const fetchMock = vi.fn(async () => Response.json({ status: 'late' }));
+    vi.stubGlobal('fetch', fetchMock);
+    expect(await workerApi.answerRiddle('t', '9', { text: 'a clock', day: 20756 })).toEqual({ status: 'late' });
+    const [url, init] = calls(fetchMock)[0]!;
+    expect(`${init.method} ${url}`).toBe('POST /api/pets/9/riddle');
+    expect(JSON.parse(init.body as string)).toEqual({ text: 'a clock', day: 20756 });
+    for (const code of ['asleep', 'not_sealed']) {
+      vi.stubGlobal('fetch', vi.fn(async () => Response.json({ code }, { status: 409 })));
+      await expect(workerApi.answerRiddle('t', '9', { text: 'a clock', day: 20757 })).rejects.toMatchObject({ status: 409, code });
+    }
+  });
+});

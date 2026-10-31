@@ -1,13 +1,13 @@
 # ADR-006: Gas for the transactions a player signs
 
-**Status:** Accepted (OD-220 → Option B, 2026-10-27; OD-700 → top up to ≈ 1.5 NEAR, 2026-10-28)
+**Status:** Accepted (OD-220 → Option B, 2026-10-27; OD-700 → top up to ≈ 1.5 NEAR, 2026-10-28; the top-up → 0.006 NEAR, 2026-10-31)
 **Date:** 2026-10-27
 **Deciders:** the user
 
 ## Context
 The player's only signed transaction in `add-feeding` is a feeding portion in NEAR (0.01 / 0.05 / 0.2 NEAR — OD-211); `add-gift` adds the gift (1 yocto). The user's accepted default: the project pays players' account creation and gas (PRODUCT.md › User Decisions, Product defaults). Facts (`near-contract`, `web-client`, checked 2026-10-27, volatile):
 - Privy supports NEAR at Tier 2: it signs a raw hash, does not broadcast and sponsors no gas. Whether `signRawHash` can sign a NEP-366 `DelegateAction` is undocumented.
-- Gas is bought up front at ≥ 0.001 NEAR/Tgas and the unburned part is refunded: a sender needs ~10× the burned gas in balance. A feeding call is a few Tgas [hypothesis: ~5 Tgas → ≈ 0.005 NEAR up front, ≈ 0.0005 NEAR burned].
+- Gas is bought up front at ≥ 0.001 NEAR/Tgas and the unburned part is refunded: a sender needs ~10× the burned gas in balance. A feeding call is a few Tgas [hypothesis at the decision: ~5 Tgas → ≈ 0.005 NEAR up front, ≈ 0.0005 NEAR burned; measured since, «Top-up amount, 2026-10-31»].
 - A meta-transaction relayer pays the gas **and every attached deposit** of the inner actions out of its own NEAR.
 - A function-call key cannot send NEAR; the server key (ADR-002) is a function-call key on the contract only.
 - The player's implicit account is created by the first transfer into it, and the sender pays the 0.007 NEAR (nearcore 2.13). A player who adds NEAR from an exchange or another wallet (OD-210) already has an account; feeding in NEAR never needs the project to create one.
@@ -55,6 +55,9 @@ Option B — the smallest build, the smallest total a thief can take (the balanc
 ## Decision
 Option B (the user, 2026-10-27: «Газовый аккаунт проекта»): a separate project account holding ≈ 1.5 NEAR [estimate] (≈ 0.5 NEAR at first; topped up for gifts — OD-700, the user, 2026-10-28: «Пополнить до ≈1.5 NEAR») tops up gas for a feeder whose wallet lacks it, and the gas, 1 yocto and account creation of a giver (ADR-014); its full-access key is a Worker secret; the player notices nothing. The contract, the pool and the server key are unchanged.
 
+## Top-up amount, 2026-10-31
+The top-up is 0.006 NEAR (the user, 2026-10-31: «0.006 NEAR (Recommended)», add-feeding code-critic BLOCKER 2). The node refused a wallet of a portion + 0.005 NEAR: a meal's gas costs 0.005919 NEAR up front on a 64-character signer, 0.005 for the 5 Tgas and 0.000919 for the fees [fact: sandbox, nearcore 2.14, add-feeding design]. The reserve leaves a margin of 0.000081 NEAR and is re-measured after the protocol votes (volatile, `near-contract`). The ≈ 0.005 NEAR in the options above stands as written at the decision.
+
 ## Consequences
 - The server tops up only a wallet holding the portion but not its gas, and only once per player (add-feeding critic MINOR 6, the user, 2026-10-27); the top-up is a public transfer from the gas account (PRODUCT.md §8, `Feeding gas data`). A player who already got it and lacks gas again sees the gas in the missing amount: Feed sheet › «мало NEAR», or «без NEAR» when the wallet holds only what is left of the top-up (add-feeding critic MAJOR 1, the user, 2026-10-30: «Сразу «Add 0.02 NEAR»»; `Player wallet data`), so one transfer is enough.
 - The browser signs only one action — `pet_feed` on the pets contract for the pet on the screen, with the deposit of the tapped portion — whatever the server sends (add-feeding critic MAJOR 3, the user, 2026-10-27: «Браузер сверяет»; the pet check — add-feeding critic MAJOR 3, the user, 2026-10-28: «Да, сверять питомца»; `Feeding transaction data`). This guards against a tampered server response, not against tampered client code.
@@ -62,7 +65,7 @@ Option B (the user, 2026-10-27: «Газовый аккаунт проекта»
 - A stolen gas-account key takes at most its balance, once: ≈ 1.5 NEAR ≈ $6.9 [estimate] instead of ≈ $2.3 before OD-700.
 - A failed feeding burns its gas from the player's wallet: that is the gas the project added.
 - `add-gift` reuses the same path for the gift's gas, 1 yocto and the creation of a giver's account (ADR-014) — also once per player, separate from the feeding top-up (add-gift critic MINOR 7, the user, 2026-10-28).
-- A wallet holding no more than the gas the project added reads as «no NEAR» in feeding (add-feeding critic MAJOR 2, the user, 2026-10-28; `Player wallet data`). Feeding top-ups (≤ ≈ 0.25 NEAR) and gifts (≤ ≈ 1.2 NEAR at 100 givers) fit in ≈ 1.5 NEAR [estimate: PRODUCT.md §4 › Траты проекта], so neither pauses the other during the playtest.
+- A wallet holding no more than the gas the project added reads as «no NEAR» in feeding (add-feeding critic MAJOR 2, the user, 2026-10-28; `Player wallet data`). Feeding top-ups (≤ 0.30 NEAR at 50 feeders) and gifts (≤ ≈ 1.2 NEAR at 100 givers) add up to ≈ 1.5 NEAR, the whole balance with no margin [estimate: PRODUCT.md §4 › Траты проекта], so neither pauses the other during the playtest only up to those counts.
 - On any service pause (`Service pause data`) portions still go through: their gas is not the server account's.
 
 ## Action Items

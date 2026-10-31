@@ -15,6 +15,7 @@ import { env } from 'cloudflare:workers';
 import { baseDecode, baseEncode, decodeSignedTransaction, encodeTransaction, KeyPairEd25519 } from 'near-api-js';
 import { SignJWT, exportJWK, generateKeyPair } from 'jose';
 import { vi } from 'vitest';
+import { riddleHash } from '../../src/riddle/hash';
 
 export const NEAR_ACCOUNT = (n: number) => n.toString(16).padStart(64, '0');
 
@@ -37,6 +38,8 @@ export interface FakePet {
   owner_snack_at: string;
   /** In the order gained, a repeat twice (`pet_view` of the contract). */
   traits: string[];
+  /** The UTC day of the last streak mark; `null` before the first (`Option<u64>` of `PetView`). */
+  last_streak_day: number | null;
 }
 
 /** The traits a `pet_grow` takes (`Trait` of the contract, JSON). */
@@ -68,6 +71,9 @@ const unknownAccount = (account: string) => ({
 /** A storage record of an acquaintance, 72 bytes (`KNOWN_RECORD_BYTES`), in yoctoNEAR. */
 const KNOWN_COST = 720_000_000_000_000_000_000n;
 
+/** The storage of one riddle commit, 81 bytes (`RIDDLE_COMMIT_BYTES`), in yoctoNEAR. */
+const RIDDLE_COMMIT_COST = 810_000_000_000_000_000_000n;
+
 export class FakeContract {
   /** The balances of every account but the server's: the gas account, the players' wallets. An
    * account that is not here does not exist (its `view_account` is `UNKNOWN_ACCOUNT`). */
@@ -92,6 +98,22 @@ export class FakeContract {
   grows: { token_id: string; stage: string; trait: string }[] = [];
   /** When set, `pet_grow` fails with this contract code even if its rules would pass. */
   growFails: string | null = null;
+  /** The riddle commits on chain by UTC day (64 hex characters), and the reserve that pays for them. */
+  riddleCommits = new Map<number, string>();
+  /** Empty, as on a contract nobody has funded (`riddle_storage_fund`): the cron's commit waits, sends
+   * nothing, and the tests of other flows count only their own transactions. `fundRiddles()` fills it. */
+  riddleReserve = 0n;
+  fundRiddles(): void {
+    this.riddleReserve = 10_000_000_000_000_000_000_000n; // 0.01 NEAR
+  }
+  /** Every accepted `riddle_commit` and `riddle_reveal` / `streak_mark`. */
+  commits: { day: number; hash: string }[] = [];
+  reveals: { day: number; riddle: string; answers: string[]; salt: string }[] = [];
+  marks: { token_id: string; day: number; skipped: number; streak: number; freezes: number; spent: number }[] = [];
+  /** When set, the method fails with this contract code even if its rules would pass. */
+  commitFails: string | null = null;
+  revealFails: string | null = null;
+  markFails: string | null = null;
   /** What the next successful transaction burns, yoctoNEAR (`tokens_burnt` of its outcome). */
   burnt = '0';
   /** When set, `debit_session` fails with this contract code even if its rules would pass. */
@@ -105,6 +127,8 @@ export class FakeContract {
   /** Every transaction the Worker sent to the contract. */
   sends: { method: string; args: Record<string, unknown>; gas: string; deposit: string; signer: string; nonce: number }[] = [];
   mode: SendMode = 'normal';
+  /** When set, a transaction waits for it before the RPC answers (a slow chain). */
+  sendGate: Promise<void> | null = null;
   /** Every transaction that reached the RPC (also the ones whose answer was lost). */
   attempts = 0;
   private signedHashes = new Set<string>();
@@ -154,6 +178,7 @@ export class FakeContract {
       friend_snacks: 0,
       owner_snack_at: '0',
       traits: [],
+      last_streak_day: null,
       ...patch,
     };
     this.pets.set(id, pet);
@@ -182,6 +207,8 @@ export class FakeContract {
           born_today: this.bornToday,
           pool: this.pool.toString(),
         };
+      case 'riddle_view':
+        return { hash: this.riddleCommits.get(Number(args.day)) ?? null, reserve: this.riddleReserve.toString(), commit_cost: RIDDLE_COMMIT_COST.toString() };
       case 'nft_supply_for_owner':
         return String(this.ownedBy(String(args.account_id)));
       case 'pet_knows':
@@ -301,6 +328,66 @@ export class FakeContract {
     return null;
   }
 
+  /** The contract's `riddle_commit`, in its order of checks: the caller, the hash, the day's commit, the reserve. */
+  commit(caller: string, hash: string): { code: string } | null {
+    if (caller !== env.SERVER_ACCOUNT_ID) return { code: 'not_server' };
+    if (!/^[0-9a-f]{64}$/i.test(hash)) return { code: 'bad_hash' };
+    if (this.commitFails !== null) return { code: this.commitFails };
+    if (this.riddleCommits.has(this.day)) return { code: 'commit_today' };
+    if (this.riddleReserve < RIDDLE_COMMIT_COST) return { code: 'reserve_empty' };
+    this.riddleReserve -= RIDDLE_COMMIT_COST;
+    this.riddleCommits.set(this.day, hash.toLowerCase());
+    this.commits.push({ day: this.day, hash: hash.toLowerCase() });
+    return null;
+  }
+
+  /** The contract's `riddle_reveal`, in its order of checks: the caller, the day, the commit, the hash. */
+  async reveal(caller: string, day: number, riddle: string, answers: string[], salt: string): Promise<{ code: string } | null> {
+    if (caller !== env.SERVER_ACCOUNT_ID) return { code: 'not_server' };
+    if (this.revealFails !== null) return { code: this.revealFails };
+    if (day >= this.day) return { code: 'reveal_too_early' };
+    const hash = this.riddleCommits.get(day);
+    if (hash === undefined) return { code: 'no_commit' };
+    if ((await riddleHash(day, riddle, answers, salt)) !== hash) return { code: 'bad_reveal' };
+    this.riddleCommits.delete(day);
+    this.riddleReserve += RIDDLE_COMMIT_COST;
+    this.reveals.push({ day, riddle, answers, salt });
+    return null;
+  }
+
+  /** The contract's `streak_mark`, in its order of checks: the caller, the pet, the window, the day, the
+   * skipped days. The arithmetic is written out here on its own, not taken from the Worker's. */
+  mark(caller: string, tokenId: string, day: number, skipped: number): { code: string } | { spent: number } {
+    if (caller !== env.SERVER_ACCOUNT_ID) return { code: 'not_server' };
+    const pet = this.pets.get(tokenId);
+    if (!pet) return { code: 'no_pet' };
+    if (this.markFails !== null) return { code: this.markFails };
+    const birthDay = Math.floor(pet.born_at / 86_400e9);
+    if (day > this.day || day + 1 < this.day || day < birthDay) return { code: 'bad_day' };
+    const last = pet.last_streak_day ?? 0;
+    if (last !== 0 && day <= last) return { code: 'day_marked' };
+    if (last !== 0 && skipped > day - last - 1) return { code: 'too_many_skipped' };
+    let spent = 0;
+    if (last === 0) {
+      pet.streak = 1;
+    } else {
+      const missed = day - last - 1 - skipped;
+      if (missed <= pet.freezes) {
+        pet.freezes -= missed;
+        pet.streak += 1;
+        spent = missed;
+      } else {
+        spent = pet.freezes;
+        pet.streak = 1;
+        pet.freezes = 0;
+      }
+    }
+    if (pet.streak % 7 === 0) pet.freezes = Math.min(255, pet.freezes + 1);
+    pet.last_streak_day = day;
+    this.marks.push({ token_id: tokenId, day, skipped, streak: pet.streak, freezes: pet.freezes, spent });
+    return { spent };
+  }
+
   /** Every accepted `debit_session`. */
   debits: { tokenId: string; debitId: number; thoughts: { price: string; calls: unknown[] }[] }[] = [];
 
@@ -323,6 +410,7 @@ export class FakeContract {
       this.attempts += 1;
     }
 
+    if (this.sendGate !== null) await this.sendGate;
     if (this.mode === 'nonce-once' && !this.nonceRejected) {
       this.nonceRejected = true;
       // nearcore's answer to a transaction with a stale nonce (JSON-RPC send_tx).
@@ -375,6 +463,17 @@ export class FakeContract {
         status = refused
           ? { Failure: { ActionError: { index: 0, kind: { FunctionCallError: { ExecutionError: `Smart contract panicked: ${refused.code}` } } } } }
           : { SuccessValue: '' };
+      } else if (call.methodName === 'riddle_commit' || call.methodName === 'riddle_reveal' || call.methodName === 'streak_mark') {
+        const refused =
+          call.methodName === 'riddle_commit'
+            ? this.commit(tx.signerId, String(args.hash))
+            : call.methodName === 'riddle_reveal'
+              ? await this.reveal(tx.signerId, Number(args.day), String(args.riddle), args.answers as string[], String(args.salt))
+              : this.mark(tx.signerId, String(args.token_id), Number(args.day), Number(args.skipped));
+        status =
+          refused !== null && 'code' in refused
+            ? { Failure: { ActionError: { index: 0, kind: { FunctionCallError: { ExecutionError: `Smart contract panicked: ${refused.code}` } } } } }
+            : { SuccessValue: '' };
       } else if (call.methodName === 'transfer') {
         if (this.transferFails !== null) {
           status = { Failure: { ActionError: { index: 0, kind: { LackBalanceForState: { amount: this.transferFails } } } } };

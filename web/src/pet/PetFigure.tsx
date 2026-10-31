@@ -79,6 +79,9 @@ export interface PetFigureProps {
   /** the face of the day (add-pet-life › Mood rule): only a Full pet's `calm` changes the face; every other state keeps
    *  its own, and the picture takes no word of it (`alt` is the state's) */
   mood?: Mood | null;
+  /** DS › Pet `still`: the pet stands in the still of its state where it shows a moment to read (the Diary's entry, New outfit
+   *  notice), with no idle loop and no moment of its own, whatever the viewer chose, so no «Pause motion» stands by it */
+  still?: boolean;
 }
 
 /** Full's other mood is the one face the prototype names (face.js › calm); `happy` is Full's own, `sleepy` Hungry's. */
@@ -256,11 +259,13 @@ function Scene3D({
   hub,
   birth,
   face,
+  still,
   onLost,
-}: Required<Pick<PetFigureProps, 'tokenId' | 'state' | 'stage'>> & { outfit: string; hub: PetHub; birth: boolean; face: string | undefined; onLost: () => void }) {
+}: Required<Pick<PetFigureProps, 'tokenId' | 'state' | 'stage'>> & { outfit: string; hub: PetHub; birth: boolean; face: string | undefined; still: boolean; onLost: () => void }) {
   const [level, setLevel] = useState(0);
-  const [paused] = useMotionPaused();
-  const playing = usePetPlaying();
+  const [chosenPause] = useMotionPaused();
+  const paused = chosenPause || still;
+  const playing = usePetPlaying() && !still;
   const watchContext = useContextLoss(onLost);
   const assembly = useMemo(() => assemblePet(tokenId, state, stage, outfit), [tokenId, state, stage, outfit]);
   // One camera through the pet's states: it does not jump when the pet droops or falls asleep.
@@ -322,7 +327,7 @@ function FlatScene({ tokenId, state, stage, outfit, face }: Required<Pick<PetFig
   return <canvas ref={ref} className="pet-figure__canvas" />;
 }
 
-export function PetFigure({ tokenId, name, state = 'full', stage = 'adult', outfit, wearing, size = 'hero', decorative, lost: lostProp, onLost, hub, birth = false, mood }: PetFigureProps) {
+export function PetFigure({ tokenId, name, state = 'full', stage = 'adult', outfit, wearing, size = 'hero', decorative, lost: lostProp, onLost, hub, birth = false, mood, still = false }: PetFigureProps) {
   // Flat from the start when WebGL can't be had, and from the moment the one context is lost or the scene fails; the
   // actions around the pet work either way.
   const [ownLost, setOwnLost] = useState(false);
@@ -336,7 +341,7 @@ export function PetFigure({ tokenId, name, state = 'full', stage = 'adult', outf
     onLost?.();
   };
   return (
-    <div className={cx('ds-pet', `ds-pet--${size}`, 'pet-figure', `pet-figure--${size}`)} data-illustration="" data-view={flat ? 'flat' : '3d'} data-face={face} data-stage={stage}>
+    <div className={cx('ds-pet', `ds-pet--${size}`, 'pet-figure', `pet-figure--${size}`)} data-illustration="" data-still={still ? '' : undefined} data-view={flat ? 'flat' : '3d'} data-face={face} data-stage={stage}>
       <div className="pet-figure__box" role={decorative ? undefined : 'img'} aria-label={decorative ? undefined : alt} aria-hidden={decorative || undefined}>
         {flat ? (
           <FigureBoundary key="flat" onFail={() => undefined}>
@@ -344,7 +349,7 @@ export function PetFigure({ tokenId, name, state = 'full', stage = 'adult', outf
           </FigureBoundary>
         ) : (
           <FigureBoundary key="3d" onFail={lose}>
-            <Scene3D tokenId={tokenId} state={state} stage={stage} outfit={slug} hub={hub ?? ownHub} birth={birth} face={face} onLost={lose} />
+            <Scene3D tokenId={tokenId} state={state} stage={stage} outfit={slug} hub={hub ?? ownHub} birth={birth} face={face} still={still} onLost={lose} />
           </FigureBoundary>
         )}
       </div>

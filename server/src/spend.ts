@@ -8,6 +8,7 @@ import { complete, replyOf, signatureOf, type CallResult, type Message, type Sig
 import { hasVisible } from './name/clean';
 import { eraseIfCleared, memoryEpoch } from './pet/forget';
 import { energyLeft, energyOf, moodOf, planCount, readLife, replyStatements } from './pet/life';
+import { DIARY_WINDOW_MS } from './pet/ritual';
 import { foodState, markTired, type FoodState } from './pet/view';
 import {
   callUsd12,
@@ -28,7 +29,7 @@ import { buildMessages, inputBound, type ThoughtJob } from './prompt';
 import { gasIsLow, isPaused, setPause } from './servicePause';
 import { track } from './track';
 
-export type RefusalCode = 'ai_unavailable' | 'empty_paid' | 'asleep' | 'tired' | 'no_energy' | 'too_hungry' | 'paused' | 'chain_unreachable' | 'no_pet';
+export type RefusalCode = 'ai_unavailable' | 'empty_paid' | 'asleep' | 'tired' | 'no_energy' | 'too_hungry' | 'paused' | 'chain_unreachable' | 'no_pet' | 'late';
 
 export type JobResult =
   | { code: RefusalCode; events?: string[] }
@@ -118,6 +119,10 @@ async function countEmpty(env: Env, tokenId: string, day: number): Promise<numbe
  * job was claimed (the desk takes it in the claiming statement); a caller with no claim reads it now. */
 export async function run(env: Env, tokenId: string, job: ThoughtJob, epoch?: number): Promise<JobResult> {
   const now = Date.now();
+  // A diary claimed after its window is refused with nothing read and nothing spent: the screen has said
+  // «couldn't write» (`Daily ritual flow` › «дневник не написан»). One claimed before the window may land
+  // a call's length after it.
+  if (job.kind === 'diary' && now - utcDay(now) * 86_400_000 >= DIARY_WINDOW_MS) return { code: 'late' };
   const heldEpoch = epoch ?? (await memoryEpoch(env.DB, tokenId));
   if (await isPaused(env.DB, 'thought')) return { code: 'paused' };
 
@@ -257,7 +262,12 @@ async function think(env: Env, tokenId: string, pet: PetRecord, job: ThoughtJob,
 
   const lastAnswer = answers[answers.length - 1]!;
   const cut = !empty && lastAnswer.finishReason === 'length' ? plan.cutKind : null;
-  const kind = job.kind === 'reply' ? (job.mode === 'deep' ? 'deep' : 'reply') : job.kind;
+  // The answer to the question of the day is a reply of its own kind (§8 › Мысль: «ответ на вопрос дня»);
+  // it lives as any reply does (`lives` below). It is the day's question only when it lands in the same UTC
+  // day: one that lands after midnight is an ordinary reply (`Daily ritual flow`).
+  const isQuestion = job.kind === 'reply' && job.question !== undefined && job.question === utcDay(now);
+  const kind = job.kind === 'reply' ? (job.mode === 'deep' ? 'deep' : isQuestion ? 'question' : 'reply') : job.kind;
+  const questionDone = isQuestion && !empty;
   const thoughtId = randomId();
   const sessionId = await openSession(env, tokenId, now);
   // A visible reply of the owner's line is a deed of the day: the mood, the counted day with the
@@ -313,11 +323,22 @@ async function think(env: Env, tokenId: string, pet: PetRecord, job: ThoughtJob,
     ),
     // The owner may have cleared the memory while the model was answering: the words go, the receipt stays.
     ...eraseIfCleared(env.DB, tokenId, thoughtId, ctx.epoch, now),
+    // The question is answered in the thought's own batch; a thought that did not come marks nothing.
+    ...(questionDone
+      ? [
+          env.DB.prepare('INSERT INTO ritual_days (token_id, day, question_at) VALUES (?1, ?2, ?3) ON CONFLICT (token_id, day) DO UPDATE SET question_at = COALESCE(question_at, excluded.question_at)').bind(
+            tokenId,
+            utcDay(now),
+            now,
+          ),
+        ]
+      : []),
     // Last: a deep reply's step is the batch's last statement, whose `RETURNING` tells the last step.
     ...life,
   ];
   const written = await env.DB.batch(statements);
   if (lives && deep) energyOf(written.at(-1));
+  if (questionDone) track('ritual_completed', { part: 'question' });
 
   // After the thought: asleep when the food is below one scale thought; tired when the cap ran out.
   const events: string[] = [];

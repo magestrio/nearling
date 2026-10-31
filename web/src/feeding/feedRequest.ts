@@ -51,6 +51,11 @@ function useStore<T>(watch: Set<() => void>, read: () => T, server: T): T {
   );
 }
 
+/** Whether the sheet is open right now, for an effect that decides in the same commit as the one that opened it. */
+export function feedOpenNow(): boolean {
+  return current !== null;
+}
+
 /** The request the sheet is open for, or null. */
 export function useFeedRequest(): FeedRequest | null {
   return useStore(watchers, () => current, null);

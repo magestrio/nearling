@@ -93,6 +93,49 @@ pub enum NearlingEvent {
         #[serde(rename = "trait")]
         trait_: Trait,
     },
+
+    /// One UTC day of a completed ritual was counted (`Streak contract`). `spent` is the freezes
+    /// the mark used; on a restart it is the freezes the pet had.
+    #[event_version("1.0.0")]
+    Streak {
+        token_id: String,
+        day: u64,
+        streak: u32,
+        freezes: u8,
+        spent: u8,
+    },
+
+    /// The server sealed the day's riddle (`Riddle commit contract`): the hash only.
+    #[event_version("1.0.0")]
+    RiddleCommit { day: u64, hash: String },
+
+    /// The riddle of a past day opened with its proof (`Riddle reveal contract`).
+    #[event_version("1.0.0")]
+    RiddleReveal {
+        day: u64,
+        riddle: String,
+        answers: Vec<String>,
+        salt: String,
+    },
+}
+
+/// The 32 bytes of 64 hex characters, either case; `None` for any other text.
+pub fn unhex32(text: &str) -> Option<[u8; 32]> {
+    let bytes = text.as_bytes();
+    if bytes.len() != 64 {
+        return None;
+    }
+    let digit = |c: u8| match c {
+        b'0'..=b'9' => Some(c - b'0'),
+        b'a'..=b'f' => Some(c - b'a' + 10),
+        b'A'..=b'F' => Some(c - b'A' + 10),
+        _ => None,
+    };
+    let mut out = [0u8; 32];
+    for (i, byte) in out.iter_mut().enumerate() {
+        *byte = (digit(bytes[2 * i])? << 4) | digit(bytes[2 * i + 1])?;
+    }
+    Some(out)
 }
 
 /// Lowercase hex of `bytes`.

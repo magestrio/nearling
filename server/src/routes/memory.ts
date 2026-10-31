@@ -5,7 +5,7 @@
 import { Hono } from 'hono';
 import type { AppEnv } from '../http';
 import { forgetStatements } from '../pet/forget';
-import { ownedPet } from './thoughts';
+import { ownedPet, settleLater } from './thoughts';
 
 export const memoryRoutes = new Hono<AppEnv>();
 
@@ -20,5 +20,8 @@ memoryRoutes.post('/api/pets/:id/memory/clear', async (c) => {
     return c.json({ code: 'clear_failed' }, 500);
   }
   console.log('memory_cleared');
+  // An entry erased with its question leaves nothing to answer: the day's ritual may have ended with it
+  // (`Ritual data` › «удаление памяти»); the settle runs after the response.
+  settleLater(c, owned.id);
   return c.json({ ok: true });
 });

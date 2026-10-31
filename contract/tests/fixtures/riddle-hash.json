@@ -1,0 +1,9 @@
+{
+  "note": "sha256 of the borsh bytes of (day: u64, riddle: String, answers: Vec<String>, salt: String); read by contract/src/lib.rs, contract/tests/riddle.rs and server/test/riddle-cron.test.ts",
+  "day": 20000,
+  "riddle": "What has hands but can't clap? Un café, s'il vous plaît.",
+  "answers": ["a clock", "clock", "une horloge"],
+  "salt": "9f2c41d0b7a64e58",
+  "bytes_hex": "204e0000000000003a00000057686174206861732068616e6473206275742063616e277420636c61703f20556e20636166c3a92c207327696c20766f757320706c61c3ae742e03000000070000006120636c6f636b05000000636c6f636b0b000000756e6520686f726c6f67651000000039663263343164306237613634653538",
+  "hash": "e01979f90a280eee0dcc8d6ab2f7347eb710c8b08250c4141a8bdd59ec33da65"
+}

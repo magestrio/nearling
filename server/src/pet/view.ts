@@ -5,6 +5,7 @@ import { utcDay } from '../http';
 import { memoryEpoch } from './forget';
 import { DAILY_CAP_YOCTO, deepEstimate, deepEstimateUsd12, fullness, minCallPrice, type Fullness, type FullnessState, type PriceEnv } from '../pricing';
 import { energyLeft, moodOf, readLife, TRAIT_WORD, type Mood } from './life';
+import { entryToday } from './ritual';
 
 /** The exact prices of the thoughts answered but not yet debited on the network, summed. Their
  * reserves (a call in flight) are not here: the fullness does not count them. */
@@ -30,7 +31,7 @@ export async function fullnessOf(db: D1Database, tokenId: string, pet: PetRecord
 export async function hello(db: D1Database, tokenId: string): Promise<boolean> {
   const row = await db
     // An erased reply still says the owner wrote: a clear leaves the hint at «Talk to…», not «Say hi to…».
-    .prepare("SELECT 1 AS found FROM thoughts WHERE token_id = ? AND (player_text IS NOT NULL OR (erased_at IS NOT NULL AND kind IN ('reply', 'deep'))) LIMIT 1")
+    .prepare("SELECT 1 AS found FROM thoughts WHERE token_id = ? AND (player_text IS NOT NULL OR (erased_at IS NOT NULL AND kind IN ('reply', 'deep', 'question'))) LIMIT 1")
     .bind(tokenId)
     .first<{ found: number }>();
   return row === null;
@@ -118,6 +119,11 @@ export interface OwnerFields {
   traits: string[];
   /** The steps of energy left today, 0…10 (`Energy rule`): the owner sees it always. */
   energy: number;
+  /** The entry of today is there, unread, and the pet is awake: the Pet screen opens the Diary by itself
+   * (`Daily ritual flow` › «встречает дневником»). */
+  diaryUnread: boolean;
+  /** The thought on its way (`pendingJob`) is the answer to the question of the day. */
+  pendingQuestion: boolean;
 }
 
 interface PendingRow {
@@ -131,6 +137,12 @@ function pendingLine(row: PendingRow | null): string | null {
   if (row === null || row.kind !== 'reply' || row.payload === null) return null;
   const text = (JSON.parse(row.payload) as { text?: unknown }).text;
   return typeof text === 'string' ? text : null;
+}
+
+/** The job is the answer to the question of the day (`jobs.payload.question` holds its UTC day). */
+function isQuestion(row: PendingRow | null): boolean {
+  if (row === null || row.kind !== 'reply' || row.payload === null) return false;
+  return typeof (JSON.parse(row.payload) as { question?: unknown }).question === 'number';
 }
 
 /** The wake counter of the pet and the friend who made the last wake (`''`: a nameless friend; null:
@@ -155,6 +167,8 @@ export async function ownerFields(env: Env, tokenId: string, pet: PetRecord, pau
   const life = await readLife(env.DB, tokenId);
   const today = utcDay(now);
   const energy = energyLeft(life, today);
+  const { entry, pet: row } = await entryToday(env.DB, tokenId, now);
+  const read = await env.DB.prepare('SELECT 1 AS found FROM ritual_days WHERE token_id = ? AND day = ? AND read_at IS NOT NULL').bind(tokenId, today).first();
   return {
     fullness: state,
     tired,
@@ -173,6 +187,8 @@ export async function ownerFields(env: Env, tokenId: string, pet: PetRecord, pau
     mood: moodOf(state.state, life.moodDay, today),
     traits: [...new Set(pet.traits)].map((t) => TRAIT_WORD[t]),
     energy,
+    diaryUnread: entry.kind === 'text' && read === null && row?.slept_at == null,
+    pendingQuestion: isQuestion(pending),
   };
 }
 

@@ -59,6 +59,13 @@ export default defineConfig({
           NEAR_GAS_ACCOUNT_KEY: KeyPairEd25519.fromRandom().toString(),
           // The tests' list; the real `INSULT_LIST` is the user's secret and is never read here.
           INSULT_LIST: 'idiot\nfuck\nshit\nbiscuit-free\n',
+          // The tests' riddles, three of them, made for these tests (`day % 3` picks one); the real
+          // `RIDDLE_LIST` is the user's secret and is never read here.
+          RIDDLE_LIST: JSON.stringify([
+            { text: 'What has hands but cannot clap?', answers: ['a clock', 'clock'] },
+            { text: 'What gets wetter the more it dries?', answers: ['a towel', 'towel'] },
+            { text: 'What has keys but opens no door?', answers: ['a piano', 'piano', 'a keyboard'] },
+          ]),
         },
       },
     }),

@@ -5,6 +5,7 @@ import { petView } from '../chain';
 import { fullness, STARTER_FOOD_YOCTO } from '../pricing';
 import { track } from '../track';
 import { desk, enqueueJob } from './desk';
+import { DIARY_WINDOW_MS } from './ritual';
 import { foodState } from './view';
 
 export type WakeCause = 'owner' | 'link' | 'work';
@@ -36,8 +37,15 @@ export async function wakeIfFed(env: Env, tokenId: string, cause: WakeCause, fri
   // Atomic: of two polls that see the food, one wakes the pet. `wake_seq` counts the wake for the
   // owner's page (`/state?wakes=`), `wake_by` is the friend's name ('' for a nameless one; NULL for
   // the owner's own meal and for work) and is memory: Clear memory erases it.
-  const woke = await env.DB.prepare('UPDATE pets SET slept_at = NULL, wake_seq = wake_seq + 1, wake_by = ?2 WHERE token_id = ?1 AND slept_at IS NOT NULL')
-    .bind(tokenId, cause === 'link' ? (friend ?? '') : null)
+  // The same statement notes a wake after the diary window of a pet that slept into it, so «a day with no
+  // diary» is told from «a diary that was not written» (`Daily ritual flow` › «день без дневника»). In
+  // SQL the right-hand sides read the row as it was: `slept_at` is the sleep that ends here.
+  const now = Date.now();
+  const windowEnd = Math.floor(now / 86_400_000) * 86_400_000 + DIARY_WINDOW_MS;
+  const woke = await env.DB.prepare(
+    'UPDATE pets SET slept_at = NULL, wake_seq = wake_seq + 1, wake_by = ?2, asleep_diary_day = CASE WHEN ?3 >= ?4 AND slept_at < ?4 THEN ?5 ELSE asleep_diary_day END WHERE token_id = ?1 AND slept_at IS NOT NULL',
+  )
+    .bind(tokenId, cause === 'link' ? (friend ?? '') : null, now, windowEnd, Math.floor(now / 86_400_000))
     .run();
   if (woke.meta.changes === 0) return false;
   await afterWake(env, tokenId, cause, friend);

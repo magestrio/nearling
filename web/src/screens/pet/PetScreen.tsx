@@ -31,13 +31,16 @@ import {
   Toast,
   type Accent,
 } from '../../ds';
+import { DiaryPage } from '../../diary/DiaryPage';
+import { useDiary } from '../../diary/useDiary';
+import { useSelfOpen } from '../../diary/useSelfOpen';
 import { closeFeed, useAddNearRequest, useFeedRequest } from '../../feeding/feedRequest';
 import { FeedLayer } from '../../feeding/FeedLayer';
 import { useFeedLinkOpened } from '../../feeding/useFeedLinkOpened';
 import { energyLine } from '../../life/lines';
 import { formatCents } from '../../lib/price';
 import { resetTime } from '../../lib/time';
-import { hatchPath } from '../../route';
+import { hatchPath, navigate, petPath } from '../../route';
 import { canUseWebGL } from '../../pet/flat';
 import { makePet } from '../../pet/proto/generator.js';
 import { useMotionPaused } from '../../pet/motion';
@@ -49,6 +52,7 @@ import { useAuth } from '../../seams/auth';
 import { toastHeld, type PetView } from '../../seams/worker';
 import { SignInLines, SignInOutcome, useSignInLines } from '../../signin/SignInOutcome';
 import { useSignIn } from '../../signin/signIn';
+import { emptyPaidLine, lostLine, pausedLine, WAIT_LINE } from './lines';
 import { hasSlot, runAction, Slot, type ActionName, type Viewer } from './parts';
 import { usePetScreen, type Banner as BannerKind, type OwnerView } from './usePetScreen';
 import { useWaking } from './useWaking';
@@ -61,10 +65,6 @@ import { useWaking } from './useWaking';
 const UNREACHABLE = "We can't reach the game right now. Try again in a moment.";
 const BUSY = 'Lots of visitors right now. Try again in a minute.';
 const offlineLine = (name: string) => `Can't reach ${name} right now. Nothing's lost — try again in a moment.`;
-const WAIT_LINE = 'Still working on it — long answers can take a minute or two.';
-const lostLine = (name: string) => `${name} lost that thought. Nothing was spent — try again.`;
-const emptyPaidLine = (name: string) => `${name} lost that thought, but it still used a little food. Your message is kept — try again.`;
-const pausedLine = (name: string) => `Chatting is paused on our side while we top up. Your message is kept — ${name} will be back soon.`;
 const NOT_FOUND = "We couldn't find this pet. The link may be broken.";
 const FINDING = 'Finding this pet…';
 
@@ -543,7 +543,33 @@ function outcomeLine(page: ReturnType<typeof usePetScreen>['page'], notice: stri
   return '';
 }
 
-function PetView({ s }: { s: ReturnType<typeof usePetScreen> }) {
+/** Diary screen of the owner's awake pet, over the Pet screen's own state (`add-daily-ritual` › `Diary screen`). */
+function DiaryOwner({ pet, d, s }: { pet: OwnerView; d: ReturnType<typeof useDiary>; s: ReturnType<typeof usePetScreen> }) {
+  const { tokenId, name } = pet;
+  const auth = useAuth();
+  const cover = useFeedCover(tokenId);
+  // the Diary's own failed read, or the failed send of a question: one connection line over the page
+  const line = d.banner ?? s.banner;
+  return (
+    <DiaryPage
+      pet={pet}
+      d={d}
+      s={s}
+      accent={accentOf(tokenId)}
+      account={<Account tokenId={tokenId} name={name} viewer="owner" asleep={pet.fullness.state === 'asleep'} />}
+      banner={<ConnectionBanner banner={line} name={name} tryAgain={d.banner ? d.tryAgain : s.tryAgain} />}
+      bannerLine={bannerLine(line, name)}
+      offline={offlineLine(name)}
+      covered={cover.open}
+      layer={<FeedLayer pageFullness={pet.fullness} />}
+      onFeed={() => {
+        if (auth.needSession()) runAction('feed', { tokenId, name, viewer: 'owner' });
+      }}
+    />
+  );
+}
+
+function PetView({ s, d, diary }: { s: ReturnType<typeof usePetScreen>; d: ReturnType<typeof useDiary>; diary: boolean }) {
   const { page } = s;
   if (page.kind === 'loading') return <LoadingView tokenId={s.tokenId} />;
   if (page.kind === 'not_found') return <PetNotFound />;
@@ -557,11 +583,58 @@ function PetView({ s }: { s: ReturnType<typeof usePetScreen> }) {
       </Gone>
     );
   }
-  return page.pet.viewer === 'owner' ? <OwnerPage pet={page.pet} s={s} /> : <OutsiderPage pet={page.pet} s={s} />;
+  if (page.pet.viewer !== 'owner') return <OutsiderPage pet={page.pet} s={s} />;
+  return diary ? <DiaryOwner pet={page.pet} d={d} s={s} /> : <OwnerPage pet={page.pet} s={s} />;
 }
 
-export function PetScreen({ tokenId, from }: { tokenId: string; from: string | null }) {
-  const s = usePetScreen(tokenId, from);
+/** `diary`: the address is the Diary's (`/pet/<token_id>/diary`). Its page is the owner's awake pet's; a guest or a visitor on it gets
+ *  the Pet screen's page for them, the address kept; an asleep pet's address is the Pet screen (`Diary screen` › entry point). */
+export function PetScreen({ tokenId, from, diary = false }: { tokenId: string; from: string | null; diary?: boolean }) {
+  const s = usePetScreen(tokenId, from, diary);
+  const owner = s.page.kind === 'pet' && s.page.pet.viewer === 'owner' ? s.page.pet : null;
+  const asleep = owner?.fullness.state === 'asleep';
+  // An asleep pet at the address has no Diary: its Pet screen, at its own address. A Diary that stood while the pet was awake stays.
+  const stood = useRef(false);
+  const awakeOwner = owner !== null && !asleep;
+  useEffect(() => {
+    if (!diary) stood.current = false;
+    else if (awakeOwner) stood.current = true;
+    else if (owner !== null && !stood.current) navigate(petPath(tokenId));
+  }, [diary, awakeOwner, owner !== null, tokenId]);
+  const standing = diary && owner !== null && (!asleep || stood.current);
+  const decided = s.page.kind === 'pet' || s.page.kind === 'not_found';
+  const d = useDiary({ tokenId, active: standing, owner: owner !== null, decided, reread: s.reread, nudge: s.nudge, returned: s.returned, askLook: s.look });
+  useSelfOpen({ tokenId, diaryUnread: owner?.diaryUnread ?? false, standing, asleep, typing: s.draft !== '' });
+  // The pet is someone else's now, whichever read told first (the Diary's own `403`, or `/state`, the only one on the Pet screen):
+  // the riddle answer typed for it goes with the owner's page (`Ritual data`). A visitor's page is the ended session, which keeps it.
+  const guest = s.page.kind === 'pet' && s.page.pet.viewer === 'guest';
+  const { dropRiddle } = d;
+  useEffect(() => {
+    if (guest) dropRiddle();
+  }, [guest, dropRiddle]);
+  // The exchange is in the diary: the answer on its way has done its part under the question
+  const exchanged = d.view?.exchange != null;
+  const { clearAsked } = s;
+  useEffect(() => {
+    if (exchanged) clearAsked();
+  }, [exchanged, clearAsked]);
+  // A Diary that stood while the pet slept ends with the day: at 00:00 UTC the Pet screen, and the riddle answer typed for the old
+  // day does not come back (`Ritual day rule` › «новые сутки у спящего»)
+  const sleptOn = useRef<number | null>(null);
+  const day = d.view?.day ?? null;
+  const sleeping = diary && asleep === true && stood.current;
+  useEffect(() => {
+    if (!sleeping) {
+      sleptOn.current = null;
+      return;
+    }
+    if (day === null) return;
+    if (sleptOn.current === null) sleptOn.current = day;
+    else if (day !== sleptOn.current) {
+      d.dropRiddle();
+      navigate(petPath(tokenId));
+    }
+  }, [sleeping, day, tokenId, d.dropRiddle]);
   useFeedLinkOpened();
   // The sheet is the tab's memory of this screen: it goes with the screen, and a sheet for another pet than this page's (not the
   // own pet's «Feed your {my_pet}») does not follow the player to it.
@@ -573,7 +646,7 @@ export function PetScreen({ tokenId, from }: { tokenId: string; from: string | n
   return (
     <>
       <Live>{outcomeLine(s.page, s.notice)}</Live>
-      <PetView s={s} />
+      <PetView s={s} d={d} diary={standing} />
     </>
   );
 }

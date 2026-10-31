@@ -2,6 +2,7 @@
 // tab keeps nothing of the player, and the player is on Home with a line. The sign-out has no failure: whether either call
 // gets an answer, the player sees «вышел» (`Sign-out data` › `server not reached`; Privy clears its tokens in the browser
 // even when its own request fails).
+import { clearRiddleDrafts } from '../diary/riddleDraft';
 import { clearNewborn } from '../pet/newborn';
 import { navigate } from '../route';
 import { takePendingAction } from '../screens/pet/parts';
@@ -27,12 +28,13 @@ export function consumeSignedOutLine(): void {
 }
 
 /** What outlives the screens that held it: the action tapped before a sign-in, the pet this tab hatched, the return record with
- *  any typed text in it, the last sign-in outcome. The token the app kept is forgotten by the provider's `logout`. */
+ *  any typed text in it, the last sign-in outcome, the riddle answers typed and not sent (`Ritual data`). The token the app kept is forgotten by the provider's `logout`. */
 function clearTab(): void {
   takePendingAction();
   clearNewborn();
   clearReturnPlace();
   clearOutcome();
+  clearRiddleDrafts();
 }
 
 /** The token, within the limit of the server call: the menu is closed by now, so a token that doesn't come would leave the

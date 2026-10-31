@@ -58,3 +58,8 @@ pub const OWNER_SNACK_EVERY_NS: u64 = 259_200_000_000_000;
 /// Bytes of one acquaintance record: a 32-byte hashed key, no value, plus the 40 bytes every record
 /// carries. The unit test `an_acquaintance_costs_exactly_the_record_bytes` measures it.
 pub const KNOWN_RECORD_BYTES: u64 = 72;
+
+/// Bytes of one riddle commit: a 1-byte prefix and the 8-byte UTC day as the key, the 32-byte hash
+/// as the value, plus the 40 bytes every record carries. Paid from the riddle reserve and given
+/// back at the reveal. The unit test `a_commit_costs_exactly_the_record_bytes` measures it.
+pub const RIDDLE_COMMIT_BYTES: u64 = 81;

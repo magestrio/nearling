@@ -24,6 +24,9 @@ export function forgetStatements(db: D1Database, tokenId: string, now: number): 
     db.prepare("UPDATE jobs SET status = 'failed', result = ? WHERE token_id = ? AND status = 'queued'").bind(JSON.stringify(MEMORY_CLEARED), tokenId),
     db.prepare('UPDATE jobs SET payload = NULL WHERE token_id = ?').bind(tokenId),
     db.prepare('DELETE FROM memory_notes WHERE token_id = ?').bind(tokenId),
+    // The owner's answers to the riddle are memory too; the day's marks stay (`ritual_days`), so a second
+    // answer the same day is still refused (`Ritual data` › «удаление памяти»).
+    db.prepare('DELETE FROM riddle_answers WHERE token_id = ?').bind(tokenId),
     // The name of the friend who woke the pet is memory too (`wake_by`); the counter stays.
     db.prepare('UPDATE pets SET wake_by = NULL WHERE token_id = ?').bind(tokenId),
   ];

@@ -15,7 +15,9 @@ const asName = (name: string) => (name === '' ? 'a friend' : JSON.stringify(name
 export const bytesOf = (s: string) => enc.encode(s).length;
 
 export type ThoughtJob =
-  | { kind: 'reply'; mode: 'chat' | 'deep'; text: string }
+  // `question`: the UTC day of the diary entry whose last line this reply answers (`Daily ritual flow`
+  // › «отвечает на вопрос дня»); an ordinary reply otherwise.
+  | { kind: 'reply'; mode: 'chat' | 'deep'; text: string; question?: number }
   | { kind: 'greeting' }
   | { kind: 'wake'; cause: 'owner' | 'link' | 'work'; friend?: string }
   | { kind: 'diary'; day: number };
@@ -83,7 +85,7 @@ function instruction(job: ThoughtJob, pet: PetRecord): string {
       return `(You were asleep and your owner fed you, so you are awake. Tell them what you missed while you slept, warmly, without blaming anyone for how long you slept.)`;
     }
     case 'diary':
-      return `(A new day has begun. Write your diary entry for yesterday, ${pet.name}, in your own character, from what you remember.)`;
+      return `(A new day has begun. Write your diary entry for yesterday, ${pet.name}, in your own character, from what you remember. End with one short question to your owner, on a line of its own, with nothing after it.)`;
   }
 }
 
@@ -108,10 +110,27 @@ export async function buildMessages(db: D1Database, tokenId: string, pet: PetRec
     if (newest.at > (last?.at ?? 0)) noteLayer += `\n${asName(newest.name)} fed you since you last spoke. Thank them by name in your reply.`;
   }
 
-  let used = bytesOf(system) + bytesOf(noteLayer) + bytesOf(user);
+  // The answer to the question of the day goes with the entry that asked it (`Ritual data`: «в NEAR AI с
+  // записью дневника»), as the pet's own line right before the answer: the entry is model text shaped by
+  // what the player said, so it never joins the system message. The same row is left out of the history
+  // below, so it is neither trimmed away nor sent twice.
+  let entryId: string | null = null;
+  let entryLine: Message | null = null;
+  if (job.kind === 'reply' && job.question !== undefined) {
+    const entry = await db
+      .prepare("SELECT id, reply_text FROM thoughts WHERE token_id = ? AND kind = 'diary' AND reply_text IS NOT NULL AND created_at >= ? AND created_at < ? ORDER BY created_at DESC, rowid DESC LIMIT 1")
+      .bind(tokenId, job.question * 86_400_000, (job.question + 1) * 86_400_000)
+      .first<{ id: string; reply_text: string }>();
+    if (entry !== null) {
+      entryId = entry.id;
+      entryLine = { role: 'assistant', content: entry.reply_text };
+    }
+  }
+
+  let used = bytesOf(system) + bytesOf(noteLayer) + bytesOf(user) + (entryLine === null ? 0 : bytesOf(entryLine.content));
   const history = await db
-    .prepare("SELECT player_text, reply_text FROM thoughts WHERE token_id = ? AND reply_text IS NOT NULL AND kind <> 'growth' ORDER BY created_at DESC, rowid DESC LIMIT 60")
-    .bind(tokenId)
+    .prepare("SELECT player_text, reply_text FROM thoughts WHERE token_id = ?1 AND reply_text IS NOT NULL AND kind <> 'growth' AND id IS NOT ?2 ORDER BY created_at DESC, rowid DESC LIMIT 60")
+    .bind(tokenId, entryId)
     .all<{ player_text: string | null; reply_text: string }>();
   const lines: Message[] = [];
   for (const row of history.results) {
@@ -123,7 +142,7 @@ export async function buildMessages(db: D1Database, tokenId: string, pet: PetRec
     used += size;
     lines.unshift(...pair);
   }
-  return [{ role: 'system', content: system + noteLayer }, ...lines, { role: 'user', content: user }];
+  return [{ role: 'system', content: system + noteLayer }, ...lines, ...(entryLine === null ? [] : [entryLine]), { role: 'user', content: user }];
 }
 
 /** An upper bound of the input in tokens: a token is at least one byte of UTF-8. */

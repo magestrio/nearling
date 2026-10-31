@@ -2,6 +2,7 @@
 import { act, createElement } from 'react';
 import { createRoot } from 'react-dom/client';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { loadRiddleDraft, saveRiddleDraft } from '../diary/riddleDraft';
 import { markNewborn, useBirth } from '../pet/newborn';
 import { queueAction, takePendingAction } from '../screens/pet/parts';
 import { END_SESSION_TIMEOUT_MS } from '../seams/worker';
@@ -77,6 +78,15 @@ describe('signOut', () => {
     expect(takeReturnText('/pet/9')).toBeNull();
     window.history.replaceState(null, '', '/pet/9');
     expect(await readTab()).toEqual({ birth: false, outcome: null });
+  });
+
+  // spec: add-daily-ritual › Ritual data › typed riddle answer × a sign-out erases it
+  it('erases the riddle answers typed and not sent, of every pet of the tab', async () => {
+    saveRiddleDraft('9', { day: 20757, text: 'a clock' });
+    saveRiddleDraft('2', { day: 20757, text: 'a piano' });
+    await signOut(auth());
+    expect(loadRiddleDraft('9', 20757)).toBeNull();
+    expect(loadRiddleDraft('2', 20757)).toBeNull();
   });
 
   // spec: add-account › Sign-out flow › вышел

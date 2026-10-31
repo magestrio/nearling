@@ -7,9 +7,10 @@ const NEAR_PER_TGAS_YOCTO = 1_000_000_000_000_000_000_000n; // 0.001 NEAR, with 
 const BATCH_GAS_TGAS = 15n;
 
 export type PauseReason = 'gas' | 'ai';
-/** What asks: a birth, a new thought and a snack stop on any pause; an outfit purchase or grant
- * and a stage change only on the gas one (`Pet life data`). */
-export type PauseUse = 'birth' | 'thought' | 'snack' | 'outfit' | 'grow';
+/** What asks: a birth, a new thought and a snack stop on any pause; an outfit purchase or grant,
+ * a stage change, the riddle's commit and reveal and a streak mark only on the gas one (`Pet life data`,
+ * ADR-009, ADR-010). */
+export type PauseUse = 'birth' | 'thought' | 'snack' | 'outfit' | 'grow' | 'riddle' | 'streak';
 
 export async function pauseReason(db: D1Database): Promise<PauseReason | null> {
   const row = await db.prepare('SELECT reason FROM service_pause WHERE id = 1').first<{ reason: string | null }>();
@@ -19,7 +20,7 @@ export async function pauseReason(db: D1Database): Promise<PauseReason | null> {
 export async function isPaused(db: D1Database, use: PauseUse): Promise<boolean> {
   const reason = await pauseReason(db);
   if (reason === null) return false;
-  return use === 'outfit' || use === 'grow' ? reason === 'gas' : true;
+  return use === 'outfit' || use === 'grow' || use === 'riddle' || use === 'streak' ? reason === 'gas' : true;
 }
 
 /** Starts a pause. A pause already on keeps its reason and its start. */

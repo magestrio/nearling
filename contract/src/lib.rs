@@ -12,14 +12,16 @@ use near_sdk::store::key::Sha256;
 use near_sdk::store::{LookupMap, LookupSet};
 use near_sdk::{AccountId, NearToken, PanicOnDefault, Promise, env, near};
 
-use crate::events::{NearlingEvent, SnackKind, ThoughtReceipt, hex};
+use crate::events::{NearlingEvent, SnackKind, ThoughtReceipt, hex, unhex32};
 use crate::limits::*;
-use crate::pet::{HatchView, Pet, PetView, Stage, Trait, VersionedPet, token_extra};
+use crate::pet::{
+    HatchView, Pet, PetView, RiddleView, Stage, Trait, VersionedPet, next_streak, token_extra,
+};
 
-/// The state layout of `add-pet`, which `migrate` reads on the dev account: the same prefixes as
-/// `Contract`, without `known`.
+/// The state layout before `add-daily-ritual`, which `migrate` reads on the dev account: the same
+/// prefixes as `Contract`, without the riddle commits and their reserve.
 #[near(serializers = [borsh])]
-pub struct ContractV1 {
+pub struct ContractV2 {
     owner_id: AccountId,
     server_id: AccountId,
     treasury_id: AccountId,
@@ -30,6 +32,7 @@ pub struct ContractV1 {
     births_today: u32,
     next_token_id: u64,
     pool: u128,
+    known: LookupSet<(TokenId, AccountId), Sha256>,
 }
 
 /// The game's contract. Errors are `env::panic_str` with a code in the text; the Worker tells
@@ -52,6 +55,11 @@ pub struct Contract {
     /// The feeders a pet knows. The hashed key makes every record `KNOWN_RECORD_BYTES`, whatever
     /// the ids' length, so the pool can check its price before it writes.
     known: LookupSet<(TokenId, AccountId), Sha256>,
+    /// The riddle commits not yet revealed: UTC day → sha256. A record is `RIDDLE_COMMIT_BYTES`.
+    riddle_commits: LookupMap<u64, [u8; 32]>,
+    /// What `riddle_storage_fund` put in and the commits have not taken: pays the commits'
+    /// storage, separate from the pool and from the pets' food.
+    riddle_reserve: u128,
 }
 
 fn fail(code: &str) -> ! {
@@ -83,7 +91,16 @@ impl Contract {
             next_token_id: 0,
             pool: 0,
             known: LookupSet::with_hasher(b"k".to_vec()),
+            riddle_commits: LookupMap::new(b"r".to_vec()),
+            riddle_reserve: 0,
         }
+    }
+
+    /// What one commit's storage costs, yoctoNEAR.
+    fn commit_cost() -> u128 {
+        u128::from(RIDDLE_COMMIT_BYTES)
+            .checked_mul(env::storage_byte_cost().as_yoctonear())
+            .unwrap_or_else(|| fail("overflow"))
     }
 
     /// Writes the acquaintance of `feeder` with the pet when it is new and the pool covers its
@@ -132,14 +149,14 @@ impl Contract {
         Self::fresh(owner_id, server_id, treasury_id)
     }
 
-    /// Takes the layout of `add-pet` into this one: adds `known`; the pool, the pets and the
-    /// counters stay as they were. The dev account upgrades with it
-    /// (`cargo near deploy … with-init-call migrate`). A second call meets a state with the bytes
-    /// of `known` after the old layout and fails, so the pool is never reset.
+    /// Takes the layout before `add-daily-ritual` into this one: adds the riddle commits and their
+    /// reserve; the pool, the pets and the counters stay as they were. The dev account upgrades
+    /// with it (`cargo near deploy … with-init-call migrate`). A second call meets a state with
+    /// the bytes of the new fields after the old layout and fails, so the pool is never reset.
     #[init(ignore_state)]
     #[private]
     pub fn migrate() -> Self {
-        let old: ContractV1 = env::state_read().unwrap_or_else(|| fail("no_state"));
+        let old: ContractV2 = env::state_read().unwrap_or_else(|| fail("no_state"));
         Self {
             owner_id: old.owner_id,
             server_id: old.server_id,
@@ -151,7 +168,9 @@ impl Contract {
             births_today: old.births_today,
             next_token_id: old.next_token_id,
             pool: old.pool,
-            known: LookupSet::with_hasher(b"k".to_vec()),
+            known: old.known,
+            riddle_commits: LookupMap::new(b"r".to_vec()),
+            riddle_reserve: 0,
         }
     }
 
@@ -172,6 +191,19 @@ impl Contract {
         }
         self.pool = self
             .pool
+            .checked_add(deposit)
+            .unwrap_or_else(|| fail("overflow"));
+    }
+
+    /// Anyone adds NEAR to the reserve that pays the storage of the riddle commits. No way out.
+    #[payable]
+    pub fn riddle_storage_fund(&mut self) {
+        let deposit = env::attached_deposit().as_yoctonear();
+        if deposit == 0 {
+            fail("zero_deposit");
+        }
+        self.riddle_reserve = self
+            .riddle_reserve
             .checked_add(deposit)
             .unwrap_or_else(|| fail("overflow"));
     }
@@ -202,7 +234,7 @@ impl Contract {
             .internal_mint_with_refund(token_id.clone(), receiver.clone(), None, None);
         self.pets.insert(
             token_id.clone(),
-            VersionedPet::V3(Pet {
+            VersionedPet::V4(Pet {
                 name,
                 character,
                 born_at: now,
@@ -219,6 +251,7 @@ impl Contract {
                 friend_snacks: 0,
                 owner_snack_at: 0,
                 traits: [0, 0],
+                last_streak_day: 0,
             }),
         );
         self.hatched.insert(receiver.clone(), token_id.clone());
@@ -468,6 +501,111 @@ impl Contract {
         .emit();
     }
 
+    /// Server only, no deposit. Counts the UTC `day` of a completed ritual (ADR-010): the contract
+    /// derives the break, the freezes it spends and the freeze a 7th day earns. `skipped` is the
+    /// days between the last counted day and `day` that the server excuses; it is not read on a
+    /// pet's first mark. A refused call changes nothing: the pet is written at the end.
+    pub fn streak_mark(&mut self, token_id: TokenId, day: u64, skipped: u32) {
+        self.assert_server();
+        let mut record = self
+            .pets
+            .get(&token_id)
+            .cloned()
+            .unwrap_or_else(|| fail("no_pet"));
+        let pet = record.current_mut();
+        let today = day_of(env::block_timestamp());
+        if day > today || day.saturating_add(1) < today || day < day_of(pet.born_at) {
+            fail("bad_day");
+        }
+        let last = pet.last_streak_day;
+        if last != 0 && day <= last {
+            fail("day_marked");
+        }
+        if last != 0 && u64::from(skipped) > day - last - 1 {
+            fail("too_many_skipped");
+        }
+        let (streak, freezes, spent) = next_streak(pet.streak, pet.freezes, last, day, skipped);
+        pet.streak = streak;
+        pet.freezes = freezes;
+        pet.last_streak_day = day;
+        self.pets.insert(token_id.clone(), record);
+
+        NearlingEvent::Streak {
+            token_id,
+            day,
+            streak,
+            freezes,
+            spent,
+        }
+        .emit();
+    }
+
+    /// Server only, no deposit. Seals the riddle of the current UTC day (`block_timestamp`, never
+    /// an argument) with its `hash` (64 hex characters): one a day, and only while the reserve
+    /// pays the record's storage.
+    pub fn riddle_commit(&mut self, hash: String) {
+        self.assert_server();
+        let Some(bytes) = unhex32(&hash) else {
+            fail("bad_hash");
+        };
+        let day = day_of(env::block_timestamp());
+        if self.riddle_commits.contains_key(&day) {
+            fail("commit_today");
+        }
+        let cost = Self::commit_cost();
+        if self.riddle_reserve < cost {
+            fail("reserve_empty");
+        }
+        self.riddle_reserve -= cost;
+        self.riddle_commits.insert(day, bytes);
+
+        NearlingEvent::RiddleCommit {
+            day,
+            hash: hex(&bytes),
+        }
+        .emit();
+    }
+
+    /// Server only, no deposit. Opens the commit of a past UTC day: `riddle`, `answers` and `salt`
+    /// hash, with `day`, to the sealed value (sha256 of their borsh bytes, ADR-009). There is no
+    /// deadline. The record goes and its storage returns to the reserve.
+    pub fn riddle_reveal(&mut self, day: u64, riddle: String, answers: Vec<String>, salt: String) {
+        self.assert_server();
+        if day >= day_of(env::block_timestamp()) {
+            fail("reveal_too_early");
+        }
+        let Some(sealed) = self.riddle_commits.get(&day).copied() else {
+            fail("no_commit");
+        };
+        let bytes = near_sdk::borsh::to_vec(&(day, &riddle, &answers, &salt))
+            .unwrap_or_else(|_| fail("bad_reveal"));
+        if env::sha256(&bytes) != sealed {
+            fail("bad_reveal");
+        }
+        self.riddle_reserve = self
+            .riddle_reserve
+            .checked_add(Self::commit_cost())
+            .unwrap_or_else(|| fail("overflow"));
+        self.riddle_commits.remove(&day);
+
+        NearlingEvent::RiddleReveal {
+            day,
+            riddle,
+            answers,
+            salt,
+        }
+        .emit();
+    }
+
+    /// The commit of `day`, the reserve and the price of a commit's storage.
+    pub fn riddle_view(&self, day: u64) -> RiddleView {
+        RiddleView {
+            hash: self.riddle_commits.get(&day).map(|h| hex(h)),
+            reserve: U128(self.riddle_reserve),
+            commit_cost: U128(Self::commit_cost()),
+        }
+    }
+
     pub fn hatch_view(&self, account_id: AccountId) -> HatchView {
         HatchView {
             token_id: self.hatched.get(&account_id).cloned(),
@@ -560,6 +698,12 @@ mod tests {
         contract
     }
 
+    /// A contract with an empty pool: `pool_fund` takes no zero deposit.
+    fn bare_contract() -> Contract {
+        testing_env!(context(contract_id(), 0, 0).build());
+        Contract::new(owner(), server(), treasury())
+    }
+
     #[test]
     fn new_stores_the_accounts() {
         testing_env!(context(contract_id(), 0, 0).build());
@@ -581,15 +725,18 @@ mod tests {
         }
     }
 
-    /// A state written in the layout of `add-pet`: a pool, a next id and a pet of version 1 kept.
+    /// A state written in the layout before `add-daily-ritual`: a pool, a next id, a pet of
+    /// version 1 and an acquaintance kept.
+    // spec: add-daily-ritual › Streak contract › сутки засчитаны × the layout migrates
     #[test]
-    fn migrate_takes_the_add_pet_layout_and_keeps_the_pool_and_the_pet() {
+    fn migrate_takes_the_previous_layout_and_keeps_the_pool_the_pet_and_the_acquaintance() {
         let mut contract = funded_contract(7_000_000_000_000_000_000_000_000);
         testing_env!(context(server(), 1_000, 0).build());
         let token_id = contract.pet_mint(player(0), "Pixel".into(), "I am curious.".into());
-        let Some(VersionedPet::V3(born)) = contract.pets.get(&token_id).cloned() else {
-            panic!("a birth writes version 3");
+        let Some(VersionedPet::V4(born)) = contract.pets.get(&token_id).cloned() else {
+            panic!("a birth writes version 4");
         };
+        contract.known.insert((token_id.clone(), player(7)));
         let old_record = VersionedPet::V1(crate::pet::PetV1 {
             name: born.name.clone(),
             character: born.character.clone(),
@@ -608,8 +755,8 @@ mod tests {
         contract.pets.flush();
         let pool = contract.pool;
 
-        // The layout `add-pet` wrote: the fields of Contract without `known`.
-        let old = ContractV1 {
+        // The layout before this change: the fields of Contract without the riddle ones.
+        let old = ContractV2 {
             owner_id: contract.owner_id,
             server_id: contract.server_id,
             treasury_id: contract.treasury_id,
@@ -620,6 +767,7 @@ mod tests {
             births_today: contract.births_today,
             next_token_id: contract.next_token_id,
             pool: contract.pool,
+            known: contract.known,
         };
         env::state_write(&old);
         drop(old);
@@ -640,9 +788,13 @@ mod tests {
         assert_eq!(view.friend_snack_day, 0);
         assert_eq!(view.owner_snack_at.0, 0);
         assert!(!migrated.pet_knows("0".into(), player(5)));
+        assert!(migrated.pet_knows("0".into(), player(7)), "known is kept");
+        assert_eq!(view.last_streak_day, None);
+        let riddle = migrated.riddle_view(20_000);
+        assert_eq!((riddle.hash, riddle.reserve.0), (None, 0));
 
-        // A second call reads the state migrate itself wrote: the bytes of `known` trail the old
-        // layout, so it fails and the pool is never reset.
+        // A second call reads the state migrate itself wrote: the bytes of the riddle fields trail
+        // the old layout, so it fails and the pool is never reset.
         env::state_write(&migrated);
         let text = panic_text(Contract::migrate);
         assert!(
@@ -1006,5 +1158,469 @@ mod tests {
     #[test]
     fn hashes_are_lowercase_hex() {
         assert_eq!(hex(&[0x00, 0xab, 0xff]), "00abff");
+        assert_eq!(unhex32(&"00ab".repeat(16)).unwrap()[..2], [0x00, 0xab]);
+        assert_eq!(unhex32(&"00AB".repeat(16)), unhex32(&"00ab".repeat(16)));
+        assert_eq!(unhex32(&"a".repeat(63)), None);
+        assert_eq!(unhex32(&"a".repeat(65)), None);
+        assert_eq!(unhex32(&format!("{}g", "a".repeat(63))), None);
+        assert_eq!(unhex32(&format!("{}é", "a".repeat(62))), None);
+    }
+
+    /// A pet born at `ts` to a new player; returns its token id.
+    fn born_at(contract: &mut Contract, ts: u64, n: usize) -> TokenId {
+        testing_env!(context(server(), ts, 0).build());
+        contract.pet_mint(player(n), "Pixel".into(), "I am curious.".into())
+    }
+
+    fn streak_of(contract: &Contract, token_id: &str) -> (u32, u8, Option<u64>) {
+        let view = contract.pet_view(token_id.into()).unwrap();
+        (view.streak, view.freezes, view.last_streak_day)
+    }
+
+    // spec: add-daily-ritual › Streak contract › сутки засчитаны × a first mark and a birth-day mark
+    #[test]
+    fn the_first_mark_counts_the_birth_day_and_ignores_skipped() {
+        let mut contract = funded_contract(HUGE_POOL);
+        let born = born_at(&mut contract, 5 * NS_PER_DAY + 1_000, 0);
+        assert_eq!(streak_of(&contract, &born), (0, 1, None));
+
+        // The birth day itself counts, with a `skipped` that no gap could hold.
+        testing_env!(context(server(), 5 * NS_PER_DAY + 2_000, 0).build());
+        contract.streak_mark(born.clone(), 5, 9);
+        assert_eq!(streak_of(&contract, &born), (1, 1, Some(5)));
+        let logs = get_logs();
+        assert_eq!(logs.len(), 1, "{logs:?}");
+        let json = logs[0].trim_start_matches("EVENT_JSON:");
+        let event: near_sdk::serde_json::Value = near_sdk::serde_json::from_str(json).unwrap();
+        assert_eq!(event["standard"], "nearling");
+        assert_eq!(event["event"], "streak");
+        assert_eq!(
+            event["data"],
+            near_sdk::serde_json::json!({
+                "token_id": "0", "day": 5, "streak": 1, "freezes": 1, "spent": 0
+            })
+        );
+
+        // A first mark for the day before the birth is outside the window.
+        let other = born_at(&mut contract, 5 * NS_PER_DAY + 3_000, 1);
+        testing_env!(context(server(), 5 * NS_PER_DAY + 4_000, 0).build());
+        let text = panic_text(|| contract.streak_mark(other.clone(), 4, 0));
+        assert!(text.contains("bad_day"), "{text}");
+        assert_eq!(streak_of(&contract, &other), (0, 1, None));
+    }
+
+    // spec: add-daily-ritual › Streak contract › сутки засчитаны × every 7th day
+    #[test]
+    fn the_seventh_counted_day_earns_a_freeze_and_a_restart_never_does() {
+        let mut contract = funded_contract(HUGE_POOL);
+        let token = born_at(&mut contract, 10 * NS_PER_DAY, 0);
+        for (n, day) in (10..=16u64).enumerate() {
+            testing_env!(context(server(), day * NS_PER_DAY + 5, 0).build());
+            contract.streak_mark(token.clone(), day, 0);
+            let expected_freezes = if n == 6 { 2 } else { 1 };
+            assert_eq!(
+                streak_of(&contract, &token),
+                (n as u32 + 1, expected_freezes, Some(day)),
+                "day {day}"
+            );
+        }
+        let data = &get_logs()[0];
+        assert!(
+            data.contains("\"streak\":7") && data.contains("\"freezes\":2"),
+            "{data}"
+        );
+
+        // Days 17 and 18 missed; two freezes cover them, the streak goes on to 8, freezes 0.
+        testing_env!(context(server(), 19 * NS_PER_DAY, 0).build());
+        contract.streak_mark(token.clone(), 19, 0);
+        assert_eq!(streak_of(&contract, &token), (8, 0, Some(19)));
+        assert!(get_logs()[0].contains("\"spent\":2"));
+
+        // Day 20 done; days 21 and 22 missed with no freeze left: a restart, which is no 7th.
+        testing_env!(context(server(), 20 * NS_PER_DAY, 0).build());
+        contract.streak_mark(token.clone(), 20, 0);
+        testing_env!(context(server(), 23 * NS_PER_DAY, 0).build());
+        contract.streak_mark(token.clone(), 23, 0);
+        assert_eq!(streak_of(&contract, &token), (1, 0, Some(23)));
+    }
+
+    // spec: add-daily-ritual › Streak contract › сутки вне окна × the UTC day boundary
+    #[test]
+    fn the_window_is_today_and_yesterday_by_the_block_timestamp() {
+        let mut contract = funded_contract(HUGE_POOL);
+        let a = born_at(&mut contract, 5 * NS_PER_DAY, 0);
+        let b = born_at(&mut contract, 5 * NS_PER_DAY, 1);
+
+        // The last nanosecond of day 7: day 6 is yesterday, 5 is too old, 8 is tomorrow.
+        testing_env!(context(server(), 8 * NS_PER_DAY - 1, 0).build());
+        for day in [5u64, 8] {
+            let text = panic_text(|| contract.streak_mark(a.clone(), day, 0));
+            assert!(text.contains("bad_day"), "day {day}: {text}");
+        }
+        assert_eq!(streak_of(&contract, &a), (0, 1, None));
+        contract.streak_mark(a.clone(), 6, 0);
+        assert_eq!(streak_of(&contract, &a), (1, 1, Some(6)));
+
+        // The first nanosecond of day 8: day 6 is now too old for another pet, 7 is yesterday.
+        testing_env!(context(server(), 8 * NS_PER_DAY, 0).build());
+        let text = panic_text(|| contract.streak_mark(b.clone(), 6, 0));
+        assert!(text.contains("bad_day"), "{text}");
+        contract.streak_mark(b.clone(), 7, 0);
+        // Day 7 was missed by pet `a`: its freeze covers it.
+        contract.streak_mark(a.clone(), 8, 0);
+        assert_eq!(streak_of(&contract, &a), (2, 0, Some(8)));
+    }
+
+    // spec: add-daily-ritual › Streak contract › второй раз за сутки
+    #[test]
+    fn a_day_not_after_the_last_counted_one_fails_and_changes_nothing() {
+        let mut contract = funded_contract(HUGE_POOL);
+        let token = born_at(&mut contract, 5 * NS_PER_DAY, 0);
+        testing_env!(context(server(), 6 * NS_PER_DAY, 0).build());
+        contract.streak_mark(token.clone(), 6, 0);
+        let before = streak_of(&contract, &token);
+        // The same day, and the day before it (yesterday, and the birth day).
+        for day in [6u64, 5] {
+            let text = panic_text(|| contract.streak_mark(token.clone(), day, 0));
+            assert!(text.contains("day_marked"), "day {day}: {text}");
+        }
+        assert_eq!(streak_of(&contract, &token), before);
+    }
+
+    // spec: add-daily-ritual › Streak contract › лишние сутки без ритуала × the cap passes, the cap plus one fails
+    #[test]
+    fn skipped_may_equal_the_gap_and_not_exceed_it() {
+        let mut contract = funded_contract(HUGE_POOL);
+        let a = born_at(&mut contract, 5 * NS_PER_DAY, 0);
+        let b = born_at(&mut contract, 5 * NS_PER_DAY, 1);
+        testing_env!(context(server(), 5 * NS_PER_DAY + 9, 0).build());
+        contract.streak_mark(a.clone(), 5, 0);
+        contract.streak_mark(b.clone(), 5, 0);
+
+        // Last counted 5, day 9: the gap holds days 6, 7, 8 = 3.
+        testing_env!(context(server(), 9 * NS_PER_DAY, 0).build());
+        let before = streak_of(&contract, &b);
+        let text = panic_text(|| contract.streak_mark(b.clone(), 9, 4));
+        assert!(text.contains("too_many_skipped"), "{text}");
+        assert_eq!(
+            streak_of(&contract, &b),
+            before,
+            "the cap plus one writes nothing"
+        );
+        contract.streak_mark(a.clone(), 9, 3);
+        assert_eq!(streak_of(&contract, &a), (2, 1, Some(9)));
+        assert!(get_logs()[0].contains("\"spent\":0"));
+    }
+
+    #[test]
+    fn a_pet_that_does_not_exist_cannot_be_marked() {
+        let mut contract = funded_contract(HUGE_POOL);
+        testing_env!(context(server(), 6 * NS_PER_DAY, 0).build());
+        let text = panic_text(|| contract.streak_mark("7".into(), 6, 0));
+        assert!(text.contains("no_pet"), "{text}");
+    }
+
+    // One commit costs exactly RIDDLE_COMMIT_BYTES, whatever the day or the hash.
+    // spec: add-daily-ritual › Riddle commit contract › коммит записан × the record's bytes
+    #[test]
+    fn a_commit_costs_exactly_the_record_bytes() {
+        testing_env!(context(contract_id(), 0, 0).build());
+        let mut contract = Contract::new(owner(), server(), treasury());
+        for day in [0u64, 20_757, u64::MAX] {
+            let before = env::storage_usage();
+            contract.riddle_commits.insert(day, [0xff; 32]);
+            contract.riddle_commits.flush();
+            let spent = env::storage_usage() - before;
+            assert_eq!(spent, RIDDLE_COMMIT_BYTES, "day {day}");
+        }
+        let before = env::storage_usage();
+        contract.riddle_commits.remove(&20_757);
+        contract.riddle_commits.flush();
+        assert_eq!(before - env::storage_usage(), RIDDLE_COMMIT_BYTES);
+        assert_eq!(
+            Contract::commit_cost(),
+            u128::from(RIDDLE_COMMIT_BYTES) * env::storage_byte_cost().as_yoctonear()
+        );
+    }
+
+    fn fund_riddles(contract: &mut Contract, yocto: u128) {
+        testing_env!(context(accounts(4), 0, yocto).build());
+        contract.riddle_storage_fund();
+    }
+
+    /// sha256 of the borsh bytes of the four, as the Worker writes them.
+    fn seal(day: u64, riddle: &str, answers: &[&str], salt: &str) -> String {
+        let answers: Vec<String> = answers.iter().map(|a| a.to_string()).collect();
+        let bytes =
+            near_sdk::borsh::to_vec(&(day, riddle.to_string(), answers, salt.to_string())).unwrap();
+        hex(&env::sha256(&bytes))
+    }
+
+    #[derive(near_sdk::serde::Deserialize)]
+    #[serde(crate = "near_sdk::serde")]
+    struct HashFixture {
+        day: u64,
+        riddle: String,
+        answers: Vec<String>,
+        salt: String,
+        bytes_hex: String,
+        hash: String,
+    }
+
+    fn hash_fixture() -> HashFixture {
+        near_sdk::serde_json::from_str(include_str!("../tests/fixtures/riddle-hash.json")).unwrap()
+    }
+
+    // spec: add-daily-ritual › Riddle commit contract › коммит записан × the bytes of the hash
+    // The same vector is read by `server/test/riddle-cron.test.ts`.
+    #[test]
+    fn the_hash_is_sha256_of_the_borsh_bytes_of_the_four() {
+        let fixture = hash_fixture();
+        let answers: Vec<String> = fixture.answers.clone();
+        let bytes =
+            near_sdk::borsh::to_vec(&(fixture.day, &fixture.riddle, &answers, &fixture.salt))
+                .unwrap();
+        assert_eq!(hex(&bytes), fixture.bytes_hex);
+        assert_eq!(hex(&env::sha256(&bytes)), fixture.hash);
+
+        // The pieces are the fields of the tuple and nothing joins them: "ab" + "c" is not
+        // "a" + "bc".
+        assert_ne!(
+            seal(1, "ab", &["c"], "s"),
+            seal(1, "a", &["bc"], "s"),
+            "a joined string would not tell these apart"
+        );
+        assert_ne!(seal(1, "r", &["a", "b"], "s"), seal(1, "r", &["ab"], "s"));
+    }
+
+    // spec: add-daily-ritual › Riddle commit contract › второй коммит за сутки × the UTC day boundary
+    #[test]
+    fn one_commit_a_utc_day_at_the_block_timestamp_boundary() {
+        let mut contract = bare_contract();
+        fund_riddles(&mut contract, 5 * Contract::commit_cost());
+        let first = "a".repeat(64);
+        let second = "b".repeat(64);
+
+        testing_env!(context(server(), 5 * NS_PER_DAY - 1, 0).build());
+        contract.riddle_commit(first.clone());
+        let logs = get_logs();
+        assert_eq!(logs.len(), 1, "{logs:?}");
+        let json = logs[0].trim_start_matches("EVENT_JSON:");
+        let event: near_sdk::serde_json::Value = near_sdk::serde_json::from_str(json).unwrap();
+        assert_eq!(event["standard"], "nearling");
+        assert_eq!(event["event"], "riddle_commit");
+        assert_eq!(
+            event["data"],
+            near_sdk::serde_json::json!({ "day": 4, "hash": first })
+        );
+        let reserve = contract.riddle_view(4).reserve.0;
+        assert_eq!(reserve, 4 * Contract::commit_cost());
+
+        let text = panic_text(|| contract.riddle_commit(second.clone()));
+        assert!(text.contains("commit_today"), "{text}");
+        let view = contract.riddle_view(4);
+        assert_eq!(
+            view.hash.as_deref(),
+            Some(first.as_str()),
+            "the first stays"
+        );
+        assert_eq!(view.reserve.0, reserve, "nothing was taken");
+
+        // The first nanosecond of day 5 is a new day.
+        testing_env!(context(server(), 5 * NS_PER_DAY, 0).build());
+        contract.riddle_commit(second.clone());
+        assert_eq!(
+            contract.riddle_view(5).hash.as_deref(),
+            Some(second.as_str())
+        );
+        assert_eq!(
+            contract.riddle_view(4).hash.as_deref(),
+            Some(first.as_str())
+        );
+        assert_eq!(
+            contract.riddle_view(5).reserve.0,
+            3 * Contract::commit_cost()
+        );
+    }
+
+    // spec: add-daily-ritual › Riddle commit contract › коммит записан × a bad hash
+    #[test]
+    fn a_hash_of_the_wrong_shape_fails_before_anything_is_written() {
+        let mut contract = bare_contract();
+        fund_riddles(&mut contract, 5 * Contract::commit_cost());
+        testing_env!(context(server(), 5 * NS_PER_DAY, 0).build());
+        for bad in [
+            String::new(),
+            "a".repeat(63),
+            "a".repeat(65),
+            format!("{}g", "a".repeat(63)),
+            format!("0x{}", "a".repeat(62)),
+            format!("{}é", "a".repeat(62)),
+        ] {
+            let text = panic_text(|| contract.riddle_commit(bad.clone()));
+            assert!(text.contains("bad_hash"), "{bad:?}: {text}");
+        }
+        assert_eq!(contract.riddle_view(5).hash, None);
+        assert_eq!(
+            contract.riddle_view(5).reserve.0,
+            5 * Contract::commit_cost()
+        );
+        // Capitals are hex too; the record keeps the bytes and the view shows lowercase.
+        contract.riddle_commit("AB".repeat(32));
+        assert_eq!(
+            contract.riddle_view(5).hash.as_deref(),
+            Some("ab".repeat(32).as_str())
+        );
+    }
+
+    // spec: add-daily-ritual › Riddle commit contract › запас хранилища пуст
+    #[test]
+    fn a_reserve_below_the_cost_refuses_the_commit_and_leaves_the_pool_alone() {
+        let mut contract = funded_contract(HUGE_POOL);
+        let cost = Contract::commit_cost();
+        fund_riddles(&mut contract, cost - 1);
+        testing_env!(context(server(), 5 * NS_PER_DAY, 0).build());
+        let text = panic_text(|| contract.riddle_commit("a".repeat(64)));
+        assert!(text.contains("reserve_empty"), "{text}");
+        assert_eq!(contract.riddle_view(5).hash, None);
+        assert_eq!(contract.riddle_view(5).reserve.0, cost - 1);
+        assert_eq!(contract.hatch_view(player(9)).pool.0, HUGE_POOL);
+
+        // Exactly the cost passes and empties the reserve.
+        fund_riddles(&mut contract, 1);
+        testing_env!(context(server(), 5 * NS_PER_DAY, 0).build());
+        contract.riddle_commit("a".repeat(64));
+        assert_eq!(contract.riddle_view(5).reserve.0, 0);
+    }
+
+    // spec: add-daily-ritual › Riddle reveal contract › раскрытие в сутки загадки × the UTC day boundary
+    #[test]
+    fn a_reveal_waits_for_the_day_to_end_at_the_block_timestamp_boundary() {
+        let mut contract = bare_contract();
+        fund_riddles(&mut contract, 2 * Contract::commit_cost());
+        let answers = ["a clock", "clock"];
+        let hash = seal(4, "What has hands but can't clap?", &answers, "salt-4");
+        testing_env!(context(server(), 4 * NS_PER_DAY + 10, 0).build());
+        contract.riddle_commit(hash.clone());
+        let reserve = contract.riddle_view(4).reserve.0;
+        let reveal = |contract: &mut Contract| {
+            contract.riddle_reveal(
+                4,
+                "What has hands but can't clap?".into(),
+                answers.iter().map(|a| a.to_string()).collect(),
+                "salt-4".into(),
+            )
+        };
+
+        testing_env!(context(server(), 5 * NS_PER_DAY - 1, 0).build());
+        let text = panic_text(|| reveal(&mut contract));
+        assert!(text.contains("reveal_too_early"), "{text}");
+        assert_eq!(contract.riddle_view(4).hash.as_deref(), Some(hash.as_str()));
+        assert_eq!(contract.riddle_view(4).reserve.0, reserve);
+        // A day in the future is early too.
+        let text = panic_text(|| {
+            contract.riddle_reveal(9, "r".into(), vec![], "s".into());
+        });
+        assert!(text.contains("reveal_too_early"), "{text}");
+
+        testing_env!(context(server(), 5 * NS_PER_DAY, 0).build());
+        reveal(&mut contract);
+        let logs = get_logs();
+        assert_eq!(logs.len(), 1, "{logs:?}");
+        let json = logs[0].trim_start_matches("EVENT_JSON:");
+        let event: near_sdk::serde_json::Value = near_sdk::serde_json::from_str(json).unwrap();
+        assert_eq!(event["event"], "riddle_reveal");
+        assert_eq!(
+            event["data"],
+            near_sdk::serde_json::json!({
+                "day": 4,
+                "riddle": "What has hands but can't clap?",
+                "answers": ["a clock", "clock"],
+                "salt": "salt-4",
+            })
+        );
+        let view = contract.riddle_view(4);
+        assert_eq!(view.hash, None, "the record is gone");
+        assert_eq!(view.reserve.0, reserve + Contract::commit_cost());
+
+        // A second reveal finds no unrevealed commit.
+        let text = panic_text(|| reveal(&mut contract));
+        assert!(text.contains("no_commit"), "{text}");
+        assert_eq!(
+            contract.riddle_view(4).reserve.0,
+            reserve + Contract::commit_cost()
+        );
+    }
+
+    // spec: add-daily-ritual › Riddle reveal contract › не сходится с коммитом
+    #[test]
+    fn a_reveal_that_does_not_hash_to_the_commit_changes_nothing() {
+        let mut contract = bare_contract();
+        fund_riddles(&mut contract, Contract::commit_cost());
+        let fixture = hash_fixture();
+        testing_env!(context(server(), fixture.day * NS_PER_DAY, 0).build());
+        contract.riddle_commit(fixture.hash.clone());
+        let reserve = contract.riddle_view(fixture.day).reserve.0;
+
+        testing_env!(context(server(), (fixture.day + 1) * NS_PER_DAY, 0).build());
+        let wrong: [(&str, Vec<String>, &str); 4] = [
+            ("Another riddle", fixture.answers.clone(), &fixture.salt),
+            (&fixture.riddle, vec!["a clock".into()], &fixture.salt),
+            (&fixture.riddle, fixture.answers.clone(), "other salt"),
+            (
+                &fixture.riddle,
+                vec!["clock".into(), "a clock".into(), "une horloge".into()],
+                &fixture.salt,
+            ),
+        ];
+        for (riddle, answers, salt) in wrong {
+            let text = panic_text(|| {
+                contract.riddle_reveal(
+                    fixture.day,
+                    riddle.to_string(),
+                    answers.clone(),
+                    salt.to_string(),
+                )
+            });
+            assert!(text.contains("bad_reveal"), "{text}");
+        }
+        // The right words under another day's name fail too: the day is in the hash.
+        let text = panic_text(|| {
+            contract.riddle_reveal(
+                fixture.day + 1,
+                fixture.riddle.clone(),
+                fixture.answers.clone(),
+                fixture.salt.clone(),
+            )
+        });
+        assert!(
+            text.contains("reveal_too_early") || text.contains("no_commit"),
+            "{text}"
+        );
+        assert_eq!(
+            contract.riddle_view(fixture.day).hash.as_deref(),
+            Some(fixture.hash.as_str()),
+            "the commit stays unrevealed"
+        );
+        assert_eq!(contract.riddle_view(fixture.day).reserve.0, reserve);
+
+        // The real words pass, a day late or years late alike: there is no deadline.
+        testing_env!(context(server(), (fixture.day + 700) * NS_PER_DAY, 0).build());
+        contract.riddle_reveal(
+            fixture.day,
+            fixture.riddle.clone(),
+            fixture.answers.clone(),
+            fixture.salt.clone(),
+        );
+        assert_eq!(contract.riddle_view(fixture.day).hash, None);
+    }
+
+    // spec: add-daily-ritual › Riddle reveal contract › нет нераскрытого коммита
+    #[test]
+    fn a_day_with_no_commit_cannot_be_revealed() {
+        let mut contract = bare_contract();
+        testing_env!(context(server(), 9 * NS_PER_DAY, 0).build());
+        let text = panic_text(|| contract.riddle_reveal(3, "r".into(), vec![], "s".into()));
+        assert!(text.contains("no_commit"), "{text}");
     }
 }

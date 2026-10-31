@@ -109,6 +109,26 @@ it('no WebGL: the flat drawing takes the mood\'s face, and the new one when the 
   expect(seen.pet).toHaveLength(0);
 });
 
+// spec: add-daily-ritual › Diary screen › success × the small pet stands still
+it('still: the pet stands in its state though the viewer plays motion, the next state is a cut, and its alt is as ever', async () => {
+  seen.webgl = true;
+  const host = document.createElement('div');
+  const own = createRoot(host);
+  await act(async () => own.render(<PetFigure tokenId="9" name="Pixel" state="full" stage="adult" size="md" outfit="thinking-cap" wearing="Thinking cap" still />));
+  expect(seen.pet.at(-1)).toMatchObject({ paused: true });
+  expect(host.querySelector('[data-still]')).not.toBeNull();
+  expect(host.querySelector('[role="img"]')?.getAttribute('aria-label')).toBe('Pixel, full, wearing the Thinking cap');
+
+  await act(async () => own.render(<PetFigure tokenId="9" name="Pixel" state="asleep" stage="adult" size="md" still />));
+  expect(seen.pet.at(-1)).toMatchObject({ paused: true });
+  expect((seen.pet.at(-1)?.assembly as { spec: { state: string } }).spec.state).toBe('asleep');
+
+  await act(async () => own.render(<PetFigure tokenId="9" name="Pixel" state="full" stage="adult" />));
+  expect(seen.pet.at(-1)).toMatchObject({ paused: false });
+  expect(host.querySelector('[data-still]')).toBeNull();
+  await act(async () => own.unmount());
+});
+
 // spec: add-pet-life › Mood rule › радостный × Pause motion
 it('Pause motion: the pet stands and the face still changes', async () => {
   seen.webgl = true;

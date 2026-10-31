@@ -106,6 +106,19 @@ test('the moments of the built flows: thinking, talking, falling asleep, waking'
   await expect(page.getByRole('img', { name: 'Pixel, full' })).toBeVisible();
 });
 
+// spec: add-daily-ritual › Diary screen › success × the small pet stands still
+test('the Diary\'s small pet stands still with no «Pause motion», in its state, while the choice stays «play»', async ({ page }) => {
+  await openWith(page, '/pet/9/diary', { auth: SIGNED_IN, worker: { ...OWNER, diary: {} }, ...PLAY });
+  const figure = page.locator('[data-illustration]');
+  await expect(figure).toHaveAttribute('data-view', '3d');
+  await expect(figure).toHaveAttribute('data-still', '');
+  await expect(figure.locator('[data-motion]')).toHaveAttribute('data-motion', 'paused');
+  await expect(page.getByRole('button', { name: 'Pause motion' })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Play motion' })).toHaveCount(0);
+  await comesToRest(page);
+  expect(await page.evaluate(() => localStorage.getItem('nearling.motion'))).toBeNull();
+});
+
 // spec: add-pet › Birth flow › вылупился
 test('вылупился: the newborn is born on its first show, once', async ({ page }) => {
   await openWith(page, '/hatch', { auth: SIGNED_IN, worker: { ...OWNER, owned: ['9'] }, ...PLAY });

@@ -14,7 +14,7 @@ A friend without NEAR gives a pet a free snack paid by the project (OD-3). The s
 |-----------|------------|
 | What is public | the friend's account id (64 hex — the same that will own their pet) next to the pet, for good |
 | Hires | the friend's pet becomes known to the contract, as after a NEAR feeding |
-| Cost | one acquaintance record per new friend–pet pair from the project pool [estimate: ≈ 0.0011 NEAR locked, `near-contract` › What it costs] |
+| Cost | one acquaintance record per new friend–pet pair from the project pool: exactly 72 bytes, 0.00072 NEAR locked [fact: measured in add-feeding stage 1, against ≈ 0.0011 NEAR estimated here at first] |
 | Spec | the friend's notice says a free snack puts the account on NEAR too; +0 Scenarios |
 
 ### Option B: the snack records only «a snack from a friend»

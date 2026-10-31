@@ -39,6 +39,7 @@ async fn the_explorer_shows_the_owner_name_character_food_and_receipts_but_no_wo
             "friend_snacks",
             "given_food",
             "last_debit_id",
+            "last_streak_day",
             "name",
             "owner_id",
             "owner_snack_at",

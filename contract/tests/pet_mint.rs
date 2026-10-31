@@ -218,6 +218,29 @@ async fn a_birth_records_the_pet_and_enumerates_it() -> anyhow::Result<()> {
     Ok(())
 }
 
+// spec: add-daily-ritual › Streak contract › сутки засчитаны × a birth writes no day
+#[tokio::test]
+async fn a_birth_writes_no_counted_day_and_a_mark_after_it_writes_no_byte() -> anyhow::Result<()> {
+    let ctx = setup(BIG_POOL).await?;
+    ctx.avoid_midnight().await?;
+    ctx.mint("alice.near", "Pixel", CHARACTER)
+        .await?
+        .into_result()?;
+    let pet = ctx.pet_view("0").await?;
+    assert!(pet["last_streak_day"].is_null(), "no mark yet: {pet}");
+    assert_eq!(pet["streak"], 0);
+    assert_eq!(pet["freezes"], 1);
+
+    // The birth already paid for the field: the first mark grows nothing.
+    let day = ctx.hatch_view("alice.near").await?["day"].as_u64().unwrap();
+    let storage = ctx.storage_usage().await?;
+    ctx.streak_mark("0", day, 0).await?.into_result()?;
+    assert_eq!(ctx.storage_usage().await?, storage);
+    assert_eq!(ctx.pet_view("0").await?["last_streak_day"], day);
+    Ok(())
+}
+
+// spec: add-daily-ritual › Streak contract › сутки засчитаны × storage of a birth
 /// The measured storage of a birth with the longest character, the 32-byte name and a 64-byte
 /// receiver, against `MAX_BIRTH_COST`; and the gas of `pet_mint`. The numbers go to design.md.
 #[tokio::test]

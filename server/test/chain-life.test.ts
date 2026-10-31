@@ -2,7 +2,7 @@
 // `pet_view`, and the server key's `pet_grow` as the fake plays it in the contract's order of checks.
 import { env } from 'cloudflare:workers';
 import { describe, expect, it } from 'vitest';
-import { chainDay, petView, PET_GROW_TGAS } from '../src/chain';
+import { chainDay, petView, PET_GROW_TGAS, RIDDLE_COMMIT_TGAS, RIDDLE_REVEAL_TGAS, riddleView, STREAK_MARK_TGAS } from '../src/chain';
 import { harness } from './helpers/api';
 import { NEAR_ACCOUNT } from './helpers/network';
 
@@ -57,5 +57,47 @@ describe('pet_grow by the server key', () => {
       { token_id: '7', stage: 'Teen', trait: 'clever' },
       { token_id: '7', stage: 'Adult', trait: 'clever' },
     ]);
+  });
+});
+
+describe('the reads and sends of the daily ritual', () => {
+  it('reads the last streak day of a pet, null before the first mark', async () => {
+    h.net().contract.addPet('7', NEAR_ACCOUNT(1));
+    h.net().contract.addPet('8', NEAR_ACCOUNT(2), { last_streak_day: today() - 1 });
+    expect((await petView(env, '7'))!.last_streak_day).toBeNull();
+    expect((await petView(env, '8'))!.last_streak_day).toBe(today() - 1);
+  });
+
+  it('reads the commit of a day, the reserve and the price of a commit with riddle_view', async () => {
+    const chain = h.net().contract;
+    chain.fundRiddles();
+    expect(await riddleView(env, today())).toEqual({ hash: null, reserve: '10000000000000000000000', commit_cost: '810000000000000000000' });
+    expect(chain.reads.at(-1)).toEqual({ method: 'riddle_view', args: { day: today() } });
+    expect((await serverKey().send({ methodName: 'riddle_commit', args: { hash: 'ab'.repeat(32) }, gas: (RIDDLE_COMMIT_TGAS * 10n ** 12n).toString() })).status).toBe('ok');
+    expect((await riddleView(env, today())).hash).toBe('ab'.repeat(32));
+    expect(chain.sends.at(-1)!.gas).toBe('5000000000000');
+    expect(await riddleView(env, today() + 1)).toMatchObject({ hash: null, reserve: '9190000000000000000000' });
+  });
+
+  it('reads the refusals of the three server methods as the contract\'s codes', async () => {
+    const chain = h.net().contract;
+    chain.fundRiddles();
+    chain.addPet('7', NEAR_ACCOUNT(1));
+    const call = (methodName: string, args: Record<string, unknown>, tgas: bigint) => serverKey().send({ methodName, args, gas: (tgas * 10n ** 12n).toString() });
+    // a day outside the window is `bad_day`, before the last day and the skipped days are read
+    expect(await call('streak_mark', { token_id: '7', day: today() - 2, skipped: 0 }, STREAK_MARK_TGAS)).toMatchObject({ status: 'failed', code: 'bad_day' });
+    expect(await call('streak_mark', { token_id: '7', day: today(), skipped: 0 }, STREAK_MARK_TGAS)).toMatchObject({ status: 'ok' });
+    expect(await call('streak_mark', { token_id: '7', day: today(), skipped: 0 }, STREAK_MARK_TGAS)).toMatchObject({ status: 'failed', code: 'day_marked' });
+    chain.dayOverride = today() + 1;
+    expect(await call('streak_mark', { token_id: '7', day: today() + 1, skipped: 1 }, STREAK_MARK_TGAS)).toMatchObject({ status: 'failed', code: 'too_many_skipped' });
+    expect(await call('riddle_commit', { hash: 'xyz' }, RIDDLE_COMMIT_TGAS)).toMatchObject({ status: 'failed', code: 'bad_hash' });
+    expect(await call('riddle_commit', { hash: 'cd'.repeat(32) }, RIDDLE_COMMIT_TGAS)).toMatchObject({ status: 'ok' });
+    expect(await call('riddle_commit', { hash: 'cd'.repeat(32) }, RIDDLE_COMMIT_TGAS)).toMatchObject({ status: 'failed', code: 'commit_today' });
+    chain.riddleReserve = 0n;
+    chain.dayOverride = today() + 2;
+    expect(await call('riddle_commit', { hash: 'ef'.repeat(32) }, RIDDLE_COMMIT_TGAS)).toMatchObject({ status: 'failed', code: 'reserve_empty' });
+    expect(await call('riddle_reveal', { day: today() + 2, riddle: 'r', answers: ['a'], salt: 's' }, RIDDLE_REVEAL_TGAS)).toMatchObject({ status: 'failed', code: 'reveal_too_early' });
+    expect(await call('riddle_reveal', { day: today() + 1, riddle: 'r', answers: ['a'], salt: 's' }, RIDDLE_REVEAL_TGAS)).toMatchObject({ status: 'failed', code: 'bad_reveal' });
+    expect(await call('riddle_reveal', { day: today() - 5, riddle: 'r', answers: ['a'], salt: 's' }, RIDDLE_REVEAL_TGAS)).toMatchObject({ status: 'failed', code: 'no_commit' });
   });
 });

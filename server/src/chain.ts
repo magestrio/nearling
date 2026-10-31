@@ -58,6 +58,16 @@ export interface PetRecord {
   owner_snack_at: string;
   /** The traits in the order they were gained, a repeat shown twice (`["clever","clever"]`). */
   traits: Trait[];
+  /** The UTC day of the last streak mark; `null` before the first one (`Option<u64>` of `PetView`). */
+  last_streak_day: number | null;
+}
+
+/** `riddle_view(day)` of the contract: the commit filed for that day (64 hex characters, `null` when
+ * there is none or it was revealed), the commit-storage reserve and the price of one commit, yocto. */
+export interface RiddleRecord {
+  hash: string | null;
+  reserve: string;
+  commit_cost: string;
 }
 
 export type Stage = 'baby' | 'teen' | 'adult';
@@ -97,6 +107,17 @@ export const PET_SNACK_TGAS = 5n;
 /** Prepaid gas of `pet_grow`, Tgas; `contract/tests/pet_grow.rs` › `gas_of_a_grow` reads this line
  * and grows the worst case with it. */
 export const PET_GROW_TGAS = 5n;
+
+/** Prepaid gas of `streak_mark`, Tgas; `contract/tests/streak_mark.rs` › `gas_of_a_mark` reads this
+ * line and marks the worst cases with it. */
+export const STREAK_MARK_TGAS = 5n;
+
+/** Prepaid gas of `riddle_commit`, Tgas; `contract/tests/riddle.rs` › `gas_of_a_commit` reads this line. */
+export const RIDDLE_COMMIT_TGAS = 5n;
+
+/** Prepaid gas of `riddle_reveal`, Tgas; `contract/tests/riddle.rs` › `gas_of_a_reveal` reads this
+ * line and reveals the longest list entry with it. */
+export const RIDDLE_REVEAL_TGAS = 5n;
 
 const READ_TIMEOUT_MS = 8_000;
 const SEND_TIMEOUT_MS = 25_000;
@@ -139,6 +160,11 @@ export function hatchView(env: Pick<Env, 'NEAR_RPC_URL' | 'CONTRACT_ID'>, accoun
  * day; `ChainUnreachable` when it cannot be read, and the caller takes the Worker's clock. */
 export async function chainDay(env: Pick<Env, 'NEAR_RPC_URL' | 'CONTRACT_ID' | 'SERVER_ACCOUNT_ID'>): Promise<number> {
   return (await hatchView(env, env.SERVER_ACCOUNT_ID)).day;
+}
+
+/** The riddle commit of a UTC day and the reserve that pays for it (`riddle_view`). Never cached. */
+export function riddleView(env: Pick<Env, 'NEAR_RPC_URL' | 'CONTRACT_ID'>, day: number): Promise<RiddleRecord> {
+  return view<RiddleRecord>(env, 'riddle_view', { day });
 }
 
 /** How many pets the account owns now (NEP-181). */
@@ -243,6 +269,15 @@ const CONTRACT_CODES = [
   'feeder_not_owner',
   'bad_stage',
   'stage_today',
+  'bad_day',
+  'day_marked',
+  'too_many_skipped',
+  'bad_hash',
+  'commit_today',
+  'reserve_empty',
+  'reveal_too_early',
+  'no_commit',
+  'bad_reveal',
 ] as const;
 export type ContractCode = (typeof CONTRACT_CODES)[number];
 

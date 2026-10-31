@@ -9,6 +9,7 @@ import { KNOWN_RECORD_YOCTO, nearUsdRate, SNACK_YOCTO, yoctoToUsdMicros } from '
 import { lowerWalletSeen } from '../feeding/wallet';
 import { track } from '../track';
 import { noteFriend, noteMood } from './life';
+import { DIARY_WINDOW_MS } from './ritual';
 import { afterWake, wakeDue, wakeIfFed } from './wake';
 
 export interface FeedingRow {
@@ -47,7 +48,10 @@ export async function settleFeeding(env: Env, row: FeedingRow, outcome: Outcome)
     // wake end in one write: a poll finds the row or the awake pet, never the sleep without the row.
     if (await friendWakeDue(env, row.token_id)) {
       claim.unshift(
-        env.DB.prepare('UPDATE pets SET slept_at = NULL, wake_seq = wake_seq + 1, wake_by = ?1 WHERE token_id = ?2 AND slept_at IS NOT NULL AND EXISTS (SELECT 1 FROM feedings WHERE id = ?3)').bind(name, row.token_id, row.id),
+        // As `wakeIfFed`: a wake after the diary window notes the day without a diary.
+        env.DB.prepare(
+          'UPDATE pets SET slept_at = NULL, wake_seq = wake_seq + 1, wake_by = ?1, asleep_diary_day = CASE WHEN ?4 >= ?5 AND slept_at < ?5 THEN ?6 ELSE asleep_diary_day END WHERE token_id = ?2 AND slept_at IS NOT NULL AND EXISTS (SELECT 1 FROM feedings WHERE id = ?3)',
+        ).bind(name, row.token_id, row.id, Date.now(), utcDay(Date.now()) * 86_400_000 + DIARY_WINDOW_MS, utcDay(Date.now())),
       );
     }
   }

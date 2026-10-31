@@ -46,7 +46,7 @@ export async function captureFrame(page: Page, frame: ManifestFrame, viewport: V
   await page.evaluate(() => (globalThis as { __nearlingFreeze?: () => void }).__nearlingFreeze?.());
   if ((frame.scroll ?? 'top') === 'end') await scrollToEnd(page);
 
-  const elsewhere = new Set((fixture.otherChange ?? []).map((o) => o.line));
+  const elsewhere = new Set([...(fixture.otherChange ?? []).map((o) => o.line), ...(fixture.staleCopy ?? [])]);
   for (const line of frame.copy ?? []) {
     if (elsewhere.has(line)) continue;
     // a line is on the page as text, or as a field's placeholder

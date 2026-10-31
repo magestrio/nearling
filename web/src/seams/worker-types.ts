@@ -76,6 +76,10 @@ export type PetView =
       traits: string[];
       /** steps of energy left today, 0…10 (`Energy rule`) */
       energy: number;
+      /** today's entry is there, unread, and the pet awake: the Pet screen opens the Diary by itself (`Daily ritual flow`) */
+      diaryUnread: boolean;
+      /** the job on its way (`pendingJob`) is the answer to the question of the day */
+      pendingQuestion: boolean;
       ownedCount: number;
     } & PetBase &
       MyFeed);
@@ -222,6 +226,57 @@ export interface WalletInfo {
   funded: boolean;
 }
 
+/** `GET /api/pets/:id/diary` (design.md › Worker): the Diary screen, whole. `day` is the Worker's UTC day, `closedAt` today's 00:00
+ *  UTC (when yesterday's riddle closed: the `{time}` of the verdict lines) and `until` the next 00:00 UTC, both ISO. */
+export type DiaryEntry =
+  /** `lines` are the paragraphs, `question` the last line when it asks (null: no question today); `work` is `add-pet-work`'s
+   *  line about the pet's work, null until that change is built */
+  | { kind: 'text'; id: string; lines: string[]; question: string | null; work: string | null }
+  | { kind: 'first' | 'cleared' | 'writing' | 'asleep' | 'failed' };
+
+export type DiaryRiddle =
+  | { kind: 'open'; day: number; text: string }
+  /** `answer` is the owner's own text, null after a clear */
+  | { kind: 'answered'; day: number; text: string; answer: string | null }
+  | { kind: 'held' };
+
+/** Yesterday's riddle: the verdict once revealed (`answer` is the first accepted one, for everyone), `waiting` while sealed and not
+ *  revealed, null for a riddle that never opened. */
+export type DiaryYesterday = { kind: 'solved' | 'wrong' | 'none'; answer: string } | { kind: 'waiting' } | null;
+
+export type StreakNote = 'forecast' | 'saving' | 'lost';
+export interface DiaryStreak {
+  /** the forecast's when there is one, else the chain's */
+  days: number;
+  freezes: number;
+  done: boolean;
+  line: 'earned' | 'frozen' | 'fresh' | null;
+  /** the chain's streak */
+  n: number;
+  /** the freezes the line speaks of */
+  k: number;
+  missed: number;
+  note: StreakNote[];
+}
+
+export type DiaryPart = 'question' | 'riddle';
+export interface DiaryView {
+  day: number;
+  closedAt: string;
+  until: string;
+  entry: DiaryEntry;
+  read: boolean;
+  exchange: { answer: string; reply: string } | null;
+  riddle: DiaryRiddle;
+  yesterday: DiaryYesterday;
+  streak: DiaryStreak;
+  parts: DiaryPart[];
+  complete: boolean;
+}
+
+/** `POST …/riddle`: `accepted`, `already` (a stale tab) and `late` come with `200`; `409 asleep` and `409 not_sealed` are refusals. */
+export type RiddleStatus = 'accepted' | 'already' | 'late';
+
 /** The identity token of the player, or null for a visitor. */
 export type Token = string | null;
 
@@ -264,4 +319,14 @@ export interface WorkerApi {
   /** The free snack, sent by the server. Refusals: `409 snack_gone` (body holds `sheet`), `409 pending`, `503`. */
   snack(token: Token, tokenId: string): Promise<FeedOutcome>;
   wallet(token: Token): Promise<WalletInfo>;
+  /** The Diary screen's data. Marks nothing; also for an asleep pet. Refusals: `401 signed_out`, `403 not_owner`, `404 no_pet`,
+   *  `429 rate_limited`, `503 chain_unreachable`. */
+  diary(token: Token, tokenId: string): Promise<DiaryView>;
+  /** The Diary screen stood (`day` is the diary's): `{ ok: true }`, and nothing written for another day or for a sleeping pet with
+   *  no opening today. */
+  readDiary(token: Token, tokenId: string, day: number): Promise<{ ok: true }>;
+  /** The answer to the question of the day, a reply to the pet: the job. Refusals: `409 paused | late | no_question | already`. */
+  answerQuestion(token: Token, tokenId: string, body: { text: string; day: number }): Promise<{ job: string }>;
+  /** The answer to the riddle of `day`. Refusals: `409 asleep | not_sealed`, `400 bad_request`. */
+  answerRiddle(token: Token, tokenId: string, body: { text: string; day: number }): Promise<{ status: RiddleStatus }>;
 }

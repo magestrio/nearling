@@ -55,15 +55,21 @@ async fn new_and_migrate_refuse_a_foreign_caller() -> anyhow::Result<()> {
     Ok(())
 }
 
-/// The dev account holds the layout of `add-pet` with pets in it: version-1 records and no `known`.
-/// `migrate` takes it, with the pool, the counters and the pets as they were; a pet of version 1
-/// reads with zero counters and is fed (so written) as version 2.
+/// The dev account holds the layout before `add-daily-ritual` with pets in it: version-1 records,
+/// an acquaintance, and no riddle commits or reserve. `migrate` takes it, with the pool, the
+/// counters, the pets and `known` as they were; a pet of version 1 reads with zero counters and is
+/// fed (so written) as the current version.
+// spec: add-daily-ritual › Streak contract › сутки засчитаны × the layout migrates
 #[tokio::test]
-async fn migrate_takes_the_add_pet_layout_of_a_deployed_contract() -> anyhow::Result<()> {
+async fn migrate_takes_the_previous_layout_of_a_deployed_contract() -> anyhow::Result<()> {
     let ctx = setup(BIG_POOL).await?;
     ctx.mint("alice.near", "Pixel", "I am curious.")
         .await?
         .into_result()?;
+    // An acquaintance the old layout already held.
+    let bob = ctx.account("bob", 10).await?;
+    ctx.feed_as(&bob, "0", MIN_FEED).await?.into_result()?;
+    assert!(ctx.knows("0", bob.id().as_str()).await?);
     let view = ctx.pet_view("0").await?;
     let amount = |k: &str| -> u128 { view[k].as_str().unwrap().parse().unwrap() };
 
@@ -92,13 +98,15 @@ async fn migrate_takes_the_add_pet_layout_of_a_deployed_contract() -> anyhow::Re
         )
         .await?;
 
-    // The state `add-pet` wrote is this one without the trailing `known` (a 4-byte length and
-    // the prefix `k`).
+    // The state before this change is this one without the two trailing fields: the commits'
+    // prefix (a 4-byte length and `r`) and the reserve (16 bytes).
     let pool_before = ctx.pool().await?;
     let state = ctx.read_state().await?;
-    assert_eq!(&state[state.len() - 5..], &[1, 0, 0, 0, b'k']);
+    let tail = state.len() - 21;
+    assert_eq!(&state[tail..tail + 5], &[1, 0, 0, 0, b'r']);
+    assert_eq!(&state[tail + 5..], &[0u8; 16]);
     ctx.worker
-        .patch_state(ctx.contract.id(), b"STATE", &state[..state.len() - 5])
+        .patch_state(ctx.contract.id(), b"STATE", &state[..tail])
         .await?;
 
     ctx.contract
@@ -116,22 +124,31 @@ async fn migrate_takes_the_add_pet_layout_of_a_deployed_contract() -> anyhow::Re
     assert_eq!(migrated["friend_snacks"], 0);
     assert_eq!(migrated["friend_snack_day"], 0);
     assert_eq!(migrated["owner_snack_at"], "0");
-    assert!(!ctx.knows("0", "bob.near").await?);
+    assert!(migrated["last_streak_day"].is_null());
+    assert!(ctx.knows("0", bob.id().as_str()).await?, "known is kept");
+    assert!(!ctx.knows("0", "dave.near").await?);
+    let riddle = ctx.riddle_view(20_000).await?;
+    assert!(riddle["hash"].is_null());
+    assert_eq!(riddle["reserve"], "0");
 
     // The server named at `new` is still the one that may mint, and a meal on the old record
     // keeps the food it had.
     ctx.mint("carol.near", "Biscuit", "I am calm.")
         .await?
         .into_result()?;
-    let bob = ctx.account("bob", 10).await?;
     ctx.feed_as(&bob, "0", MIN_FEED).await?.into_result()?;
     assert_eq!(
         ctx.pet_view("0").await?["given_food"],
         (5 + MIN_FEED).to_string()
     );
-    assert!(ctx.knows("0", bob.id().as_str()).await?);
 
-    // A second call finds `known` after the old layout and fails: the pool is never reset.
+    // The new methods work on the migrated state.
+    ctx.fund_riddles(10_000_000_000_000_000_000_000)
+        .await?
+        .into_result()?;
+    ctx.riddle_commit(&"ab".repeat(32)).await?.into_result()?;
+
+    // A second call finds the riddle fields after the old layout and fails: the pool is never reset.
     let again = ctx
         .contract
         .call("migrate")

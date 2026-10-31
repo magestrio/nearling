@@ -3,6 +3,7 @@
 import type {
   ClosedReason,
   Conversation,
+  DiaryView,
   FeedOutcome,
   FeedSheetData,
   HatchStatus,
@@ -10,6 +11,7 @@ import type {
   MyFeed,
   PetBase,
   PetState,
+  RiddleStatus,
   SessionResult,
   SignInGate,
   WalletInfo,
@@ -81,6 +83,16 @@ export interface FakeWorkerState {
   snack?: FeedOutcome | FakeFail;
   /** `GET /api/wallet`; default the address of the fake account with 0.31 NEAR */
   wallet?: WalletInfo | FakeFail;
+  /** `GET …/diary`: fields laid over the sample diary the fake builds (an open riddle, an entry with its question, a streak of 2 with
+   *  one freeze), or a refusal instead. The owner only: another viewer is a `403 not_owner`. */
+  diary?: Partial<DiaryView> | FakeFail;
+  diaryDelayMs?: number;
+  /** `POST …/diary/read`; default `{ ok: true }` */
+  readDiary?: { ok: true } | FakeFail;
+  /** `POST …/diary/answer`; default `{ job: 'job-question' }` */
+  answerQuestion?: { job: string } | FakeFail;
+  /** `POST …/riddle`; default `{ status: 'accepted' }` */
+  answerRiddle?: { status: RiddleStatus } | FakeFail;
 }
 
 export interface FakeState {

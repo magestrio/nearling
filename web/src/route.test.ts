@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { hatchPath, parseRoute, petPath } from './route';
+import { diaryPath, hatchPath, parseRoute, petPath } from './route';
 
 describe('parseRoute', () => {
   it('reads the Pet screen and the Hatch screen with the friend in the address', () => {
@@ -23,8 +23,17 @@ describe('parseRoute', () => {
     expect(parseRoute('/pet')).toEqual({ name: 'pet-broken' });
     expect(parseRoute('/pet/')).toEqual({ name: 'pet-broken' });
     expect(parseRoute('/pet/123456789012345678901')).toEqual({ name: 'pet-broken' });
-    expect(parseRoute('/pet/9/diary')).toEqual({ name: 'unknown' });
+    expect(parseRoute('/pet/9/wardrobe')).toEqual({ name: 'unknown' });
     expect(parseRoute('/somewhere')).toEqual({ name: 'unknown' });
+  });
+
+  // spec: add-daily-ritual › Diary screen › success
+  it('reads the Diary screen at /pet/<token_id>/diary, with a trailing slash too, and no other address as one', () => {
+    expect(parseRoute('/pet/9/diary')).toEqual({ name: 'diary', tokenId: '9' });
+    expect(parseRoute('/pet/9/diary/')).toEqual({ name: 'diary', tokenId: '9' });
+    expect(parseRoute('/pet/abc/diary')).toEqual({ name: 'unknown' });
+    expect(parseRoute('/pet/9/diary/extra')).toEqual({ name: 'unknown' });
+    expect(diaryPath('9')).toBe('/pet/9/diary');
   });
 
   it('builds the paths it reads', () => {

@@ -77,9 +77,9 @@
       "durable_objects": { "bindings": [{ "name": "PET_DESK", "class_name": "PetDesk" }, { "name": "LIMITER", "class_name": "Limiter" }, { "name": "GUEST_VIEW", "class_name": "GuestView" }, { "name": "SERVER_KEY", "class_name": "ServerKey" }] },
       "migrations": [{ "tag": "v1", "new_sqlite_classes": ["PetDesk", "Limiter", "GuestView", "ServerKey"] }],
       "triggers": { "crons": ["* * * * *"] },
-      // Names that exist on the Worker `nearling-dev`. A name is added here when the change that reads
-      // it lands (RIDDLE_LIST is add-riddle's).
-      "secrets": { "required": ["NEARAI_API_KEY", "NEAR_GAS_ACCOUNT_KEY", "NEAR_SERVER_KEY", "INSULT_LIST"] }
+      // Names that exist on the Worker `nearling-dev`, and RIDDLE_LIST, which add-daily-ritual reads:
+      // the user's test list goes there before this change's dev deploy.
+      "secrets": { "required": ["NEARAI_API_KEY", "NEAR_GAS_ACCOUNT_KEY", "NEAR_SERVER_KEY", "INSULT_LIST", "RIDDLE_LIST"] }
     },
 
     // prod: names only. Its ids, accounts and Privy app are the main session's, at R1 mainnet; the
@@ -119,7 +119,7 @@
       "durable_objects": { "bindings": [{ "name": "PET_DESK", "class_name": "PetDesk" }, { "name": "LIMITER", "class_name": "Limiter" }, { "name": "GUEST_VIEW", "class_name": "GuestView" }, { "name": "SERVER_KEY", "class_name": "ServerKey" }] },
       "migrations": [{ "tag": "v1", "new_sqlite_classes": ["PetDesk", "Limiter", "GuestView", "ServerKey"] }],
       "triggers": { "crons": ["* * * * *"] },
-      "secrets": { "required": ["NEARAI_API_KEY", "NEAR_GAS_ACCOUNT_KEY", "NEAR_SERVER_KEY", "INSULT_LIST"] }
+      "secrets": { "required": ["NEARAI_API_KEY", "NEAR_GAS_ACCOUNT_KEY", "NEAR_SERVER_KEY", "INSULT_LIST", "RIDDLE_LIST"] }
     }
   }
 }

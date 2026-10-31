@@ -92,6 +92,8 @@ describe('Growth flow', () => {
   it('does not count a diary, a greeting or a wake thought, nor lift the mood', async () => {
     addPet();
     nextDay();
+    // the diary is written in the first 30 minutes of the UTC day (`add-daily-ritual`: a later claim is refused)
+    vi.setSystemTime(today() * DAY_MS + 10 * 60_000);
     for (const job of [{ kind: 'diary', day: today() - 1 }, { kind: 'greeting' }, { kind: 'wake', cause: 'owner' }] as const) {
       expect('thoughtId' in (await run(env, '5', job))).toBe(true);
     }

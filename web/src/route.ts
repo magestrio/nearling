@@ -43,6 +43,8 @@ export type Route =
   | { name: 'home' }
   | { name: 'hatch'; from: string | null }
   | { name: 'pet'; tokenId: string; from: string | null }
+  /** Diary screen: the ritual of the day, inside the Pet screen's own state (`add-daily-ritual` › `Diary screen`) */
+  | { name: 'diary'; tokenId: string }
   /** `/pet` or `/pet/<x>` with no token_id in it: a cut or mangled link */
   | { name: 'pet-broken' }
   | { name: 'day1' }
@@ -62,9 +64,12 @@ export function parseRoute(location: string): Route {
   if (path === '/__day1') return { name: 'day1' };
   const pet = /^\/pet\/(\d{1,20})$/.exec(path);
   if (pet) return { name: 'pet', tokenId: pet[1]!, from: friend };
+  const diary = /^\/pet\/(\d{1,20})\/diary$/.exec(path);
+  if (diary) return { name: 'diary', tokenId: diary[1]! };
   if (/^\/pet(\/[^/]*)?$/.test(path)) return { name: 'pet-broken' };
   return { name: 'unknown' };
 }
 
 export const petPath = (tokenId: string, from?: string | null) => `/pet/${tokenId}${from ? `?from=${from}` : ''}`;
+export const diaryPath = (tokenId: string) => `/pet/${tokenId}/diary`;
 export const hatchPath = (from?: string | null) => `/hatch${from ? `?from=${from}` : ''}`;

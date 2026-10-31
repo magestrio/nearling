@@ -48,6 +48,8 @@ struct StateMirror {
     next_token_id: u64,
     pool: u128,
     known: LookupSet<(String, near_sdk::AccountId), Sha256>,
+    riddle_commits: LookupMap<u64, [u8; 32]>,
+    riddle_reserve: u128,
 }
 
 pub struct Ctx {
@@ -338,9 +340,10 @@ impl Ctx {
                 }
                 traits
             },
+            last_streak_day: view["last_streak_day"].as_u64().unwrap_or(0),
         };
         edit(&mut pet);
-        self.put_record(token_id, VersionedPet::V3(pet)).await
+        self.put_record(token_id, VersionedPet::V4(pet)).await
     }
 
     /// Writes a record as it is, in any version: a test of an older pet needs the old bytes.
@@ -391,6 +394,141 @@ impl Ctx {
     /// `age_births_by_a_day`, this stands in for a clock past 00:00 UTC.
     pub async fn age_stage_by_a_day(&self, token_id: &str) -> anyhow::Result<()> {
         self.set_pet(token_id, |pet| pet.stage_day -= 1).await
+    }
+
+    /// The pet's last counted streak day `days` older: stands in for a clock `days` past 00:00
+    /// UTC, as `age_stage_by_a_day` does for the stage (`fast_forward` to the next UTC day costs
+    /// ~40 minutes; the real `block_timestamp` boundary is the unit tests in `src/lib.rs`).
+    pub async fn age_streak_by_days(&self, token_id: &str, days: u64) -> anyhow::Result<()> {
+        self.set_pet(token_id, |pet| {
+            assert!(pet.last_streak_day > days, "a counted day to age");
+            pet.last_streak_day -= days;
+        })
+        .await
+    }
+
+    /// The pet born `days` UTC days ago (its birth time moves back).
+    pub async fn age_birth_by_days(&self, token_id: &str, days: u64) -> anyhow::Result<()> {
+        self.set_pet(token_id, |pet| pet.born_at -= days * DAY_NS)
+            .await
+    }
+
+    pub async fn streak_mark_as(
+        &self,
+        caller: &Account,
+        token_id: &str,
+        day: u64,
+        skipped: u32,
+    ) -> anyhow::Result<ExecutionFinalResult> {
+        self.streak_mark_with(caller, token_id, day, skipped, Gas::from_tgas(30))
+            .await
+    }
+
+    pub async fn streak_mark_with(
+        &self,
+        caller: &Account,
+        token_id: &str,
+        day: u64,
+        skipped: u32,
+        gas: Gas,
+    ) -> anyhow::Result<ExecutionFinalResult> {
+        Ok(caller
+            .call(self.contract.id(), "streak_mark")
+            .args_json(json!({ "token_id": token_id, "day": day, "skipped": skipped }))
+            .gas(gas)
+            .transact()
+            .await?)
+    }
+
+    pub async fn streak_mark(
+        &self,
+        token_id: &str,
+        day: u64,
+        skipped: u32,
+    ) -> anyhow::Result<ExecutionFinalResult> {
+        self.streak_mark_as(&self.server, token_id, day, skipped)
+            .await
+    }
+
+    pub async fn riddle_commit_as(
+        &self,
+        caller: &Account,
+        hash: &str,
+    ) -> anyhow::Result<ExecutionFinalResult> {
+        Ok(caller
+            .call(self.contract.id(), "riddle_commit")
+            .args_json(json!({ "hash": hash }))
+            .gas(Gas::from_tgas(30))
+            .transact()
+            .await?)
+    }
+
+    pub async fn riddle_commit(&self, hash: &str) -> anyhow::Result<ExecutionFinalResult> {
+        self.riddle_commit_as(&self.server, hash).await
+    }
+
+    pub async fn riddle_reveal_as(
+        &self,
+        caller: &Account,
+        day: u64,
+        riddle: &str,
+        answers: &[String],
+        salt: &str,
+        gas: Gas,
+    ) -> anyhow::Result<ExecutionFinalResult> {
+        Ok(caller
+            .call(self.contract.id(), "riddle_reveal")
+            .args_json(json!({ "day": day, "riddle": riddle, "answers": answers, "salt": salt }))
+            .gas(gas)
+            .transact()
+            .await?)
+    }
+
+    pub async fn riddle_view(&self, day: u64) -> anyhow::Result<Value> {
+        Ok(self
+            .contract
+            .view("riddle_view")
+            .args_json(json!({ "day": day }))
+            .await?
+            .json()?)
+    }
+
+    pub async fn fund_riddles(&self, yocto: u128) -> anyhow::Result<ExecutionFinalResult> {
+        Ok(self
+            .server
+            .call(self.contract.id(), "riddle_storage_fund")
+            .deposit(NearToken::from_yoctonear(yocto))
+            .transact()
+            .await?)
+    }
+
+    /// Sets the riddle reserve in the state (the contract's balance is not touched).
+    pub async fn set_riddle_reserve(&self, reserve: u128) -> anyhow::Result<()> {
+        let state = self.read_state().await?;
+        let mut mirror: StateMirror = borsh::from_slice(&state)?;
+        mirror.riddle_reserve = reserve;
+        self.worker
+            .patch_state(self.contract.id(), b"STATE", &borsh::to_vec(&mirror)?)
+            .await?;
+        Ok(())
+    }
+
+    /// A commit of a past `day`, as if the server had sealed it then: the record in the trie and
+    /// its bytes in the account's storage usage, so a reveal frees exactly what it took. The
+    /// reserve is the caller's to set.
+    pub async fn put_commit(&self, day: u64, hash: [u8; 32]) -> anyhow::Result<()> {
+        let mut key = b"r".to_vec();
+        key.extend(borsh::to_vec(&day)?);
+        self.worker
+            .patch_state(self.contract.id(), &key, &hash)
+            .await?;
+        let id = self.contract.id();
+        let details = self.worker.view_account(id).await?;
+        let usage = details.storage_usage;
+        let mut patch: AccountDetailsPatch = details.into();
+        patch.storage_usage = Some(usage + nearling_contract::limits::RIDDLE_COMMIT_BYTES);
+        self.worker.patch(id).account(patch).transact().await?;
+        Ok(())
     }
 
     /// Moves the birth counter's day one day back: the births counted so far "happened

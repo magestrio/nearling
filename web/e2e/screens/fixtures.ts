@@ -1,6 +1,8 @@
 import type { Page } from '@playwright/test';
 import type { FakeState, FakeWorkerState } from '../../src/seams/fakes';
 import type { FeedSheetData, Fullness, SheetPortion } from '../../src/seams/worker-types';
+import { SAMPLE_DAY, sampleDiary } from '../../src/seams/diary.sample';
+import type { DiaryView } from '../../src/seams/worker-types';
 import { CLOSED_ALL, CLOSED_NEW, lookAgain, setWorker, UA } from '../helpers';
 
 /** One frame's state in the real client, on the sample values of design/BRIEF.md §1. */
@@ -16,6 +18,9 @@ export interface ScreenFixture {
   /** Lines of the frame's `copy` that belong to a part of another change, which is not built yet: the capture does not
    *  assert them (they are recorded in design.md › «Отклонения от кадров» with their change). */
   otherChange?: Array<{ line: string; change: string }>;
+  /** Lines of the frame's `copy` that are behind the spec (design/INBOX.md): the spec's words are drawn and asserted by an e2e
+   *  test, and the capture does not assert the frame's older ones. Recorded in design.md › «Отклонения от кадров». */
+  staleCopy?: string[];
 }
 
 /**
@@ -235,6 +240,56 @@ const browserWith = (what: { clipboard: 'ok' | 'denied' }) => async (page: Page)
       },
     });
   }, what);
+};
+
+// Diary screen (design/bundle/screens/diary.js): Pixel is the player's own pet, the Diary's day is Oct 31 (BRIEF.md §1), {time} 02:00.
+// The entry, the question, the answers and the riddles are the frame's samples.
+const DIARY_WORK = 'In the 24 hours before 02:00, Pixel helped Biscuit and Nori, earning 0.6¢.';
+const DIARY_ANSWER = 'It did — the CFO laughed at the dip and then asked for the slides.';
+const DIARY_RIDDLE = "What has hands but can't clap?";
+const DIARY_TYPED = 'a clock';
+const STREAK_2 = { days: 2, freezes: 1, done: false, line: null, n: 2, k: 1, missed: 0, note: [] };
+const OPEN_RIDDLE = { kind: 'open' as const, day: SAMPLE_DAY, text: DIARY_RIDDLE };
+const ANSWERED_CLEARED = { kind: 'answered' as const, day: SAMPLE_DAY, text: DIARY_RIDDLE, answer: null };
+/** the owner's Pixel and the diary laid over the sample one */
+function diaryWorker(diary: Partial<DiaryView>, extra: Partial<FakeWorkerState> = {}): FakeWorkerState {
+  return { ...owner(), diary, ...extra };
+}
+/** a sample entry with the work line the frame shows (the line is `add-pet-work`'s; the fixture gives it as the Worker would) */
+const entryWithWork = (): DiaryView['entry'] => {
+  const entry = sampleDiary().entry;
+  return entry.kind === 'text' ? { ...entry, work: DIARY_WORK } : entry;
+};
+const diaryReady = (page: Page) => page.getByRole('heading', { level: 2, name: DIARY_RIDDLE }).or(page.getByText(/writes its first diary entry|You cleared/)).first().waitFor();
+const typeDiary = async (page: Page, answer: string | null, riddle: string | null) => {
+  if (answer !== null) await page.getByLabel('Did the chart surprise anyone?').fill(answer);
+  if (riddle !== null) await page.getByLabel(DIARY_RIDDLE).fill(riddle);
+  // the frames show the field at rest: no focus ring from the typing
+  await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
+  await page.mouse.move(0, 0);
+};
+const DIARY_REPLY = 'A laugh from the CFO is a standing ovation. Next time, tell me what the dip was.';
+const SAVING_STREAK = { days: 2, freezes: 1, done: true, line: null, n: 2, k: 1, missed: 0, note: ['saving' as const] };
+/** the pet falls asleep on the open Diary, the ritual done and saving; with an unsent riddle answer typed when `typed` is given */
+const fallAsleep = async (page: Page, typed: string | null) => {
+  await diaryReady(page);
+  if (typed !== null) await typeDiary(page, null, typed);
+  await setWorker(page, {
+    pets: { '9': { ...PIXEL, fullness: { state: 'asleep', level: 0 }, owner: { ownedCount: 2 } }, '2': BISCUIT },
+    diary: { entry: entryWithWork(), streak: SAVING_STREAK, parts: [], complete: true },
+  });
+  await lookAgain(page);
+  await page.getByText('Pixel fell asleep. Today still counts for your streak.').first().waitFor();
+  await page.mouse.move(0, 0);
+  // the focus went to the first line and scrolled it into view: the frames stand at the top
+  await page.evaluate(() => {
+    (document.activeElement as HTMLElement | null)?.blur();
+    window.scrollTo(0, 0);
+  });
+};
+/** the clock of the page stands near the end of the Diary's day, so a diary that fails to load later is of a day that moved on */
+const nearMidnight = async (page: Page) => {
+  await page.clock.install({ time: new Date('2026-10-31T23:59:50Z') });
 };
 
 export const fixtures: Record<string, ScreenFixture> = {
@@ -1239,5 +1294,154 @@ export const fixtures: Record<string, ScreenFixture> = {
       await page.mouse.move(0, 0);
       await settle(page);
     },
+  },
+
+  // spec: add-daily-ritual › Diary screen › success
+  'diary-success': {
+    route: '/pet/9/diary',
+    fakes: { auth: SIGNED_IN, worker: diaryWorker({ entry: entryWithWork(), streak: STREAK_2 }) },
+    prepare: diaryReady,
+  },
+
+  // spec: add-daily-ritual › Diary screen › empty
+  'diary-empty': {
+    route: '/pet/9/diary',
+    fakes: {
+      auth: SIGNED_IN,
+      worker: diaryWorker({
+        entry: { kind: 'first' },
+        streak: { ...STREAK_2, days: 0 },
+        yesterday: { kind: 'none', answer: 'a piano' },
+        parts: ['riddle'],
+      }),
+    },
+    prepare: diaryReady,
+  },
+
+  // spec: add-daily-ritual › Diary screen › память стёрта сегодня
+  'diary-memory-cleared': {
+    route: '/pet/9/diary',
+    fakes: {
+      auth: SIGNED_IN,
+      worker: diaryWorker({
+        entry: { kind: 'cleared' },
+        riddle: ANSWERED_CLEARED,
+        yesterday: { kind: 'none', answer: 'a piano' },
+        streak: { ...STREAK_2, done: true, note: ['saving'] },
+        parts: [],
+        complete: true,
+      }),
+    },
+    prepare: diaryReady,
+  },
+
+  // spec: add-daily-ritual › Diary screen › loading
+  'diary-loading': {
+    route: '/pet/9/diary',
+    fakes: { auth: SIGNED_IN, worker: diaryWorker({}, { diaryDelayMs: FOREVER }) },
+    prepare: async (page) => {
+      await page.getByRole('status').filter({ hasText: "Opening Pixel's diary…" }).first().waitFor();
+    },
+  },
+
+  // the diary read, the fields typed, then the load of the new day fails: «error» over the last known diary
+  // spec: add-daily-ritual › Diary screen › error
+  'diary-error': {
+    route: '/pet/9/diary',
+    fakes: { auth: SIGNED_IN, worker: diaryWorker({ entry: entryWithWork(), streak: STREAK_2 }) },
+    beforeLoad: nearMidnight,
+    prepare: async (page) => {
+      await diaryReady(page);
+      await typeDiary(page, DIARY_ANSWER, DIARY_TYPED);
+      // the player has stopped typing: with a field in the focus the page stays where it is (`DiaryPage`), and the frame stands at
+      // the top by the page's own scroll, not the fixture's
+      await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
+      await setWorker(page, { diary: { fail: { status: 0, code: 'unreachable' } } });
+      await page.clock.fastForward(15_000);
+      await page.getByText("We couldn't open Pixel's diary right now. Try again in a moment.").waitFor();
+      await page.mouse.move(0, 0);
+    },
+  },
+
+  // the session ended under the open Diary, «Send answer» tapped: the line and «Sign in», the riddle answer kept
+  // spec: add-daily-ritual › Diary screen › signed-out
+  'diary-signed-out': {
+    route: '/pet/9/diary',
+    fakes: { auth: SIGNED_IN, worker: diaryWorker({ entry: entryWithWork(), streak: STREAK_2 }) },
+    prepare: async (page) => {
+      await diaryReady(page);
+      await typeDiary(page, null, DIARY_TYPED);
+      await setWorker(page, { sessionExpired: true });
+      await lookAgain(page);
+      await page.getByRole('button', { name: 'Send answer' }).click();
+      await page.getByText("You've been signed out. Sign in to get back to Pixel's diary.").first().waitFor();
+      await page.mouse.move(0, 0);
+      await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
+    },
+  },
+
+  // the pet fell asleep while the diary was open: the line and «Feed Pixel» in place of the fields, the ritual done and saving
+  // spec: add-daily-ritual › Diary screen › asleep
+  'diary-asleep': {
+    route: '/pet/9/diary',
+    fakes: { auth: SIGNED_IN, worker: diaryWorker({ entry: entryWithWork(), streak: STREAK_2 }) },
+    prepare: (page) => fallAsleep(page, null),
+  },
+
+  // spec: add-daily-ritual › Diary screen › уснул с набранным ответом
+  'diary-asleep-typed': {
+    route: '/pet/9/diary',
+    fakes: { auth: SIGNED_IN, worker: diaryWorker({ entry: entryWithWork(), streak: STREAK_2 }) },
+    prepare: (page) => fallAsleep(page, DIARY_TYPED),
+  },
+
+  // the last part done: the exchange under the question, «Answer in!…» with the answer, the streak saving
+  // spec: add-daily-ritual › Daily ritual flow › ритуал завершён
+  'diary-done': {
+    route: '/pet/9/diary',
+    fakes: {
+      auth: SIGNED_IN,
+      worker: diaryWorker({
+        entry: entryWithWork(),
+        exchange: { answer: DIARY_ANSWER, reply: DIARY_REPLY },
+        riddle: { kind: 'answered', day: SAMPLE_DAY, text: DIARY_RIDDLE, answer: DIARY_TYPED },
+        streak: SAVING_STREAK,
+        parts: [],
+        complete: true,
+      }),
+    },
+    prepare: diaryReady,
+  },
+
+  // back after a missed day a freeze covered: the line, the forecast number with its note, the covered day dashed
+  // spec: add-daily-ritual › Streak rule › заморозка спасла серию
+  'diary-streak-saved': {
+    route: '/pet/9/diary',
+    fakes: {
+      auth: SIGNED_IN,
+      worker: diaryWorker({ entry: entryWithWork(), streak: { days: 2, freezes: 0, done: false, line: 'frozen', n: 2, k: 0, missed: 1, note: ['forecast'] } }),
+    },
+    prepare: diaryReady,
+    // the frame's manifest `copy` still reads «…safe while you were away…», behind the spec (design/INBOX.md): the spec's words
+    // are asserted by e2e/diary-streak.spec.ts
+    staleCopy: ['A streak freeze kept your {n}-day streak safe while you were away. Freezes left: {k}.'],
+  },
+
+  // spec: add-daily-ritual › Streak rule › серия началась заново
+  'diary-streak-reset': {
+    route: '/pet/9/diary',
+    fakes: {
+      auth: SIGNED_IN,
+      worker: diaryWorker({ entry: entryWithWork(), streak: { days: 0, freezes: 0, done: false, line: 'fresh', n: 2, k: 0, missed: 2, note: ['forecast'] } }),
+    },
+    prepare: diaryReady,
+  },
+
+  // the pet at its daily cap: «Answer Pixel» off with the line beside it, the riddle still open
+  // spec: add-daily-ritual › Ritual day rule › питомец устал
+  'diary-tired': {
+    route: '/pet/9/diary',
+    fakes: { auth: SIGNED_IN, worker: { ...owner({ tired: true, until: MIDNIGHT_UTC }), diary: { entry: entryWithWork(), streak: STREAK_2, parts: ['riddle'] } } },
+    prepare: diaryReady,
   },
 };

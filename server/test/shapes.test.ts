@@ -29,6 +29,8 @@ const OWNER_VIEW: Record<keyof OwnerView, 'always' | 'sometimes'> = {
   wakes: 'always',
   traits: 'always',
   energy: 'always',
+  diaryUnread: 'always',
+  pendingQuestion: 'always',
   ownedCount: 'always',
 };
 const STATE: Record<keyof PetState, 'always' | 'sometimes'> = {
@@ -52,6 +54,8 @@ const STATE: Record<keyof PetState, 'always' | 'sometimes'> = {
   wakes: 'always',
   traits: 'always',
   energy: 'always',
+  diaryUnread: 'always',
+  pendingQuestion: 'always',
   events: 'always',
   pending: 'sometimes',
   jobKind: 'sometimes',

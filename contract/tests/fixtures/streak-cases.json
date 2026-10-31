@@ -1,0 +1,21 @@
+{
+  "note": "next_streak(streak, freezes, last, day, skipped) -> (streak, freezes, spent); read by contract/src/pet.rs and server/test/ritual-rules.test.ts",
+  "cases": [
+    { "name": "first mark ignores skipped", "streak": 0, "freezes": 1, "last": 0, "day": 100, "skipped": 5, "streak_after": 1, "freezes_after": 1, "spent": 0 },
+    { "name": "the next day", "streak": 2, "freezes": 1, "last": 100, "day": 101, "skipped": 0, "streak_after": 3, "freezes_after": 1, "spent": 0 },
+    { "name": "one missed day, a freeze covers it", "streak": 2, "freezes": 1, "last": 100, "day": 102, "skipped": 0, "streak_after": 3, "freezes_after": 0, "spent": 1 },
+    { "name": "one missed day, excused", "streak": 2, "freezes": 0, "last": 100, "day": 102, "skipped": 1, "streak_after": 3, "freezes_after": 0, "spent": 0 },
+    { "name": "three in between, one excused, two covered", "streak": 4, "freezes": 2, "last": 100, "day": 104, "skipped": 1, "streak_after": 5, "freezes_after": 0, "spent": 2 },
+    { "name": "break: more missed than freezes", "streak": 5, "freezes": 1, "last": 100, "day": 103, "skipped": 0, "streak_after": 1, "freezes_after": 0, "spent": 1 },
+    { "name": "break with no freezes", "streak": 3, "freezes": 0, "last": 100, "day": 102, "skipped": 0, "streak_after": 1, "freezes_after": 0, "spent": 0 },
+    { "name": "the 7th day earns a freeze", "streak": 6, "freezes": 0, "last": 100, "day": 101, "skipped": 0, "streak_after": 7, "freezes_after": 1, "spent": 0 },
+    { "name": "the 7th day after a covered miss", "streak": 6, "freezes": 1, "last": 100, "day": 102, "skipped": 0, "streak_after": 7, "freezes_after": 1, "spent": 1 },
+    { "name": "the 14th day", "streak": 13, "freezes": 2, "last": 100, "day": 101, "skipped": 0, "streak_after": 14, "freezes_after": 3, "spent": 0 },
+    { "name": "freezes saturate", "streak": 6, "freezes": 255, "last": 100, "day": 101, "skipped": 0, "streak_after": 7, "freezes_after": 255, "spent": 0 },
+    { "name": "a reset to 1 earns nothing", "streak": 6, "freezes": 0, "last": 100, "day": 103, "skipped": 0, "streak_after": 1, "freezes_after": 0, "spent": 0 },
+    { "name": "every day in between excused", "streak": 6, "freezes": 0, "last": 100, "day": 105, "skipped": 4, "streak_after": 7, "freezes_after": 1, "spent": 0 },
+    { "name": "freezes exactly cover the gap", "streak": 1, "freezes": 5, "last": 100, "day": 106, "skipped": 0, "streak_after": 2, "freezes_after": 0, "spent": 5 },
+    { "name": "break: spent is the freezes the pet had", "streak": 4, "freezes": 3, "last": 100, "day": 110, "skipped": 0, "streak_after": 1, "freezes_after": 0, "spent": 3 },
+    { "name": "a gap far beyond a byte", "streak": 9, "freezes": 2, "last": 100, "day": 500, "skipped": 0, "streak_after": 1, "freezes_after": 0, "spent": 2 }
+  ]
+}
