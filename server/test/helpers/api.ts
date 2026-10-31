@@ -61,9 +61,11 @@ export function harness(): Harness {
       });
     }
     // Clean tables between tests (storage is isolated per file, not per test).
-    for (const table of ['pets', 'thoughts', 'thought_calls', 'memory_notes', 'debit_sessions', 'pet_spend', 'empty_answers', 'jobs', 'project_spend', 'service_pause', 'births_in_flight']) {
+    for (const table of ['pets', 'thoughts', 'thought_calls', 'memory_notes', 'debit_sessions', 'pet_spend', 'empty_answers', 'jobs', 'project_spend', 'service_pause', 'births_in_flight', 'feedings', 'friend_snacks', 'known_index']) {
       await env.DB.exec(`DELETE FROM ${table}`);
     }
+    // The players stay (a token makes its row once), the feeding side of their rows does not.
+    await env.DB.exec("UPDATE players SET first_name = NULL, gas_topup_at = NULL, gas_added_yocto = '0', wallet_seen_yocto = '0'");
   });
 
   afterEach(() => {

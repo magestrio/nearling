@@ -2,7 +2,8 @@ mod common;
 
 use common::*;
 use near_sdk::borsh;
-use nearling_contract::InitContract;
+use nearling_contract::limits::MIN_FEED;
+use nearling_contract::pet::{PetV1, Stage, VersionedPet};
 use serde_json::json;
 
 /// Builds the wasm from the crate as it is now, deploys it to a sandbox account, initializes it
@@ -39,7 +40,7 @@ async fn new_and_migrate_refuse_a_foreign_caller() -> anyhow::Result<()> {
     let foreign_migrate = ctx
         .funder
         .call(ctx.contract.id(), "migrate")
-        .args_json(json!({ "server_id": ctx.funder.id(), "treasury_id": ctx.funder.id() }))
+        .args_json(json!({}))
         .transact()
         .await?;
     assert_refused(&foreign_migrate, "private");
@@ -54,66 +55,89 @@ async fn new_and_migrate_refuse_a_foreign_caller() -> anyhow::Result<()> {
     Ok(())
 }
 
-/// The dev account holds the Init state `{ owner_id }`; `migrate` takes it into the game's layout.
+/// The dev account holds the layout of `add-pet` with pets in it: version-1 records and no `known`.
+/// `migrate` takes it, with the pool, the counters and the pets as they were; a pet of version 1
+/// reads with zero counters and is fed (so written) as version 2.
 #[tokio::test]
-async fn migrate_takes_the_init_state_of_a_deployed_contract() -> anyhow::Result<()> {
-    let wasm = wasm();
-    let worker = near_workspaces::sandbox().await?;
-    let root = worker.root_account()?;
-    let owner = root
-        .create_subaccount("owner")
-        .transact()
+async fn migrate_takes_the_add_pet_layout_of_a_deployed_contract() -> anyhow::Result<()> {
+    let ctx = setup(BIG_POOL).await?;
+    ctx.mint("alice.near", "Pixel", "I am curious.")
         .await?
         .into_result()?;
-    let server = root
-        .create_subaccount("server")
-        .transact()
-        .await?
-        .into_result()?;
-    let treasury = root
-        .create_subaccount("treasury")
-        .transact()
-        .await?
-        .into_result()?;
-    let contract = worker.dev_deploy(wasm).await?;
-    let init_state = borsh::to_vec(&InitContract {
-        owner_id: owner.id().clone(),
-    })?;
-    worker
-        .patch_state(contract.id(), b"STATE", &init_state)
-        .await?;
+    let view = ctx.pet_view("0").await?;
+    let amount = |k: &str| -> u128 { view[k].as_str().unwrap().parse().unwrap() };
 
-    contract
-        .call("migrate")
-        .args_json(json!({ "server_id": server.id(), "treasury_id": treasury.id() }))
-        .transact()
-        .await?
-        .into_result()?;
-    let stored_owner: String = contract.view("owner_id").await?.json()?;
-    assert_eq!(stored_owner, owner.id().to_string());
-    let hatch: serde_json::Value = contract
-        .view("hatch_view")
-        .args_json(json!({ "account_id": "alice.near" }))
-        .await?
-        .json()?;
-    assert_eq!(hatch["pool"], "0");
-    assert_eq!(hatch["token_id"], serde_json::Value::Null);
-
-    // The server named by `migrate` is the one that may mint.
-    let funded = contract
-        .as_account()
-        .call(contract.id(), "pool_fund")
-        .deposit(near_workspaces::types::NearToken::from_near(1))
-        .transact()
-        .await?;
-    assert!(funded.is_success());
-    let minted = server
-        .call(contract.id(), "pet_mint")
-        .args_json(
-            json!({ "receiver": "alice.near", "name": "Pixel", "character": "I am curious." }),
+    // The record `add-pet` wrote.
+    let old_pet = PetV1 {
+        name: "Pixel".into(),
+        character: "I am curious.".into(),
+        born_at: view["born_at"].as_u64().unwrap(),
+        project_food: amount("project_food"),
+        given_food: 5,
+        debit_day: 0,
+        debited_today: 0,
+        last_debit_id: 0,
+        stage: Stage::Baby,
+        stage_day: view["stage_day"].as_u64().unwrap(),
+        streak: 0,
+        freezes: 1,
+    };
+    let mut key = b"p".to_vec();
+    key.extend(borsh::to_vec(&"0".to_string())?);
+    ctx.worker
+        .patch_state(
+            ctx.contract.id(),
+            &key,
+            &borsh::to_vec(&VersionedPet::V1(old_pet))?,
         )
+        .await?;
+
+    // The state `add-pet` wrote is this one without the trailing `known` (a 4-byte length and
+    // the prefix `k`).
+    let pool_before = ctx.pool().await?;
+    let state = ctx.read_state().await?;
+    assert_eq!(&state[state.len() - 5..], &[1, 0, 0, 0, b'k']);
+    ctx.worker
+        .patch_state(ctx.contract.id(), b"STATE", &state[..state.len() - 5])
+        .await?;
+
+    ctx.contract
+        .call("migrate")
+        .args_json(json!({}))
+        .transact()
+        .await?
+        .into_result()?;
+    assert_eq!(ctx.pool().await?, pool_before);
+    let stored_owner: String = ctx.contract.view("owner_id").await?.json()?;
+    assert_eq!(stored_owner, "owner.test.near");
+    assert_eq!(ctx.hatch_view("alice.near").await?["token_id"], "0");
+    let migrated = ctx.pet_view("0").await?;
+    assert_eq!(migrated["given_food"], "5");
+    assert_eq!(migrated["friend_snacks"], 0);
+    assert_eq!(migrated["friend_snack_day"], 0);
+    assert_eq!(migrated["owner_snack_at"], "0");
+    assert!(!ctx.knows("0", "bob.near").await?);
+
+    // The server named at `new` is still the one that may mint, and a meal on the old record
+    // keeps the food it had.
+    ctx.mint("carol.near", "Biscuit", "I am calm.")
+        .await?
+        .into_result()?;
+    let bob = ctx.account("bob", 10).await?;
+    ctx.feed_as(&bob, "0", MIN_FEED).await?.into_result()?;
+    assert_eq!(
+        ctx.pet_view("0").await?["given_food"],
+        (5 + MIN_FEED).to_string()
+    );
+    assert!(ctx.knows("0", bob.id().as_str()).await?);
+
+    // A second call finds `known` after the old layout and fails: the pool is never reset.
+    let again = ctx
+        .contract
+        .call("migrate")
+        .args_json(json!({}))
         .transact()
         .await?;
-    assert!(minted.is_success(), "{:?}", minted.failures());
+    assert_refused(&again, "Cannot deserialize the contract state");
     Ok(())
 }

@@ -11,7 +11,7 @@
 // settles the batch, so a set `debit_id` means «signed, outcome not written down»: whatever died in
 // between, the next tick looks at the chain before it signs anything, and a batch that may be on
 // the chain only ever goes out under that id. A second id for it is the one way to debit it twice.
-import { ChainUnreachable, petView, txStatus } from './chain';
+import { ChainUnreachable, isNodeRefusal, petView, txStatus } from './chain';
 import { utcDay } from './http';
 import { gasShareYocto, nearUsdRate, yoctoToUsdMicros } from './pricing';
 import { gasIsLow } from './servicePause';
@@ -250,7 +250,7 @@ async function debitSession(env: Env, session: Session, held: Claim, accepted: M
       await gasOfShortBatch(env, batch.length, answer.burnt);
       continue;
     }
-    if (answer.status === 'failed') {
+    if (answer.status === 'failed' && !isNodeRefusal(answer.code)) {
       if (answer.code === 'bad_debit_id') {
         // Out of order, not a refusal of the thoughts.
         if (!resend) {
@@ -270,7 +270,8 @@ async function debitSession(env: Env, session: Session, held: Claim, accepted: M
       inFlight = null;
       continue;
     }
-    // unknown: remember the hash; the next minute asks the network before signing again
+    // unknown, or refused by the node (the contract saw nothing, so the thoughts stay to be billed):
+    // remember the hash; the next minute asks the network before signing again
     await env.DB.prepare('UPDATE debit_sessions SET tx_hash = ? WHERE id = ? AND debit_id = ?').bind(answer.txHash, session.id, debitId).run();
     inFlight = debitId;
     tx = answer.txHash;

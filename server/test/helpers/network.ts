@@ -12,7 +12,7 @@
 //
 // A fake answers what the real service answers; its shapes are nearcore's, read from near-api-js.
 import { env } from 'cloudflare:workers';
-import { baseDecode, baseEncode, decodeSignedTransaction, encodeTransaction } from 'near-api-js';
+import { baseDecode, baseEncode, decodeSignedTransaction, encodeTransaction, KeyPairEd25519 } from 'near-api-js';
 import { SignJWT, exportJWK, generateKeyPair } from 'jose';
 import { vi } from 'vitest';
 
@@ -32,6 +32,9 @@ export interface FakePet {
   stage_day: number;
   streak: number;
   freezes: number;
+  friend_snack_day: number;
+  friend_snacks: number;
+  owner_snack_at: string;
 }
 
 export type SendMode =
@@ -41,9 +44,36 @@ export type SendMode =
   // The transaction never reaches the chain and the answer never arrives.
   | 'lost'
   // The first delivery is rejected with an invalid nonce (nothing is executed), the next is fine.
-  | 'nonce-once';
+  | 'nonce-once'
+  // Every delivery is refused: the nonce is stale (nothing is executed), or the signer cannot pay.
+  | 'invalid-nonce'
+  | 'not-enough-balance';
+
+/** nearcore's answer to a transaction it refuses (JSON-RPC `send_tx`), `InvalidTxError` in `data`. */
+function invalidTx(invalid: unknown): unknown {
+  return { error: { name: 'HANDLER_ERROR', cause: { name: 'INVALID_TRANSACTION', info: {} }, code: -32000, message: 'Server error', data: { TxExecutionError: { InvalidTxError: invalid } } } };
+}
+
+/** nearcore's answer to a view of an account it has no record of. */
+const unknownAccount = (account: string) => ({
+  error: { name: 'HANDLER_ERROR', cause: { name: 'UNKNOWN_ACCOUNT', info: { requested_account_id: account, block_hash: 'x', block_height: 1000 } }, code: -32000, message: 'Server error', data: `account ${account} does not exist while viewing` },
+});
+
+/** A storage record of an acquaintance, 72 bytes (`KNOWN_RECORD_BYTES`), in yoctoNEAR. */
+const KNOWN_COST = 720_000_000_000_000_000_000n;
 
 export class FakeContract {
+  /** The balances of every account but the server's: the gas account, the players' wallets. An
+   * account that is not here does not exist (its `view_account` is `UNKNOWN_ACCOUNT`). */
+  balances = new Map<string, bigint>([[env.GAS_ACCOUNT_ID, 1_500_000_000_000_000_000_000_000n]]);
+  /** `(token_id, account)` of the acquaintances the contract recorded (`pet_knows`). */
+  known = new Set<string>();
+  /** Every `feed` event: the meals the contract took. */
+  feeds: { token_id: string; feeder: string; amount: string }[] = [];
+  /** Every account whose `view_account` the Worker asked for. */
+  viewed: string[] = [];
+  /** Every `snack` event. */
+  snacks: { token_id: string; kind: string; friend?: string }[] = [];
   pets = new Map<string, FakePet>();
   hatchedBy = new Map<string, string>();
   /** The UTC day of the (faked) clock, as the contract's `block_timestamp` would say. */
@@ -68,6 +98,8 @@ export class FakeContract {
   private signedHashes = new Set<string>();
   /** When set, the whole RPC answers 503. */
   down = false;
+  /** When set, a plain transfer is executed and fails (the receipt fails), moving nothing. */
+  transferFails: string | null = null;
   /** When set, `pet_mint` fails with this contract code (a panic). */
   mintFails: string | null = null;
   /** How `tx` answers a hash it has never seen. nearcore polls until its own timeout (`TIMEOUT_ERROR`);
@@ -86,6 +118,9 @@ export class FakeContract {
   private past = new Map<string, FakePet[]>();
   private applied = new Set<string>();
   private nonce = 100;
+  /** The nonce of a player's key after the transactions of it that executed (a project key's stays
+   * at `nonce`: the Worker's own accounts keep their cache). */
+  private playerNonces = new Map<string, number>();
   private nonceRejected = false;
 
   addPet(id: string, owner: string, patch: Partial<FakePet> = {}): FakePet {
@@ -103,6 +138,9 @@ export class FakeContract {
       stage_day: this.day,
       streak: 0,
       freezes: 1,
+      friend_snack_day: 0,
+      friend_snacks: 0,
+      owner_snack_at: '0',
       ...patch,
     };
     this.pets.set(id, pet);
@@ -133,6 +171,8 @@ export class FakeContract {
         };
       case 'nft_supply_for_owner':
         return String(this.ownedBy(String(args.account_id)));
+      case 'pet_knows':
+        return this.known.has(`${String(args.token_id)}:${String(args.account_id)}`);
       default:
         throw new Error(`the fake contract has no view ${method}`);
     }
@@ -186,6 +226,51 @@ export class FakeContract {
     this.debits.push({ tokenId, debitId, thoughts });
     return null;
   }
+  /** The contract's `introduce`: the pool pays the record of a new acquaintance before it is written. */
+  private introduce(tokenId: string, feeder: string, reserve: bigint): boolean {
+    const key = `${tokenId}:${feeder}`;
+    if (this.known.has(key) || this.pool < KNOWN_COST + reserve) return false;
+    this.known.add(key);
+    this.pool -= KNOWN_COST;
+    return true;
+  }
+
+  /** The contract's `pet_feed`: a panic code, or whether an acquaintance was recorded. */
+  feed(feeder: string, tokenId: string, deposit: bigint): { code: string } | { wrote: boolean } {
+    if (deposit < BigInt(env.MIN_FEED)) return { code: 'feed_too_small' };
+    const pet = this.pets.get(tokenId);
+    if (!pet) return { code: 'no_pet' };
+    pet.given_food = (BigInt(pet.given_food) + deposit).toString();
+    this.feeds.push({ token_id: tokenId, feeder, amount: deposit.toString() });
+    return { wrote: feeder !== pet.owner_id && this.introduce(tokenId, feeder, 0n) };
+  }
+
+  /** The contract's `pet_snack`, in its order of checks: caller, pet, the kind's cap, the pool. */
+  snack(caller: string, tokenId: string, feeder: string, kind: string): { code: string } | { wrote: boolean } {
+    if (caller !== env.SERVER_ACCOUNT_ID) return { code: 'not_server' };
+    const pet = this.pets.get(tokenId);
+    if (!pet) return { code: 'no_pet' };
+    const amount = BigInt(env.SNACK_AMOUNT);
+    if (kind === 'friend') {
+      if (pet.friend_snack_day === this.day && pet.friend_snacks >= Number(env.FRIEND_SNACKS_PER_DAY)) return { code: 'snacks_today' };
+    } else {
+      if (feeder !== pet.owner_id) return { code: 'feeder_not_owner' };
+      const last = BigInt(pet.owner_snack_at);
+      if (last !== 0n && BigInt(Date.now()) * 1_000_000n - last < BigInt(env.OWNER_SNACK_EVERY_NS)) return { code: 'snack_too_soon' };
+    }
+    if (this.pool < amount) return { code: 'pool_empty' };
+    this.pool -= amount;
+    pet.project_food = (BigInt(pet.project_food) + amount).toString();
+    if (kind === 'friend') {
+      pet.friend_snacks = pet.friend_snack_day === this.day ? pet.friend_snacks + 1 : 1;
+      pet.friend_snack_day = this.day;
+    } else {
+      pet.owner_snack_at = (BigInt(Date.now()) * 1_000_000n).toString();
+    }
+    this.snacks.push({ token_id: tokenId, kind, ...(kind === 'friend' ? { friend: feeder } : {}) });
+    return { wrote: kind === 'friend' && this.introduce(tokenId, feeder, 0n) };
+  }
+
   /** Every accepted `debit_session`. */
   debits: { tokenId: string; debitId: number; thoughts: { price: string; calls: unknown[] }[] }[] = [];
 
@@ -193,8 +278,12 @@ export class FakeContract {
   private async deliver(base64: string): Promise<unknown> {
     const signed = decodeSignedTransaction(Uint8Array.from(atob(base64), (ch) => ch.charCodeAt(0)));
     const tx = signed.transaction;
-    const action = tx.actions[0] as unknown as { functionCall: { methodName: string; args: Uint8Array; gas: bigint; deposit: bigint } };
-    const call = action.functionCall;
+    const action = tx.actions[0] as unknown as {
+      functionCall?: { methodName: string; args: Uint8Array; gas: bigint; deposit: bigint };
+      transfer?: { deposit: bigint };
+    };
+    // A call of the contract, or a plain transfer (the gas account topping a wallet up).
+    const call = action.functionCall ?? { methodName: 'transfer', args: new TextEncoder().encode(JSON.stringify({ receiver: tx.receiverId })), gas: 0n, deposit: action.transfer?.deposit ?? 0n };
     const args = JSON.parse(new TextDecoder().decode(Uint8Array.from(call.args as ArrayLike<number>))) as Record<string, unknown>;
     const hash = new Uint8Array(await crypto.subtle.digest('SHA-256', encodeTransaction(tx)));
     // the same signed transaction may be delivered again by the RPC client's own retry: one attempt
@@ -207,14 +296,23 @@ export class FakeContract {
     if (this.mode === 'nonce-once' && !this.nonceRejected) {
       this.nonceRejected = true;
       // nearcore's answer to a transaction with a stale nonce (JSON-RPC send_tx).
-      return { error: { name: 'HANDLER_ERROR', cause: { name: 'INVALID_TRANSACTION', info: {} }, code: -32000, message: 'Server error', data: { TxExecutionError: { InvalidTxError: { InvalidNonce: { tx_nonce: Number(tx.nonce), ak_nonce: Number(tx.nonce) + 5 } } } } } };
+      return invalidTx({ InvalidNonce: { tx_nonce: Number(tx.nonce), ak_nonce: Number(tx.nonce) + 5 } });
     }
+    if (this.mode === 'invalid-nonce') return invalidTx({ InvalidNonce: { tx_nonce: Number(tx.nonce), ak_nonce: Number(tx.nonce) + 5 } });
+    if (this.mode === 'not-enough-balance') return invalidTx({ NotEnoughBalance: { signer_id: tx.signerId, balance: '1', cost: '2' } });
     if (this.mode === 'lost') throw new TypeError('Failed to fetch');
+    // A signer that cannot pay the deposit is refused before anything runs (the server's own
+    // balance is `serverBalance`, which the tests of the pause move).
+    const pays = tx.signerId !== env.SERVER_ACCOUNT_ID && this.outcomes.get(baseEncode(hash)) === undefined;
+    if (pays && (this.balances.get(tx.signerId) ?? 0n) < call.deposit) {
+      return invalidTx({ NotEnoughBalance: { signer_id: tx.signerId, balance: (this.balances.get(tx.signerId) ?? 0n).toString(), cost: call.deposit.toString() } });
+    }
 
     const key = baseEncode(hash);
     let outcome = this.outcomes.get(key);
     if (outcome === undefined && !this.applied.has(key)) {
       this.applied.add(key);
+      if (tx.signerId !== env.SERVER_ACCOUNT_ID && tx.signerId !== env.GAS_ACCOUNT_ID) this.playerNonces.set(tx.signerId, Number(tx.nonce));
       this.sends.push({ method: call.methodName, args, gas: call.gas.toString(), deposit: call.deposit.toString(), signer: tx.signerId, nonce: Number(tx.nonce) });
       let status: unknown;
       if (call.methodName === 'pet_mint') {
@@ -228,6 +326,28 @@ export class FakeContract {
         status = refused
           ? { Failure: { ActionError: { index: 0, kind: { FunctionCallError: { ExecutionError: `Smart contract panicked: ${refused.code}` } } } } }
           : { SuccessValue: '' };
+      } else if (call.methodName === 'pet_feed') {
+        const result = this.feed(tx.signerId, String(args.token_id), call.deposit);
+        if ('code' in result) {
+          status = { Failure: { ActionError: { index: 0, kind: { FunctionCallError: { ExecutionError: `Smart contract panicked: ${result.code}` } } } } };
+        } else {
+          this.balances.set(tx.signerId, (this.balances.get(tx.signerId) ?? 0n) - call.deposit);
+          status = { SuccessValue: btoa(JSON.stringify(result.wrote)) };
+        }
+      } else if (call.methodName === 'pet_snack') {
+        const result = this.snack(tx.signerId, String(args.token_id), String(args.feeder), String(args.kind));
+        status =
+          'code' in result
+            ? { Failure: { ActionError: { index: 0, kind: { FunctionCallError: { ExecutionError: `Smart contract panicked: ${result.code}` } } } } }
+            : { SuccessValue: btoa(JSON.stringify(result.wrote)) };
+      } else if (call.methodName === 'transfer') {
+        if (this.transferFails !== null) {
+          status = { Failure: { ActionError: { index: 0, kind: { LackBalanceForState: { amount: this.transferFails } } } } };
+        } else {
+          this.balances.set(tx.signerId, (this.balances.get(tx.signerId) ?? 0n) - call.deposit);
+          this.balances.set(tx.receiverId, (this.balances.get(tx.receiverId) ?? 0n) + call.deposit);
+          status = { SuccessValue: '' };
+        }
       } else {
         status = { SuccessValue: '' };
       }
@@ -262,13 +382,19 @@ export class FakeContract {
           return { result: { result: bytes, logs: [], block_height: 1000, block_hash: BLOCK_HASH } };
         }
         if (type === 'view_access_key') {
-          return { result: { nonce: this.nonce, permission: 'FullAccess', block_height: 1000, block_hash: BLOCK_HASH } };
+          const account = String(params.account_id);
+          if (account !== env.SERVER_ACCOUNT_ID && !this.balances.has(account)) return unknownAccount(account);
+          return { result: { nonce: this.playerNonces.get(account) ?? this.nonce, permission: 'FullAccess', block_height: 1000, block_hash: BLOCK_HASH } };
         }
         if (type === 'view_account') {
           await this.during('view_account');
+          const account = String(params.account_id);
+          this.viewed.push(account);
+          const amount = account === env.SERVER_ACCOUNT_ID ? this.serverBalance : this.balances.get(account);
+          if (amount === undefined) return unknownAccount(account);
           return {
             result: {
-              amount: this.serverBalance.toString(),
+              amount: amount.toString(),
               locked: '0',
               code_hash: '11111111111111111111111111111111',
               storage_usage: 100,
@@ -420,6 +546,8 @@ export interface TokenOptions {
   sid?: string | null;
   /** The token is made for a player the server has no row of (a refusal's test, a sign-in's first call). */
   noPlayer?: boolean;
+  /** The Google name in the token; default `Test Player`, `null` leaves the Google entry out. */
+  name?: string | null;
 }
 
 /** An identity token as Privy would issue it for `sub`, carrying a NEAR embedded wallet. Unless
@@ -434,7 +562,7 @@ export async function token(sub: string, accountId: string, opts: TokenOptions =
   return new SignJWT({
     ...(sid === null ? {} : { sid }),
     linked_accounts: JSON.stringify([
-      { type: 'google_oauth', subject: 'g-1', name: 'Test Player' },
+      ...(opts.name === null ? [] : [{ type: 'google_oauth', subject: 'g-1', name: opts.name ?? 'Test Player' }]),
       { type: 'wallet', chain_type: 'near', address: accountId, wallet_client_type: 'privy' },
     ]),
   })
@@ -489,6 +617,22 @@ export function installNetwork(): Network {
     throw new Error(`a test must not reach the network: ${url}`);
   });
   return { contract, ai, fetched, jwks, restore: () => spy.mockRestore() };
+}
+
+/** A player whose game wallet has a real key: the account id is the 64 hex characters of the public
+ * key (an implicit account), and `sign` does what Privy does in the browser: signs `sha256(tx)`. */
+export function keyedPlayer(): { account: string; sign: (tx: string) => Promise<{ tx: string; signature: string }> } {
+  const pair = KeyPairEd25519.fromRandom();
+  const publicKey = pair.getPublicKey();
+  const account = [...publicKey.ed25519Key!.data].map((b) => b.toString(16).padStart(2, '0')).join('');
+  return {
+    account,
+    async sign(tx) {
+      const bytes = Uint8Array.from(atob(tx), (ch) => ch.charCodeAt(0));
+      const digest = new Uint8Array(await crypto.subtle.digest('SHA-256', bytes));
+      return { tx, signature: btoa(String.fromCharCode(...pair.sign(digest).signature)) };
+    },
+  };
 }
 
 export { baseDecode };

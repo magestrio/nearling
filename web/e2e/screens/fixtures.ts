@@ -1,6 +1,6 @@
 import type { Page } from '@playwright/test';
 import type { FakeState, FakeWorkerState } from '../../src/seams/fakes';
-import type { Fullness } from '../../src/seams/worker-types';
+import type { FeedSheetData, Fullness, SheetPortion } from '../../src/seams/worker-types';
 import { CLOSED_ALL, CLOSED_NEW, lookAgain, setWorker, UA } from '../helpers';
 
 /** One frame's state in the real client, on the sample values of design/BRIEF.md §1. */
@@ -168,6 +168,73 @@ const refuseWebGL = (page: Page) =>
       return (original as (...a: unknown[]) => unknown).call(this, kind, ...rest);
     } as typeof original;
   });
+
+// Feed sheet (design/bundle/screens/feed.js): Pixel is the player's own pet, Hungry at 0.25 (asleep for the frames of an asleep
+// pet), Biscuit a friend's; the portions at 5¢ / 23¢ / 92¢, 0.31 NEAR in the wallet.
+const HUNGRY: Fullness = { state: 'hungry', level: 0.25 };
+const ASLEEP: Fullness = { state: 'asleep', level: 0 };
+const PORTIONS_FIT: SheetPortion[] = [
+  { near: '0.01', yocto: '10000000000000000000000', cents: 5, missing: null },
+  { near: '0.05', yocto: '50000000000000000000000', cents: 23, missing: null },
+  { near: '0.2', yocto: '200000000000000000000000', cents: 92, missing: null },
+];
+/** the guest's page of the frames: a friend's hungry pet, the player's own Pixel a click away */
+const guestFeed = (feedSheet?: FakeWorkerState['feedSheet']): FakeState => ({
+  auth: SIGNED_IN,
+  worker: { me: ME_PIXEL, pets: { '9': PIXEL, '2': { ...BISCUIT, fullness: HUNGRY } }, ...(feedSheet ? { feedSheet } : {}) },
+});
+/** «Feed {name}» tapped, the sheet open and still: the frames show it at rest, no focus ring from the tap */
+const openFeedSheet = async (page: Page, opener: string) => {
+  await page.getByRole('button', { name: opener }).click();
+  await page.getByRole('dialog', { name: opener }).waitFor();
+  await page.mouse.move(0, 0);
+  await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
+  await settle(page);
+};
+const NO_NEAR_SHEET: Partial<FeedSheetData> = {
+  wallet: { state: 'none' },
+  portions: PORTIONS_FIT.map((p) => ({ ...p, missing: p.near })),
+};
+/** a tap has done its work: the frames show the sheet at rest, the pointer away and settled */
+const restAfterTap = async (page: Page) => {
+  await page.mouse.move(0, 0);
+  await settle(page);
+};
+/** the wallet address of the frames (design/bundle/screens/feed.js) */
+const FRAME_ADDRESS = '9f2c41e0b7d3a58c7e61d2f0a4b39c85e7d1f6a2c03b48e9d5f17a62c8e04b31';
+/** the owner whose wallet holds 0.08 NEAR: the 0.2 portion is short and «Add NEAR» stands under it; the wallet is the frame's */
+function addNearWorker(): FakeWorkerState {
+  return {
+    ...owner({}, HUNGRY),
+    feedSheet: {
+      wallet: { state: 'some', balance: '80000000000000000000000' },
+      portions: PORTIONS_FIT.map((p) => (p.near === '0.2' ? { ...p, missing: '0.13' } : p)),
+    },
+    wallet: { address: FRAME_ADDRESS, balance: '80000000000000000000000', funded: false },
+  };
+}
+/** Feed sheet open, «Add NEAR» tapped: the step stands */
+const openAddNear = async (page: Page) => {
+  await ownerReady(page);
+  await openFeedSheet(page, 'Feed Pixel');
+  await page.getByRole('button', { name: 'Add NEAR' }).click();
+  await page.getByRole('dialog', { name: 'Add NEAR' }).getByText('Send NEAR to this address from another wallet or an exchange.').waitFor();
+  await restAfterTap(page);
+};
+/** What the browser has to share with: no system menu, and a clipboard that takes the text or refuses it (`Feed link sharing flow`) */
+const browserWith = (what: { clipboard: 'ok' | 'denied' }) => async (page: Page) => {
+  await page.addInitScript((w) => {
+    (navigator as unknown as Record<string, unknown>).share = undefined;
+    Object.defineProperty(navigator, 'clipboard', {
+      configurable: true,
+      value: {
+        writeText: async () => {
+          if (w.clipboard === 'denied') throw new Error('denied');
+        },
+      },
+    });
+  }, what);
+};
 
 export const fixtures: Record<string, ScreenFixture> = {
   // spec: add-pet › Hatch screen › success
@@ -871,5 +938,290 @@ export const fixtures: Record<string, ScreenFixture> = {
     route: '/hatch',
     fakes: { auth: SIGNED_IN, worker: { hatchStatus: { open: false, reason: 'daily', noPets: true } } },
     prepare: (page) => typeName(page, 'Pixel'),
+  },
+
+  // Feed sheet over the owner's Pet screen, Pixel Hungry
+  // spec: add-feeding › Feed sheet screen › success (владелец)
+  'feed-owner': {
+    route: '/pet/9',
+    fakes: { auth: SIGNED_IN, worker: owner({}, HUNGRY) },
+    prepare: async (page) => {
+      await ownerReady(page);
+      await openFeedSheet(page, 'Feed Pixel');
+    },
+  },
+
+  // the same with Pixel asleep: the free snack under the portions
+  // spec: add-feeding › Feed sheet screen › success (владелец)
+  'feed-owner-asleep': {
+    route: '/pet/9',
+    fakes: { auth: SIGNED_IN, worker: { ...owner({}, ASLEEP), feedSheet: { fullness: ASLEEP, snack: { state: 'ready' } } } },
+    prepare: async (page) => {
+      await ownerReady(page);
+      await openFeedSheet(page, 'Feed Pixel');
+    },
+  },
+
+  // Feed sheet over a friend's page: the notice above the portions, the snack under them
+  // spec: add-feeding › Feed sheet screen › success (гость)
+  // spec: add-feeding › Feeder name rule › уведомление
+  'feed-guest': {
+    route: '/pet/2',
+    fakes: guestFeed(),
+    prepare: async (page) => {
+      await page.getByRole('link', { name: 'Go to your Pixel' }).waitFor();
+      await openFeedSheet(page, 'Feed Biscuit');
+    },
+    otherChange: GUEST_ELSEWHERE,
+  },
+
+  // a wallet with only the project's gas: the snack leads, «Pay with NEAR» closed
+  // spec: add-feeding › Feed sheet screen › без NEAR
+  'feed-no-near': {
+    route: '/pet/2',
+    fakes: guestFeed(NO_NEAR_SHEET),
+    prepare: async (page) => {
+      await page.getByRole('link', { name: 'Go to your Pixel' }).waitFor();
+      await openFeedSheet(page, 'Feed Biscuit');
+    },
+    otherChange: GUEST_ELSEWHERE,
+  },
+
+  // «Pay with NEAR» opened: every portion out of reach, «Add 0.01 NEAR to give this meal.» under the smallest
+  // spec: add-feeding › Feed sheet screen › без NEAR
+  'feed-no-near-open': {
+    route: '/pet/2',
+    fakes: guestFeed(NO_NEAR_SHEET),
+    prepare: async (page) => {
+      await page.getByRole('link', { name: 'Go to your Pixel' }).waitFor();
+      await openFeedSheet(page, 'Feed Biscuit');
+      await page.getByRole('button', { name: 'Pay with NEAR' }).click();
+      await page.getByText('Add 0.01 NEAR to give this meal.').waitFor();
+      await page.mouse.move(0, 0);
+      await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
+    },
+    otherChange: GUEST_ELSEWHERE,
+  },
+
+  // 0.08 NEAR: the 0.2 portion is short by 0.13
+  // spec: add-feeding › Feed sheet screen › мало NEAR
+  'feed-low-near': {
+    route: '/pet/9',
+    fakes: {
+      auth: SIGNED_IN,
+      worker: {
+        ...owner({}, HUNGRY),
+        feedSheet: {
+          wallet: { state: 'some', balance: '80000000000000000000000' },
+          portions: PORTIONS_FIT.map((p) => (p.near === '0.2' ? { ...p, missing: '0.13' } : p)),
+        },
+      },
+    },
+    prepare: async (page) => {
+      await ownerReady(page);
+      await openFeedSheet(page, 'Feed Pixel');
+    },
+  },
+
+  // the server did not answer: «We couldn't open feeding right now.»
+  // spec: add-feeding › Feed sheet screen › error
+  'feed-error': {
+    route: '/pet/9',
+    fakes: { auth: SIGNED_IN, worker: { ...owner({}, HUNGRY), feedSheet: { fail: { status: 500, code: 'error' } } } },
+    prepare: async (page) => {
+      await ownerReady(page);
+      await openFeedSheet(page, 'Feed Pixel');
+      await page.getByRole('button', { name: 'Try again' }).waitFor();
+    },
+  },
+
+  // «Feed your {my_pet}» on a friend's page: the own Pixel's sheet in its own state, Hungry at 0.125
+  // spec: add-feeding › Own pet feeding flow › открыл кормление
+  'feed-own-from-friend': {
+    route: '/pet/2',
+    fakes: {
+      auth: SIGNED_IN,
+      worker: { me: ME_PIXEL, owned: ['9'], pets: { '9': { ...PIXEL, fullness: { state: 'hungry', level: 0.125 } }, '2': BISCUIT } },
+    },
+    prepare: async (page) => {
+      await page.getByRole('link', { name: 'Go to your Pixel' }).waitFor();
+      // the hook stands for the button of `add-pet-work`'s advice column, which is not built yet
+      await page.evaluate(() =>
+        (globalThis as { __nearlingOpenFeed?: (r: unknown) => void }).__nearlingOpenFeed?.({ tokenId: '9', name: 'Pixel', label: 'your Pixel', elsewhere: true }),
+      );
+      await page.getByRole('dialog', { name: 'Feed your Pixel' }).waitFor();
+      await page.mouse.move(0, 0);
+      await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
+      await settle(page);
+    },
+    otherChange: GUEST_ELSEWHERE,
+  },
+
+  // 0.05 NEAR tapped, the send held: the row says «Feeding Pixel…», the others are off
+  // spec: add-feeding › Feeding outcome rule › отправлено
+  'feed-sending': {
+    route: '/pet/9',
+    fakes: { auth: SIGNED_IN, worker: { ...owner({}, HUNGRY), feedSendDelayMs: FOREVER } },
+    prepare: async (page) => {
+      await ownerReady(page);
+      await openFeedSheet(page, 'Feed Pixel');
+      await page.getByRole('button', { name: /^Feed · 23¢/ }).click();
+      await page.getByRole('button', { name: 'Feeding Pixel…' }).waitFor();
+      await restAfterTap(page);
+    },
+  },
+
+  // the transaction did not go through: the line, «Try again» with the focus, the tapped row marked
+  // spec: add-feeding › Feeding outcome rule › не прошло
+  'feed-failed': {
+    route: '/pet/9',
+    fakes: { auth: SIGNED_IN, worker: { ...owner({}, HUNGRY), sendFeed: { status: 'failed', hatched: true } } },
+    prepare: async (page) => {
+      await ownerReady(page);
+      await openFeedSheet(page, 'Feed Pixel');
+      await page.getByRole('button', { name: /^Feed · 23¢/ }).click();
+      await page.locator('#feed-failed').waitFor();
+      await restAfterTap(page);
+    },
+  },
+
+  // the meal landed on an awake pet: Full on the page and in the head of the sheet, «Yum!» and «Done»
+  // spec: add-feeding › Own pet feeding flow › накормил бодрствующего
+  'feed-yum': {
+    route: '/pet/9',
+    fakes: { auth: SIGNED_IN, worker: owner({}, HUNGRY) },
+    prepare: async (page) => {
+      await ownerReady(page);
+      await openFeedSheet(page, 'Feed Pixel');
+      await setWorker(page, { pets: owner({}, PIXEL.fullness).pets });
+      await page.getByRole('button', { name: /^Feed · 5¢/ }).click();
+      await page.getByRole('button', { name: 'Done' }).waitFor();
+      await restAfterTap(page);
+    },
+  },
+
+  // a friend who has a pet of their own: the thanks with their name and «Done», Biscuit full
+  // spec: add-feeding › Feed by link flow › друг уже вылупил питомца
+  // spec: add-feeding › Feed by link flow › друг покормил
+  'feed-thanks': {
+    route: '/pet/2',
+    fakes: guestFeed(),
+    prepare: async (page) => {
+      await page.getByRole('link', { name: 'Go to your Pixel' }).waitFor();
+      await openFeedSheet(page, 'Feed Biscuit');
+      await setWorker(page, { pets: { '9': PIXEL, '2': BISCUIT } });
+      await page.getByRole('button', { name: /^Feed · 5¢/ }).click();
+      await page.getByRole('button', { name: 'Done' }).waitFor();
+      await restAfterTap(page);
+    },
+    otherChange: GUEST_ELSEWHERE,
+  },
+
+  // the friend already gave this pet a snack today: the line in its place
+  // spec: add-feeding › Snack rule › друг уже давал перекус сегодня
+  'feed-snack-given': {
+    route: '/pet/2',
+    fakes: guestFeed({ snack: { state: 'given' } }),
+    prepare: async (page) => {
+      await page.getByRole('link', { name: 'Go to your Pixel' }).waitFor();
+      await openFeedSheet(page, 'Feed Biscuit');
+    },
+    otherChange: GUEST_ELSEWHERE,
+  },
+
+  // the owner's pet asleep and the last snack under 72 hours ago: the date and the time, the spec's «Nov 12 at 9:40 PM» (the frame
+  // draws the older «Nov 12, 2026»; the spec wins). The time has no zone, so it is 9:40 PM wherever the browser is.
+  // spec: add-feeding › Snack rule › перекус владельцу ещё не готов
+  'feed-snack-not-ready': {
+    route: '/pet/9',
+    fakes: {
+      auth: SIGNED_IN,
+      worker: { ...owner({}, ASLEEP), feedSheet: { fullness: ASLEEP, snack: { state: 'not_ready', at: '2026-11-12T21:40:00' } } },
+    },
+    prepare: async (page) => {
+      await ownerReady(page);
+      await openFeedSheet(page, 'Feed Pixel');
+    },
+  },
+
+  // Add NEAR, the step inside Feed sheet that «Add NEAR» under the short portion opens
+  // spec: add-feeding › Add NEAR sheet screen › success
+  'add-near': {
+    route: '/pet/9',
+    fakes: { auth: SIGNED_IN, worker: addNearWorker() },
+    prepare: openAddNear,
+  },
+
+  // «Copy» tapped: the Toast (held for the capture) and the sheet's live region say it
+  // spec: add-feeding › Add NEAR sheet screen › success
+  'add-near-copied': {
+    route: '/pet/9',
+    fakes: { auth: SIGNED_IN, worker: { ...addNearWorker(), toastHeld: true } },
+    beforeLoad: browserWith({ clipboard: 'ok' }),
+    prepare: async (page) => {
+      await openAddNear(page);
+      await page.getByRole('button', { name: 'Copy' }).click();
+      await page.getByText('Address copied.').first().waitFor();
+      await restAfterTap(page);
+    },
+  },
+
+  // NEAR came while the sheet was open: «Your NEAR is here!» (the return to Feed sheet is held for the capture)
+  // spec: add-feeding › Add NEAR sheet screen › NEAR пришёл
+  'add-near-arrived': {
+    route: '/pet/9',
+    fakes: { auth: SIGNED_IN, worker: { ...addNearWorker(), toastHeld: true } },
+    prepare: async (page) => {
+      await openAddNear(page);
+      await setWorker(page, { wallet: { address: FRAME_ADDRESS, balance: '900000000000000000000000', funded: true } });
+      await lookAgain(page);
+      await page.getByText('Your NEAR is here!').first().waitFor();
+      await restAfterTap(page);
+    },
+  },
+
+  // the address does not load
+  // spec: add-feeding › Add NEAR sheet screen › error
+  'add-near-error': {
+    route: '/pet/9',
+    fakes: { auth: SIGNED_IN, worker: { ...addNearWorker(), wallet: { fail: { status: 503, code: 'chain_unreachable' } } } },
+    prepare: async (page) => {
+      await ownerReady(page);
+      await openFeedSheet(page, 'Feed Pixel');
+      await page.getByRole('button', { name: 'Add NEAR' }).click();
+      await page.getByText("We couldn't show your address right now.").waitFor();
+      await restAfterTap(page);
+    },
+  },
+
+  // no share menu, the clipboard works: «Link copied — send it to a friend.» (the Toast held for the capture)
+  // spec: add-feeding › Feed link sharing flow › делится
+  'feed-link-copied': {
+    route: '/pet/9',
+    fakes: { auth: SIGNED_IN, worker: { ...owner({}, HUNGRY), toastHeld: true } },
+    beforeLoad: browserWith({ clipboard: 'ok' }),
+    prepare: async (page) => {
+      await ownerReady(page);
+      await openFeedSheet(page, 'Feed Pixel');
+      await page.getByRole('button', { name: 'Ask friends to feed Pixel' }).click();
+      await page.getByText('Link copied — send it to a friend.').first().waitFor();
+      await restAfterTap(page);
+    },
+  },
+
+  // no share menu and the clipboard refuses: the text with the link in a field to select
+  // spec: add-feeding › Feed link sharing flow › скопировать не вышло
+  'feed-link-manual': {
+    route: '/pet/9',
+    fakes: { auth: SIGNED_IN, worker: owner({}, HUNGRY) },
+    beforeLoad: browserWith({ clipboard: 'denied' }),
+    prepare: async (page) => {
+      await ownerReady(page);
+      await openFeedSheet(page, 'Feed Pixel');
+      await page.getByRole('button', { name: 'Ask friends to feed Pixel' }).click();
+      await page.getByLabel('Copy this link and send it to a friend:').waitFor();
+      await page.mouse.move(0, 0);
+      await settle(page);
+    },
   },
 };

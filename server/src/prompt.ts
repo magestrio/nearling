@@ -61,7 +61,14 @@ export async function buildMessages(db: D1Database, tokenId: string, pet: PetRec
     .bind(tokenId)
     .all<{ name: string; at: number }>();
   const fed = notes.results.map((n) => `${asName(n.name)} (${new Date(n.at).toISOString().slice(0, 10)})`);
-  const noteLayer = fed.length > 0 ? `\nPeople who fed you, newest first: ${fed.join(', ')}.` : '';
+  let noteLayer = fed.length > 0 ? `\nPeople who fed you, newest first: ${fed.join(', ')}.` : '';
+  // `Memory rule` › «помнит кормивших»: the next reply names a feeder fed since the pet's last thought.
+  // The wake thought thanks its own feeder by its instruction, so only a reply adds the line.
+  if (job.kind === 'reply' && notes.results.length > 0) {
+    const last = await db.prepare('SELECT MAX(created_at) AS at FROM thoughts WHERE token_id = ?').bind(tokenId).first<{ at: number | null }>();
+    const newest = notes.results[0]!;
+    if (newest.at > (last?.at ?? 0)) noteLayer += `\n${asName(newest.name)} fed you since you last spoke. Thank them by name in your reply.`;
+  }
 
   let used = bytesOf(system) + bytesOf(noteLayer) + bytesOf(user);
   const history = await db

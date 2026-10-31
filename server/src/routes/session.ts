@@ -3,6 +3,7 @@
 import { Hono } from 'hono';
 import { identify } from '../auth';
 import { requireSession, type AppEnv } from '../http';
+import { feederName } from '../name/first';
 import { admit, countsOf, monthOf, nextMonthStart, stateOf } from '../signin';
 import { track } from '../track';
 
@@ -20,8 +21,11 @@ exchangeRoutes.post('/api/session', async (c) => {
   const identity = await identify(c.req.raw, c.env);
   if (identity.kind === 'unavailable') return c.json({ code: 'auth_unavailable' }, 503);
   if (identity.kind !== 'session') return c.json({ code: 'signed_out' }, 401);
-  const { sub, accountId, sid } = identity.session;
+  const { sub, accountId, sid, name } = identity.session;
   const db = c.env.DB;
+  // The feeder's first name (`Feeder identity data`): kept on every `ok` answer, NULL when it does
+  // not pass or the token has none. The row exists by then (a new one was made by `admit`).
+  const rememberName = () => db.prepare('UPDATE players SET first_name = ?1 WHERE sub = ?2').bind(feederName(name, c.env.INSULT_LIST), sub).run();
 
   if (sid !== null) {
     const ended = await db.prepare('SELECT 1 AS found FROM ended_sessions WHERE sid = ?').bind(sid).first();
@@ -38,6 +42,7 @@ exchangeRoutes.post('/api/session', async (c) => {
   // Not a sign-in: a player with a row loading the page. The month moves, with no cap.
   if (row !== null && !fresh) {
     if (row.month !== month) await db.prepare('UPDATE players SET month = ?1 WHERE sub = ?2 AND month <> ?1').bind(month, sub).run();
+    await rememberName();
     console.log('session_ok');
     return c.json({ ok: true });
   }
@@ -51,7 +56,8 @@ exchangeRoutes.post('/api/session', async (c) => {
     console.log(`session_refused:${reason}`);
     return c.json({ code: 'sign_in_refused', reason, until: nextMonthStart(now) }, 403);
   };
-  const welcome = () => {
+  const welcome = async () => {
+    await rememberName();
     track('sign_in_completed', from === null ? {} : { from });
     console.log('session_ok');
     return c.json({ ok: true });

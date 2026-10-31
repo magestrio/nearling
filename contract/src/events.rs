@@ -36,6 +36,15 @@ pub struct ThoughtReceipt {
     pub calls: Vec<CallReceipt>,
 }
 
+/// Whose snack it is (`Pet snack contract`): the owner's own, or a friend's.
+#[near(serializers = [json])]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum SnackKind {
+    Owner,
+    Friend,
+}
+
 /// NEP-297 events of the game's own standard.
 #[near(event_json(standard = "nearling"))]
 pub enum NearlingEvent {
@@ -53,6 +62,24 @@ pub enum NearlingEvent {
         model: String,
         price: U128,
         calls: Vec<CallReceipt>,
+    },
+
+    /// A meal: the whole deposit went into the pet's given food.
+    #[event_version("1.0.0")]
+    Feed {
+        token_id: String,
+        feeder: AccountId,
+        amount: U128,
+    },
+
+    /// A snack from the pool into the pet's project food. `friend` only for a friend's snack.
+    #[event_version("1.0.0")]
+    Snack {
+        token_id: String,
+        amount: U128,
+        kind: SnackKind,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        friend: Option<AccountId>,
     },
 }
 

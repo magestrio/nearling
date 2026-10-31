@@ -7,17 +7,28 @@ use near_contract_standards::non_fungible_token::enumeration::NonFungibleTokenEn
 use near_contract_standards::non_fungible_token::events::NftMint;
 use near_contract_standards::non_fungible_token::{NonFungibleToken, Token, TokenId};
 use near_sdk::json_types::U128;
-use near_sdk::store::LookupMap;
+use near_sdk::store::key::Sha256;
+use near_sdk::store::{LookupMap, LookupSet};
 use near_sdk::{AccountId, NearToken, PanicOnDefault, Promise, env, near};
 
-use crate::events::{NearlingEvent, ThoughtReceipt, hex};
+use crate::events::{NearlingEvent, SnackKind, ThoughtReceipt, hex};
 use crate::limits::*;
 use crate::pet::{HatchView, Pet, PetView, Stage, VersionedPet};
 
-/// The state of the Init contract (`{ owner_id }`), which `migrate` reads on the dev account.
+/// The state layout of `add-pet`, which `migrate` reads on the dev account: the same prefixes as
+/// `Contract`, without `known`.
 #[near(serializers = [borsh])]
-pub struct InitContract {
-    pub owner_id: AccountId,
+pub struct ContractV1 {
+    owner_id: AccountId,
+    server_id: AccountId,
+    treasury_id: AccountId,
+    tokens: NonFungibleToken,
+    pets: LookupMap<TokenId, VersionedPet>,
+    hatched: LookupMap<AccountId, TokenId>,
+    births_day: u64,
+    births_today: u32,
+    next_token_id: u64,
+    pool: u128,
 }
 
 /// The game's contract. Errors are `env::panic_str` with a code in the text; the Worker tells
@@ -35,8 +46,11 @@ pub struct Contract {
     births_day: u64,
     births_today: u32,
     next_token_id: u64,
-    /// The project's pool: pays the storage and the starter food of every birth.
+    /// The project's pool: pays the storage and the starter food of every birth, and the snacks.
     pool: u128,
+    /// The feeders a pet knows. The hashed key makes every record `KNOWN_RECORD_BYTES`, whatever
+    /// the ids' length, so the pool can check its price before it writes.
+    known: LookupSet<(TokenId, AccountId), Sha256>,
 }
 
 fn fail(code: &str) -> ! {
@@ -67,7 +81,30 @@ impl Contract {
             births_today: 0,
             next_token_id: 0,
             pool: 0,
+            known: LookupSet::with_hasher(b"k".to_vec()),
         }
+    }
+
+    /// Writes the acquaintance of `feeder` with the pet when it is new and the pool covers its
+    /// storage on top of `reserve` (what the same call takes out of the pool for itself); the pool
+    /// pays. Returns whether a record was written.
+    fn introduce(&mut self, token_id: &TokenId, feeder: &AccountId, reserve: u128) -> bool {
+        let key = (token_id.clone(), feeder.clone());
+        if self.known.contains(&key) {
+            return false;
+        }
+        let cost = u128::from(KNOWN_RECORD_BYTES)
+            .checked_mul(env::storage_byte_cost().as_yoctonear())
+            .unwrap_or_else(|| fail("overflow"));
+        let needed = cost
+            .checked_add(reserve)
+            .unwrap_or_else(|| fail("overflow"));
+        if self.pool < needed {
+            return false;
+        }
+        self.known.insert(key);
+        self.pool -= cost;
+        true
     }
 
     fn assert_server(&self) {
@@ -94,14 +131,27 @@ impl Contract {
         Self::fresh(owner_id, server_id, treasury_id)
     }
 
-    /// Takes the Init state `{ owner_id }` into the game's layout; the dev account upgrades
-    /// with it (`cargo near deploy … with-init-call migrate`). A second call reads a state
-    /// that is no longer Init's and fails, so the pool and the pets are never reset.
+    /// Takes the layout of `add-pet` into this one: adds `known`; the pool, the pets and the
+    /// counters stay as they were. The dev account upgrades with it
+    /// (`cargo near deploy … with-init-call migrate`). A second call meets a state with the bytes
+    /// of `known` after the old layout and fails, so the pool is never reset.
     #[init(ignore_state)]
     #[private]
-    pub fn migrate(server_id: AccountId, treasury_id: AccountId) -> Self {
-        let old: InitContract = env::state_read().unwrap_or_else(|| fail("no_state"));
-        Self::fresh(old.owner_id, server_id, treasury_id)
+    pub fn migrate() -> Self {
+        let old: ContractV1 = env::state_read().unwrap_or_else(|| fail("no_state"));
+        Self {
+            owner_id: old.owner_id,
+            server_id: old.server_id,
+            treasury_id: old.treasury_id,
+            tokens: old.tokens,
+            pets: old.pets,
+            hatched: old.hatched,
+            births_day: old.births_day,
+            births_today: old.births_today,
+            next_token_id: old.next_token_id,
+            pool: old.pool,
+            known: LookupSet::with_hasher(b"k".to_vec()),
+        }
     }
 
     pub fn owner_id(&self) -> AccountId {
@@ -151,7 +201,7 @@ impl Contract {
             .internal_mint_with_refund(token_id.clone(), receiver.clone(), None, None);
         self.pets.insert(
             token_id.clone(),
-            VersionedPet::V1(Pet {
+            VersionedPet::V2(Pet {
                 name,
                 character,
                 born_at: now,
@@ -164,6 +214,9 @@ impl Contract {
                 stage_day: day,
                 streak: 0,
                 freezes: 1,
+                friend_snack_day: 0,
+                friend_snacks: 0,
+                owner_snack_at: 0,
             }),
         );
         self.hatched.insert(receiver.clone(), token_id.clone());
@@ -280,6 +333,104 @@ impl Contract {
             .detach();
     }
 
+    /// Anyone, with at least `MIN_FEED` attached; the whole deposit becomes the pet's given food.
+    /// Works for an asleep pet and at the daily cap. A feeder who is not the owner and is new to
+    /// the pet becomes known when the pool covers the record. Returns whether a record was written.
+    #[payable]
+    pub fn pet_feed(&mut self, token_id: TokenId) -> bool {
+        let deposit = env::attached_deposit().as_yoctonear();
+        if deposit < MIN_FEED {
+            fail("feed_too_small");
+        }
+        let mut record = self
+            .pets
+            .get(&token_id)
+            .cloned()
+            .unwrap_or_else(|| fail("no_pet"));
+        let pet = record.current_mut();
+        pet.given_food = pet
+            .given_food
+            .checked_add(deposit)
+            .unwrap_or_else(|| fail("overflow"));
+        self.pets.insert(token_id.clone(), record);
+
+        let feeder = env::predecessor_account_id();
+        let is_owner = self.tokens.owner_by_id.get(&token_id).as_ref() == Some(&feeder);
+        let introduced = !is_owner && self.introduce(&token_id, &feeder, 0);
+
+        NearlingEvent::Feed {
+            token_id,
+            feeder,
+            amount: U128(deposit),
+        }
+        .emit();
+        introduced
+    }
+
+    /// Server only, no deposit. A snack from the pool into the pet's project food: from a friend,
+    /// at most `FRIEND_SNACKS_PER_DAY` a UTC day; to the owner, at most once in 72 hours, and only
+    /// when `feeder` is the current owner. A friend new to the pet becomes known when the pool
+    /// covers the record on top of the snack. Returns whether a record was written.
+    pub fn pet_snack(&mut self, token_id: TokenId, feeder: AccountId, kind: SnackKind) -> bool {
+        self.assert_server();
+        let mut record = self
+            .pets
+            .get(&token_id)
+            .cloned()
+            .unwrap_or_else(|| fail("no_pet"));
+        let pet = record.current_mut();
+        let now = env::block_timestamp();
+        let day = day_of(now);
+        match kind {
+            SnackKind::Friend => {
+                let taken = if pet.friend_snack_day == day {
+                    pet.friend_snacks
+                } else {
+                    0
+                };
+                if taken >= FRIEND_SNACKS_PER_DAY {
+                    fail("snacks_today");
+                }
+                pet.friend_snack_day = day;
+                pet.friend_snacks = taken + 1;
+            }
+            SnackKind::Owner => {
+                if self.tokens.owner_by_id.get(&token_id).as_ref() != Some(&feeder) {
+                    fail("feeder_not_owner");
+                }
+                let due = pet
+                    .owner_snack_at
+                    .checked_add(OWNER_SNACK_EVERY_NS)
+                    .unwrap_or_else(|| fail("overflow"));
+                if pet.owner_snack_at != 0 && now < due {
+                    fail("snack_too_soon");
+                }
+                pet.owner_snack_at = now;
+            }
+        }
+        if self.pool < SNACK_AMOUNT {
+            fail("pool_empty");
+        }
+        pet.project_food = pet
+            .project_food
+            .checked_add(SNACK_AMOUNT)
+            .unwrap_or_else(|| fail("overflow"));
+        self.pets.insert(token_id.clone(), record);
+
+        let introduced =
+            kind == SnackKind::Friend && self.introduce(&token_id, &feeder, SNACK_AMOUNT);
+        self.pool -= SNACK_AMOUNT;
+
+        NearlingEvent::Snack {
+            token_id,
+            amount: U128(SNACK_AMOUNT),
+            kind,
+            friend: (kind == SnackKind::Friend).then_some(feeder),
+        }
+        .emit();
+        introduced
+    }
+
     pub fn hatch_view(&self, account_id: AccountId) -> HatchView {
         HatchView {
             token_id: self.hatched.get(&account_id).cloned(),
@@ -293,7 +444,13 @@ impl Contract {
     pub fn pet_view(&self, token_id: TokenId) -> Option<PetView> {
         let record = self.pets.get(&token_id)?;
         let owner_id = self.tokens.owner_by_id.get(&token_id)?;
-        Some(PetView::new(owner_id, record.current()))
+        Some(PetView::new(owner_id, &record.current()))
+    }
+
+    /// Whether the pet knows the account: a record `pet_feed` or `pet_snack` wrote. False for a
+    /// feeder the pool did not cover and for a token that does not exist.
+    pub fn pet_knows(&self, token_id: TokenId, account_id: AccountId) -> bool {
+        self.known.contains(&(token_id, account_id))
     }
 
     pub fn nft_token(&self, token_id: TokenId) -> Option<Token> {
@@ -366,22 +523,217 @@ mod tests {
         assert_eq!(contract.hatch_view(player(0)).pool.0, 0);
     }
 
+    fn panic_text<T>(work: impl FnOnce() -> T) -> String {
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(work));
+        match result {
+            Ok(_) => panic!("the call must fail"),
+            Err(error) => error
+                .downcast_ref::<String>()
+                .cloned()
+                .or_else(|| error.downcast_ref::<&str>().map(|s| s.to_string()))
+                .unwrap_or_default(),
+        }
+    }
+
+    /// A state written in the layout of `add-pet`: a pool, a next id and a pet of version 1 kept.
     #[test]
-    fn migrate_takes_the_init_state() {
-        testing_env!(context(contract_id(), 0, 0).build());
-        env::state_write(&InitContract { owner_id: owner() });
-        let contract = Contract::migrate(server(), treasury());
-        assert_eq!(contract.owner_id(), owner());
-        assert_eq!(contract.hatch_view(player(0)).pool.0, 0);
-        assert_eq!(contract.hatch_view(player(0)).born_today, 0);
-        assert_eq!(contract.next_token_id, 0);
+    fn migrate_takes_the_add_pet_layout_and_keeps_the_pool_and_the_pet() {
+        let mut contract = funded_contract(7_000_000_000_000_000_000_000_000);
+        testing_env!(context(server(), 1_000, 0).build());
+        let token_id = contract.pet_mint(player(0), "Pixel".into(), "I am curious.".into());
+        let Some(VersionedPet::V2(born)) = contract.pets.get(&token_id).cloned() else {
+            panic!("a birth writes version 2");
+        };
+        let old_record = VersionedPet::V1(crate::pet::PetV1 {
+            name: born.name.clone(),
+            character: born.character.clone(),
+            born_at: born.born_at,
+            project_food: born.project_food,
+            given_food: 5,
+            debit_day: born.debit_day,
+            debited_today: born.debited_today,
+            last_debit_id: born.last_debit_id,
+            stage: born.stage,
+            stage_day: born.stage_day,
+            streak: born.streak,
+            freezes: born.freezes,
+        });
+        contract.pets.insert(token_id.clone(), old_record);
+        contract.pets.flush();
+        let pool = contract.pool;
+
+        // The layout `add-pet` wrote: the fields of Contract without `known`.
+        let old = ContractV1 {
+            owner_id: contract.owner_id,
+            server_id: contract.server_id,
+            treasury_id: contract.treasury_id,
+            tokens: contract.tokens,
+            pets: contract.pets,
+            hatched: contract.hatched,
+            births_day: contract.births_day,
+            births_today: contract.births_today,
+            next_token_id: contract.next_token_id,
+            pool: contract.pool,
+        };
+        env::state_write(&old);
+        drop(old);
+
+        let migrated = Contract::migrate();
+        assert_eq!(migrated.owner_id(), owner());
+        assert_eq!(migrated.server_id, server());
+        assert_eq!(migrated.treasury_id, treasury());
+        assert_eq!(migrated.hatch_view(player(0)).pool.0, pool);
+        assert_eq!(migrated.next_token_id, 1);
+        assert_eq!(
+            migrated.hatch_view(player(0)).token_id.as_deref(),
+            Some("0")
+        );
+        let view = migrated.pet_view("0".into()).expect("the pet is kept");
+        assert_eq!(view.given_food.0, 5);
+        assert_eq!(view.friend_snacks, 0);
+        assert_eq!(view.friend_snack_day, 0);
+        assert_eq!(view.owner_snack_at.0, 0);
+        assert!(!migrated.pet_knows("0".into(), player(5)));
+
+        // A second call reads the state migrate itself wrote: the bytes of `known` trail the old
+        // layout, so it fails and the pool is never reset.
+        env::state_write(&migrated);
+        let text = panic_text(Contract::migrate);
+        assert!(
+            text.contains("Cannot deserialize the contract state"),
+            "{text}"
+        );
     }
 
     #[test]
-    #[should_panic(expected = "no_state")]
     fn migrate_without_a_state_fails() {
         testing_env!(context(contract_id(), 0, 0).build());
-        let _ = Contract::migrate(server(), treasury());
+        let text = panic_text(Contract::migrate);
+        assert!(text.contains("no_state"), "{text}");
+    }
+
+    // One acquaintance costs exactly KNOWN_RECORD_BYTES, whatever the ids' length: the hashed key
+    // is 32 bytes, the value is empty, the record carries 40 bytes more.
+    #[test]
+    fn an_acquaintance_costs_exactly_the_record_bytes() {
+        testing_env!(context(contract_id(), 0, 0).build());
+        let mut contract = Contract::new(owner(), server(), treasury());
+        let cases: [(String, String); 3] = [
+            ("9".repeat(20), "a".repeat(64)),
+            ("0".into(), "a.b".into()),
+            ("123456".into(), "bob.near".into()),
+        ];
+        for (token_id, account) in cases {
+            let account_id: AccountId = account.parse().unwrap();
+            let before = env::storage_usage();
+            assert!(
+                contract
+                    .known
+                    .insert((token_id.clone(), account_id.clone()))
+            );
+            let spent = env::storage_usage() - before;
+            assert_eq!(spent, KNOWN_RECORD_BYTES, "{token_id} / {account}");
+            assert!(contract.pet_knows(token_id, account_id));
+        }
+    }
+
+    fn contract_with_pet(pool: u128) -> Contract {
+        let mut contract = funded_contract(pool);
+        testing_env!(context(server(), 1_000, 0).build());
+        contract.pet_mint(player(0), "Pixel".into(), "I am curious.".into());
+        contract
+    }
+
+    const HUGE_POOL: u128 = 5_000_000_000_000_000_000_000_000;
+
+    // spec: add-feeding › Pet snack contract › четвёртый перекус от друзей за сутки
+    #[test]
+    fn the_utc_day_resets_the_friends_snacks_at_the_block_timestamp_boundary() {
+        let mut contract = contract_with_pet(HUGE_POOL);
+        let last_ns = 5 * NS_PER_DAY - 1;
+        testing_env!(context(server(), last_ns, 0).build());
+        for n in 1..=3 {
+            contract.pet_snack("0".into(), player(n), SnackKind::Friend);
+        }
+        let text = panic_text(|| contract.pet_snack("0".into(), player(4), SnackKind::Friend));
+        assert!(text.contains("snacks_today"), "{text}");
+        assert_eq!(contract.pet_view("0".into()).unwrap().friend_snacks, 3);
+
+        testing_env!(context(server(), 5 * NS_PER_DAY, 0).build());
+        contract.pet_snack("0".into(), player(4), SnackKind::Friend);
+        let view = contract.pet_view("0".into()).unwrap();
+        assert_eq!(
+            view.friend_snacks, 1,
+            "the counter belongs to the day before"
+        );
+        assert_eq!(view.friend_snack_day, 5);
+    }
+
+    // spec: add-feeding › Pet snack contract › перекус владельцу раньше 72 часов
+    #[test]
+    fn the_owner_snack_passes_at_exactly_72_hours_and_not_a_nanosecond_before() {
+        let mut contract = contract_with_pet(HUGE_POOL);
+        let first = 10 * NS_PER_DAY;
+        testing_env!(context(server(), first, 0).build());
+        contract.pet_snack("0".into(), player(0), SnackKind::Owner);
+        assert_eq!(
+            contract.pet_view("0".into()).unwrap().owner_snack_at.0,
+            first
+        );
+
+        testing_env!(context(server(), first + OWNER_SNACK_EVERY_NS - 1, 0).build());
+        let text = panic_text(|| contract.pet_snack("0".into(), player(0), SnackKind::Owner));
+        assert!(text.contains("snack_too_soon"), "{text}");
+        assert_eq!(
+            contract.pet_view("0".into()).unwrap().owner_snack_at.0,
+            first
+        );
+
+        let again = first + OWNER_SNACK_EVERY_NS;
+        testing_env!(context(server(), again, 0).build());
+        contract.pet_snack("0".into(), player(0), SnackKind::Owner);
+        assert_eq!(
+            contract.pet_view("0".into()).unwrap().owner_snack_at.0,
+            again
+        );
+    }
+
+    #[test]
+    fn the_snack_and_feed_events_carry_the_spec_fields() {
+        let mut contract = contract_with_pet(HUGE_POOL);
+        testing_env!(context(server(), 2_000, 0).build());
+        contract.pet_snack("0".into(), player(0), SnackKind::Owner);
+        let logs = get_logs();
+        assert_eq!(logs.len(), 1, "{logs:?}");
+        assert!(logs[0].contains("\"standard\":\"nearling\""), "{}", logs[0]);
+        assert!(logs[0].contains("\"event\":\"snack\""), "{}", logs[0]);
+        assert!(logs[0].contains("\"kind\":\"owner\""), "{}", logs[0]);
+        assert!(
+            !logs[0].contains("friend"),
+            "no friend in an owner snack: {}",
+            logs[0]
+        );
+
+        testing_env!(context(server(), 3_000, 0).build());
+        contract.pet_snack("0".into(), player(3), SnackKind::Friend);
+        let logs = get_logs();
+        assert!(logs[0].contains("\"kind\":\"friend\""), "{}", logs[0]);
+        assert!(logs[0].contains("player3.near"), "{}", logs[0]);
+
+        testing_env!(context(player(3), 4_000, MIN_FEED).build());
+        contract.pet_feed("0".into());
+        let logs = get_logs();
+        assert!(logs[0].contains("\"event\":\"feed\""), "{}", logs[0]);
+        assert!(
+            logs[0].contains("\"feeder\":\"player3.near\""),
+            "{}",
+            logs[0]
+        );
+        assert!(
+            logs[0].contains(&format!("\"amount\":\"{MIN_FEED}\"")),
+            "{}",
+            logs[0]
+        );
     }
 
     // The UTC day changes on the `block_timestamp` boundary (23:59:59.999999999 -> 00:00).

@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef, type KeyboardEvent, type ReactNode } from 'react';
+import { useEffect, useId, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
 import { IconButton } from './IconButton';
 import { cx, useIsDesktop } from './util';
 
@@ -49,9 +49,11 @@ export function Sheet({
   const modal = Boolean(centered) || !desktop;
   const latest = useRef({ onClose, busy, returnFocusTo });
   latest.current = { onClose, busy, returnFocusTo };
+  // read before the commit that marks the page under the sheet inert: an inert opener can't take the focus back, so an
+  // effect that ran again (StrictMode) would read the sheet's own control
+  const [opener] = useState(() => (document.activeElement instanceof HTMLElement ? document.activeElement : null));
 
   useEffect(() => {
-    const opener = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     const root = sheet.current;
     const target = root?.querySelector<HTMLElement>('[data-autofocus]') ?? (self ? root?.querySelector<HTMLElement>('h2') : null) ?? root?.querySelector<HTMLElement>(FOCUSABLE);
     target?.focus();
@@ -59,7 +61,7 @@ export function Sheet({
       const back = latest.current.returnFocusTo?.() ?? opener;
       if (back?.isConnected) back.focus();
     };
-  }, [self]);
+  }, [self, opener]);
 
   useEffect(() => {
     const onKey = (e: globalThis.KeyboardEvent) => {

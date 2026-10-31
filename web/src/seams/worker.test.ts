@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { END_SESSION_TIMEOUT_MS, HATCH_TIMEOUT_MS, REQUEST_TIMEOUT_MS, workerApi, WorkerError } from './worker';
+import { END_SESSION_TIMEOUT_MS, FEED_SEND_TIMEOUT_MS, HATCH_TIMEOUT_MS, REQUEST_TIMEOUT_MS, workerApi, WorkerError } from './worker';
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -142,5 +142,70 @@ describe('the Worker seam of the session', () => {
     const asked = workerApi.clearMemory('t', '9');
     deadline.abort();
     await expect(asked).rejects.toMatchObject({ status: 0 });
+  });
+});
+
+describe('the Worker seam of feeding', () => {
+  const calls = (fetchMock: ReturnType<typeof vi.fn>) => fetchMock.mock.calls.map((c) => c as unknown as [string, RequestInit]);
+
+  // spec: add-feeding › Feed sheet screen › success (владелец)
+  it('reads the sheet of a pet with the token, and takes a network that does not read as an answer', async () => {
+    const fetchMock = vi.fn(async () => Response.json({ chain: false }));
+    vi.stubGlobal('fetch', fetchMock);
+    expect(await workerApi.feedSheet('t', '9')).toEqual({ chain: false });
+    expect(calls(fetchMock)[0]).toMatchObject(['/api/pets/9/feed', { method: 'GET', headers: { 'privy-id-token': 't' } }]);
+  });
+
+  // spec: add-feeding › Feeding transaction data › прислана не та порция
+  it('asks for the portion by POST, sends the signed bytes, and keeps the code and the sheet of a refusal', async () => {
+    const fetchMock = vi.fn(async () => Response.json({ tx: 'AAA' }));
+    vi.stubGlobal('fetch', fetchMock);
+    expect(await workerApi.buildFeed('t', '9', '0.05')).toEqual({ tx: 'AAA' });
+    expect(JSON.parse(calls(fetchMock)[0]![1].body as string)).toEqual({ portion: '0.05' });
+    fetchMock.mockImplementation(async () => Response.json({ status: 'ok', hash: 'h', hatched: true }));
+    expect(await workerApi.sendFeed('t', '9', { tx: 'AAA', signature: 'BBB' })).toEqual({ status: 'ok', hash: 'h', hatched: true });
+    expect(calls(fetchMock)[1]![0]).toBe('/api/pets/9/feed/send');
+    expect(JSON.parse(calls(fetchMock)[1]![1].body as string)).toEqual({ tx: 'AAA', signature: 'BBB' });
+    vi.stubGlobal('fetch', vi.fn(async () => Response.json({ code: 'short', sheet: { chain: true } }, { status: 409 })));
+    await expect(workerApi.buildFeed('t', '9', '0.2')).rejects.toMatchObject({ status: 409, code: 'short', body: { sheet: { chain: true } } });
+  });
+
+  // spec: add-feeding › Feeding outcome rule › исход неизвестен
+  it('waits for a send as long as the server may hold it, which is longer than a plain request', async () => {
+    const { deadline, timeout } = blackHole();
+    const asked = workerApi.sendFeed('t', '9', { tx: 'AAA', signature: 'BBB' });
+    deadline.abort();
+    await expect(asked).rejects.toMatchObject({ status: 0, code: 'unreachable' });
+    expect(timeout).toHaveBeenCalledWith(FEED_SEND_TIMEOUT_MS);
+    expect(FEED_SEND_TIMEOUT_MS).toBeGreaterThan(REQUEST_TIMEOUT_MS);
+  });
+
+  // spec: add-feeding › Feeding outcome rule › closed on its way × session ended
+  it('asks for an outcome and the snack by POST, and the wallet by GET', async () => {
+    const fetchMock = vi.fn(async () => Response.json({ status: 'unknown', hatched: false }));
+    vi.stubGlobal('fetch', fetchMock);
+    await workerApi.feedOutcome('t', '9', { id: 'abc', source: 'snack' });
+    await workerApi.snack('t', '9');
+    vi.stubGlobal('fetch', fetchMock.mockImplementation(async () => Response.json({ address: 'a', balance: '1', funded: false })));
+    await workerApi.wallet('t');
+    const made = calls(fetchMock);
+    expect(made.map(([url, init]) => `${init.method} ${url}`)).toEqual(['POST /api/pets/9/feed/outcome', 'POST /api/pets/9/snack', 'GET /api/wallet']);
+    expect(JSON.parse(made[0]![1].body as string)).toEqual({ id: 'abc', source: 'snack' });
+  });
+
+  // spec: add-pet › Sleep and wake flow › разбудил друг при открытой странице
+  it('sends the wakes the page knows with the state, and the job when there is one', async () => {
+    const fetchMock = vi.fn(async () => Response.json({ events: [] }));
+    vi.stubGlobal('fetch', fetchMock);
+    await workerApi.petState('t', '9');
+    await workerApi.petState('t', '9', 'j1');
+    await workerApi.petState('t', '9', undefined, 0);
+    await workerApi.petState('t', '9', 'j1', 3);
+    expect(calls(fetchMock).map(([url]) => url)).toEqual([
+      '/api/pets/9/state',
+      '/api/pets/9/state?job=j1',
+      '/api/pets/9/state?wakes=0',
+      '/api/pets/9/state?job=j1&wakes=3',
+    ]);
   });
 });

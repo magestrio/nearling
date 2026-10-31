@@ -14,6 +14,9 @@ export interface Session {
   /** Privy's opaque session id (the token's `sid`): what a sign-out records (ADR-022). `null` when the
    * token carries none; then a sign-out records nothing. */
   sid: string | null;
+  /** The Google name as the `google_oauth` entry of `linked_accounts` carries it, unchecked. Only
+   * `POST /api/session` reads it (`Feeder identity data`); it is never logged. `null`: none. */
+  name: string | null;
 }
 
 export type Identity =
@@ -53,6 +56,7 @@ interface LinkedAccount {
   type?: unknown;
   chain_type?: unknown;
   address?: unknown;
+  name?: unknown;
 }
 
 /** The first NEAR wallet among the token's linked accounts: `{ type: 'wallet', chain_type: 'near',
@@ -85,6 +89,19 @@ function nearAccountOf(linkedAccounts: unknown): string | null {
   return null;
 }
 
+/** The name of the Google sign-in among the token's linked accounts, as sent. */
+function googleNameOf(linkedAccounts: unknown): string | null {
+  if (typeof linkedAccounts !== 'string') return null;
+  try {
+    const list = JSON.parse(linkedAccounts) as LinkedAccount[];
+    if (!Array.isArray(list)) return null;
+    const entry = list.find((a) => a?.type === 'google_oauth');
+    return typeof entry?.name === 'string' ? entry.name : null;
+  } catch {
+    return null;
+  }
+}
+
 export async function identify(req: Request, env: Pick<Env, 'PRIVY_APP_ID' | 'PRIVY_JWKS_URL'>): Promise<Identity> {
   const token = req.headers.get(TOKEN_HEADER);
   if (token === null || token === '') return { kind: 'none' };
@@ -101,7 +118,7 @@ export async function identify(req: Request, env: Pick<Env, 'PRIVY_APP_ID' | 'PR
     }
     const sid = typeof payload['sid'] === 'string' && payload['sid'] !== '' ? payload['sid'] : null;
     if (sid === null) console.log('session_no_sid');
-    return { kind: 'session', session: { sub: payload.sub, accountId, sid } };
+    return { kind: 'session', session: { sub: payload.sub, accountId, sid, name: googleNameOf(payload['linked_accounts']) } };
   } catch (e) {
     // A bad signature, an expired token, a wrong audience: no session.
     const code = (e as { code?: string } | null)?.code ?? '';

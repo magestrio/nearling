@@ -4,7 +4,27 @@
 // plain JSON-RPC through near-api-js; a failure of the network is `ChainUnreachable` (the routes
 // answer 503, nothing is served or accepted). The transactions of the server's key go through the
 // `ServerKey` Durable Object, one at a time (`src/do/serverKey.ts`), and use `signAndSend` below.
-import { Account, JsonRpcProvider, KeyPairSigner, actions, baseEncode, type KeyPairString } from 'near-api-js';
+import {
+  Account,
+  JsonRpcProvider,
+  KeyPairSigner,
+  PublicKey,
+  actions,
+  baseDecode,
+  baseEncode,
+  encodeTransaction,
+  type Action,
+  type KeyPairString,
+  type SignedTransaction,
+} from 'near-api-js';
+import {
+  AccessKeyDoesNotExistError,
+  AccountDoesNotExistError,
+  InvalidNonceError,
+  InvalidTransactionError,
+  NotEnoughBalanceError,
+  TransactionExecutionError,
+} from 'near-api-js/rpc-errors';
 
 export class ChainUnreachable extends Error {
   constructor(message = 'chain_unreachable') {
@@ -30,6 +50,12 @@ export interface PetRecord {
   stage_day: number;
   streak: number;
   freezes: number;
+  /** The UTC day of the friends' snack counter and how many snacks friends gave that day (a counter of
+   * an earlier day reads 0). */
+  friend_snack_day: number;
+  friend_snacks: number;
+  /** When the owner's last snack was given, ns, as a decimal string (`U64`); `"0"` = never. */
+  owner_snack_at: string;
 }
 
 export type Stage = 'baby' | 'teen' | 'adult';
@@ -46,10 +72,21 @@ export interface HatchRecord {
   pool: string;
 }
 
-/** Prepaid gas of `pet_mint`, Tgas. The mint's gas grows with the token tree: 8.56 Tgas burnt at most
+/** Prepaid gas of `pet_mint`, Tgas. The mint's gas grows with the token tree: 8.58 Tgas burnt at most
  * over 260 births (`contract/tests/pet_mint.rs`, which reads this line and births them with it).
  * Unused gas is refunded. */
 export const PET_MINT_TGAS = 15n;
+
+/** Prepaid gas of `pet_feed`, Tgas: the player's wallet buys it up front at 0.001 NEAR/Tgas
+ * (`Feeding gas data`). `contract/tests/feed.rs` › `gas_of_a_feed` reads this line and feeds with it. */
+export const PET_FEED_TGAS = 5n;
+
+/** The send and execution fees of a `pet_feed` transaction, Tgas, rounded up: the wallet buys them up
+ * front on top of the prepaid gas (`contract/tests/feed.rs` reads this line and feeds with it). */
+export const PET_FEED_FEES_TGAS = 1n;
+
+/** Prepaid gas of `pet_snack`, Tgas; `contract/tests/snack.rs` › `gas_of_a_snack` reads this line. */
+export const PET_SNACK_TGAS = 5n;
 
 const READ_TIMEOUT_MS = 8_000;
 const SEND_TIMEOUT_MS = 25_000;
@@ -103,6 +140,40 @@ export async function accountBalance(env: Pick<Env, 'NEAR_RPC_URL'>, accountId: 
   }
 }
 
+/** What the player's game wallet holds, yoctoNEAR. A wallet that does not exist is an empty one: a
+ * new player's implicit account has no record until the first transfer reaches it, and every other
+ * failure to read is `ChainUnreachable` (`accountBalance` keeps that for the project's own accounts). */
+export async function walletBalance(env: Pick<Env, 'NEAR_RPC_URL'>, accountId: string): Promise<bigint> {
+  try {
+    const account = await withTimeout(rpcProvider(env).viewAccount({ accountId }), READ_TIMEOUT_MS);
+    return BigInt(account.amount);
+  } catch (e) {
+    if (e instanceof AccountDoesNotExistError) return 0n;
+    throw new ChainUnreachable();
+  }
+}
+
+/** The nonce of the account's key now, or `null` when the key (or the account) does not exist. */
+export async function accessKeyNonce(env: Pick<Env, 'NEAR_RPC_URL'>, accountId: string, publicKey: PublicKey | string): Promise<bigint | null> {
+  try {
+    const key = await withTimeout(rpcProvider(env).viewAccessKey({ accountId, publicKey: PublicKey.from(publicKey) }), READ_TIMEOUT_MS);
+    return BigInt(key.nonce);
+  } catch (e) {
+    if (e instanceof AccessKeyDoesNotExistError || e instanceof AccountDoesNotExistError) return null;
+    throw new ChainUnreachable();
+  }
+}
+
+/** The hash of a final block, for the transaction's reference (the node has it in memory). */
+export async function recentBlockHash(env: Pick<Env, 'NEAR_RPC_URL'>): Promise<Uint8Array> {
+  try {
+    const block = await withTimeout(rpcProvider(env).viewBlock({ finality: 'final' }), READ_TIMEOUT_MS);
+    return baseDecode(block.header.hash);
+  } catch {
+    throw new ChainUnreachable();
+  }
+}
+
 /** What the network says about a transaction we sent. `null`: the network has not seen it (yet). */
 export type TxOutcome = { status: 'ok'; value: string | null; burnt?: string } | { status: 'failed'; code: string } | { status: 'pending' } | null;
 
@@ -149,6 +220,10 @@ const CONTRACT_CODES = [
   'zero_deposit',
   'overflow',
   'no_state',
+  'feed_too_small',
+  'snacks_today',
+  'snack_too_soon',
+  'feeder_not_owner',
 ] as const;
 export type ContractCode = (typeof CONTRACT_CODES)[number];
 
@@ -223,12 +298,24 @@ function isInvalidNonce(e: unknown): boolean {
 
 /** Signs and sends one call with the server's key, one transaction at a time per `account` (the
  * caller serializes). A rejected-for-nonce transaction was not included, so it is signed again
- * with a fresh nonce; any other failure to hear the network leaves the outcome unknown. */
-export async function signAndSend(
-  env: Pick<Env, 'CONTRACT_ID'>,
-  keys: { account: Account; signer: KeyPairSigner },
-  call: ServerCall,
-): Promise<SendResult> {
+ * with a fresh nonce; any other typed refusal of the node is a definite `failed`, and any other
+ * failure to hear the network leaves the outcome unknown. */
+export function signAndSend(env: Pick<Env, 'CONTRACT_ID'>, keys: { account: Account; signer: KeyPairSigner }, call: ServerCall): Promise<SendResult> {
+  return signAndSendActions(keys, env.CONTRACT_ID, [actions.functionCall(call.methodName, call.args, BigInt(call.gas), 0n)]);
+}
+
+/** The gas account of the project (ADR-006): the key of `NEAR_GAS_ACCOUNT_KEY`, its own nonces. */
+export function gasAccount(env: Pick<Env, 'NEAR_RPC_URL' | 'GAS_ACCOUNT_ID' | 'NEAR_GAS_ACCOUNT_KEY'>): { account: Account; signer: KeyPairSigner } {
+  const signer = KeyPairSigner.fromSecretKey(env.NEAR_GAS_ACCOUNT_KEY as KeyPairString);
+  return { account: new Account(env.GAS_ACCOUNT_ID, rpcProvider(env), signer), signer };
+}
+
+/** A plain transfer of NEAR from the account of `keys` (the gas account's top-up of a wallet). */
+export function signAndSendTransfer(keys: { account: Account; signer: KeyPairSigner }, receiverId: string, yocto: bigint): Promise<SendResult> {
+  return signAndSendActions(keys, receiverId, [actions.transfer(yocto)]);
+}
+
+async function signAndSendActions(keys: { account: Account; signer: KeyPairSigner }, receiverId: string, todo: Action[]): Promise<SendResult> {
   const { signer } = keys;
   const publicKey = await signer.getPublicKey();
   let lastHash = '';
@@ -236,11 +323,7 @@ export async function signAndSend(
     const account = keys.account;
     let signed;
     try {
-      const tx = await account.createTransaction({
-        receiverId: env.CONTRACT_ID,
-        actions: [actions.functionCall(call.methodName, call.args, BigInt(call.gas), 0n)],
-        publicKey,
-      });
+      const tx = await account.createTransaction({ receiverId, actions: todo, publicKey });
       signed = await signer.signTransaction(tx);
     } catch {
       // Nothing was sent: the nonce or the block could not be read.
@@ -259,8 +342,57 @@ export async function signAndSend(
         keys.account = new Account(account.accountId, account.provider, signer);
         continue;
       }
-      return { status: 'unknown', txHash: lastHash };
+      const refused = refusalCode(e);
+      return refused === null ? { status: 'unknown', txHash: lastHash } : { status: 'failed', txHash: lastHash, code: refused };
     }
   }
   return { status: 'unknown', txHash: lastHash };
+}
+
+/** A refusal the node gave in words nearcore defines: the transaction was not included, so it is a
+ * definite failure (`InvalidNonce`, `NotEnoughBalance` and the other `InvalidTxError`s). */
+function refusalCode(e: unknown): string | null {
+  if (e instanceof InvalidNonceError) return 'invalid_nonce';
+  if (e instanceof NotEnoughBalanceError) return 'not_enough_balance';
+  if (e instanceof TransactionExecutionError || e instanceof InvalidTransactionError) return 'invalid_tx';
+  return null;
+}
+
+/** A `failed` of this code came from the node (`refusalCode`), not the contract: nothing was included,
+ * so the contract refused nothing of what the transaction carried. */
+export const isNodeRefusal = (code: string): boolean => code === 'invalid_nonce' || code === 'not_enough_balance' || code === 'invalid_tx';
+
+/** The hash of a transaction: base58 of the SHA-256 of its borsh bytes. */
+export async function txHashOf(signed: SignedTransaction): Promise<string> {
+  return baseEncode(new Uint8Array(await crypto.subtle.digest('SHA-256', encodeTransaction(signed.transaction))));
+}
+
+/** Sends a transaction the player's key signed (`Feeding transaction data`): not through `ServerKey`,
+ * since the server's nonce is not involved. A typed refusal is a definite `failed`; a timeout or a
+ * lost answer is `unknown`, and the caller looks the hash up before it sends the same bytes again.
+ * An `InvalidNonce` may mean these very bytes already landed (a repeat of the send), so the hash is
+ * looked up first; not found means another transaction took the nonce. */
+export async function sendSigned(env: Pick<Env, 'NEAR_RPC_URL'>, signed: SignedTransaction): Promise<SendResult> {
+  const hash = await txHashOf(signed);
+  try {
+    const out = await withTimeout(rpcProvider(env).sendTransactionUntil(signed, 'EXECUTED_OPTIMISTIC'), SEND_TIMEOUT_MS);
+    const result = interpret(out as RawOutcome);
+    if (result?.status === 'ok') return { status: 'ok', txHash: hash, value: result.value, ...(result.burnt !== undefined ? { burnt: result.burnt } : {}) };
+    if (result?.status === 'failed') return { status: 'failed', txHash: hash, code: result.code };
+    return { status: 'unknown', txHash: hash };
+  } catch (e) {
+    const refused = refusalCode(e);
+    if (refused === null) return { status: 'unknown', txHash: hash };
+    if (!(e instanceof InvalidNonceError)) return { status: 'failed', txHash: hash, code: refused };
+    let known: TxOutcome;
+    try {
+      known = await txStatus(env, hash, signed.transaction.signerId);
+    } catch {
+      return { status: 'unknown', txHash: hash };
+    }
+    if (known?.status === 'ok') return { status: 'ok', txHash: hash, value: known.value, ...(known.burnt !== undefined ? { burnt: known.burnt } : {}) };
+    if (known?.status === 'failed') return { status: 'failed', txHash: hash, code: known.code };
+    if (known?.status === 'pending') return { status: 'unknown', txHash: hash };
+    return { status: 'failed', txHash: hash, code: refused };
+  }
 }

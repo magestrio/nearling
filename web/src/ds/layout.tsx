@@ -107,15 +107,15 @@ export function Only({ on, children }: { on: 'phone' | 'desktop'; children?: Rea
 }
 
 /** What a modal sheet covers: out of reach for focus, the pointer and a screen reader; no box.
- *  on: true — inert on both viewports; 'phone' — only where a sheet is modal. */
+ *  on: true — inert on both viewports; 'phone' — only where a sheet is modal.
+ *  The same element whether on or not: one that came and went would remount all it covers — the pet's one canvas, the
+ *  sheet's opener, the conversation's scroll. */
 export function Inert({ on, children }: { on?: boolean | 'phone'; children?: ReactNode }) {
   const desktop = useIsDesktop();
   const active = on === 'phone' ? !desktop : Boolean(on);
-  return active ? (
-    <div className="ds-only" inert>
+  return (
+    <div className="ds-only" inert={active || undefined}>
       {children}
     </div>
-  ) : (
-    <>{children}</>
   );
 }

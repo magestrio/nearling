@@ -43,6 +43,10 @@ export default defineConfig({
           MAX_CHARACTER_BYTES: limit('MAX_CHARACTER_BYTES'),
           STARTER_FOOD: limit('STARTER_FOOD'),
           MAX_BIRTH_COST: limit('MAX_BIRTH_COST'),
+          MIN_FEED: limit('MIN_FEED'),
+          SNACK_AMOUNT: limit('SNACK_AMOUNT'),
+          FRIEND_SNACKS_PER_DAY: limit('FRIEND_SNACKS_PER_DAY'),
+          OWNER_SNACK_EVERY_NS: limit('OWNER_SNACK_EVERY_NS'),
           PRESETS_MD: JSON.stringify(presetSlots()),
           // The tests' own values: they never read the secrets of `.dev.vars` or of a deployed Worker.
           PRIVY_APP_ID: 'test-privy-app',
@@ -51,6 +55,8 @@ export default defineConfig({
           // A key made when this config loads, for these tests only; it signs nothing on any network
           // and no private key string is kept in the repo.
           NEAR_SERVER_KEY: KeyPairEd25519.fromRandom().toString(),
+          // The gas account's key, the same way: made for these tests, it signs nothing anywhere.
+          NEAR_GAS_ACCOUNT_KEY: KeyPairEd25519.fromRandom().toString(),
           // The tests' list; the real `INSULT_LIST` is the user's secret and is never read here.
           INSULT_LIST: 'idiot\nfuck\nshit\nbiscuit-free\n',
         },

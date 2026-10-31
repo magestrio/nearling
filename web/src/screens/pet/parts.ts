@@ -39,6 +39,8 @@ export interface ActionContext {
   tokenId: string;
   name: string;
   viewer: Viewer;
+  /** `tokenId` is not the page's pet: the own pet's «Feed your {my_pet}» over a friend's page (add-feeding) */
+  elsewhere?: boolean;
 }
 
 type Handler = (context: ActionContext) => void;

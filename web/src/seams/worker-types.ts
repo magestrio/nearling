@@ -27,16 +27,25 @@ export interface Fullness {
   level: number;
 }
 
+/** `near`: a portion of NEAR (the id is its transaction's hash); `snack`: a free snack (a random id, no hash). */
+export type FeedSource = 'near' | 'snack';
+
 export interface PetBase {
   tokenId: string;
   name: string;
   stage: Stage;
   fullness: Fullness;
 }
+/** With a session only: the player's own meal or snack on its way for this pet (`Feeding transaction data` ›
+ *  «outcome with the sheet closed»), `null` when none; a reloaded tab starts to watch its outcome from it. */
+export interface MyFeed {
+  myFeed: { id: string; source: FeedSource } | null;
+}
 /** `GET /api/pets/:id` — `viewer` is the client's switch between the views: `visitor` has no session, `guest` is
  *  signed in and not the owner; the owner fields exist for `owner` only. */
 export type PetView =
-  | ({ viewer: 'visitor' | 'guest' } & PetBase)
+  | ({ viewer: 'visitor' } & PetBase)
+  | ({ viewer: 'guest' } & PetBase & MyFeed)
   | ({
       viewer: 'owner';
       tired: boolean;
@@ -57,8 +66,11 @@ export type PetView =
       lastThought: string | null;
       /** how many times the memory was cleared: a tab with an older number reads the conversation again */
       memoryEpoch: number;
+      /** how many times a meal woke the pet: a page sends its number to `/state?wakes=` and is told of a later wake */
+      wakes: number;
       ownedCount: number;
-    } & PetBase);
+    } & PetBase &
+      MyFeed);
 
 export type ClosedReason = 'service' | 'budget' | 'pool' | 'daily';
 /** `GET /api/hatch` */
@@ -94,15 +106,17 @@ export interface Thought {
   reasked?: boolean;
 }
 /** `GET /api/pets/:id/state` — the owner's view plus the outcome of the job asked for. */
-export type PetState = Omit<Extract<PetView, { viewer: 'owner' }>, 'viewer' | 'ownedCount'> & {
+export type PetState = Omit<Extract<PetView, { viewer: 'owner' }>, 'viewer' | 'ownedCount' | 'myFeed'> & {
+  /** the poll's answer carries it only when the tab has a flight to learn of */
+  myFeed?: MyFeed['myFeed'];
   pending?: boolean;
   /** what the job asked about is */
   jobKind?: JobKind | 'diary';
   thought?: Thought;
   code?: ThoughtCode;
   events: PetEvent[];
-  /** with `woke`: the name of the friend whose meal woke the pet — «{friend} fed {name}.». The server of this change
-   *  never wakes by a friend's meal (that is `add-feeding`'s call of `wakeIfFed`), so it sends none yet. */
+  /** with `woke`: the name of the friend whose meal woke the pet — «{friend} fed {name}.»; `'A friend'` for a nameless
+   *  feeder. Sent when the wake came from a friend's feeding (`wakes` below the pet's counter). */
   friend?: string;
 };
 export interface ConversationLine {
@@ -139,6 +153,66 @@ export type SessionResult = { ok: true } | { refused: SignInRefusal };
  *  nothing was erased); status 0 or another 5xx — the outcome is unknown. */
 export type ClearMemoryCode = 'signed_out' | 'not_owner' | 'no_pet' | 'rate_limited' | 'chain_unreachable' | 'auth_unavailable' | 'clear_failed';
 
+/** The three portions of NEAR the sheet offers (OD-211). The client's own list is `feeding/feedTx.ts` › `PORTIONS`. */
+export type PortionNear = '0.01' | '0.05' | '0.2';
+
+export interface SheetPortion {
+  near: PortionNear;
+  yocto: string;
+  /** whole US cents */
+  cents: number;
+  /** what the player must add to give this portion, NEAR rounded up to two decimals ("0.13"), shown as sent; null when it fits */
+  missing: string | null;
+}
+
+/** The line that stands in the snack's place (`Snack rule`), computed by the server. */
+export type SnackLine =
+  | { state: 'ready' }
+  | { state: 'none' }
+  | { state: 'not_ready'; at: string }
+  | { state: 'given' }
+  | { state: 'pet_full'; until: string }
+  | { state: 'shared_all'; until: string }
+  | { state: 'paused' };
+
+/** `GET /api/pets/:id/feed` when the network reads: what Feed sheet shows, whole. */
+export interface FeedSheetData {
+  chain: true;
+  /** who the player is for this pet at this moment: a pet given away turns an owner's sheet into a guest's */
+  viewer: 'owner' | 'guest';
+  name: string;
+  fullness: Fullness;
+  portions: SheetPortion[];
+  /** `none`: nothing in the wallet but the project's gas, the balance is not shown */
+  wallet: { state: 'some'; balance: string } | { state: 'none' };
+  snack: SnackLine;
+  /** the player has a pet of their own: the thanks says «Get your own pet» when not */
+  hatched: boolean;
+  /** the feeder's own first name for the thanks, when it passed the server's check */
+  friend: string | null;
+  /** a meal or snack of the player's on its way, whichever pet it is for */
+  pending: { id: string; source: FeedSource; tokenId: string } | null;
+}
+/** `chain: false` alone when the network does not read (`Feeding connection rule` › «сеть NEAR недоступна»). */
+export type FeedSheetAnswer = FeedSheetData | { chain: false };
+
+/** The answer of `/feed/send`, `/feed/outcome` and `/snack`. `friend` only for a friend's confirmed meal with a name. */
+export interface FeedOutcome {
+  status: 'ok' | 'failed' | 'unknown';
+  hash?: string;
+  friend?: string;
+  hatched: boolean;
+  /** `/feed/outcome` only, with `unknown`: no row of the player stands for the id, so nothing will settle it. */
+  settled?: true;
+}
+
+/** `GET /api/wallet`: the player's game wallet. `funded`: NEAR arrived since the last read. */
+export interface WalletInfo {
+  address: string;
+  balance: string;
+  funded: boolean;
+}
+
 /** The identity token of the player, or null for a visitor. */
 export type Token = string | null;
 
@@ -151,7 +225,8 @@ export interface WorkerApi {
   /** `name` is the raw text as typed; the server cleans it again. Resolves `{ tokenId }`. */
   hatch(token: Token, name: string): Promise<{ tokenId: string }>;
   pet(token: Token, tokenId: string): Promise<PetView>;
-  petState(token: Token, tokenId: string, job?: string): Promise<PetState>;
+  /** `wakes`: how many wakes this page knows of; a later one comes back as `woke` and `friend`. */
+  petState(token: Token, tokenId: string, job?: string, wakes?: number): Promise<PetState>;
   conversation(token: Token, tokenId: string, before?: number): Promise<Conversation>;
   /** Resolves the job id (null when the greeting is already there). */
   say(token: Token, tokenId: string, text: string, mode: 'chat' | 'deep'): Promise<{ job: string }>;
@@ -168,4 +243,16 @@ export interface WorkerApi {
   signInState(): Promise<SignInGate>;
   /** The owner erases the pet's memory. */
   clearMemory(token: Token, tokenId: string): Promise<{ ok: true }>;
+  /** Feed sheet's state, whole. Refusals: `401 signed_out`, `404 no_pet`, `500 rate_missing`. */
+  feedSheet(token: Token, tokenId: string): Promise<FeedSheetAnswer>;
+  /** The unsigned `pet_feed` as base64, for the browser to check and sign. Refusals: `409 pending`, `409 short` (body holds
+   *  `sheet`), `502 feed_not_built`, `503 chain_unreachable`, `404 no_pet`. */
+  buildFeed(token: Token, tokenId: string, portion: PortionNear): Promise<{ tx: string }>;
+  /** The signed portion (both base64). Holds up to `FEED_SEND_TIMEOUT_MS`. Refusals: `400 bad_tx`, `409 pending`, `503`. */
+  sendFeed(token: Token, tokenId: string, body: { tx: string; signature: string }): Promise<FeedOutcome>;
+  /** The outcome for a tab that has no signed bytes (a reload, a snack). */
+  feedOutcome(token: Token, tokenId: string, body: { id: string; source: FeedSource }): Promise<FeedOutcome>;
+  /** The free snack, sent by the server. Refusals: `409 snack_gone` (body holds `sheet`), `409 pending`, `503`. */
+  snack(token: Token, tokenId: string): Promise<FeedOutcome>;
+  wallet(token: Token): Promise<WalletInfo>;
 }

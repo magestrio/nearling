@@ -1,6 +1,6 @@
 # ADR-022: Sign-out on the server — what the server keeps to end a session
 
-**Status:** Accepted (`add-account › Sign-out data`, plan hole → «Хранить 24 часа», user decision 2026-10-30)
+**Status:** Accepted (`add-account › Sign-out data`, plan hole → «Хранить 24 часа», user decision 2026-10-30); Option C in force since the dev check of 2026-10-30
 **Date:** 2026-10-30
 **Deciders:** the user
 
@@ -36,14 +36,17 @@ A stores one opaque id for a day and ends the session the way `Sign-out data` sa
 ## Decision
 A (the user, 2026-10-30). C is the fallback only if a real identity token turns out not to carry `sid`.
 
+The dev check of 2026-10-30 found no `sid`, so C holds (the user, same day): the record's key is the token's hash, same table, same period.
+
 ## Consequences
 - §8 › Сущности and Хранение gain Ended sign-in session; `Sign-out data` states the rule.
 - Each request with a session reads the record; a sign-out that never reaches the server keeps no record, and the old token lives until it expires (`Sign-out data` › «server not reached»).
-- A record refuses only the ended session, so signing in again depends on Privy giving a new id (`Sign-out data` › «signed in again»).
+- A record refuses only the token it was made from. A tab holding another token, or any other copy of an older token, works until that token expires (`Sign-out data` › «tab with another token»).
+- A new sign-in brings a new token, with its own hash (`Sign-out data` › «signed in again»).
 - 24 hours is the user's period, well above a token's life of about an hour (volatile).
 - A request that fails at Privy still ends the session in the browser: Privy 3.51.0's `_destroy` catches the failure and runs `destroyLocalState`, which clears the refresh, access and identity tokens [fact: read in `web/node_modules/@privy-io/react-auth/dist/esm/toViemAccount-BQS52mmk.mjs`, not run; volatile]. So neither a sign-out that reached only the server nor one that reached neither brings the session back on reload. Whether Privy's own record of that refresh token stays valid is unknown; the browser no longer holds it. The spec relies on this (the user, 2026-10-30: «Полагаемся на Privy», `Sign-out data`).
 
 ## Action Items
-1. [ ] At the build, on dev: a real identity token carries `sid`; if not, Option C and a §8 edit.
-2. [ ] At the build, on dev: a new sign-in after a sign-out gets a new `sid`.
+1. [x] At the build, on dev: a real identity token carries `sid`; if not, Option C and a §8 edit. Closed 2026-10-30, on the user's real sign-in: the token's top-level fields are `cr`, `linked_accounts`, `iss`, `iat`, `aud`, `sub`, `exp`; there is no `sid`. Option C holds, §8 edited.
+2. [x] At the build, on dev: a new sign-in after a sign-out gets a new `sid`. Closed 2026-10-30: there is no `sid` to renew. On the same run `POST /api/session` gave 200 twice around `POST /api/session/end` 204, but the server recorded nothing then (D-30), so that run did not test a sign-in against a record. A later token differs in `iat`, so its hash differs [inference from the token's fields, not run].
 3. [ ] At the build, on dev, by hand: a sign-out with no network, then a reload with the network back, finds no session. If it finds one, the question goes back to the user.

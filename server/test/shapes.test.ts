@@ -13,6 +13,7 @@ const OWNER_VIEW: Record<keyof OwnerView, 'always' | 'sometimes'> = {
   name: 'always',
   stage: 'always',
   fullness: 'always',
+  myFeed: 'always',
   tired: 'always',
   until: 'sometimes',
   paused: 'always',
@@ -24,6 +25,7 @@ const OWNER_VIEW: Record<keyof OwnerView, 'always' | 'sometimes'> = {
   pendingText: 'always',
   lastThought: 'always',
   memoryEpoch: 'always',
+  wakes: 'always',
   ownedCount: 'always',
 };
 const STATE: Record<keyof PetState, 'always' | 'sometimes'> = {
@@ -31,6 +33,7 @@ const STATE: Record<keyof PetState, 'always' | 'sometimes'> = {
   name: 'always',
   stage: 'always',
   fullness: 'always',
+  myFeed: 'sometimes',
   tired: 'always',
   until: 'sometimes',
   paused: 'always',
@@ -42,6 +45,7 @@ const STATE: Record<keyof PetState, 'always' | 'sometimes'> = {
   pendingText: 'always',
   lastThought: 'always',
   memoryEpoch: 'always',
+  wakes: 'always',
   events: 'always',
   pending: 'sometimes',
   jobKind: 'sometimes',
@@ -72,10 +76,10 @@ describe('the answers the client is typed against', () => {
     h.net().contract.addPet('5', OWNER);
     const guest = await api('/api/pets/5', { token: await token('did:privy:other', NEAR_ACCOUNT(2)) });
     const visitor = await api('/api/pets/5');
-    for (const { body } of [guest, visitor]) {
-      expect(Object.keys(body).sort()).toEqual(['fullness', 'name', 'stage', 'tokenId', 'viewer']);
-      expect(body.stage).toBe('baby');
-    }
+    // a signed-in viewer also gets `myFeed` (their own meal on its way for this pet); a visitor has none
+    expect(Object.keys(guest.body).sort()).toEqual(['fullness', 'myFeed', 'name', 'stage', 'tokenId', 'viewer']);
+    expect(Object.keys(visitor.body).sort()).toEqual(['fullness', 'name', 'stage', 'tokenId', 'viewer']);
+    for (const { body } of [guest, visitor]) expect(body.stage).toBe('baby');
   });
 
   // spec: add-pet › Pet screen › success (владелец)

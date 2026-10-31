@@ -1,10 +1,24 @@
 // State a test hands to the fakes before the page loads (Playwright's addInitScript). Fakes exist
 // only in the e2e mode (VITE_FAKES); no dev or prod build contains this file's users.
-import type { ClosedReason, HatchStatus, Me, PetBase, PetState, Conversation, SessionResult, SignInGate } from './worker-types';
+import type {
+  ClosedReason,
+  Conversation,
+  FeedOutcome,
+  FeedSheetData,
+  HatchStatus,
+  Me,
+  MyFeed,
+  PetBase,
+  PetState,
+  SessionResult,
+  SignInGate,
+  WalletInfo,
+} from './worker-types';
 
 /** An answer the fake gives instead of a value: the Worker's refusal (status 0 — it never answered). */
 export interface FakeFail {
-  fail: { status: number; code: string };
+  /** `body`: the few refusals that carry more than a code (`409 short` and `409 snack_gone` hold the sheet) */
+  fail: { status: number; code: string; body?: unknown };
 }
 
 export interface FakeWorkerState {
@@ -24,7 +38,7 @@ export interface FakeWorkerState {
   hatchDelayMs?: number;
   me?: Me | FakeFail;
   /** the pets the fake knows, by token_id */
-  pets?: Record<string, PetBase & { owner?: Partial<Omit<Extract<import('./worker-types').PetView, { viewer: 'owner' }>, keyof PetBase | 'viewer'>> }>;
+  pets?: Record<string, PetBase & Partial<MyFeed> & { owner?: Partial<Omit<Extract<import('./worker-types').PetView, { viewer: 'owner' }>, keyof PetBase | keyof MyFeed | 'viewer'>> }>;
   /** `GET /api/pets/:id` refused (the server, the network, the rate limit) instead of answering */
   petResult?: FakeFail;
   /** the token_ids the signed-in fake player owns: those answer with the owner's view, the rest with the guest's */
@@ -51,6 +65,22 @@ export interface FakeWorkerState {
   /** `POST …/memory/clear`; default `{ ok: true }` */
   clearMemory?: { ok: true } | FakeFail;
   clearMemoryDelayMs?: number;
+  /** `GET …/feed`: fields laid over the sheet the fake builds from the pet and the viewer (default: three portions at 5¢ / 23¢ /
+   *  92¢, 0.31 NEAR in the wallet, a free snack where `Snack rule` gives one); `{ chain: false }` or a refusal instead */
+  feedSheet?: Partial<FeedSheetData> | { chain: false } | FakeFail;
+  feedSheetDelayMs?: number;
+  /** `POST …/feed`; default a real `pet_feed` transaction built by near-api-js for the pet and the portion asked */
+  buildFeed?: { tx: string } | FakeFail;
+  /** `POST …/feed/send`; default `{ status: 'ok', hatched: true }` */
+  sendFeed?: FeedOutcome | FakeFail;
+  /** the send is held this long (ms): the frame of a meal on its way */
+  feedSendDelayMs?: number;
+  /** `POST …/feed/outcome`; default `{ status: 'ok', hatched: true }` */
+  feedOutcome?: FeedOutcome | FakeFail;
+  /** `POST …/snack`; default `{ status: 'ok', hatched: true }` */
+  snack?: FeedOutcome | FakeFail;
+  /** `GET /api/wallet`; default the address of the fake account with 0.31 NEAR */
+  wallet?: WalletInfo | FakeFail;
 }
 
 export interface FakeState {

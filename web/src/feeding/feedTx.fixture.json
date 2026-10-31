@@ -1,0 +1,4 @@
+{
+  "note": "What server/src/feeding/portion.ts buildPortion makes (createTransaction + encode, base64) for account 'a1' x32, contract nearling-dev.testnet, token 9, portion 0.01 NEAR, nonce 7, 5 Tgas, block hash 1..32; recorded once from near-api-js 7.4.0.",
+  "tx": "QAAAAGExYTFhMWExYTFhMWExYTFhMWExYTFhMWExYTFhMWExYTFhMWExYTFhMWExYTFhMWExYTFhMWExYTFhMWExYTEAoaGhoaGhoaGhoaGhoaGhoaGhoaGhoaGhoaGhoaGhoaEHAAAAAAAAABQAAABuZWFybGluZy1kZXYudGVzdG5ldAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8gAQAAAAIIAAAAcGV0X2ZlZWQQAAAAeyJ0b2tlbl9pZCI6IjkifQBQOSeMBAAAAABAsrrJ4BkeAgAAAAAAAA=="
+}

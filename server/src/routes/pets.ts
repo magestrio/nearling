@@ -33,7 +33,11 @@ petRoutes.get('/api/pets/:id', async (c) => {
 
   const base = { tokenId: id, name: pet.name, stage: stageOf(pet), fullness: await fullnessOf(c.env.DB, id, pet) };
   if (session === null) return c.json({ viewer: 'visitor', ...base });
-  if (pet.owner_id !== session.accountId) return c.json({ viewer: 'guest', ...base });
+  // The player's own meal or snack on its way for this pet, nobody else's (`Feeding transaction data` ›
+  // «outcome with the sheet closed»): a reloaded tab starts to watch its outcome from this.
+  const mine = await c.env.DB.prepare('SELECT id, source FROM feedings WHERE account = ? AND token_id = ?').bind(session.accountId, id).first<{ id: string; source: string }>();
+  const myFeed = mine === null ? null : { id: mine.id, source: mine.source };
+  if (pet.owner_id !== session.accountId) return c.json({ viewer: 'guest', ...base, myFeed });
 
   let owned: number;
   try {
@@ -43,7 +47,7 @@ petRoutes.get('/api/pets/:id', async (c) => {
     throw e;
   }
   const fields = await ownerFields(c.env, id, pet, (await pauseReason(c.env.DB)) !== null);
-  return c.json({ viewer: 'owner', ...base, ...fields, ownedCount: owned });
+  return c.json({ viewer: 'owner', ...base, ...fields, ownedCount: owned, myFeed });
 });
 
 // The signed-in player: the pet they hatched, the one they have now, how many they own.

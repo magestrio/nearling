@@ -1,7 +1,8 @@
 //! The numbers of the spec (`Pet mint contract`, `Session debit contract`, PRODUCT.md §4).
 //!
 //! `server/vitest.config.ts` reads `MAX_CHARACTER_BYTES` and `STARTER_FOOD` from this file by
-//! name, so each stays a plain integer literal on one line.
+//! name (and, with `add-feeding`, `MIN_FEED` and `SNACK_AMOUNT`), so each stays a plain integer
+//! literal on one line.
 
 /// A single thought costs at most 0.005 NEAR.
 pub const MAX_THOUGHT_PRICE: u128 = 5_000_000_000_000_000_000_000;
@@ -40,3 +41,20 @@ pub const MAX_BIRTH_COST: u128 = 22_000_000_000_000_000_000_000;
 
 /// Nanoseconds in a UTC day.
 pub const DAY_NS: u64 = 86_400_000_000_000;
+
+/// The smallest feeding deposit: 0.01 NEAR (`Pet feed contract`). No upper bound.
+pub const MIN_FEED: u128 = 10_000_000_000_000_000_000_000;
+
+/// What one snack puts into a pet's project food, from the pool: 0.0017 NEAR (PRODUCT.md §8 ›
+/// Настройки контракта).
+pub const SNACK_AMOUNT: u128 = 1_700_000_000_000_000_000_000;
+
+/// Snacks from friends one pet takes in a UTC day.
+pub const FRIEND_SNACKS_PER_DAY: u8 = 3;
+
+/// The owner's snack comes at most once in 72 hours, in nanoseconds.
+pub const OWNER_SNACK_EVERY_NS: u64 = 259_200_000_000_000;
+
+/// Bytes of one acquaintance record: a 32-byte hashed key, no value, plus the 40 bytes every record
+/// carries. The unit test `an_acquaintance_costs_exactly_the_record_bytes` measures it.
+pub const KNOWN_RECORD_BYTES: u64 = 72;

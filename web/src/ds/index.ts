@@ -1,11 +1,14 @@
 // The DS components of design/ds/components.js, ported. Not here yet (parts of other changes): Energy, Growth, Trait,
 // Segmented and the verification and wardrobe parts. `Pet` is web/src/pet/PetFigure.tsx.
+export { ActionRow } from './ActionRow';
 export { Banner, Nest, Skeleton } from './Feedback';
 export { Block } from './Block';
 export { Button, type ButtonProps } from './Button';
 export { Centerpiece } from './Centerpiece';
 export { Composer } from './Composer';
 export { Conversation, Message, Thinking } from './Conversation';
+export { CopyField } from './CopyField';
+export { Disclosure } from './Disclosure';
 export { Dots } from './Dots';
 export { Fullness, litCells, type FullnessState } from './Fullness';
 export { Icon, type IconName } from './Icon';

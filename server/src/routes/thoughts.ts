@@ -8,7 +8,7 @@ import { requireSession, TOKEN_ID, type AppContext, type AppEnv } from '../http'
 import { hasVisible } from '../name/clean';
 import { desk, enqueueJob, jobOf } from '../pet/desk';
 import { memoryEpoch } from '../pet/forget';
-import { ownerFields } from '../pet/view';
+import { ownerFields, wakeState } from '../pet/view';
 import { wakeIfFed } from '../pet/wake';
 import { isPaused, pauseReason } from '../servicePause';
 
@@ -110,16 +110,29 @@ thoughtRoutes.get('/api/pets/:id/state', async (c) => {
   if (owned instanceof Response) return owned;
   const { pet, id } = owned;
 
-  // The food grew while the pet slept (a feeding of the owner, a friend): it wakes.
+  // The food grew while the pet slept (a feeding of the owner, a friend): it wakes. While a friend's
+  // meal is still on its way the poll leaves the wake to the flow that sent it: the food is visible
+  // on chain before the outcome is settled, and a wake by the poll would lose the friend's thanks.
   const events: string[] = [];
-  if (await wakeIfFed(c.env, id, 'owner')) events.push('woke');
+  const friendOnItsWay = await c.env.DB.prepare("SELECT 1 AS found FROM feedings WHERE token_id = ? AND via = 'link' LIMIT 1").bind(id).first();
+  let woke = friendOnItsWay === null && (await wakeIfFed(c.env, id, 'owner'));
+  // A wake that a feeding flow made since this page loaded is told by the counter, once per page
+  // (`?wakes=<n>` of the page; a page that sends none is told of no old wake).
+  const wakesSeen = c.req.query('wakes');
+  const wake = await wakeState(c.env.DB, id);
+  let friend: string | undefined;
+  if (wakesSeen !== undefined && /^\d{1,9}$/.test(wakesSeen) && Number(wakesSeen) < wake.wakes) {
+    woke = true;
+    if (wake.by !== null) friend = wake.by === '' ? 'A friend' : wake.by;
+  }
+  if (woke) events.push('woke');
 
   // A desk that died in a deploy runs nothing by itself: whoever looks at the pet starts it again.
   const waiting = await c.env.DB.prepare("SELECT 1 AS found FROM jobs WHERE token_id = ? AND status IN ('queued', 'running') LIMIT 1").bind(id).first();
   if (waiting !== null) c.executionCtx.waitUntil(desk(c.env, id).process(id));
 
   const fields = await ownerFields(c.env, id, pet, (await pauseReason(c.env.DB)) !== null);
-  const out: Record<string, unknown> = { tokenId: id, name: pet.name, stage: stageOf(pet), ...fields, events };
+  const out: Record<string, unknown> = { tokenId: id, name: pet.name, stage: stageOf(pet), ...fields, events, ...(friend !== undefined ? { friend } : {}) };
   const jobId = c.req.query('job');
   if (jobId !== undefined && jobId !== '') {
     const job = await c.env.DB.prepare('SELECT status, kind, result FROM jobs WHERE id = ? AND token_id = ?').bind(jobId, id).first<{ status: string; kind: string; result: string | null }>();

@@ -171,6 +171,10 @@ async fn a_birth_records_the_pet_and_enumerates_it() -> anyhow::Result<()> {
     assert_eq!(pet["streak"], 0);
     assert_eq!(pet["freezes"], 1);
     assert_eq!(pet["debited_today"], "0");
+    // The snack counters of `add-feeding` start at zero.
+    assert_eq!(pet["friend_snack_day"], 0);
+    assert_eq!(pet["friend_snacks"], 0);
+    assert_eq!(pet["owner_snack_at"], "0");
 
     let hatch = ctx.hatch_view("alice.near").await?;
     assert_eq!(hatch["token_id"], "0");

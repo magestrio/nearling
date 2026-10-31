@@ -1,19 +1,72 @@
 // Money of the pet: the starter food, the fullness scale, the project's own costs in USD.
 // The thought's price (usage, the ceiling, the reserve) is added here by the thought stage.
+import { PET_FEED_FEES_TGAS, PET_FEED_TGAS } from './chain';
 
 /** The starter food of a newborn: 12 typical thoughts, 0.0020 NEAR. The same number as
  * `STARTER_FOOD` in `contract/src/limits.rs`; `server/vitest.config.ts` hands that file's value
  * to the tests, which compare (`test/pricing.test.ts`). */
 export const STARTER_FOOD_YOCTO = 2_000_000_000_000_000_000_000n;
 
-/** The storage a birth locks, in yoctoNEAR, at its upper bound: 1,856 bytes x 1e19
- * (design.md › Контракт › Хранилище, measured by `contract/tests/pet_mint.rs`). */
-export const BIRTH_STORAGE_YOCTO = 18_560_000_000_000_000_000_000n;
+/** The storage a birth locks, in yoctoNEAR, at its upper bound: 1,873 bytes x 1e19, the V2 record of
+ * `add-feeding` (design.md › Контракт › Хранилище, measured by `contract/tests/pet_mint.rs`: 1,443
+ * bytes of the birth plus the owner-list entry of 430). */
+export const BIRTH_STORAGE_YOCTO = 18_730_000_000_000_000_000_000n;
 
 /** A pre-check of the pool before a birth: `MAX_BIRTH_COST` of `contract/src/limits.rs`. */
 export const MAX_BIRTH_COST_YOCTO = 22_000_000_000_000_000_000_000n;
 
 export const YOCTO_PER_NEAR = 1_000_000_000_000_000_000_000_000n;
+
+// ---------------------------------------------------------------------------------------------
+// Feeding (`add-feeding`): the three portions, the snack, the gas of a portion.
+
+/** What one snack puts into a pet's project food, from the pool: `SNACK_AMOUNT` of
+ * `contract/src/limits.rs` (0.0017 NEAR). `server/vitest.config.ts` hands the contract's value to
+ * `test/pricing.test.ts`, which compares. */
+export const SNACK_YOCTO = 1_700_000_000_000_000_000_000n;
+
+/** The owner's snack comes once in 72 hours (`OWNER_SNACK_EVERY_NS` of the contract), in milliseconds. */
+export const OWNER_SNACK_EVERY_MS = 259_200_000n;
+
+/** Snacks from friends one pet takes in a UTC day (`FRIEND_SNACKS_PER_DAY` of the contract). */
+export const PET_FRIEND_SNACKS_PER_DAY = 3;
+
+/** Different pets one friend gives snacks to in a UTC day (`Snack rule`; the server's rule, §8 ›
+ * Перекусы друзей: the contract does not see it). */
+export const FRIEND_SNACK_PETS_PER_DAY = 3;
+
+/** What an acquaintance's record costs the pool: `KNOWN_RECORD_BYTES` (72, `contract/src/limits.rs`) x 1e19. */
+export const KNOWN_RECORD_YOCTO = 720_000_000_000_000_000_000n;
+
+/** The most gas a portion may prepay, Tgas: the browser's and the server's check both refuse a larger
+ * buy, since it would need more balance than the sheet promised (`design.md` › Решения). */
+export const MAX_FEED_GAS_TGAS = 30n;
+
+/** The portions the sheet offers (OD-211): 0.01 / 0.05 / 0.2 NEAR. The smallest is `MIN_FEED` of
+ * `contract/src/limits.rs`, the least `pet_feed` takes. `near` is the text the sheet and the browser's
+ * check use. */
+export const FEED_PORTIONS = [
+  { near: '0.01', yocto: 10_000_000_000_000_000_000_000n },
+  { near: '0.05', yocto: 50_000_000_000_000_000_000_000n },
+  { near: '0.2', yocto: 200_000_000_000_000_000_000_000n },
+] as const;
+export type PortionNear = (typeof FEED_PORTIONS)[number]['near'];
+
+/** What a wallet must hold for the gas of a portion, yoctoNEAR: the prepaid gas and the receipt's fees,
+ * (`PET_FEED_TGAS` 5 + `PET_FEED_FEES_TGAS` 1) x 0.001 NEAR per Tgas, 0.006 NEAR (the user, 2026-10-31).
+ * The protocol buys both up front; `contract/tests/feed.rs` feeds from a wallet of exactly this. */
+export const FEED_GAS_YOCTO = (PET_FEED_TGAS + PET_FEED_FEES_TGAS) * 1_000_000_000_000_000_000_000n;
+
+/** What the project puts into a wallet that has a portion but no gas for it, once per player (ADR-006). */
+export const GAS_TOPUP_YOCTO = FEED_GAS_YOCTO;
+
+/** A portion's price in whole US cents at `rate` USD per NEAR, rounded to the nearest (the frames'
+ * 5 / 23 / 92 at $4.59). The rate of NEAR moves only this (§4). */
+export function portionCents(yocto: bigint, rate: number): number {
+  const rate6 = BigInt(Math.round(rate * 1_000_000));
+  const denom = YOCTO_PER_NEAR * 1_000_000n;
+  return Number((yocto * rate6 * 100n + denom / 2n) / denom);
+}
 
 export type FullnessState = 'full' | 'hungry' | 'asleep';
 export interface Fullness {

@@ -5,7 +5,9 @@ import { accountBalance, ChainUnreachable } from './chain';
 import { closeAndDebit } from './debit';
 import { utcDay } from './http';
 import { keyIsValid } from './nearai';
+import { askNetwork } from './feeding/inflight';
 import { desk, enqueueJob, STALE_RUNNING_MS } from './pet/desk';
+import { FEEDINGS_COLUMNS, settleFeeding, type FeedingRow } from './pet/settle';
 import { clearPause, gasReserve, lastProbe, noteProbe, pauseReason, setPause } from './servicePause';
 import { monthOf } from './signin';
 
@@ -13,6 +15,13 @@ import { monthOf } from './signin';
 const DIARY_WINDOW_MS = 30 * 60_000;
 /** At most this many calls to NEAR AI at once for the diary (the provider allows ~64 per model, volatile). */
 const DIARY_AT_ONCE = 8;
+/** A meal or snack on its way is asked after by the cron from this age. */
+const STALE_FEEDING_MS = 60_000;
+/** At most this many rows are asked after in a tick (an unknown hash makes the RPC wait). */
+const FEEDINGS_PER_TICK = 10;
+/** The reference block of a portion is past the chain's validity window by then (86,400 blocks). */
+const FEEDING_FAILED_AFTER_MS = 24 * 3_600_000;
+const NO_HASH_FAILED_MS = 5 * 60_000;
 /** A paused key is tried again at this interval. */
 const PROBE_EVERY_MS = 5 * 60_000;
 
@@ -21,6 +30,7 @@ export async function tick(env: Env, nowMs: number = Date.now()): Promise<void> 
     ['debit', () => closeAndDebit(env, nowMs)],
     ['diary', () => diary(env, nowMs)],
     ['pause', () => pause(env, nowMs)],
+    ['feedings', () => settleStaleFeedings(env, nowMs)],
     ['clean', () => clean(env, nowMs)],
   ];
   for (const [name, part] of parts) {
@@ -87,6 +97,27 @@ export async function pause(env: Env, nowMs: number): Promise<void> {
   }
 }
 
+/** A meal or snack on its way whose tab went away: asked after by its hash a minute on, the
+ * consequences run once whichever flow gets there first (`settleFeeding`). A row the network has never
+ * answered for 24 hours is `failed`: the reference block of a portion is past the chain's validity
+ * window, so it can no longer land (design.md › Риски). A snack row that never got its hash (the Worker
+ * died between the row and the send) is failed after `NO_HASH_FAILED_MS`: its reservation is freed. */
+export async function settleStaleFeedings(env: Env, nowMs: number): Promise<void> {
+  const rows = await env.DB.prepare(`SELECT ${FEEDINGS_COLUMNS} FROM feedings WHERE created_at < ? ORDER BY created_at LIMIT ?`)
+    .bind(nowMs - STALE_FEEDING_MS, FEEDINGS_PER_TICK)
+    .all<FeedingRow>();
+  for (const row of rows.results) {
+    const answered = await askNetwork(env, row);
+    if (answered !== null) continue;
+    const age = nowMs - row.created_at;
+    if (age >= FEEDING_FAILED_AFTER_MS || (row.tx_hash === null && age >= NO_HASH_FAILED_MS)) {
+      await settleFeeding(env, row, { status: 'failed', code: 'expired' });
+    } else if (age < 2 * STALE_FEEDING_MS) {
+      console.log('feed_unknown');
+    }
+  }
+}
+
 export async function clean(env: Env, nowMs: number): Promise<void> {
   await env.DB.batch([
     env.DB.prepare("DELETE FROM jobs WHERE created_at < ? AND status IN ('done', 'failed')").bind(nowMs - 86_400_000),
@@ -94,5 +125,7 @@ export async function clean(env: Env, nowMs: number): Promise<void> {
     // Refusals of past months (Sign-in data › «новый месяц»); the ended sessions after 24 hours (ADR-022).
     env.DB.prepare('DELETE FROM sign_in_refusals WHERE month <> ?').bind(monthOf(nowMs)),
     env.DB.prepare('DELETE FROM ended_sessions WHERE ended_at < ?').bind(nowMs - 86_400_000),
+    // The friends' snacks of earlier UTC days (§8 › Перекусы друзей: «до конца суток UTC»).
+    env.DB.prepare('DELETE FROM friend_snacks WHERE day < ?').bind(utcDay(nowMs)),
   ]);
 }

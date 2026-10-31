@@ -108,6 +108,9 @@ export interface OwnerFields {
   lastThought: string | null;
   /** How many times the memory was cleared: a tab whose number is older reads the conversation again. */
   memoryEpoch: number;
+  /** How many times a meal woke the pet: a page that sends a smaller number to `/state?wakes=` is told
+   * of the wake (`Sleep and wake flow`); a page learns the number at load and never replays an old wake. */
+  wakes: number;
 }
 
 interface PendingRow {
@@ -121,6 +124,13 @@ function pendingLine(row: PendingRow | null): string | null {
   if (row === null || row.kind !== 'reply' || row.payload === null) return null;
   const text = (JSON.parse(row.payload) as { text?: unknown }).text;
   return typeof text === 'string' ? text : null;
+}
+
+/** The wake counter of the pet and the friend who made the last wake (`''`: a nameless friend; null:
+ * the owner's own meal, work, or a memory that was cleared). */
+export async function wakeState(db: D1Database, tokenId: string): Promise<{ wakes: number; by: string | null }> {
+  const row = await db.prepare('SELECT wake_seq, wake_by FROM pets WHERE token_id = ?').bind(tokenId).first<{ wake_seq: number; wake_by: string | null }>();
+  return { wakes: row?.wake_seq ?? 0, by: row?.wake_by ?? null };
 }
 
 /** Everything only the owner is shown of the pet, from the state the caller already read. */
@@ -147,5 +157,6 @@ export async function ownerFields(env: Env, tokenId: string, pet: PetRecord, pau
     pendingText: pendingLine(pending),
     lastThought: last?.id ?? null,
     memoryEpoch: await memoryEpoch(env.DB, tokenId),
+    wakes: (await wakeState(env.DB, tokenId)).wakes,
   };
 }

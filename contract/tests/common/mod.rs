@@ -6,7 +6,8 @@ use std::sync::OnceLock;
 
 use near_contract_standards::non_fungible_token::NonFungibleToken;
 use near_sdk::borsh::{self, BorshDeserialize, BorshSerialize};
-use near_sdk::store::LookupMap;
+use near_sdk::store::key::Sha256;
+use near_sdk::store::{LookupMap, LookupSet};
 use near_workspaces::network::Sandbox;
 use near_workspaces::result::ExecutionFinalResult;
 use near_workspaces::types::{Gas, NearToken};
@@ -46,6 +47,7 @@ struct StateMirror {
     births_today: u32,
     next_token_id: u64,
     pool: u128,
+    known: LookupSet<(String, near_sdk::AccountId), Sha256>,
 }
 
 pub struct Ctx {
@@ -200,6 +202,66 @@ impl Ctx {
             .json()?)
     }
 
+    pub async fn feed_as(
+        &self,
+        caller: &Account,
+        token_id: &str,
+        deposit: u128,
+    ) -> anyhow::Result<ExecutionFinalResult> {
+        Ok(caller
+            .call(self.contract.id(), "pet_feed")
+            .args_json(json!({ "token_id": token_id }))
+            .deposit(NearToken::from_yoctonear(deposit))
+            .gas(Gas::from_tgas(30))
+            .transact()
+            .await?)
+    }
+
+    pub async fn snack_as(
+        &self,
+        caller: &Account,
+        token_id: &str,
+        feeder: &str,
+        kind: &str,
+    ) -> anyhow::Result<ExecutionFinalResult> {
+        Ok(caller
+            .call(self.contract.id(), "pet_snack")
+            .args_json(json!({ "token_id": token_id, "feeder": feeder, "kind": kind }))
+            .gas(Gas::from_tgas(30))
+            .transact()
+            .await?)
+    }
+
+    pub async fn snack(
+        &self,
+        token_id: &str,
+        feeder: &str,
+        kind: &str,
+    ) -> anyhow::Result<ExecutionFinalResult> {
+        self.snack_as(&self.server, token_id, feeder, kind).await
+    }
+
+    pub async fn knows(&self, token_id: &str, account: &str) -> anyhow::Result<bool> {
+        Ok(self
+            .contract
+            .view("pet_knows")
+            .args_json(json!({ "token_id": token_id, "account_id": account }))
+            .await?
+            .json()?)
+    }
+
+    /// A funded sandbox account, named by the caller.
+    pub async fn account(&self, name: &str, near: u128) -> anyhow::Result<Account> {
+        Ok(self
+            .worker
+            .root_account()?
+            .create_subaccount(name)
+            .initial_balance(NearToken::from_yoctonear(near * NEAR))
+            .transact()
+            .await?
+            .into_result()?)
+    }
+
     pub async fn pool(&self) -> anyhow::Result<u128> {
         let view = self.hatch_view("nobody.near").await?;
         Ok(view["pool"].as_str().unwrap().parse()?)
@@ -236,8 +298,8 @@ impl Ctx {
         }))
     }
 
-    /// Rewrites a pet's record through the sandbox's state patch: the contract has no method that
-    /// adds food before `add-feeding`, and the caps (0.005 / 0.05 NEAR) are above the starter food.
+    /// Rewrites a pet's record through the sandbox's state patch: the caps (0.005 / 0.05 NEAR) are
+    /// above the starter food, and a test needs a pet at a given food or a given day's counter.
     pub async fn set_pet(&self, token_id: &str, edit: impl FnOnce(&mut Pet)) -> anyhow::Result<()> {
         let view = self.pet_view(token_id).await?;
         let amount = |k: &str| -> u128 { view[k].as_str().unwrap().parse().unwrap() };
@@ -254,11 +316,14 @@ impl Ctx {
             stage_day: view["stage_day"].as_u64().unwrap(),
             streak: view["streak"].as_u64().unwrap() as u32,
             freezes: view["freezes"].as_u64().unwrap() as u8,
+            friend_snack_day: view["friend_snack_day"].as_u64().unwrap(),
+            friend_snacks: view["friend_snacks"].as_u64().unwrap() as u8,
+            owner_snack_at: view["owner_snack_at"].as_str().unwrap().parse().unwrap(),
         };
         edit(&mut pet);
         let mut key = b"p".to_vec();
         key.extend(borsh::to_vec(&token_id.to_string())?);
-        let value = borsh::to_vec(&VersionedPet::V1(pet))?;
+        let value = borsh::to_vec(&VersionedPet::V2(pet))?;
         self.worker
             .patch_state(self.contract.id(), &key, &value)
             .await?;
@@ -270,8 +335,31 @@ impl Ctx {
     /// UTC day costs ~290,000 blocks, ~40 minutes; the real `block_timestamp` boundary is the unit
     /// test `the_utc_day_changes_at_the_block_timestamp_boundary`.)
     pub async fn age_births_by_a_day(&self) -> anyhow::Result<()> {
-        // A node refuses to view a contract's state past 50 kB by the account's `storage_usage`,
-        // even for one key: the number is lowered for this one read and put back.
+        let state = self.read_state().await?;
+        let mut mirror: StateMirror = borsh::from_slice(&state)?;
+        assert!(mirror.births_day > 0);
+        mirror.births_day -= 1;
+        self.worker
+            .patch_state(self.contract.id(), b"STATE", &borsh::to_vec(&mirror)?)
+            .await?;
+        Ok(())
+    }
+
+    /// Sets the pool to `pool` in the state (the contract's balance is not touched).
+    pub async fn set_pool(&self, pool: u128) -> anyhow::Result<()> {
+        let state = self.read_state().await?;
+        let mut mirror: StateMirror = borsh::from_slice(&state)?;
+        mirror.pool = pool;
+        self.worker
+            .patch_state(self.contract.id(), b"STATE", &borsh::to_vec(&mirror)?)
+            .await?;
+        Ok(())
+    }
+
+    /// The contract's `STATE` record. A node refuses to view a contract's state past 50 kB by the
+    /// account's `storage_usage`, even for one key: the number is lowered for this one read and put
+    /// back.
+    pub async fn read_state(&self) -> anyhow::Result<Vec<u8>> {
         let id = self.contract.id();
         let details = self.worker.view_account(id).await?;
         let real_usage = details.storage_usage;
@@ -282,14 +370,10 @@ impl Ctx {
         let mut restored: AccountDetailsPatch = self.worker.view_account(id).await?.into();
         restored.storage_usage = Some(real_usage);
         self.worker.patch(id).account(restored).transact().await?;
-        let state = raw.get(b"STATE".as_slice()).expect("the contract state");
-        let mut mirror: StateMirror = borsh::from_slice(state)?;
-        assert!(mirror.births_day > 0);
-        mirror.births_day -= 1;
-        self.worker
-            .patch_state(self.contract.id(), b"STATE", &borsh::to_vec(&mirror)?)
-            .await?;
-        Ok(())
+        Ok(raw
+            .get(b"STATE".as_slice())
+            .expect("the contract state")
+            .clone())
     }
 
     /// If the sandbox clock is within five minutes of 00:00 UTC, moves it past midnight, so a
@@ -355,4 +439,22 @@ pub fn thought_json(price: u128) -> Value {
 
 pub fn thoughts(n: usize, price: u128) -> Vec<Value> {
     (0..n).map(|_| thought_json(price)).collect()
+}
+
+/// The prepaid gas the Worker sends a method with: the `<NAME> = <n>n;` constant of
+/// `server/src/chain.ts`.
+pub fn tgas_const(name: &str) -> Gas {
+    let source = include_str!("../../../server/src/chain.ts");
+    let line = source
+        .lines()
+        .find(|l| l.contains(&format!("{name} =")))
+        .unwrap_or_else(|| panic!("{name} in server/src/chain.ts"));
+    let digits: String = line
+        .split('=')
+        .nth(1)
+        .unwrap()
+        .chars()
+        .filter(char::is_ascii_digit)
+        .collect();
+    Gas::from_tgas(digits.parse().unwrap())
 }

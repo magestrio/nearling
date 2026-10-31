@@ -2,7 +2,20 @@
 // `privy-id-token` (design.md › Worker); without one it goes as a visitor. A failure is a WorkerError: `status` 0
 // means the Worker never answered, any other is its HTTP status with the `code` of its body (`signed_out`,
 // `rate_limited`, `chain_unreachable`, `not_owner`, `no_pet`, …).
-import type { Conversation, HatchStatus, Health, Me, PetState, PetView, SignInGate, Token, WorkerApi } from './worker-types';
+import type {
+  Conversation,
+  FeedOutcome,
+  FeedSheetAnswer,
+  HatchStatus,
+  Health,
+  Me,
+  PetState,
+  PetView,
+  SignInGate,
+  Token,
+  WalletInfo,
+  WorkerApi,
+} from './worker-types';
 import { WorkerError } from './worker-types';
 
 export * from './worker-types';
@@ -11,6 +24,9 @@ export * from './worker-types';
 export const REQUEST_TIMEOUT_MS = 15_000;
 /** `POST /api/hatch` may hold: a second tap waits up to 30 s for the first, a transaction up to 25 s. */
 export const HATCH_TIMEOUT_MS = 65_000;
+/** `POST …/feed/send` and `…/snack` may hold: the server waits up to 25 s for the network (`SEND_TIMEOUT_MS`), a second tap
+ *  of another tab waits as long. The line «Still checking…» does not wait for this: it comes at 10 s (`feedFlight.ts`). */
+export const FEED_SEND_TIMEOUT_MS = 65_000;
 /** The sign-out does not wait on the server longer than this (`Sign-out data` › `server not reached`). */
 export const END_SESSION_TIMEOUT_MS = 3000;
 
@@ -56,7 +72,13 @@ const real: WorkerApi = {
   hatchStatus: (token, opts) => call<HatchStatus>(opts?.look ? '/api/hatch?look=1' : '/api/hatch', token),
   hatch: (token, name) => call<{ tokenId: string }>('/api/hatch', token, { method: 'POST', body: { name }, timeoutMs: HATCH_TIMEOUT_MS }),
   pet: (token, tokenId) => call<PetView>(`/api/pets/${id(tokenId)}`, token),
-  petState: (token, tokenId, job) => call<PetState>(`/api/pets/${id(tokenId)}/state${job ? `?job=${encodeURIComponent(job)}` : ''}`, token),
+  petState: (token, tokenId, job, wakes) => {
+    const query = new URLSearchParams();
+    if (job) query.set('job', job);
+    if (wakes !== undefined) query.set('wakes', String(wakes));
+    const text = query.toString();
+    return call<PetState>(`/api/pets/${id(tokenId)}/state${text ? `?${text}` : ''}`, token);
+  },
   conversation: (token, tokenId, before) =>
     call<Conversation>(`/api/pets/${id(tokenId)}/conversation${before !== undefined ? `?before=${before}` : ''}`, token),
   say: (token, tokenId, text, mode) => call<{ job: string }>(`/api/pets/${id(tokenId)}/thoughts`, token, { method: 'POST', body: { text, mode } }),
@@ -77,6 +99,13 @@ const real: WorkerApi = {
   endSession: (token) => call<void>('/api/session/end', token, { method: 'POST', timeoutMs: END_SESSION_TIMEOUT_MS }),
   signInState: () => call<SignInGate>('/api/sign-in', null),
   clearMemory: (token, tokenId) => call<{ ok: true }>(`/api/pets/${id(tokenId)}/memory/clear`, token, { method: 'POST' }),
+  feedSheet: (token, tokenId) => call<FeedSheetAnswer>(`/api/pets/${id(tokenId)}/feed`, token),
+  buildFeed: (token, tokenId, portion) => call<{ tx: string }>(`/api/pets/${id(tokenId)}/feed`, token, { method: 'POST', body: { portion } }),
+  sendFeed: (token, tokenId, body) =>
+    call<FeedOutcome>(`/api/pets/${id(tokenId)}/feed/send`, token, { method: 'POST', body, timeoutMs: FEED_SEND_TIMEOUT_MS }),
+  feedOutcome: (token, tokenId, body) => call<FeedOutcome>(`/api/pets/${id(tokenId)}/feed/outcome`, token, { method: 'POST', body }),
+  snack: (token, tokenId) => call<FeedOutcome>(`/api/pets/${id(tokenId)}/snack`, token, { method: 'POST', timeoutMs: FEED_SEND_TIMEOUT_MS }),
+  wallet: (token) => call<WalletInfo>('/api/wallet', token),
 };
 
 export const workerApi: WorkerApi =

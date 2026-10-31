@@ -11,6 +11,8 @@ export function linkFor(place: string, inApp: InApp | null, invite: string | nul
   // the marks are this function's to set, whatever the place's own query says
   url.searchParams.delete('ib');
   url.searchParams.delete('c');
+  // the feed link's mark stays in the in-app browser that counted it: the same link out of it is not a second opening
+  url.searchParams.delete('via');
   if (inApp) url.searchParams.set('ib', inApp);
   if (invite) url.searchParams.set('c', invite);
   return url.toString();

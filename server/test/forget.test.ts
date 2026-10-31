@@ -394,6 +394,24 @@ describe('Memory deletion data, the pairs', () => {
     expect((await api('/api/pets/5/wake', { token: tk, method: 'POST' })).body).toEqual({ job: null });
   });
 
+  // spec: add-feeding › Feed by link flow › друг покормил × Clear memory
+  it('erases the name of the friend who woke the pet with the rest of the memory, and keeps the wake counter and the index', async () => {
+    const pet = await asleepPet();
+    pet.given_food = S.toString();
+    expect(await wakeIfFed(env, '5', 'link', 'Maya')).toBe(true);
+    await env.DB.prepare("INSERT INTO known_index (token_id, account) VALUES ('5', ?)").bind(NEAR_ACCOUNT(2)).run();
+    expect((await rows("SELECT wake_seq, wake_by FROM pets WHERE token_id = '5'"))[0]).toEqual({ wake_seq: 1, wake_by: 'Maya' });
+    const tk = await owner();
+    await clear(tk);
+    expect((await rows("SELECT wake_seq, wake_by FROM pets WHERE token_id = '5'"))[0]).toEqual({ wake_seq: 1, wake_by: null });
+    expect(await rows('SELECT account FROM known_index')).toEqual([{ account: NEAR_ACCOUNT(2) }]);
+    // a page that missed the wake is told of it, but the name is gone with the memory
+    const state = await api('/api/pets/5/state?wakes=0', { token: tk });
+    expect(state.body.events).toEqual(['woke']);
+    expect(state.body.friend).toBeUndefined();
+    expect(JSON.stringify(state.body)).not.toContain('Maya');
+  });
+
   // spec: add-account › Memory deletion data › стёрто × питомец спит
   it('works for a sleeping pet: nothing is spent, and it stays asleep', async () => {
     await asleepPet();

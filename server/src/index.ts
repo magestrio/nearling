@@ -1,6 +1,7 @@
 import { Hono } from 'hono';
 import { tick } from './cron';
 import { gate, type AppEnv } from './http';
+import { feedingRoutes } from './routes/feeding';
 import { hatchRoutes } from './routes/hatch';
 import { memoryRoutes } from './routes/memory';
 import { petRoutes } from './routes/pets';
@@ -28,6 +29,7 @@ app.route('/', petRoutes);
 app.route('/', thoughtRoutes);
 app.route('/', memoryRoutes);
 app.route('/', hatchRoutes);
+app.route('/', feedingRoutes);
 
 // The cron (`triggers.crons`, every minute): sessions to debit, the diary, the pause of the services.
 async function scheduled(_controller: ScheduledController, env: Env, ctx: ExecutionContext): Promise<void> {

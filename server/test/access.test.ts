@@ -20,6 +20,8 @@ describe('Conversation access data', () => {
       name: 'Pixel',
       stage: 'baby',
       fullness: { state: 'full', level: 1 },
+      // the viewer's own meal on its way: nothing of the owner's (`add-feeding` › `Feeding transaction data`)
+      myFeed: null,
     });
     // The owner-only fields are not in the answer, and the conversation route does not exist for them yet.
     for (const field of ['tired', 'paused', 'hello', 'ownedCount', 'pendingJob', 'pendingMode', 'events']) expect(res.body).not.toHaveProperty(field);

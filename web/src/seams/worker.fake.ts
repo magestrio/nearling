@@ -1,9 +1,23 @@
 // The Worker's answers for the e2e mode and the screen captures: read from `__NEARLING_FAKES__.worker` at every call,
 // so a test can change them after the page loaded. The shapes are the real routes' (server/src/routes/*), the refusals
 // carry the real codes. Nothing here leaves the machine.
+import { actions, createTransaction } from 'near-api-js';
+import { config } from '../config';
+import { PORTION_YOCTO, toBase64 } from '../feeding/feedTx';
 import { cleanName, hasVisible } from '../lib/nameClean';
+import { publicKeyFromImplicitAccount } from '../near/privySigner';
 import { fakeState, recordCall, type FakeFail, type FakeWorkerState } from './fakes';
-import { WorkerError, type PetView, type SessionResult, type SignInGate, type WorkerApi } from './worker-types';
+import {
+  WorkerError,
+  type FeedOutcome,
+  type FeedSheetData,
+  type PetView,
+  type PortionNear,
+  type SessionResult,
+  type SignInGate,
+  type WalletInfo,
+  type WorkerApi,
+} from './worker-types';
 
 const state = (): FakeWorkerState => fakeState().worker ?? {};
 const wait = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
@@ -17,7 +31,7 @@ async function answer<T>(name: string, configured: T | FakeFail | undefined, fal
   recordCall(`worker:${name}`);
   const ms = delayMs ?? state().delayMs ?? 0;
   if (ms > 0) await wait(ms);
-  if (isFail(configured)) throw new WorkerError(configured.fail.status, configured.fail.code);
+  if (isFail(configured)) throw new WorkerError(configured.fail.status, configured.fail.code, configured.fail.body ?? null);
   return configured ?? fallback;
 }
 
@@ -35,11 +49,43 @@ const OWNER_DEFAULTS = {
   pendingText: null,
   lastThought: null,
   memoryEpoch: 0,
+  wakes: 0,
   ownedCount: 1,
 };
 
 function petsOf(): NonNullable<FakeWorkerState['pets']> {
   return state().pets ?? { '9': PIXEL, '2': BISCUIT };
+}
+
+const PORTION_CENTS = { '0.01': 5, '0.05': 23, '0.2': 92 } as const;
+/** 0.31 NEAR: what the frames' wallet holds. */
+const WALLET_YOCTO = '310000000000000000000000';
+const fakeAccount = (): string => fakeState().auth?.nearAccountId ?? 'a'.repeat(64);
+
+/** The sheet the real route would build for this pet and the fake player: the portions all within reach, 0.31 NEAR in the wallet,
+ *  the free snack where `Snack rule` gives one (a friend's, an asleep pet's of the owner). A test lays its own fields over it. */
+function defaultSheet(tokenId: string): FeedSheetData {
+  const pet = petsOf()[tokenId];
+  if (!pet) throw new WorkerError(404, 'no_pet');
+  const owner = (state().owned ?? []).includes(tokenId);
+  return {
+    chain: true,
+    viewer: owner ? 'owner' : 'guest',
+    name: pet.name,
+    fullness: pet.fullness,
+    portions: (Object.keys(PORTION_YOCTO) as PortionNear[]).map((near) => ({ near, yocto: PORTION_YOCTO[near].toString(), cents: PORTION_CENTS[near], missing: null })),
+    wallet: { state: 'some', balance: WALLET_YOCTO },
+    snack: owner && pet.fullness.state !== 'asleep' ? { state: 'none' } : { state: 'ready' },
+    hatched: true,
+    friend: null,
+    pending: null,
+  };
+}
+
+/** A confirmed meal or snack; a friend's carries the name for the thanks. */
+function defaultOutcome(tokenId: string): FeedOutcome {
+  const owner = (state().owned ?? []).includes(tokenId);
+  return { status: 'ok', hash: 'FakeFeedHash1111111111111111111111111111111', hatched: true, ...(owner ? {} : { friend: 'Maya' }) };
 }
 
 /** A token is no session once a test says so (`sessionExpired`): the Worker answers every request that carries one with `401`. */
@@ -58,10 +104,10 @@ async function viewOf(token: string | null, tokenId: string): Promise<PetView> {
   if (refused) throw new WorkerError(refused.fail.status, refused.fail.code);
   const pet = petsOf()[tokenId];
   if (!pet) throw new WorkerError(404, 'no_pet');
-  const { owner, ...base } = pet;
+  const { owner, myFeed, ...base } = pet;
   if (token === null) return { viewer: 'visitor', ...base };
-  if (!(state().owned ?? []).includes(tokenId)) return { viewer: 'guest', ...base };
-  return { viewer: 'owner', ...base, ...OWNER_DEFAULTS, ...owner };
+  if (!(state().owned ?? []).includes(tokenId)) return { viewer: 'guest', ...base, myFeed: myFeed ?? null };
+  return { viewer: 'owner', ...base, ...OWNER_DEFAULTS, myFeed: myFeed ?? null, ...owner };
 }
 
 /** How long a thought may be on its way before «Still working on it…» joins the thinking line: 10 s as the spec says;
@@ -105,8 +151,10 @@ export const fakeWorkerApi: WorkerApi = {
     return viewOf(token, tokenId);
   },
 
-  async petState(token, tokenId, job) {
+  async petState(token, tokenId, job, wakes) {
     recordCall('worker:petState');
+    // the number the page sent with `?wakes=`, beside the plain call record, so a test can tell what the page knows
+    if (wakes !== undefined) recordCall(`worker:petState:wakes:${wakes}`);
     const view = await viewOf(token, tokenId);
     if (view.viewer !== 'owner') throw new WorkerError(403, 'not_owner');
     const { viewer: _viewer, ownedCount: _owned, ...owner } = view;
@@ -153,6 +201,75 @@ export const fakeWorkerApi: WorkerApi = {
   },
 
   signInState: () => answer<SignInGate>('signInState', state().signIn, { state: 'open' }),
+
+  feedSheet: async (token, tokenId) => {
+    // asked is recorded before the refusal, as the Worker would have been asked
+    recordCall('worker:feedSheet');
+    if (token === null) throw new WorkerError(401, 'signed_out');
+    needSession(token);
+    const ms = state().feedSheetDelayMs ?? state().delayMs ?? 0;
+    if (ms > 0) await wait(ms);
+    const configured = state().feedSheet;
+    if (isFail(configured)) throw new WorkerError(configured.fail.status, configured.fail.code);
+    if (configured?.chain === false) return { chain: false };
+    return { ...defaultSheet(tokenId), ...configured };
+  },
+
+  buildFeed: async (token, tokenId, portion) => {
+    if (token === null) throw new WorkerError(401, 'signed_out');
+    needSession(token);
+    recordCall(`worker:buildFeed:${portion}`);
+    const configured = state().buildFeed;
+    if (isFail(configured)) throw new WorkerError(configured.fail.status, configured.fail.code, configured.fail.body ?? null);
+    if (configured) return configured;
+    // a real `pet_feed` as the Worker builds it, so the client's check meets real bytes
+    const account = fakeAccount();
+    const tx = createTransaction(
+      account,
+      publicKeyFromImplicitAccount(account),
+      config.contractId,
+      1n,
+      [actions.functionCall('pet_feed', { token_id: tokenId }, 5n * 10n ** 12n, PORTION_YOCTO[portion])],
+      new Uint8Array(32).fill(1),
+    );
+    return { tx: toBase64(tx.encode()) };
+  },
+
+  sendFeed: async (token, tokenId) => {
+    if (token === null) throw new WorkerError(401, 'signed_out');
+    try {
+      needSession(token);
+    } catch (e) {
+      // asked is recorded before the refusal, as the Worker would have been asked
+      recordCall('worker:sendFeed');
+      throw e;
+    }
+    return answer<FeedOutcome>('sendFeed', state().sendFeed, defaultOutcome(tokenId), state().feedSendDelayMs);
+  },
+
+  feedOutcome: async (token, tokenId) => {
+    if (token === null) throw new WorkerError(401, 'signed_out');
+    needSession(token);
+    return answer<FeedOutcome>('feedOutcome', state().feedOutcome, defaultOutcome(tokenId));
+  },
+
+  snack: async (token, tokenId) => {
+    if (token === null) throw new WorkerError(401, 'signed_out');
+    needSession(token);
+    return answer<FeedOutcome>('snack', state().snack, defaultOutcome(tokenId), state().feedSendDelayMs);
+  },
+
+  wallet: async (token) => {
+    if (token === null) throw new WorkerError(401, 'signed_out');
+    try {
+      needSession(token);
+    } catch (e) {
+      // asked is recorded before the refusal, as the Worker would have been asked
+      recordCall('worker:wallet');
+      throw e;
+    }
+    return answer<WalletInfo>('wallet', state().wallet, { address: fakeAccount(), balance: WALLET_YOCTO, funded: false });
+  },
 
   clearMemory: async (token, tokenId) => {
     if (token === null || state().sessionExpired) throw new WorkerError(401, 'signed_out');

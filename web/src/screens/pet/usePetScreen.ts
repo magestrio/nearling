@@ -2,6 +2,8 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { hasVisible } from '../../lib/nameClean';
 import { formatCents } from '../../lib/price';
 import { onClearOutcome } from '../../account/clearMemory';
+import { hostOf, watchFlight } from '../../feeding/feedFlight';
+import { onFed } from '../../feeding/feedRequest';
 import { useLocation } from '../../route';
 import { useAuth } from '../../seams/auth';
 import { takeReturnText } from '../../signin/returnPlace';
@@ -117,6 +119,9 @@ export function usePetScreen(tokenId: string, from: string | null) {
   const sleepLined = useRef(false);
   // how many times the memory was cleared, as this page knows it: a poll that sees more has a clear of another tab to follow
   const epoch = useRef(0);
+  // how many times a meal woke the pet, as this page knows it: sent with the poll, so a page learns of a wake that came after
+  // it loaded and never replays an old one (`Sleep and wake flow` › «разбудил друг при открытой странице»)
+  const wakes = useRef(0);
 
   const setDraft = useCallback((text: string) => {
     draftRef.current = text;
@@ -200,7 +205,18 @@ export function usePetScreen(tokenId: string, from: string | null) {
         setBanner(null);
         if (pet.viewer === 'owner') {
           epoch.current = pet.memoryEpoch;
+          wakes.current = pet.wakes;
           adopt(pet);
+        }
+        // a meal or snack of this player's the server still holds for this pet (a reload, another tab): the tab watches its outcome,
+        // so the page changes in seconds with no poll of its own (`Feeding transaction data` › «outcome with the sheet closed»)
+        if (pet.viewer !== 'visitor' && pet.myFeed) {
+          watchFlight(hostOf(authRef.current), {
+            tokenId,
+            id: pet.myFeed.id,
+            source: pet.myFeed.source,
+            wasAsleep: pet.fullness.state === 'asleep',
+          });
         }
       } catch (e) {
         if (live) fail(e, () => setAttempt((a) => a + 1));
@@ -357,8 +373,9 @@ export function usePetScreen(tokenId: string, from: string | null) {
     try {
       const token = await tokenOf();
       const asked = jobRef.current;
-      const s: PetState = await workerApi.petState(token, tokenId, asked ?? undefined);
+      const s: PetState = await workerApi.petState(token, tokenId, asked ?? undefined, wakes.current);
       const shown = pageRef.current.kind === 'pet' ? pageRef.current.pet.fullness.state : null;
+      wakes.current = s.wakes;
       setBanner(null);
       setPage((p) =>
         p.kind === 'pet' && p.pet.viewer === 'owner'
@@ -576,6 +593,40 @@ export function usePetScreen(tokenId: string, from: string | null) {
     [tokenId, forgetConversation],
   );
   const clearNotice = useCallback(() => setNotice(null), []);
+
+  // Feed sheet beside the page: each answer of the open sheet carries the pet's fullness, and the plate shows the same one as the
+  // sheet's head — also on a guest's page, which has no poll (`Feed sheet screen` › «лист обновляется сам»).
+  useEffect(
+    () =>
+      onFed((event) => {
+        if (event.tokenId !== tokenId) return;
+        if (event.kind === 'fed') {
+          // a meal was confirmed, the sheet open or not: the owner's page reads the pet at once, a guest's reads it once; the
+          // fullness or the wake shows, with no message (`Feeding outcome rule` › «closed on its way»)
+          if (pageRef.current.kind !== 'pet') return;
+          if (pageRef.current.pet.viewer === 'owner') {
+            void poll();
+          } else {
+            void (async () => {
+              try {
+                const view = await workerApi.pet(await tokenOf(), tokenId);
+                setPage((p) => (p.kind === 'pet' && p.pet.viewer !== 'owner' ? { kind: 'pet', pet: view } : p));
+              } catch {
+                // the page stands as it was; the next look at it reads again
+              }
+            })();
+          }
+          return;
+        }
+        setPage((p) => {
+          if (p.kind !== 'pet') return p;
+          const shown = p.pet.fullness;
+          if (shown.state === event.fullness.state && shown.level === event.fullness.level) return p;
+          return { kind: 'pet', pet: { ...p.pet, fullness: event.fullness } };
+        });
+      }),
+    [tokenId, poll, tokenOf],
+  );
 
   // The text of a sign-in from the ended-session line, handed back to this address once its view is decided: the owner's field
   // takes it, unsent; a screen with no such field (the pet was given away, a dead link) takes it and drops it unseen

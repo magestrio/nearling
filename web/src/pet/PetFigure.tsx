@@ -221,6 +221,24 @@ function ReadySignal({ onReady }: { onReady: () => void }) {
 /** What a falling frame rate takes away, one step at a time: the pixel ratio, the multisampling, the Bloom. */
 const MOST_DECLINED = 3;
 
+/** Listens for the canvas's context to go, while the figure stands: R3F's teardown forces the loss on a canvas that has
+ *  unmounted, which says nothing about WebGL. */
+export function useContextLoss(onLost: () => void): (canvas: HTMLCanvasElement) => void {
+  const standing = useRef(true);
+  useLayoutEffect(() => {
+    standing.current = true;
+    return () => {
+      standing.current = false;
+    };
+  }, []);
+  return (canvas) => {
+    canvas.addEventListener('webglcontextlost', (e) => {
+      e.preventDefault();
+      if (standing.current) onLost();
+    });
+  };
+}
+
 function Scene3D({
   tokenId,
   state,
@@ -233,6 +251,7 @@ function Scene3D({
   const [level, setLevel] = useState(0);
   const [paused] = useMotionPaused();
   const playing = usePetPlaying();
+  const watchContext = useContextLoss(onLost);
   const assembly = useMemo(() => assemblePet(tokenId, state, stage, outfit), [tokenId, state, stage, outfit]);
   // One camera through the pet's states: it does not jump when the pet droops or falls asleep.
   const framed = useMemo(() => assemblePet(tokenId, 'full', stage, outfit), [tokenId, stage, outfit]);
@@ -253,12 +272,7 @@ function Scene3D({
       style={CANVAS_STYLE}
       dpr={[1, level >= 1 ? 1 : 2]}
       camera={{ fov: FOV, near: 0.1, far: 100 }}
-      onCreated={({ gl }) => {
-        gl.domElement.addEventListener('webglcontextlost', (e) => {
-          e.preventDefault();
-          onLost();
-        });
-      }}
+      onCreated={({ gl }) => watchContext(gl.domElement)}
       data-motion={paused ? 'paused' : 'playing'}
     >
       <PerformanceMonitor onDecline={() => setLevel((l) => Math.min(MOST_DECLINED, l + 1))} onIncline={() => setLevel((l) => Math.max(0, l - 1))} />

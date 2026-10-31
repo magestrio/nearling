@@ -98,6 +98,22 @@ describe('Session debit contract', () => {
     expect(chain.attempts).toBe(1);
   });
 
+  // spec: add-feeding › Feeding outcome rule › не прошло × a batch the node refused
+  it('keeps a batch the node refused: the contract never saw it, so it stays to be billed and is no rejected batch', async () => {
+    const pet = h.net().contract.addPet('5', OWNER);
+    await think(2);
+    const chain = h.net().contract;
+    chain.mode = 'not-enough-balance';
+    await tick(env, later());
+    expect(await statuses()).toEqual([{ status: 'unbilled', n: 2 }]);
+    expect(await spend()).toEqual([]);
+    chain.mode = 'normal';
+    await tick(env, later(13 * MIN));
+    await tick(env, later(40 * MIN));
+    expect(await statuses()).toEqual([{ status: 'billed', n: 2 }]);
+    expect(pet.last_debit_id).toBe(1);
+  });
+
   // Design: an unknown outcome is looked up by hash before a second signature (design.md › Решения).
   it('waits when the network has not heard of the transaction, and signs again only long after', async () => {
     const pet = h.net().contract.addPet('5', OWNER);

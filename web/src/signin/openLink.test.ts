@@ -13,6 +13,12 @@ describe('linkFor', () => {
     expect(linkFor('/hatch?from=2', 'telegram', null)).toBe(`${origin}/hatch?from=2&ib=telegram`);
   });
 
+  // spec: add-feeding › Feed link sharing flow › ссылку открыли
+  it('drops the feed link\'s mark: the link out of an in-app browser is not a second opening of the feed link', () => {
+    expect(linkFor('/pet/2?via=feed', 'x', null)).toBe(`${origin}/pet/2?ib=x`);
+    expect(linkFor('/pet/2?via=feed&from=9', null, 'crypto')).toBe(`${origin}/pet/2?from=9&c=crypto`);
+  });
+
   // spec: add-account › Sign-in data › ссылка в настоящий браузер × телефон без встроенного браузера
   it('has no mark of an in-app browser on a phone that is in none (the fallback path)', () => {
     expect(linkFor('/pet/2', null, null)).toBe(`${origin}/pet/2`);
