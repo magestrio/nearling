@@ -21,3 +21,5 @@ Option A (OD-601, the user 2026-10-28): the worn item is a D1 row by token_id (`
 ## Consequences
 - The worn item and unseen grants are D1 rows by token_id, served and changed only for the current owner checked against the contract on every request; a guest gets only the worn item, for the model. Not erased by memory deletion; they go with the pet on a gift.
 - No gas and no public record for changing clothes; if our server closes, the worn item is lost, the items are not.
+- The server learns that a notice was shown from the browser: the item's name, nothing else (the user, 2026-10-31, build add-wardrobe).
+- The server takes «Wear» only for an item the pet has on chain (the user, 2026-10-31, build add-wardrobe).

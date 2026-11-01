@@ -25,6 +25,14 @@ async fn with_old_pet() -> anyhow::Result<Ctx> {
     Ok(ctx)
 }
 
+fn events_of(result: &near_workspaces::result::ExecutionFinalResult) -> Vec<Value> {
+    event_logs(result)
+        .iter()
+        .map(|e| serde_json::from_str(e).unwrap())
+        .collect()
+}
+
+/// The one event of a mark that earns no item.
 fn event_of(result: &near_workspaces::result::ExecutionFinalResult) -> Value {
     let events = event_logs(result);
     assert_eq!(events.len(), 1, "{events:?}");
@@ -44,7 +52,11 @@ async fn a_counted_day_writes_the_streak_the_day_and_the_event_and_no_new_byte()
     let pool = ctx.pool().await?;
 
     let marked = ctx.streak_mark("0", day, 0).await?;
-    let event = event_of(&marked);
+    // The first day earns the crown: the streak event, then the item's (`Earned outfit contract`
+    // › «вещь за серию записана»).
+    let events = events_of(&marked);
+    assert_eq!(events.len(), 2, "{events:?}");
+    let event = events[0].clone();
     marked.into_result()?;
     assert_eq!(event["standard"], "nearling");
     assert_eq!(event["version"], "1.0.0");
@@ -233,6 +245,8 @@ async fn more_missed_days_than_freezes_restart_the_streak_and_spent_is_the_freez
         pet.streak = 5;
         pet.freezes = 2;
         pet.last_streak_day = day - 5;
+        // It has the crown already: the restart to 1 earns nothing, one event.
+        pet.give(0);
     })
     .await?;
     let storage = ctx.storage_usage().await?;
@@ -262,6 +276,7 @@ async fn more_missed_days_than_freezes_restart_the_streak_and_spent_is_the_freez
 /// the longest character (read and written whole with the record), the first mark, a covered gap
 /// and a restart. Read from the Worker's source.
 // spec: add-daily-ritual › Streak contract › сутки засчитаны × gas
+// spec: add-wardrobe › Earned outfit contract › вещь за серию записана × the gas of a mark
 #[tokio::test]
 async fn gas_of_a_mark() -> anyhow::Result<()> {
     let prepaid: Gas = tgas_const("STREAK_MARK_TGAS");
@@ -293,6 +308,128 @@ async fn gas_of_a_mark() -> anyhow::Result<()> {
         assert!(burnt < prepaid.as_gas());
         most = most.max(burnt);
     }
+    // The third day, the scarf: the second item event of a pet that has the crown.
+    ctx.set_pet("0", |pet| {
+        pet.streak = 2;
+        pet.last_streak_day = day - 1;
+    })
+    .await?;
+    let result = ctx
+        .streak_mark_with(&ctx.server, "0", day, 0, prepaid)
+        .await?;
+    let burnt = result.total_gas_burnt.as_gas();
+    eprintln!(
+        "gas_of_a_mark: scarf burnt {burnt} gas, prepaid {} gas",
+        prepaid.as_gas()
+    );
+    assert!(result.is_success(), "scarf: {:?}", result.failures());
+    assert_eq!(event_logs(&result).len(), 2, "the streak and the scarf");
+    assert!(burnt < prepaid.as_gas());
+    most = most.max(burnt);
     eprintln!("gas_of_a_mark: most {most} gas");
+    Ok(())
+}
+
+// spec: add-wardrobe › Earned outfit contract › вещь за серию записана
+// spec: add-wardrobe › Earned outfit contract › вещь за серию записана × 1 and 3 days
+#[tokio::test]
+async fn the_first_and_the_third_day_write_the_crown_and_the_scarf_with_the_streak()
+-> anyhow::Result<()> {
+    let ctx = with_old_pet().await?;
+    let day = today(&ctx).await?;
+    assert_eq!(ctx.pet_view("0").await?["outfits"], json!([]));
+    let storage = ctx.storage_usage().await?;
+    let pool = ctx.pool().await?;
+
+    // Day 1: the crown (item 0), after the streak event, in the same transaction.
+    let marked = ctx.streak_mark("0", day, 0).await?;
+    let events = events_of(&marked);
+    marked.into_result()?;
+    assert_eq!(events.len(), 2, "{events:?}");
+    assert_eq!(events[0]["event"], "streak");
+    assert_eq!(events[1]["standard"], "nearling");
+    assert_eq!(events[1]["version"], "1.0.0");
+    assert_eq!(events[1]["event"], "outfit");
+    assert_eq!(
+        events[1]["data"],
+        json!({ "token_id": "0", "item": 0, "via": "streak" })
+    );
+    assert_eq!(ctx.pet_view("0").await?["outfits"], json!([0]));
+
+    // Day 2: nothing.
+    ctx.age_streak_by_days("0", 1).await?;
+    let marked = ctx.streak_mark("0", day, 0).await?;
+    let event = event_of(&marked);
+    marked.into_result()?;
+    assert_eq!(event["data"]["streak"], 2);
+    assert_eq!(ctx.pet_view("0").await?["outfits"], json!([0]));
+
+    // Day 3: the scarf (item 1).
+    ctx.age_streak_by_days("0", 1).await?;
+    let marked = ctx.streak_mark("0", day, 0).await?;
+    let events = events_of(&marked);
+    marked.into_result()?;
+    assert_eq!(events.len(), 2, "{events:?}");
+    assert_eq!(events[0]["data"]["streak"], 3);
+    assert_eq!(events[1]["event"], "outfit");
+    assert_eq!(
+        events[1]["data"],
+        json!({ "token_id": "0", "item": 1, "via": "streak" })
+    );
+    assert_eq!(ctx.pet_view("0").await?["outfits"], json!([0, 1]));
+
+    // The byte of the items was paid at birth: no new byte, no money from the pool.
+    assert_eq!(ctx.storage_usage().await?, storage);
+    assert_eq!(ctx.pool().await?, pool);
+
+    // A pet that restarts at 1 without the crown gets it then.
+    ctx.set_pet("0", |pet| {
+        pet.streak = 5;
+        pet.freezes = 0;
+        pet.last_streak_day = day - 5;
+        pet.outfits = 0;
+    })
+    .await?;
+    let marked = ctx.streak_mark("0", day, 0).await?;
+    let events = events_of(&marked);
+    marked.into_result()?;
+    assert_eq!(events[0]["data"]["streak"], 1);
+    assert_eq!(events[1]["data"]["item"], 0);
+    assert_eq!(ctx.pet_view("0").await?["outfits"], json!([0]));
+    Ok(())
+}
+
+// spec: add-wardrobe › Earned outfit contract › порог серии снова
+#[tokio::test]
+async fn a_threshold_met_again_counts_the_streak_and_gives_nothing() -> anyhow::Result<()> {
+    let ctx = with_old_pet().await?;
+    let day = today(&ctx).await?;
+    // The pet has both streak items already and sits one day below the scarf's threshold.
+    ctx.set_pet("0", |pet| {
+        pet.outfits = 0b11;
+        pet.streak = 2;
+        pet.freezes = 0;
+        pet.last_streak_day = day - 1;
+    })
+    .await?;
+
+    let marked = ctx.streak_mark("0", day, 0).await?;
+    let event = event_of(&marked);
+    marked.into_result()?;
+    assert_eq!(event["event"], "streak");
+    assert_eq!(event["data"]["streak"], 3, "the streak is counted as usual");
+    assert_eq!(ctx.pet_view("0").await?["outfits"], json!([0, 1]));
+
+    // A break back to 1 meets the crown's threshold again: counted, no second item, one event.
+    ctx.set_pet("0", |pet| {
+        pet.streak = 5;
+        pet.last_streak_day = day - 5;
+    })
+    .await?;
+    let marked = ctx.streak_mark("0", day, 0).await?;
+    let event = event_of(&marked);
+    marked.into_result()?;
+    assert_eq!(event["data"]["streak"], 1);
+    assert_eq!(ctx.pet_view("0").await?["outfits"], json!([0, 1]));
     Ok(())
 }

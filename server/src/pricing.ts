@@ -7,10 +7,10 @@ import { PET_FEED_FEES_TGAS, PET_FEED_TGAS } from './chain';
  * to the tests, which compare (`test/pricing.test.ts`). */
 export const STARTER_FOOD_YOCTO = 2_000_000_000_000_000_000_000n;
 
-/** The storage a birth locks, in yoctoNEAR, at its upper bound: 1,875 bytes x 1e19, the V3 record of
- * `add-pet-life` (design.md › Контракт › Хранилище, measured by `contract/tests/pet_mint.rs`: 1,445
+/** The storage a birth locks, in yoctoNEAR, at its upper bound: 1,884 bytes x 1e19, the V5 record of
+ * `add-wardrobe` (design.md › Контракт › Storage, measured by `contract/tests/pet_mint.rs`: 1,454
  * bytes of the birth plus the owner-list entry of 430). */
-export const BIRTH_STORAGE_YOCTO = 18_750_000_000_000_000_000_000n;
+export const BIRTH_STORAGE_YOCTO = 18_840_000_000_000_000_000_000n;
 
 /** A pre-check of the pool before a birth: `MAX_BIRTH_COST` of `contract/src/limits.rs`. */
 export const MAX_BIRTH_COST_YOCTO = 22_000_000_000_000_000_000_000n;
@@ -66,6 +66,20 @@ export function portionCents(yocto: bigint, rate: number): number {
   const rate6 = BigInt(Math.round(rate * 1_000_000));
   const denom = YOCTO_PER_NEAR * 1_000_000n;
   return Number((yocto * rate6 * 100n + denom / 2n) / denom);
+}
+
+// ---------------------------------------------------------------------------------------------
+// The wardrobe (`add-wardrobe`).
+
+/** What a bought outfit costs, taken from the pet's food: `OUTFIT_PRICE` of `contract/src/limits.rs`
+ * (0.00166 NEAR, `Outfit purchase contract`). `server/vitest.config.ts` hands the contract's value to
+ * `test/pricing.test.ts`, which compares. */
+export const OUTFIT_PRICE_YOCTO = 1_660_000_000_000_000_000_000n;
+
+/** The price of an outfit in cents at `rate` USD per NEAR, two significant digits (the frames'
+ * «0.76¢» at $4.59), as the «Think hard» estimate is shown. The rate of NEAR moves only this. */
+export function outfitCents(rate: number): number {
+  return Number(((Number(OUTFIT_PRICE_YOCTO) * rate) / 1e22).toPrecision(2));
 }
 
 export type FullnessState = 'full' | 'hungry' | 'asleep';

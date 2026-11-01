@@ -132,6 +132,23 @@ describe('Sheet', () => {
     expect(document.activeElement).toBe(all.at(-1));
   });
 
+  // spec: add-wardrobe › New outfit notice screen › success × a Feed sheet open
+  it('leaves Esc to the sheet on top: a sheet inside an inert tree does not close', async () => {
+    const under = vi.fn();
+    const over = vi.fn();
+    await show(
+      <>
+        <div inert>
+          <Sheet title="Feed Pixel" onClose={under} />
+        </div>
+        <Sheet title="New outfit!" onClose={over} centered self />
+      </>,
+    );
+    await press('Escape');
+    expect(over).toHaveBeenCalledTimes(1);
+    expect(under).not.toHaveBeenCalled();
+  });
+
   // spec: add-account › Sign-in closed sheet screen › success (закрыт для новых) × Keep looking
   it('lands on its title when it opened by itself, and writes an outcome into one live region', async () => {
     await show(

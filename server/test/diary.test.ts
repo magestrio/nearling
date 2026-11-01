@@ -6,7 +6,7 @@ import { NEAR_ACCOUNT } from './helpers/network';
 
 const h = harness();
 const S = BigInt(env.STARTER_FOOD);
-const at = (h_: number, m: number) => Date.UTC(2026, 10, 4, h_, m, 0);
+const at = (h_: number, m: number) => Date.UTC(2036, 10, 4, h_, m, 0);
 
 async function pet(id: string, opts: { asleep?: boolean; food?: bigint } = {}) {
   h.net().contract.addPet(id, NEAR_ACCOUNT(Number(id) + 1), { project_food: (opts.food ?? S).toString() });

@@ -9,6 +9,8 @@ import {
   GAS_TOPUP_YOCTO,
   MAX_BIRTH_COST_YOCTO,
   nearUsdRate,
+  OUTFIT_PRICE_YOCTO,
+  outfitCents,
   OWNER_SNACK_EVERY_MS,
   PET_FRIEND_SNACKS_PER_DAY,
   portionCents,
@@ -24,8 +26,17 @@ describe('the numbers the Worker shares with the contract', () => {
   it('has the starter food and the birth cost pre-check of contract/src/limits.rs', () => {
     expect(S).toBe(BigInt(env.STARTER_FOOD));
     expect(MAX_BIRTH_COST_YOCTO).toBe(BigInt(env.MAX_BIRTH_COST));
-    // the longest birth: 1,875 bytes of storage and the starter food stay under the pre-check
+    // the longest birth: 1,884 bytes of storage and the starter food stay under the pre-check
     expect(BIRTH_STORAGE_YOCTO + S).toBeLessThanOrEqual(MAX_BIRTH_COST_YOCTO);
+  });
+
+  // spec: add-wardrobe › Outfit purchase contract › вещь куплена × the price in the Worker
+  it('has the price of an outfit of the contract, and shows it as «0.76¢» at $4.59', () => {
+    expect(OUTFIT_PRICE_YOCTO).toBe(BigInt(env.OUTFIT_PRICE));
+    expect(outfitCents(4.59)).toBe(0.76);
+    // two significant digits, whatever the rate: $2 and $10 a NEAR
+    expect(outfitCents(2)).toBe(0.33);
+    expect(outfitCents(10)).toBe(1.7);
   });
 
   // spec: add-feeding › Pet feed contract › меньше минимума
@@ -89,7 +100,7 @@ describe('the project\'s own costs in dollars', () => {
   // spec: add-pet › Birth flow › вылупился
   it('turns yoctoNEAR into micro-dollars at the rate, rounded up', () => {
     expect(yoctoToUsdMicros(S, 4.59)).toBe(9_180);
-    expect(yoctoToUsdMicros(BIRTH_STORAGE_YOCTO, 4.59)).toBe(86_063);
+    expect(yoctoToUsdMicros(BIRTH_STORAGE_YOCTO, 4.59)).toBe(86_476);
     expect(yoctoToUsdMicros(1n, 4.59)).toBe(1);
     expect(yoctoToUsdMicros(0n, 4.59)).toBe(0);
   });

@@ -8,6 +8,7 @@ import { memoryRoutes } from './routes/memory';
 import { petRoutes } from './routes/pets';
 import { exchangeRoutes, sessionRoutes } from './routes/session';
 import { thoughtRoutes } from './routes/thoughts';
+import { wardrobeRoutes } from './routes/wardrobe';
 
 const app = new Hono<AppEnv>();
 
@@ -32,6 +33,7 @@ app.route('/', memoryRoutes);
 app.route('/', diaryRoutes);
 app.route('/', hatchRoutes);
 app.route('/', feedingRoutes);
+app.route('/', wardrobeRoutes);
 
 // The cron (`triggers.crons`, every minute): sessions to debit, the diary, the pause of the services.
 async function scheduled(_controller: ScheduledController, env: Env, ctx: ExecutionContext): Promise<void> {

@@ -2,6 +2,7 @@
 import { Hono } from 'hono';
 import { ChainUnreachable, hatchView, ownedCount, petView, stageOf, type PetRecord } from '../chain';
 import { requireSession, TOKEN_ID, type AppEnv } from '../http';
+import { wornOf } from '../pet/outfits';
 import { fullnessOf, moodFor, ownerFields } from '../pet/view';
 import { pauseReason } from '../servicePause';
 
@@ -33,8 +34,9 @@ petRoutes.get('/api/pets/:id', async (c) => {
 
   const state = await fullnessOf(c.env.DB, id, pet);
   // The model's stage and the face's mood go to everyone; the stage as a word, the traits and the
-  // energy only to the owner (`Pet life display rule`).
-  const base = { tokenId: id, name: pet.name, stage: stageOf(pet), fullness: state, mood: await moodFor(c.env.DB, id, state.state, Date.now()) };
+  // energy only to the owner (`Pet life display rule`). The worn item goes to everyone, read from D1
+  // on each request (`Outfit rule`): the shared copy holds only the chain's record.
+  const base = { tokenId: id, name: pet.name, stage: stageOf(pet), fullness: state, mood: await moodFor(c.env.DB, id, state.state, Date.now()), worn: await wornOf(c.env.DB, id) };
   if (session === null) return c.json({ viewer: 'visitor', ...base });
   // The player's own meal or snack on its way for this pet, nobody else's (`Feeding transaction data` ›
   // «outcome with the sheet closed»): a reloaded tab starts to watch its outcome from this.

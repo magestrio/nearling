@@ -47,6 +47,16 @@ pub enum SnackKind {
     Friend,
 }
 
+/// How an item came to the pet (`Earned outfit contract`, `Outfit purchase contract`).
+#[near(serializers = [json])]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum OutfitVia {
+    Streak,
+    Riddle,
+    Bought,
+}
+
 /// NEP-297 events of the game's own standard.
 #[near(event_json(standard = "nearling"))]
 pub enum NearlingEvent {
@@ -103,6 +113,17 @@ pub enum NearlingEvent {
         streak: u32,
         freezes: u8,
         spent: u8,
+    },
+
+    /// An item was written into the pet's record (ADR-012). `item` is the catalogue's id; `price`
+    /// only for a purchase.
+    #[event_version("1.0.0")]
+    Outfit {
+        token_id: String,
+        item: u8,
+        via: OutfitVia,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        price: Option<U128>,
     },
 
     /// The server sealed the day's riddle (`Riddle commit contract`): the hash only.

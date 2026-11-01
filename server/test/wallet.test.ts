@@ -15,7 +15,7 @@ const DEPOSIT = BigInt(env.MIN_FEED);
 
 async function player(seen: bigint = 0n): Promise<void> {
   await env.DB.prepare('INSERT OR REPLACE INTO players (sub, account_id, month, created_at, wallet_seen_yocto) VALUES (?, ?, ?, ?, ?)')
-    .bind(SUB, ACCOUNT, '2026-11', 1, seen.toString())
+    .bind(SUB, ACCOUNT, '2036-11', 1, seen.toString())
     .run();
 }
 const seenOf = async () => BigInt((await env.DB.prepare('SELECT wallet_seen_yocto AS s FROM players WHERE sub = ?').bind(SUB).first<{ s: string }>())!.s);

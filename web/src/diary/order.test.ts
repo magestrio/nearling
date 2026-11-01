@@ -40,4 +40,14 @@ describe('what opens by itself', () => {
     expect(nextOnOpen({ ...none, notice: true, diary: true }, { ...nothingOpen, other: true })).toBeNull();
     expect(nextOnOpen({ ...none, notice: true, feed: true }, nothingOpen)).toBe('feed');
   });
+
+  // spec: add-wardrobe › New outfit notice screen › success × the Diary due
+  it('opens a due Diary first and the notice over it, and the notice over a Feed sheet, a Gift sheet and a menu when no Diary is due', async () => {
+    expect(nextOnOpen({ ...none, diary: true, notice: true }, nothingOpen)).toBe('diary');
+    // the Diary stands now, so it is no longer due
+    expect(nextOnOpen({ ...none, notice: true }, { ...nothingOpen, diary: true })).toBe('notice');
+    for (const open of [{ feed: true }, { gift: true }, { other: true }]) {
+      expect(nextOnOpen({ ...none, notice: true }, { ...nothingOpen, ...open })).toBe('notice');
+    }
+  });
 });

@@ -29,10 +29,10 @@ describe('Guest view data', () => {
   // spec: add-pet › Guest view data › предел на IP
   it('takes requests from the IP again from the next minute', async () => {
     vi.useFakeTimers({ toFake: ['Date'] });
-    vi.setSystemTime(new Date('2026-11-01T10:00:10Z'));
+    vi.setSystemTime(new Date('2036-11-01T10:00:10Z'));
     for (let i = 0; i < 121; i += 1) await api(`/api/pets/${i}`, { ip: ip(42) });
     expect((await api('/api/pets/1', { ip: ip(42) })).status).toBe(429);
-    vi.setSystemTime(new Date('2026-11-01T10:01:00Z'));
+    vi.setSystemTime(new Date('2036-11-01T10:01:00Z'));
     expect((await api('/api/pets/1', { ip: ip(42) })).status).toBe(404);
   });
 
@@ -92,12 +92,12 @@ describe('Session request limit data', () => {
   // spec: add-pet › Session request limit data › предел на сессию
   it('counts from the next minute again', async () => {
     vi.useFakeTimers({ toFake: ['Date'] });
-    vi.setSystemTime(new Date('2026-11-01T10:00:10Z'));
+    vi.setSystemTime(new Date('2036-11-01T10:00:10Z'));
     h.net().contract.addPet('9', NEAR_ACCOUNT(1));
     const mine = await token('did:privy:p1', NEAR_ACCOUNT(1));
     for (let i = 0; i < 121; i += 1) await api('/api/pets/9', { token: mine });
     expect((await api('/api/pets/9', { token: mine })).status).toBe(429);
-    vi.setSystemTime(new Date('2026-11-01T10:01:00Z'));
+    vi.setSystemTime(new Date('2036-11-01T10:01:00Z'));
     expect((await api('/api/pets/9', { token: mine })).status).toBe(200);
   });
 });

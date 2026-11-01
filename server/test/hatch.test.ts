@@ -95,10 +95,10 @@ describe('Birth flow', () => {
   it('writes the starter food and the storage of the birth as the project\'s spend, at the rate of the day', async () => {
     await hatch('Pixel');
     const rows = (await env.DB.prepare('SELECT kind, usd_micros FROM project_spend ORDER BY kind').all<{ kind: string; usd_micros: number }>()).results;
-    // 0.0020 NEAR x 4.59 = $0.00918; 0.01875 NEAR x 4.59 = $0.0860625, rounded up
+    // 0.0020 NEAR x 4.59 = $0.00918; 0.01884 NEAR x 4.59 = $0.0864756, rounded up
     expect(rows).toEqual([
       { kind: 'starter_food', usd_micros: 9_180 },
-      { kind: 'storage', usd_micros: 86_063 },
+      { kind: 'storage', usd_micros: 86_476 },
     ]);
   });
 

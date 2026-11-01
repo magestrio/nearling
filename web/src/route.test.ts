@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { diaryPath, hatchPath, parseRoute, petPath } from './route';
+import { diaryPath, hatchPath, parseRoute, petPath, wardrobePath } from './route';
 
 describe('parseRoute', () => {
   it('reads the Pet screen and the Hatch screen with the friend in the address', () => {
@@ -23,7 +23,6 @@ describe('parseRoute', () => {
     expect(parseRoute('/pet')).toEqual({ name: 'pet-broken' });
     expect(parseRoute('/pet/')).toEqual({ name: 'pet-broken' });
     expect(parseRoute('/pet/123456789012345678901')).toEqual({ name: 'pet-broken' });
-    expect(parseRoute('/pet/9/wardrobe')).toEqual({ name: 'unknown' });
     expect(parseRoute('/somewhere')).toEqual({ name: 'unknown' });
   });
 
@@ -34,6 +33,15 @@ describe('parseRoute', () => {
     expect(parseRoute('/pet/abc/diary')).toEqual({ name: 'unknown' });
     expect(parseRoute('/pet/9/diary/extra')).toEqual({ name: 'unknown' });
     expect(diaryPath('9')).toBe('/pet/9/diary');
+  });
+
+  // spec: add-wardrobe › Wardrobe screen › success
+  it('reads the Wardrobe screen at /pet/<token_id>/wardrobe, with a trailing slash too, and no other address as one', () => {
+    expect(parseRoute('/pet/9/wardrobe')).toEqual({ name: 'wardrobe', tokenId: '9' });
+    expect(parseRoute('/pet/9/wardrobe/')).toEqual({ name: 'wardrobe', tokenId: '9' });
+    expect(parseRoute('/pet/abc/wardrobe')).toEqual({ name: 'unknown' });
+    expect(parseRoute('/pet/9/wardrobe/extra')).toEqual({ name: 'unknown' });
+    expect(wardrobePath('9')).toBe('/pet/9/wardrobe');
   });
 
   it('builds the paths it reads', () => {

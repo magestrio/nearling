@@ -1,6 +1,6 @@
 import type { Page } from '@playwright/test';
 import type { FakeState, FakeWorkerState } from '../../src/seams/fakes';
-import type { FeedSheetData, Fullness, SheetPortion } from '../../src/seams/worker-types';
+import type { FeedSheetData, Fullness, OutfitSlug, SheetPortion } from '../../src/seams/worker-types';
 import { SAMPLE_DAY, sampleDiary } from '../../src/seams/diary.sample';
 import type { DiaryView } from '../../src/seams/worker-types';
 import { CLOSED_ALL, CLOSED_NEW, lookAgain, setWorker, UA } from '../helpers';
@@ -100,11 +100,12 @@ const WAKE_REPLY = 'Thanks, Maya! While I slept I dreamed I was a lighthouse for
 const GREETING = "Hi! I'm Pixel. I hatched a minute ago and I already have a question: what's the first thing you do in the morning?";
 
 /** Pixel with its owner, who has two pets (the frames show «My pets»), and the history; `extra` — more of the owner's
- *  fields (tired, paused…), `fullness` — the pet's food */
+ *  fields (tired, paused…), `fullness` — the pet's food. Pixel wears the Thinking cap and owns what the frames' wardrobe has
+ *  (design/bundle/screens/pet.js › OWN); the baby frames below wear nothing (pet.js › `ownerAwake`: a baby has no outfit). */
 function owner(extra: Record<string, unknown> = {}, fullness: Fullness = PIXEL.fullness): FakeWorkerState {
   return {
     owned: ['9'],
-    pets: { '9': { ...PIXEL, fullness, owner: { ownedCount: 2, ...extra } }, '2': BISCUIT },
+    pets: { '9': { ...PIXEL, worn: 'thinking-cap', fullness, owner: { ownedCount: 2, outfits: WARDROBE_OWNS, ...extra } }, '2': BISCUIT },
     conversation: { lines: HISTORY, more: false, before: null },
   };
 }
@@ -290,6 +291,37 @@ const fallAsleep = async (page: Page, typed: string | null) => {
 /** the clock of the page stands near the end of the Diary's day, so a diary that fails to load later is of a day that moved on */
 const nearMidnight = async (page: Page) => {
   await page.clock.install({ time: new Date('2026-10-31T23:59:50Z') });
+};
+
+/** What Pixel owns in the Wardrobe frames: the Daisy crown (a 1-day streak), the Thinking cap (its first riddle, worn), the Party hat (bought) */
+const WARDROBE_OWNS: OutfitSlug[] = ['daisy-crown', 'thinking-cap', 'party-hat'];
+type FakePet = NonNullable<FakeWorkerState['pets']>[string];
+/** The newborn of the empty Wardrobe: baby, Hungry on its starter food, wearing and owning nothing */
+const BABY: Partial<FakePet> = { stage: 'baby', fullness: { state: 'hungry', level: 0.25 }, worn: null, owner: { ownedCount: 2, outfits: [] } };
+/** Pixel with its owner, who has two pets, wearing the Thinking cap, as the Wardrobe frames have it; `pet` lays over the pet, `wardrobe`
+ *  over the wardrobe the fake reads from it */
+function wardrobeWorker(pet: Partial<FakePet> = {}, wardrobe: FakeWorkerState['wardrobe'] = {}, extra: Partial<FakeWorkerState> = {}): FakeWorkerState {
+  return {
+    owned: ['9'],
+    pets: { '9': { ...PIXEL, worn: 'thinking-cap', owner: { ownedCount: 2, outfits: WARDROBE_OWNS }, ...pet }, '2': BISCUIT },
+    conversation: { lines: HISTORY, more: false, before: null },
+    wardrobe,
+    ...extra,
+  };
+}
+/** New outfit notice opened by itself: the dialog is there, its entrance finished, the pointer away */
+const noticeReady = async (page: Page) => {
+  await page.getByRole('dialog', { name: 'New outfit!' }).waitFor();
+  await page.mouse.move(0, 0);
+  await settle(page);
+};
+/** The wardrobe is read: a tile's action is there and on */
+const wardrobeReady = (page: Page) => page.locator('.ds-item button:not([disabled])').first().waitFor();
+/** The Smart glasses' «Buy · {price}» tapped on the ready wardrobe; the fake holds the purchase until a frame lands or refuses it */
+const tapSmartGlassesBuy = async (page: Page) => {
+  await wardrobeReady(page);
+  await page.getByRole('button', { name: 'Buy · 0.76¢ Smart glasses' }).click();
+  await page.getByRole('button', { name: 'Buying… Smart glasses' }).waitFor();
 };
 
 export const fixtures: Record<string, ScreenFixture> = {
@@ -484,7 +516,7 @@ export const fixtures: Record<string, ScreenFixture> = {
       auth: SIGNED_IN,
       worker: {
         owned: ['9'],
-        pets: { '9': { ...PIXEL, stage: 'baby', owner: { hello: true } } },
+        pets: { '9': { ...PIXEL, stage: 'baby', worn: null, owner: { hello: true } } },
         conversation: { lines: [], more: false, before: null },
         petState: { pending: true },
         waitLineMs: FOREVER,
@@ -731,7 +763,7 @@ export const fixtures: Record<string, ScreenFixture> = {
       auth: SIGNED_IN,
       worker: {
         owned: ['9'],
-        pets: { '9': { ...PIXEL, stage: 'baby', fullness: { state: 'hungry', level: 11 / 12 }, owner: { hello: true } }, '2': BISCUIT },
+        pets: { '9': { ...PIXEL, stage: 'baby', worn: null, fullness: { state: 'hungry', level: 11 / 12 }, owner: { hello: true } }, '2': BISCUIT },
         conversation: { lines: [], more: false, before: null },
         petState: { thought: { id: 'g', text: GREETING, cut: null } },
       },
@@ -1443,5 +1475,151 @@ export const fixtures: Record<string, ScreenFixture> = {
     route: '/pet/9/diary',
     fakes: { auth: SIGNED_IN, worker: { ...owner({ tired: true, until: MIDNIGHT_UTC }), diary: { entry: entryWithWork(), streak: STREAK_2, parts: ['riddle'] } } },
     prepare: diaryReady,
+  },
+
+  // Pixel owns the Daisy crown, the Thinking cap (worn) and the Party hat; the Cozy scarf not yet, three to buy
+  // spec: add-wardrobe › Wardrobe screen › success
+  'wardrobe-success': {
+    route: '/pet/9/wardrobe',
+    fakes: { auth: SIGNED_IN, worker: wardrobeWorker() },
+    prepare: wardrobeReady,
+  },
+
+  // the newborn on its starter food: nothing to wear, every earned item on its condition, every Buy off with the food line
+  // spec: add-wardrobe › Wardrobe screen › empty
+  'wardrobe-empty': {
+    route: '/pet/9/wardrobe',
+    fakes: { auth: SIGNED_IN, worker: wardrobeWorker(BABY, { short: true }) },
+    prepare: wardrobeReady,
+  },
+
+  // the phone, scrolled to the end: the food line above the Buy items
+  // spec: add-wardrobe › Wardrobe screen › empty
+  'wardrobe-empty-end': {
+    route: '/pet/9/wardrobe',
+    fakes: { auth: SIGNED_IN, worker: wardrobeWorker(BABY, { short: true }) },
+    prepare: wardrobeReady,
+  },
+
+  // the wardrobe still opening: the pet in its outfit, the tiles of what the page knows, every action disabled
+  // spec: add-wardrobe › Wardrobe screen › loading
+  'wardrobe-loading': {
+    route: '/pet/9/wardrobe',
+    fakes: { auth: SIGNED_IN, worker: wardrobeWorker({}, {}, { wardrobeDelayMs: FOREVER }) },
+    prepare: async (page) => {
+      await page.getByRole('status').filter({ hasText: "Opening Pixel's wardrobe…" }).first().waitFor();
+    },
+  },
+
+  // the server gave no wardrobe: the line and «Try again», the pet in its last known outfit, no tiles
+  // spec: add-wardrobe › Wardrobe screen › error
+  'wardrobe-error': {
+    route: '/pet/9/wardrobe',
+    fakes: { auth: SIGNED_IN, worker: wardrobeWorker({}, { fail: { status: 0, code: 'unreachable' } }) },
+    prepare: async (page) => {
+      await page.getByText("We couldn't open Pixel's wardrobe right now. Try again in a moment.").waitFor();
+      await page.mouse.move(0, 0);
+    },
+  },
+
+  // the session ended under the open wardrobe, «Wear» tapped: the line and «Sign in», nothing worn
+  // spec: add-wardrobe › Wardrobe screen › signed-out
+  'wardrobe-signed-out': {
+    route: '/pet/9/wardrobe',
+    fakes: { auth: SIGNED_IN, worker: wardrobeWorker() },
+    prepare: async (page) => {
+      await wardrobeReady(page);
+      await setWorker(page, { sessionExpired: true });
+      await lookAgain(page);
+      await page.getByRole('button', { name: 'Wear Daisy crown' }).click();
+      await page.getByText("You've been signed out. Sign in to get back to Pixel's wardrobe.").first().waitFor();
+      await page.mouse.move(0, 0);
+      await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
+    },
+  },
+
+  // the pet fell asleep while the wardrobe was open: the line and «Back to Pixel», every Buy off
+  // spec: add-wardrobe › Wardrobe screen › asleep
+  'wardrobe-asleep': {
+    route: '/pet/9/wardrobe',
+    fakes: { auth: SIGNED_IN, worker: wardrobeWorker() },
+    prepare: async (page) => {
+      await wardrobeReady(page);
+      await setWorker(page, { pets: { '9': { ...PIXEL, worn: 'thinking-cap', fullness: { state: 'asleep', level: 0 }, owner: { ownedCount: 2, outfits: [...WARDROBE_OWNS] } }, '2': BISCUIT } });
+      await lookAgain(page);
+      await page.getByText('Pixel fell asleep. A meal will wake Pixel up — you can still change outfits.').first().waitFor();
+      await page.mouse.move(0, 0);
+    },
+  },
+
+  // the Smart glasses' Buy tapped: «Buying…» on it, the other Buys off, until NEAR answers (the fake holds the purchase)
+  // spec: add-wardrobe › Outfit purchase flow › покупает
+  'wardrobe-buying': {
+    route: '/pet/9/wardrobe',
+    fakes: { auth: SIGNED_IN, worker: wardrobeWorker() },
+    prepare: async (page) => {
+      await tapSmartGlassesBuy(page);
+      await page.mouse.move(0, 0);
+    },
+  },
+
+  // that purchase landed: the pet in it, its tile among the own ones with «Take off», the line under the pet
+  // spec: add-wardrobe › Outfit purchase flow › куплено
+  'wardrobe-bought': {
+    route: '/pet/9/wardrobe',
+    fakes: { auth: SIGNED_IN, worker: wardrobeWorker() },
+    prepare: async (page) => {
+      await tapSmartGlassesBuy(page);
+      await setWorker(page, {
+        pets: { '9': { ...PIXEL, worn: 'smart-glasses', owner: { ownedCount: 2, outfits: [...WARDROBE_OWNS, 'smart-glasses'] } }, '2': BISCUIT },
+        wardrobe: { buying: null, outcome: { id: 'buy-1', item: 'smart-glasses', status: 'bought', code: null } },
+      });
+      await page.getByText('Pixel is wearing the Smart glasses!', { exact: true }).and(page.locator(':not(.ds-hidden)')).waitFor();
+      await page.mouse.move(0, 0);
+    },
+  },
+
+  // that purchase was refused: «Try again» in the Buy's place, the line across the grid under its row, nothing spent
+  // spec: add-wardrobe › Outfit purchase flow › не прошло
+  'wardrobe-buy-failed': {
+    route: '/pet/9/wardrobe',
+    fakes: { auth: SIGNED_IN, worker: wardrobeWorker() },
+    prepare: async (page) => {
+      await tapSmartGlassesBuy(page);
+      await setWorker(page, { wardrobe: { buying: null, outcome: { id: 'buy-1', item: 'smart-glasses', status: 'failed', code: 'short' } } });
+      await page.getByRole('button', { name: 'Try again Smart glasses' }).waitFor();
+      await page.mouse.move(0, 0);
+      await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
+    },
+  },
+
+  // the services' gas pause: the line at the top of the list, every Buy off, the own outfits work
+  // spec: add-wardrobe › Outfit purchase flow › покупки на паузе
+  'wardrobe-shop-paused': {
+    route: '/pet/9/wardrobe',
+    fakes: { auth: SIGNED_IN, worker: wardrobeWorker({}, { shopPaused: true }) },
+    prepare: wardrobeReady,
+  },
+
+  // a 3-day streak was written to the chain: the notice opened by itself over the owner's Pet screen, the pet in the Cozy scarf
+  // spec: add-wardrobe › New outfit notice screen › success
+  'outfit-new': {
+    route: '/pet/9',
+    fakes: { auth: SIGNED_IN, worker: owner({ notices: ['cozy-scarf'], outfits: [...WARDROBE_OWNS, 'cozy-scarf'] }) },
+    prepare: noticeReady,
+  },
+
+  // «Wear it» tapped and the server did not answer: the line in the text's place, the pet in its former outfit, «Later» alone
+  // spec: add-wardrobe › New outfit notice screen › error
+  'outfit-new-error': {
+    route: '/pet/9',
+    fakes: { auth: SIGNED_IN, worker: { ...owner({ notices: ['cozy-scarf'], outfits: [...WARDROBE_OWNS, 'cozy-scarf'] }), wear: { fail: { status: 0, code: 'unreachable' } } } },
+    prepare: async (page) => {
+      await noticeReady(page);
+      await page.getByRole('button', { name: 'Wear it' }).click();
+      await page.getByText("Couldn't put it on just now. The Cozy scarf is waiting in Pixel's wardrobe.").first().waitFor();
+      await page.mouse.move(0, 0);
+      await settle(page);
+    },
   },
 };

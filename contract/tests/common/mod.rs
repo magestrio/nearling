@@ -341,9 +341,14 @@ impl Ctx {
                 traits
             },
             last_streak_day: view["last_streak_day"].as_u64().unwrap_or(0),
+            outfits: view["outfits"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .fold(0u8, |mask, id| mask | (1 << id.as_u64().unwrap())),
         };
         edit(&mut pet);
-        self.put_record(token_id, VersionedPet::V4(pet)).await
+        self.put_record(token_id, VersionedPet::V5(pet)).await
     }
 
     /// Writes a record as it is, in any version: a test of an older pet needs the old bytes.
@@ -448,6 +453,66 @@ impl Ctx {
     ) -> anyhow::Result<ExecutionFinalResult> {
         self.streak_mark_as(&self.server, token_id, day, skipped)
             .await
+    }
+
+    pub async fn outfit_grant_with(
+        &self,
+        caller: &Account,
+        token_id: &str,
+        gas: Gas,
+    ) -> anyhow::Result<ExecutionFinalResult> {
+        Ok(caller
+            .call(self.contract.id(), "outfit_grant")
+            .args_json(json!({ "token_id": token_id }))
+            .gas(gas)
+            .transact()
+            .await?)
+    }
+
+    pub async fn outfit_grant_as(
+        &self,
+        caller: &Account,
+        token_id: &str,
+    ) -> anyhow::Result<ExecutionFinalResult> {
+        self.outfit_grant_with(caller, token_id, Gas::from_tgas(30))
+            .await
+    }
+
+    pub async fn outfit_grant(&self, token_id: &str) -> anyhow::Result<ExecutionFinalResult> {
+        self.outfit_grant_as(&self.server, token_id).await
+    }
+
+    pub async fn outfit_buy_with(
+        &self,
+        caller: &Account,
+        token_id: &str,
+        item: u8,
+        gas: Gas,
+    ) -> anyhow::Result<ExecutionFinalResult> {
+        Ok(caller
+            .call(self.contract.id(), "outfit_buy")
+            .args_json(json!({ "token_id": token_id, "item": item }))
+            .gas(gas)
+            .transact()
+            .await?)
+    }
+
+    pub async fn outfit_buy_as(
+        &self,
+        caller: &Account,
+        token_id: &str,
+        item: u8,
+    ) -> anyhow::Result<ExecutionFinalResult> {
+        self.outfit_buy_with(caller, token_id, item, Gas::from_tgas(30))
+            .await
+    }
+
+    pub async fn outfit_buy(
+        &self,
+        token_id: &str,
+        item: u8,
+    ) -> anyhow::Result<ExecutionFinalResult> {
+        self.outfit_buy_as(&self.server, token_id, item).await
     }
 
     pub async fn riddle_commit_as(

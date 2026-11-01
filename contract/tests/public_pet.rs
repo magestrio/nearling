@@ -41,6 +41,7 @@ async fn the_explorer_shows_the_owner_name_character_food_and_receipts_but_no_wo
             "last_debit_id",
             "last_streak_day",
             "name",
+            "outfits",
             "owner_id",
             "owner_snack_at",
             "project_food",
@@ -116,5 +117,35 @@ async fn the_explorer_shows_the_owner_name_character_food_and_receipts_but_no_wo
         food,
         STARTER_FOOD + 10_000_000_000_000_000_000_000 - 2 * 1_234_567
     );
+    Ok(())
+}
+
+// spec: add-wardrobe › Earned outfit contract › вещь за серию записана × pet_view and nft_token
+#[tokio::test]
+async fn pet_view_and_the_token_list_the_items_as_ids_ascending() -> anyhow::Result<()> {
+    let ctx = setup(BIG_POOL).await?;
+    ctx.mint("alice.near", "Pixel", CHARACTER)
+        .await?
+        .into_result()?;
+    assert_eq!(ctx.pet_view("0").await?["outfits"], json!([]));
+    let extra = |token: &Value| -> anyhow::Result<Value> {
+        Ok(serde_json::from_str(
+            token["metadata"]["extra"].as_str().unwrap(),
+        )?)
+    };
+    assert_eq!(
+        extra(&ctx.nft_token("0").await?)?,
+        json!({ "stage": "Baby", "traits": [], "outfits": [] })
+    );
+
+    // Bits 6, 0 and 2 set out of order: both reads give the ids ascending.
+    ctx.set_pet("0", |pet| pet.outfits = 0b0100_0101).await?;
+    assert_eq!(ctx.pet_view("0").await?["outfits"], json!([0, 2, 6]));
+    let token = ctx.nft_token("0").await?;
+    assert_eq!(
+        extra(&token)?,
+        json!({ "stage": "Baby", "traits": [], "outfits": [0, 2, 6] })
+    );
+    assert_eq!(token["owner_id"], "alice.near");
     Ok(())
 }

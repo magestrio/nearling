@@ -7,6 +7,7 @@ import { DurableObject } from 'cloudflare:workers';
 import { utcDay } from '../http';
 import { run, type JobResult } from '../spend';
 import type { ThoughtJob } from '../prompt';
+import { failIfQueued, nextBuy, runBuy } from './buy';
 import { writeDueGrowth } from './growth';
 import { settleRitual } from './ritual';
 
@@ -116,6 +117,18 @@ export class PetDesk extends DurableObject<Env> {
       .bind(JSON.stringify({ code: 'ai_unavailable' }), tokenId, Date.now() - STALE_RUNNING_MS)
       .run();
     for (;;) {
+      // A queued purchase goes before a job: one more spend of the pet in the same one-at-a-time line
+      // (`Thought queue data`). A send with no outcome is settled later by the cron and frees the line.
+      const buy = await nextBuy(this.env.DB, tokenId);
+      if (buy !== null) {
+        try {
+          await runBuy(this.env, buy);
+        } catch {
+          console.log('buy_failed:error');
+          await failIfQueued(this.env.DB, buy.id);
+        }
+        continue;
+      }
       // The epoch comes with the claim, in one statement: a clear that lands before it fails this job
       // (`forgetStatements`), one that lands after it differs from `epoch`, and `think` erases the words.
       const row = await this.env.DB.prepare(

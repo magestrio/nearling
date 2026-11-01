@@ -60,6 +60,8 @@ export interface PetRecord {
   traits: Trait[];
   /** The UTC day of the last streak mark; `null` before the first one (`Option<u64>` of `PetView`). */
   last_streak_day: number | null;
+  /** The ids of the outfit items the pet has, ascending (`Vec<u8>` of `PetView`): 0 Daisy crown … 6 Party hat. */
+  outfits: number[];
 }
 
 /** `riddle_view(day)` of the contract: the commit filed for that day (64 hex characters, `null` when
@@ -118,6 +120,14 @@ export const RIDDLE_COMMIT_TGAS = 5n;
 /** Prepaid gas of `riddle_reveal`, Tgas; `contract/tests/riddle.rs` › `gas_of_a_reveal` reads this
  * line and reveals the longest list entry with it. */
 export const RIDDLE_REVEAL_TGAS = 5n;
+
+/** Prepaid gas of `outfit_grant`, Tgas; `contract/tests/outfit.rs` › `gas_of_a_grant` reads this line
+ * and grants with it (2.05 Tgas burnt). */
+export const OUTFIT_GRANT_TGAS = 5n;
+
+/** Prepaid gas of `outfit_buy`, Tgas; `contract/tests/outfit.rs` › `gas_of_a_purchase` reads this line
+ * and buys with it (2.75 Tgas burnt, the transfer to the treasury included). */
+export const OUTFIT_BUY_TGAS = 5n;
 
 const READ_TIMEOUT_MS = 8_000;
 const SEND_TIMEOUT_MS = 25_000;
@@ -278,6 +288,9 @@ const CONTRACT_CODES = [
   'reveal_too_early',
   'no_commit',
   'bad_reveal',
+  'outfit_too_early',
+  'outfit_owned',
+  'not_for_sale',
 ] as const;
 export type ContractCode = (typeof CONTRACT_CODES)[number];
 
@@ -338,7 +351,17 @@ export interface ServerCall {
   args: Record<string, unknown>;
   /** Prepaid gas in gas units, a decimal string. */
   gas: string;
+  /** Set by a call that may write an item to the pet (`outfit_buy`, `outfit_grant`, a `streak_mark` that
+   * carries a streak item): the hash of every transaction signed for it is stored before it is broadcast
+   * (`pet/itemTx.ts`, design.md › The item's transaction). `buy`: the id of the `outfit_buys` row of a
+   * purchase; the hash is kept only while that row is still `sending`, so a send that waited in the key's
+   * queue past the cron's 5 minutes signs nothing (`noteItemSend`). */
+  writes?: { tokenId: string; item: string; buy?: string };
 }
+
+/** Called with the hash of a signed transaction before each broadcast. A throw means the hash could not be
+ * kept, and nothing is sent. */
+export type OnSigned = (txHash: string) => Promise<void>;
 
 export function serverAccount(env: Pick<Env, 'NEAR_RPC_URL' | 'SERVER_ACCOUNT_ID' | 'NEAR_SERVER_KEY'>): { account: Account; signer: KeyPairSigner } {
   const signer = KeyPairSigner.fromSecretKey(env.NEAR_SERVER_KEY as KeyPairString);
@@ -354,8 +377,8 @@ function isInvalidNonce(e: unknown): boolean {
  * caller serializes). A rejected-for-nonce transaction was not included, so it is signed again
  * with a fresh nonce; any other typed refusal of the node is a definite `failed`, and any other
  * failure to hear the network leaves the outcome unknown. */
-export function signAndSend(env: Pick<Env, 'CONTRACT_ID'>, keys: { account: Account; signer: KeyPairSigner }, call: ServerCall): Promise<SendResult> {
-  return signAndSendActions(keys, env.CONTRACT_ID, [actions.functionCall(call.methodName, call.args, BigInt(call.gas), 0n)]);
+export function signAndSend(env: Pick<Env, 'CONTRACT_ID'>, keys: { account: Account; signer: KeyPairSigner }, call: ServerCall, onSigned?: OnSigned): Promise<SendResult> {
+  return signAndSendActions(keys, env.CONTRACT_ID, [actions.functionCall(call.methodName, call.args, BigInt(call.gas), 0n)], onSigned);
 }
 
 /** The gas account of the project (ADR-006): the key of `NEAR_GAS_ACCOUNT_KEY`, its own nonces. */
@@ -369,7 +392,7 @@ export function signAndSendTransfer(keys: { account: Account; signer: KeyPairSig
   return signAndSendActions(keys, receiverId, [actions.transfer(yocto)]);
 }
 
-async function signAndSendActions(keys: { account: Account; signer: KeyPairSigner }, receiverId: string, todo: Action[]): Promise<SendResult> {
+async function signAndSendActions(keys: { account: Account; signer: KeyPairSigner }, receiverId: string, todo: Action[], onSigned?: OnSigned): Promise<SendResult> {
   const { signer } = keys;
   const publicKey = await signer.getPublicKey();
   let lastHash = '';
@@ -379,8 +402,11 @@ async function signAndSendActions(keys: { account: Account; signer: KeyPairSigne
     try {
       const tx = await account.createTransaction({ receiverId, actions: todo, publicKey });
       signed = await signer.signTransaction(tx);
+      // Before the broadcast, every time (a retry with a new nonce is a new transaction): a hash that
+      // cannot be kept means nothing is sent.
+      await onSigned?.(baseEncode(signed.txHash));
     } catch {
-      // Nothing was sent: the nonce or the block could not be read.
+      // Nothing was sent: the nonce or the block could not be read, or the hash could not be kept.
       throw new ChainUnreachable();
     }
     lastHash = baseEncode(signed.txHash);

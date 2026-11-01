@@ -5,9 +5,9 @@ import { api, harness } from './helpers/api';
 import { NEAR_ACCOUNT, token } from './helpers/network';
 
 const h = harness();
-const MONTH = '2026-11';
-const OLD_MONTH = '2026-10';
-const UNTIL_NOV = '2026-12-01T00:00:00.000Z';
+const MONTH = '2036-11';
+const OLD_MONTH = '2036-10';
+const UNTIL_NOV = '2036-12-01T00:00:00.000Z';
 /** The wallet of the players the tests seed by hand (a token needs a real implicit account). */
 const ACCOUNT = NEAR_ACCOUNT(7);
 
@@ -216,26 +216,26 @@ describe('Sign-in data', () => {
   it('starts the count from zero on the 1st: refusals of the past month are erased and sign-in is open', async () => {
     await seed(480, 10);
     expect((await api('/api/sign-in')).body.state).toBe('closed_all');
-    vi.setSystemTime(new Date('2026-12-01T00:00:00Z'));
+    vi.setSystemTime(new Date('2036-12-01T00:00:00Z'));
     expect((await api('/api/sign-in')).body).toEqual({ state: 'open' });
     await clean(env, Date.now());
     expect(await count('sign_in_refusals')).toBe(0);
     // a refusal of the new month stays
-    await env.DB.prepare("INSERT INTO sign_in_refusals (sub, month) VALUES ('did:privy:x', '2026-12')").run();
+    await env.DB.prepare("INSERT INTO sign_in_refusals (sub, month) VALUES ('did:privy:x', '2036-12')").run();
     await clean(env, Date.now());
     expect(await count('sign_in_refusals')).toBe(1);
     // the player of November comes back as a new one in December
     const res = await exchange(await token('did:privy:seed-2', ACCOUNT, { noPlayer: true }));
     expect(res.status).toBe(200);
-    expect((await rowOf('did:privy:seed-2'))!.month).toBe('2026-12');
+    expect((await rowOf('did:privy:seed-2'))!.month).toBe('2036-12');
   });
 
   // spec: add-account › Sign-in data › новый месяц
   it('uses the UTC month at the edge of the month', async () => {
     await seed(480);
-    vi.setSystemTime(new Date('2026-11-30T23:59:59Z'));
+    vi.setSystemTime(new Date('2036-11-30T23:59:59Z'));
     expect((await api('/api/sign-in')).body.state).toBe('closed_new');
-    vi.setSystemTime(new Date('2026-12-01T00:00:00Z'));
+    vi.setSystemTime(new Date('2036-12-01T00:00:00Z'));
     expect((await api('/api/sign-in')).body.state).toBe('open');
   });
 
@@ -245,7 +245,7 @@ describe('Sign-in data', () => {
     expect((await exchange('not-a-token')).status).toBe(401);
     // jose will not fetch the key set again within 30 s of its last fetch, and earlier tests moved the
     // clock to December: this test goes past that, so an unknown key makes it fetch (and fail).
-    vi.setSystemTime(new Date('2027-06-01T00:00:00Z'));
+    vi.setSystemTime(new Date('2037-06-01T00:00:00Z'));
     const tk = await newcomer(1, { kid: 'rotated' });
     h.net().jwks.status = 500;
     expect(await exchange(tk)).toEqual({ status: 503, body: { code: 'auth_unavailable' } });

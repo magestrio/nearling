@@ -2,14 +2,18 @@
 // UTC day, the pause of the services, the riddle of the day, the ritual (the close of the days that
 // ended, the open rows of today), the stages to write and the cleaning of old rows. Each part fails alone: a part
 // that throws logs its code and the others still run.
-import { accountBalance, ChainUnreachable } from './chain';
+import { accountBalance, ChainUnreachable, petView, txStatus } from './chain';
 import { closeAndDebit } from './debit';
 import { utcDay } from './http';
 import { keyIsValid } from './nearai';
 import { askNetwork } from './feeding/inflight';
 import { desk, enqueueJob, STALE_RUNNING_MS } from './pet/desk';
 import { closeDays } from './pet/close';
+import { BUY_COLUMNS, buyCode, finishBuy, type BuyRow } from './pet/buy';
+import { writeDueGrants } from './pet/grant';
 import { CLAIM_STALE_MS, writeDueGrowth } from './pet/growth';
+import { newestItemSend, settleItemSends } from './pet/itemTx';
+import { idOf } from './pet/outfits';
 import { DIARY_WINDOW_MS, markDueDays, settleOpenRows } from './pet/ritual';
 import { FEEDINGS_COLUMNS, settleFeeding, type FeedingRow } from './pet/settle';
 import { riddleTick } from './riddle/cron';
@@ -27,6 +31,15 @@ const FEEDING_FAILED_AFTER_MS = 24 * 3_600_000;
 const NO_HASH_FAILED_MS = 5 * 60_000;
 /** At most this many pets get a stage written in a tick. */
 const GROWTH_PER_TICK = 10;
+/** At most this many open purchases are looked at in a tick (an unknown hash makes the RPC wait). */
+const BUYS_PER_TICK = 10;
+/** A purchase nobody has run for this long is run by the cron. */
+const QUEUED_STALE_MS = 60_000;
+/** A purchase `sending` for this long (counted from `sending_at`, not from `created_at`: a row that waited in
+ * the desk's queue is not a dead desk) has lost its desk (a send ends within `SEND_TIMEOUT_MS` of a nonce
+ * retry or two). Time spent in the key's queue counts: a send still waiting there when the row is failed
+ * broadcasts nothing, because `noteItemSend` fails once the row is no longer `sending`. */
+const SENDING_STALE_MS = 5 * 60_000;
 /** A paused key is tried again at this interval. */
 const PROBE_EVERY_MS = 5 * 60_000;
 
@@ -36,6 +49,7 @@ export async function tick(env: Env, nowMs: number = Date.now()): Promise<void> 
     ['diary', () => diary(env, nowMs)],
     ['pause', () => pause(env, nowMs)],
     ['riddle', () => riddleTick(env, nowMs)],
+    ['outfits', () => outfits(env, nowMs)],
     ['ritual', () => ritual(env, nowMs)],
     ['growth', () => growth(env, nowMs)],
     ['feedings', () => settleStaleFeedings(env, nowMs)],
@@ -147,6 +161,74 @@ export async function settleStaleFeedings(env: Env, nowMs: number): Promise<void
   }
 }
 
+/** The purchases and the grants of the wardrobe (`add-wardrobe`): the open rows of `outfit_buys`, then the
+ * riddle's items waiting to be written, then the hashes of item transactions nobody settled. A half that
+ * throws does not stop the others; the first error goes on to `tick`, which logs it. */
+export async function outfits(env: Env, nowMs: number): Promise<void> {
+  let failure: unknown = null;
+  for (const half of [() => settleBuys(env, nowMs), () => writeDueGrants(env), () => settleItemSends(env, nowMs)]) {
+    try {
+      await half();
+    } catch (e) {
+      failure ??= e;
+    }
+  }
+  if (failure !== null) throw failure;
+}
+
+/** The open purchases, oldest first: a row nobody ran (its desk died, or never got the call) is run; an
+ * `unknown` one is looked for on the chain and by its hash; a `sending` one older than 5 minutes (the desk
+ * died with the send) is turned into `unknown` by the newest hash noted for it, or failed when none was
+ * (design.md › The purchase). A row the network has not answered for 24 hours is `failed`: the reference
+ * block is past the chain's window by then, so it can no longer land (`FEEDING_FAILED_AFTER_MS`'s reason). */
+export async function settleBuys(env: Env, nowMs: number): Promise<void> {
+  const rows = await env.DB.prepare(
+    `SELECT ${BUY_COLUMNS} FROM outfit_buys WHERE status IN ('queued', 'unknown') OR (status = 'sending' AND sending_at < ?) ORDER BY created_at LIMIT ?`,
+  )
+    .bind(nowMs - SENDING_STALE_MS, BUYS_PER_TICK)
+    .all<BuyRow>();
+  for (let row of rows.results) {
+    if (row.status === 'queued') {
+      if (nowMs - row.created_at >= QUEUED_STALE_MS) await desk(env, row.token_id).process(row.token_id);
+      continue;
+    }
+    try {
+      const pet = await petView(env, row.token_id);
+      if (row.status === 'sending') {
+        // The item is there: the send landed, its hash is in `item_sends` for `settleItemSends`.
+        const noted = await newestItemSend(env.DB, row.token_id, row.item);
+        if (pet?.outfits.includes(idOf(row.item))) {
+          await finishBuy(env, row, { status: 'bought', txHash: noted });
+          continue;
+        }
+        // Nothing was signed, or the network refused it: nothing was spent. A hash noted is a send that may
+        // still land, so the row waits as `unknown` for the network's word. A send still waiting in the key's
+        // queue has noted nothing yet: the flip below fails the row, and that send's own last check
+        // (`noteItemSend`) finds it no longer `sending` and broadcasts nothing. If the send noted its hash
+        // after the read above, the flip changes nothing and the row is taken as `unknown` a minute on.
+        if (noted === null) {
+          await finishBuy(env, row, { status: 'failed', code: 'error', unlessSent: true });
+          continue;
+        }
+        await env.DB.prepare("UPDATE outfit_buys SET status = 'unknown', tx_hash = ?2 WHERE id = ?1 AND status = 'sending'").bind(row.id, noted).run();
+        row = { ...row, status: 'unknown', tx_hash: noted };
+      } else if (pet?.outfits.includes(idOf(row.item))) {
+        await finishBuy(env, row, { status: 'bought', txHash: row.tx_hash });
+        continue;
+      }
+      const seen = row.tx_hash === null ? null : await txStatus(env, row.tx_hash, env.SERVER_ACCOUNT_ID);
+      if (seen?.status === 'ok') await finishBuy(env, row, { status: 'bought', burnt: seen.burnt ?? null, txHash: row.tx_hash, wrote: true });
+      else if (seen?.status === 'failed') await finishBuy(env, row, { status: 'failed', code: buyCode(seen.code), txHash: row.tx_hash });
+      else if (nowMs - row.created_at >= FEEDING_FAILED_AFTER_MS) await finishBuy(env, row, { status: 'failed', code: 'expired' });
+      else console.log('outfit_buy_unknown');
+    } catch (e) {
+      // The network is not readable now: this row is looked at again a minute on.
+      if (!(e instanceof ChainUnreachable)) throw e;
+      console.log('outfit_buy_unreadable');
+    }
+  }
+}
+
 export async function clean(env: Env, nowMs: number): Promise<void> {
   await env.DB.batch([
     env.DB.prepare("DELETE FROM jobs WHERE created_at < ? AND status IN ('done', 'failed')").bind(nowMs - 86_400_000),
@@ -158,7 +240,13 @@ export async function clean(env: Env, nowMs: number): Promise<void> {
     env.DB.prepare('DELETE FROM friend_snacks WHERE day < ?').bind(utcDay(nowMs)),
     // The answers to the riddle live to the end of the next day (`Ritual data`), and a revealed riddle's
     // row as long: an unrevealed one stays until it is revealed, however late (ADR-009).
-    env.DB.prepare('DELETE FROM riddle_answers WHERE day < ?').bind(utcDay(nowMs) - 1),
+    // From the end of the next day an answer of a riddle not yet revealed keeps only «right or not»: its text
+    // goes, its verdict stays for the reveal, however late (`Wardrobe data`, ADR-009). The order matters: the
+    // delete keeps the unrevealed days, the update then empties what is left of them.
+    env.DB.prepare('DELETE FROM riddle_answers WHERE day < ?1 AND day NOT IN (SELECT day FROM riddles WHERE revealed_at IS NULL)').bind(utcDay(nowMs) - 1),
+    env.DB.prepare("UPDATE riddle_answers SET text = '' WHERE day < ?1 AND text <> ''").bind(utcDay(nowMs) - 1),
     env.DB.prepare('DELETE FROM riddles WHERE revealed_at IS NOT NULL AND day < ?').bind(utcDay(nowMs) - 1),
+    // The purchases that are over, a day on (their outcome is shown for minutes).
+    env.DB.prepare("DELETE FROM outfit_buys WHERE status IN ('bought', 'failed') AND settled_at < ?").bind(nowMs - 86_400_000),
   ]);
 }

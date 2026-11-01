@@ -40,6 +40,8 @@ export interface FakePet {
   traits: string[];
   /** The UTC day of the last streak mark; `null` before the first (`Option<u64>` of `PetView`). */
   last_streak_day: number | null;
+  /** The item ids the pet has, ascending (`Vec<u8>` of `PetView`). */
+  outfits: number[];
 }
 
 /** The traits a `pet_grow` takes (`Trait` of the contract, JSON). */
@@ -114,6 +116,13 @@ export class FakeContract {
   commitFails: string | null = null;
   revealFails: string | null = null;
   markFails: string | null = null;
+  /** When set, `outfit_grant` / `outfit_buy` fail with this contract code even if their rules would pass. */
+  grantFails: string | null = null;
+  buyFails: string | null = null;
+  /** Every accepted `outfit_grant` and `outfit_buy` (`outfit` events), and what the treasury got. */
+  grants: { token_id: string }[] = [];
+  buys: { token_id: string; item: number; price: string }[] = [];
+  treasury = 0n;
   /** What the next successful transaction burns, yoctoNEAR (`tokens_burnt` of its outcome). */
   burnt = '0';
   /** When set, `debit_session` fails with this contract code even if its rules would pass. */
@@ -179,6 +188,7 @@ export class FakeContract {
       owner_snack_at: '0',
       traits: [],
       last_streak_day: null,
+      outfits: [],
       ...patch,
     };
     this.pets.set(id, pet);
@@ -383,9 +393,52 @@ export class FakeContract {
       }
     }
     if (pet.streak % 7 === 0) pet.freezes = Math.min(255, pet.freezes + 1);
+    // The streak's item goes in with the same write (`Earned outfit contract` › «вещь за серию записана»).
+    const streakItem = pet.streak === 1 ? 0 : pet.streak === 3 ? 1 : null;
+    if (streakItem !== null && !pet.outfits.includes(streakItem)) pet.outfits = [...pet.outfits, streakItem].sort((a, b) => a - b);
     pet.last_streak_day = day;
     this.marks.push({ token_id: tokenId, day, skipped, streak: pet.streak, freezes: pet.freezes, spent });
     return { spent };
+  }
+
+  /** The contract's `outfit_grant`, in its order of checks: the caller, the pet, the day after birth,
+   * the item not yet there. The Thinking cap is item 2. */
+  grant(caller: string, tokenId: string): { code: string } | null {
+    if (caller !== env.SERVER_ACCOUNT_ID) return { code: 'not_server' };
+    const pet = this.pets.get(tokenId);
+    if (!pet) return { code: 'no_pet' };
+    if (this.grantFails !== null) return { code: this.grantFails };
+    if (this.day <= Math.floor(pet.born_at / 86_400e9)) return { code: 'outfit_too_early' };
+    if (pet.outfits.includes(2)) return { code: 'outfit_owned' };
+    pet.outfits = [...pet.outfits, 2].sort((a, b) => a - b);
+    this.grants.push({ token_id: tokenId });
+    return null;
+  }
+
+  /** The contract's `outfit_buy`, in its order of checks: the caller, the item is for sale, the pet,
+   * the item not yet there, the daily cap, the food (project food first). */
+  buy(caller: string, tokenId: string, item: number): { code: string } | null {
+    if (caller !== env.SERVER_ACCOUNT_ID) return { code: 'not_server' };
+    if (item < 3 || item > 6) return { code: 'not_for_sale' };
+    const pet = this.pets.get(tokenId);
+    if (!pet) return { code: 'no_pet' };
+    if (pet.outfits.includes(item)) return { code: 'outfit_owned' };
+    if (this.buyFails !== null) return { code: this.buyFails };
+    const price = BigInt(env.OUTFIT_PRICE);
+    const already = pet.debit_day === this.day ? BigInt(pet.debited_today) : 0n;
+    if (already + price > 50_000_000_000_000_000_000_000n) return { code: 'daily_cap' };
+    const project = BigInt(pet.project_food);
+    const given = BigInt(pet.given_food);
+    if (price > project + given) return { code: 'over_food' };
+    const fromProject = price < project ? price : project;
+    pet.project_food = (project - fromProject).toString();
+    pet.given_food = (given - (price - fromProject)).toString();
+    pet.debit_day = this.day;
+    pet.debited_today = (already + price).toString();
+    pet.outfits = [...pet.outfits, item].sort((a, b) => a - b);
+    this.treasury += price;
+    this.buys.push({ token_id: tokenId, item, price: price.toString() });
+    return null;
   }
 
   /** Every accepted `debit_session`. */
@@ -413,6 +466,9 @@ export class FakeContract {
     if (this.sendGate !== null) await this.sendGate;
     if (this.mode === 'nonce-once' && !this.nonceRejected) {
       this.nonceRejected = true;
+      // The key's nonce on the chain is the `ak_nonce` of the answer below: the next read of it, and so the
+      // transaction signed again, carries a higher one (a new transaction, a new hash).
+      this.nonce = Number(tx.nonce) + 5;
       // nearcore's answer to a transaction with a stale nonce (JSON-RPC send_tx).
       return invalidTx({ InvalidNonce: { tx_nonce: Number(tx.nonce), ak_nonce: Number(tx.nonce) + 5 } });
     }
@@ -460,6 +516,14 @@ export class FakeContract {
             : { SuccessValue: btoa(JSON.stringify(result.wrote)) };
       } else if (call.methodName === 'pet_grow') {
         const refused = this.grow(tx.signerId, String(args.token_id), String(args.stage), String(args.trait));
+        status = refused
+          ? { Failure: { ActionError: { index: 0, kind: { FunctionCallError: { ExecutionError: `Smart contract panicked: ${refused.code}` } } } } }
+          : { SuccessValue: '' };
+      } else if (call.methodName === 'outfit_grant' || call.methodName === 'outfit_buy') {
+        const refused =
+          call.methodName === 'outfit_grant'
+            ? this.grant(tx.signerId, String(args.token_id))
+            : this.buy(tx.signerId, String(args.token_id), Number(args.item));
         status = refused
           ? { Failure: { ActionError: { index: 0, kind: { FunctionCallError: { ExecutionError: `Smart contract panicked: ${refused.code}` } } } } }
           : { SuccessValue: '' };

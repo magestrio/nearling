@@ -156,11 +156,18 @@ async function revealPast(env: Env, nowMs: number): Promise<void> {
 }
 
 /** The riddle is revealed: the verdicts may be read, and the salt goes (§8 › Хранение: «соль — до
- * раскрытия»). The one place that knows a riddle has been revealed; `add-wardrobe` reads each owner's
- * `riddle_answers.correct` for the riddle's item from here. Once. */
+ * раскрытия»). The one place that knows a riddle has been revealed. In the same batch every pet whose
+ * answer was right gets a row of `outfit_grants` (`Earned outfit flow` › «наряд за загадки»): the verdict
+ * counts at the reveal, the owner there or not, and a wrong answer or a riddle never revealed adds none.
+ * The rows are written before the flip in the batch, so only the writer that flips adds them. Once. */
 export async function finishReveal(env: Env, day: number, nowMs: number, burnt: string | null): Promise<void> {
-  const done = await env.DB.prepare('UPDATE riddles SET revealed_at = ?2, salt = NULL, reveal_claim_at = NULL WHERE day = ?1 AND revealed_at IS NULL RETURNING day').bind(day, nowMs).first();
-  if (done === null) return;
+  const written = await env.DB.batch([
+    env.DB
+      .prepare('INSERT OR IGNORE INTO outfit_grants (token_id, created_at) SELECT a.token_id, ?2 FROM riddle_answers a WHERE a.day = ?1 AND a.correct = 1 AND EXISTS (SELECT 1 FROM riddles WHERE day = ?1 AND revealed_at IS NULL)')
+      .bind(day, nowMs),
+    env.DB.prepare('UPDATE riddles SET revealed_at = ?2, salt = NULL, reveal_claim_at = NULL WHERE day = ?1 AND revealed_at IS NULL RETURNING day').bind(day, nowMs),
+  ]);
+  if (written[1]!.results.length === 0) return;
   console.log('riddle_revealed');
   await payGas(env, nowMs, burnt);
 }

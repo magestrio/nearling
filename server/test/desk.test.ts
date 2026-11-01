@@ -91,7 +91,7 @@ describe('Thought queue data', () => {
 
   // spec: add-pet › Return after absence flow › дневник без игрока
   it('does not let a dead desk hold a slot of the night\'s diary', async () => {
-    vi.setSystemTime(new Date(Date.UTC(2026, 10, 2, 0, 10, 0)));
+    vi.setSystemTime(new Date(Date.UTC(2036, 10, 2, 0, 10, 0)));
     for (let n = 0; n < 8; n += 1) {
       const id = String(100 + n);
       h.net().contract.addPet(id, OWNER);

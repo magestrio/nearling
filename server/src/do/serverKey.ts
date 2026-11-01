@@ -2,10 +2,12 @@
 // `Account` with its nonce cache. The `server` instance carries the server key's calls (a birth from
 // a request and a batch from the cron meet here, so they never sign with the same nonce); the `gas`
 // instance carries the gas account's transfers (`Feeding gas data`; `add-gift` reuses it). Two
-// instances because two keys have two sets of nonces. It writes nothing to storage.
+// instances because two keys have two sets of nonces. It writes nothing to storage of its own; a call that
+// may write an item notes the hash of each transaction it signs in `item_sends` before the broadcast.
 import { DurableObject } from 'cloudflare:workers';
 import type { Account, KeyPairSigner } from 'near-api-js';
 import { ChainUnreachable, gasAccount, serverAccount, signAndSend, signAndSendTransfer, type SendResult, type ServerCall } from '../chain';
+import { noteItemSend } from '../pet/itemTx';
 
 export type ServerKeyAnswer = SendResult | { status: 'unreachable' };
 
@@ -18,7 +20,8 @@ export class ServerKey extends DurableObject<Env> {
   send(call: ServerCall): Promise<ServerKeyAnswer> {
     return this.enqueue(async () => {
       this.keys ??= serverAccount(this.env);
-      return signAndSend(this.env, this.keys, call);
+      const { writes } = call;
+      return signAndSend(this.env, this.keys, call, writes === undefined ? undefined : (hash) => noteItemSend(this.env.DB, writes, hash, Date.now()));
     });
   }
 

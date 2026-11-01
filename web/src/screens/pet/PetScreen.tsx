@@ -34,6 +34,11 @@ import {
 import { DiaryPage } from '../../diary/DiaryPage';
 import { useDiary } from '../../diary/useDiary';
 import { useSelfOpen } from '../../diary/useSelfOpen';
+import { wearProps } from '../../wardrobe/catalogue';
+import { NewOutfitNotice } from '../../wardrobe/NewOutfitNotice';
+import { useNotice } from '../../wardrobe/useNotice';
+import { useWardrobe } from '../../wardrobe/useWardrobe';
+import { WardrobePage } from '../../wardrobe/WardrobePage';
 import { closeFeed, useAddNearRequest, useFeedRequest } from '../../feeding/feedRequest';
 import { FeedLayer } from '../../feeding/FeedLayer';
 import { useFeedLinkOpened } from '../../feeding/useFeedLinkOpened';
@@ -377,7 +382,7 @@ function OwnerPage({ pet, s }: { pet: OwnerView; s: ReturnType<typeof usePetScre
             <Inert on={cover.open ? 'phone' : undefined}>
               <PetStage
                 compact
-                pet={<PetFigure tokenId={tokenId} name={name} state={state} stage={pet.stage} mood={asleep ? null : pet.mood} size="hero" lost={figure.lost} onLost={figure.onLost} hub={hub} birth={birth} />}
+                pet={<PetFigure tokenId={tokenId} name={name} state={state} stage={pet.stage} mood={asleep ? null : pet.mood} size="hero" lost={figure.lost} onLost={figure.onLost} hub={hub} birth={birth} {...wearProps(pet.worn)} />}
                 motion={figure.motion}
                 rail={
                   asleep ? null : (
@@ -512,7 +517,7 @@ function OutsiderPage({ pet, s }: { pet: Exclude<PetView, { viewer: 'owner' }>; 
             }
           >
             <PetStage
-              pet={<PetFigure tokenId={tokenId} name={name} state={state} stage={pet.stage} mood={asleep ? null : pet.mood} size="hero" lost={figure.lost} onLost={figure.onLost} hub={figure.hub} />}
+              pet={<PetFigure tokenId={tokenId} name={name} state={state} stage={pet.stage} mood={asleep ? null : pet.mood} size="hero" lost={figure.lost} onLost={figure.onLost} hub={figure.hub} {...wearProps(pet.worn)} />}
               motion={figure.motion}
               plate={<PetPlate name={name} fullness={{ state: pet.fullness.state, level: pet.fullness.state === 'hungry' ? pet.fullness.level : undefined }} />}
               foot={<CheckLink tokenId={tokenId} name={name} />}
@@ -569,7 +574,42 @@ function DiaryOwner({ pet, d, s }: { pet: OwnerView; d: ReturnType<typeof useDia
   );
 }
 
-function PetView({ s, d, diary }: { s: ReturnType<typeof usePetScreen>; d: ReturnType<typeof useDiary>; diary: boolean }) {
+/** Wardrobe screen of the owner's awake pet, over the Pet screen's own state (`add-wardrobe` › `Wardrobe screen`). */
+function WardrobeOwner({ pet, w, s }: { pet: OwnerView; w: ReturnType<typeof useWardrobe>; s: ReturnType<typeof usePetScreen> }) {
+  const { tokenId, name } = pet;
+  const cover = useFeedCover(tokenId);
+  const figure = useFigure();
+  // the wardrobe's own failed read or a failed «Wear», or the Pet screen's: one connection line over the page
+  const line = w.banner ?? s.banner;
+  return (
+    <WardrobePage
+      pet={pet}
+      w={w}
+      figure={{ lost: figure.lost, onLost: figure.onLost, hub: figure.hub, motion: figure.motion }}
+      accent={accentOf(tokenId)}
+      account={<Account tokenId={tokenId} name={name} viewer="owner" asleep={pet.fullness.state === 'asleep'} />}
+      banner={<ConnectionBanner banner={line} name={name} tryAgain={w.banner ? w.tryAgain : s.tryAgain} />}
+      bannerLine={bannerLine(line, name)}
+      offline={offlineLine(name)}
+      covered={cover.open}
+      layer={<FeedLayer pageFullness={pet.fullness} />}
+    />
+  );
+}
+
+function PetView({
+  s,
+  d,
+  w,
+  diary,
+  wardrobe,
+}: {
+  s: ReturnType<typeof usePetScreen>;
+  d: ReturnType<typeof useDiary>;
+  w: ReturnType<typeof useWardrobe>;
+  diary: boolean;
+  wardrobe: boolean;
+}) {
   const { page } = s;
   if (page.kind === 'loading') return <LoadingView tokenId={s.tokenId} />;
   if (page.kind === 'not_found') return <PetNotFound />;
@@ -584,27 +624,45 @@ function PetView({ s, d, diary }: { s: ReturnType<typeof usePetScreen>; d: Retur
     );
   }
   if (page.pet.viewer !== 'owner') return <OutsiderPage pet={page.pet} s={s} />;
+  if (wardrobe) return <WardrobeOwner pet={page.pet} w={w} s={s} />;
   return diary ? <DiaryOwner pet={page.pet} d={d} s={s} /> : <OwnerPage pet={page.pet} s={s} />;
 }
 
 /** `diary`: the address is the Diary's (`/pet/<token_id>/diary`). Its page is the owner's awake pet's; a guest or a visitor on it gets
  *  the Pet screen's page for them, the address kept; an asleep pet's address is the Pet screen (`Diary screen` › entry point). */
-export function PetScreen({ tokenId, from, diary = false }: { tokenId: string; from: string | null; diary?: boolean }) {
+export function PetScreen({ tokenId, from, diary = false, wardrobe = false }: { tokenId: string; from: string | null; diary?: boolean; wardrobe?: boolean }) {
   const s = usePetScreen(tokenId, from, diary);
   const owner = s.page.kind === 'pet' && s.page.pet.viewer === 'owner' ? s.page.pet : null;
   const asleep = owner?.fullness.state === 'asleep';
-  // An asleep pet at the address has no Diary: its Pet screen, at its own address. A Diary that stood while the pet was awake stays.
+  // An asleep pet at the address has no Diary and no Wardrobe: its Pet screen, at its own address. A Diary or a Wardrobe that stood
+  // while the pet was awake stays (and turns «asleep»).
   const stood = useRef(false);
   const awakeOwner = owner !== null && !asleep;
+  const surface = diary || wardrobe;
   useEffect(() => {
-    if (!diary) stood.current = false;
+    if (!surface) stood.current = false;
     else if (awakeOwner) stood.current = true;
     else if (owner !== null && !stood.current) navigate(petPath(tokenId));
-  }, [diary, awakeOwner, owner !== null, tokenId]);
-  const standing = diary && owner !== null && (!asleep || stood.current);
+  }, [surface, awakeOwner, owner !== null, tokenId]);
+  const standingSurface = owner !== null && (!asleep || stood.current);
+  const standing = diary && standingSurface;
+  const standingWardrobe = wardrobe && standingSurface;
   const decided = s.page.kind === 'pet' || s.page.kind === 'not_found';
   const d = useDiary({ tokenId, active: standing, owner: owner !== null, decided, reread: s.reread, nudge: s.nudge, returned: s.returned, askLook: s.look });
-  useSelfOpen({ tokenId, diaryUnread: owner?.diaryUnread ?? false, standing, asleep, typing: s.draft !== '' });
+  const w = useWardrobe({ tokenId, active: standingWardrobe, reread: s.reread, askLook: s.look });
+  // The Wardrobe stands like the Diary does: the owner chose it, so neither the Diary nor the notice opens by itself over it.
+  const { reread, look } = s;
+  const notice = useNotice({ tokenId, owner: owner !== null, notices: owner?.notices ?? [], look: () => void look(), reread });
+  useSelfOpen({
+    tokenId,
+    diaryUnread: owner?.diaryUnread ?? false,
+    diary: standing,
+    wardrobe: standingWardrobe,
+    asleep,
+    typing: s.draft !== '',
+    notice: notice.due,
+    onNotice: notice.show,
+  });
   // The pet is someone else's now, whichever read told first (the Diary's own `403`, or `/state`, the only one on the Pet screen):
   // the riddle answer typed for it goes with the owner's page (`Ritual data`). A visitor's page is the ended session, which keeps it.
   const guest = s.page.kind === 'pet' && s.page.pet.viewer === 'guest';
@@ -643,10 +701,21 @@ export function PetScreen({ tokenId, from, diary = false }: { tokenId: string; f
     if (request !== null && !request.elsewhere && request.tokenId !== tokenId) closeFeed();
   }, [request, tokenId]);
   useEffect(() => closeFeed, []);
+  // New outfit notice: beside the page, which stays at one place of the tree (its state, its draft and its pet's canvas live on) and is
+  // out of reach while the notice stands. The dialog is beside the Shell, which is where the DS sets the text colour and the font and
+  // the pet's accent: they are given here.
+  const noticeSlug = owner !== null ? notice.open : null;
   return (
     <>
       <Live>{outcomeLine(s.page, s.notice)}</Live>
-      <PetView s={s} d={d} diary={standing} />
+      <Inert on={noticeSlug !== null}>
+        <PetView s={s} d={d} w={w} diary={standing} wardrobe={standingWardrobe} />
+      </Inert>
+      {owner !== null && noticeSlug !== null ? (
+        <div className="ds-only" data-accent={accentOf(tokenId)} style={{ color: 'var(--color-text-primary)', fontFamily: 'var(--font-sans)' }}>
+          <NewOutfitNotice pet={owner} slug={noticeSlug} wearing={notice.wearing} failed={notice.failed} onWear={() => void notice.wear()} onLater={notice.later} />
+        </div>
+      ) : null}
     </>
   );
 }

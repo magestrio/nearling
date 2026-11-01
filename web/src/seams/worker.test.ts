@@ -261,3 +261,55 @@ describe('the Worker seam of the Diary', () => {
     }
   });
 });
+
+describe('the wardrobe routes', () => {
+  const calls = (fetchMock: ReturnType<typeof vi.fn>) => fetchMock.mock.calls.map((c) => c as unknown as [string, RequestInit]);
+
+  // spec: add-wardrobe › Wardrobe screen › success
+  it('reads the wardrobe with the token by GET, and keeps the code of a pet that is not theirs any more', async () => {
+    const fetchMock = vi.fn(async () => Response.json({ owned: [] }));
+    vi.stubGlobal('fetch', fetchMock);
+    await workerApi.wardrobe('t', '9');
+    expect(calls(fetchMock)[0]).toMatchObject(['/api/pets/9/wardrobe', { method: 'GET', headers: { 'privy-id-token': 't' } }]);
+    vi.stubGlobal('fetch', vi.fn(async () => Response.json({ code: 'not_owner' }, { status: 403 })));
+    await expect(workerApi.wardrobe('t', '9')).rejects.toMatchObject({ status: 403, code: 'not_owner' });
+  });
+
+  // spec: add-wardrobe › Outfit rule › надел
+  it('sends the item to wear by POST, and null to take it off, and keeps the code of a 409', async () => {
+    const fetchMock = vi.fn(async () => Response.json({ worn: 'bow-tie' }));
+    vi.stubGlobal('fetch', fetchMock);
+    expect(await workerApi.wear('t', '9', 'bow-tie')).toEqual({ worn: 'bow-tie' });
+    await workerApi.wear('t', '9', null);
+    const [first, second] = calls(fetchMock);
+    expect(`${first![1].method} ${first![0]}`).toBe('POST /api/pets/9/wardrobe/wear');
+    expect(JSON.parse(first![1].body as string)).toEqual({ item: 'bow-tie' });
+    expect(JSON.parse(second![1].body as string)).toEqual({ item: null });
+    vi.stubGlobal('fetch', vi.fn(async () => Response.json({ code: 'not_owned' }, { status: 409 })));
+    await expect(workerApi.wear('t', '9', 'bow-tie')).rejects.toMatchObject({ status: 409, code: 'not_owned' });
+  });
+
+  // spec: add-wardrobe › Outfit purchase flow › покупает
+  it('sends the item to buy by POST, takes the 202 id, and keeps the codes of a 409', async () => {
+    const fetchMock = vi.fn(async () => Response.json({ id: 'b1' }, { status: 202 }));
+    vi.stubGlobal('fetch', fetchMock);
+    expect(await workerApi.buy('t', '9', 'smart-glasses')).toEqual({ id: 'b1' });
+    const [url, init] = calls(fetchMock)[0]!;
+    expect(`${init.method} ${url}`).toBe('POST /api/pets/9/wardrobe/buy');
+    expect(JSON.parse(init.body as string)).toEqual({ item: 'smart-glasses' });
+    for (const code of ['owned', 'paused']) {
+      vi.stubGlobal('fetch', vi.fn(async () => Response.json({ code }, { status: 409 })));
+      await expect(workerApi.buy('t', '9', 'smart-glasses')).rejects.toMatchObject({ status: 409, code });
+    }
+  });
+
+  // spec: add-wardrobe › New outfit notice screen › success
+  it('tells the server a notice was shown with the item\'s name and nothing else', async () => {
+    const fetchMock = vi.fn(async () => Response.json({ ok: true }));
+    vi.stubGlobal('fetch', fetchMock);
+    expect(await workerApi.seenOutfit('t', '9', 'cozy-scarf')).toEqual({ ok: true });
+    const [url, init] = calls(fetchMock)[0]!;
+    expect(`${init.method} ${url}`).toBe('POST /api/pets/9/wardrobe/seen');
+    expect(JSON.parse(init.body as string)).toEqual({ item: 'cozy-scarf' });
+  });
+});

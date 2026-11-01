@@ -468,7 +468,7 @@ describe('Session debit contract', () => {
 describe('Pet food data', () => {
   // spec: add-pet › Pet food data › мысль ещё не списана × пачка исполнилась после полуночи
   it('counts the unbilled thoughts of yesterday\'s session in the new day, and the old day\'s debits not at all', async () => {
-    vi.setSystemTime(new Date(Date.UTC(2026, 10, 3, 23, 50, 0)));
+    vi.setSystemTime(new Date(Date.UTC(2036, 10, 3, 23, 50, 0)));
     // yesterday the pet reached its cap (the contract's record is of the old day)
     h.net().contract.addPet('5', OWNER, { project_food: BIG_FOOD, debited_today: DAILY_CAP_YOCTO.toString() });
     const min0 = minCallPrice(env, 0);
@@ -479,10 +479,10 @@ describe('Pet food data', () => {
     await insert(DAILY_CAP_YOCTO - min0 + 1n);
     const tk = await token('did:privy:owner', OWNER);
     // 00:00:30 of the new day, the batch has not run yet
-    vi.setSystemTime(new Date(Date.UTC(2026, 10, 4, 0, 0, 30)));
+    vi.setSystemTime(new Date(Date.UTC(2036, 10, 4, 0, 0, 30)));
     const view = await api('/api/pets/5', { token: tk });
     expect(view.body.tired).toBe(true);
-    expect(view.body.until).toBe(new Date(Date.UTC(2026, 10, 5, 0, 0, 0)).toISOString());
+    expect(view.body.until).toBe(new Date(Date.UTC(2036, 10, 5, 0, 0, 0)).toISOString());
     // a yocto less of it and the cap left pays the cheapest call: not tired
     await env.DB.exec("UPDATE thoughts SET price_yocto = '" + (DAILY_CAP_YOCTO - min0).toString() + "'");
     await env.DB.exec('UPDATE pets SET tired_day = NULL');

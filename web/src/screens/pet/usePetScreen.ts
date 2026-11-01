@@ -127,6 +127,8 @@ export function usePetScreen(tokenId: string, from: string | null, diary = false
   linesRef.current = lines;
   const retryRef = useRef<() => void>(() => undefined);
   const polling = useRef(false);
+  // a look asked for while a poll is in flight: the poll began before what the look is for, so one more follows it
+  const lookAgain = useRef(false);
   const greeted = useRef(false);
   const localLine = useRef(0);
   const sendingRef = useRef(false);
@@ -435,6 +437,10 @@ export function usePetScreen(tokenId: string, from: string | null, diary = false
                 energy: s.energy,
                 diaryUnread: s.diaryUnread,
                 pendingQuestion: s.pendingQuestion,
+                outfits: s.outfits,
+                worn: s.worn,
+                notices: s.notices,
+                outfitPrice: s.outfitPrice,
               },
             }
           : p,
@@ -519,8 +525,21 @@ export function usePetScreen(tokenId: string, from: string | null, diary = false
       else fail(e, () => void poll());
     } finally {
       polling.current = false;
+      if (lookAgain.current) {
+        lookAgain.current = false;
+        void poll();
+      }
     }
   }, [tokenOf, tokenId, loadLines, fail, giveBack, adopt, jobGone, changeJob, forgetConversation]);
+
+  /** A read the screen asks for because the pet's own view moved (an item worn): a poll in flight does not stand in for it. */
+  const lookNow = useCallback(async () => {
+    if (polling.current) {
+      lookAgain.current = true;
+      return;
+    }
+    await poll();
+  }, [poll]);
 
   // The owner's page is kept current — food from a friend, the pause lifting, 00:00 UTC — and a thought's answer is
   // fetched; a hidden tab asks nothing, a tab that comes back asks at once.
@@ -794,6 +813,6 @@ export function usePetScreen(tokenId: string, from: string | null, diary = false
     returned,
     nudge,
     /** reads the pet's condition now (the Diary met a riddle answer the pet being asleep refused) */
-    look: poll,
+    look: lookNow,
   };
 }

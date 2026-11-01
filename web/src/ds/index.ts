@@ -1,4 +1,4 @@
-// The DS components of design/ds/components.js, ported. Not here yet (parts of other changes): Segmented and the verification and wardrobe parts. `Pet` is web/src/pet/PetFigure.tsx.
+// The DS components of design/ds/components.js, ported. Not here yet (parts of other changes): Segmented and the verification parts. `Pet` is web/src/pet/PetFigure.tsx.
 export { ActionRow } from './ActionRow';
 export { Banner, Nest, Skeleton } from './Feedback';
 export { Block } from './Block';
@@ -12,6 +12,7 @@ export { Dots } from './Dots';
 export { Fullness, litCells, type FullnessState } from './Fullness';
 export { Icon, type IconName } from './Icon';
 export { IconButton } from './IconButton';
+export { ItemGrid, ItemNote, ItemTile } from './ItemGrid';
 export { Actions, Center, Cluster, Dock, Header, Inert, Only, Page, Shell, Split, Stack, Surface, type Accent } from './layout';
 export { Live } from './Live';
 export { Menu, MenuItem } from './Menu';

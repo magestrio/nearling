@@ -24,6 +24,7 @@ import {
 import { hasVisible } from '../lib/nameClean';
 import { PetFigure } from '../pet/PetFigure';
 import { petPath } from '../route';
+import { wearProps } from '../wardrobe/catalogue';
 import { emptyPaidLine, lostLine, pausedLine, thinkingLine, tiredLine, WAIT_LINE } from '../screens/pet/lines';
 import type { OwnerView, usePetScreen } from '../screens/pet/usePetScreen';
 import { useAuth } from '../seams/auth';
@@ -107,7 +108,7 @@ function Entry({ pet, today }: { pet: OwnerView; today: EntryDraw }) {
     <Surface>
       <Stack gap={3}>
         <Cluster gap={3}>
-          <PetFigure tokenId={pet.tokenId} name={pet.name} state={pet.fullness.state} stage={pet.stage} mood={pet.fullness.state === 'asleep' ? null : pet.mood} size="sm" decorative still />
+          <PetFigure tokenId={pet.tokenId} name={pet.name} state={pet.fullness.state} stage={pet.stage} mood={pet.fullness.state === 'asleep' ? null : pet.mood} size="sm" decorative still {...wearProps(pet.worn)} />
           <Text variant="small" tone="secondary">
             {pet.name}
           </Text>

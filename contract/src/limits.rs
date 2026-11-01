@@ -49,6 +49,11 @@ pub const MIN_FEED: u128 = 10_000_000_000_000_000_000_000;
 /// Настройки контракта).
 pub const SNACK_AMOUNT: u128 = 1_700_000_000_000_000_000_000;
 
+/// The price of one bought item, the same for the four: 0.00166 NEAR, about 10 typical thoughts
+/// (`Outfit purchase contract`). `server/vitest.config.ts` reads it by name, so it stays a plain
+/// integer literal on one line.
+pub const OUTFIT_PRICE: u128 = 1_660_000_000_000_000_000_000;
+
 /// Snacks from friends one pet takes in a UTC day.
 pub const FRIEND_SNACKS_PER_DAY: u8 = 3;
 

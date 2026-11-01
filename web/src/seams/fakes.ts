@@ -9,12 +9,14 @@ import type {
   HatchStatus,
   Me,
   MyFeed,
+  OutfitSlug,
   PetBase,
   PetState,
   RiddleStatus,
   SessionResult,
   SignInGate,
   WalletInfo,
+  WardrobeView,
 } from './worker-types';
 
 /** An answer the fake gives instead of a value: the Worker's refusal (status 0 — it never answered). */
@@ -40,7 +42,7 @@ export interface FakeWorkerState {
   hatchDelayMs?: number;
   me?: Me | FakeFail;
   /** the pets the fake knows, by token_id */
-  pets?: Record<string, PetBase & Partial<MyFeed> & { owner?: Partial<Omit<Extract<import('./worker-types').PetView, { viewer: 'owner' }>, keyof PetBase | keyof MyFeed | 'viewer'>> }>;
+  pets?: Record<string, Omit<PetBase, 'worn'> & Partial<Pick<PetBase, 'worn'>> & Partial<MyFeed> & { owner?: Partial<Omit<Extract<import('./worker-types').PetView, { viewer: 'owner' }>, keyof PetBase | keyof MyFeed | 'viewer'>> }>;
   /** `GET /api/pets/:id` refused (the server, the network, the rate limit) instead of answering */
   petResult?: FakeFail;
   /** the token_ids the signed-in fake player owns: those answer with the owner's view, the rest with the guest's */
@@ -93,6 +95,18 @@ export interface FakeWorkerState {
   answerQuestion?: { job: string } | FakeFail;
   /** `POST …/riddle`; default `{ status: 'accepted' }` */
   answerRiddle?: { status: RiddleStatus } | FakeFail;
+  /** `GET …/wardrobe`: fields laid over the wardrobe the fake builds from the pet (its items, the item worn, the price, nothing
+   *  short, no pause, no purchase), or a refusal instead. The owner only: another viewer is a `403 not_owner`. */
+  wardrobe?: Partial<WardrobeView> | FakeFail;
+  wardrobeDelayMs?: number;
+  /** `POST …/wardrobe/wear`; default the item asked, which the pet then wears for every look the fake answers */
+  wear?: { worn: OutfitSlug | null } | FakeFail;
+  wearDelayMs?: number;
+  /** `POST …/wardrobe/buy`; default `{ id: 'buy-1' }` */
+  buy?: { id: string } | FakeFail;
+  buyDelayMs?: number;
+  /** `POST …/wardrobe/seen`; default `{ ok: true }` */
+  seenOutfit?: { ok: true } | FakeFail;
 }
 
 export interface FakeState {

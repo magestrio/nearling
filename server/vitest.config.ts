@@ -45,6 +45,7 @@ export default defineConfig({
           MAX_BIRTH_COST: limit('MAX_BIRTH_COST'),
           MIN_FEED: limit('MIN_FEED'),
           SNACK_AMOUNT: limit('SNACK_AMOUNT'),
+          OUTFIT_PRICE: limit('OUTFIT_PRICE'),
           FRIEND_SNACKS_PER_DAY: limit('FRIEND_SNACKS_PER_DAY'),
           OWNER_SNACK_EVERY_NS: limit('OWNER_SNACK_EVERY_NS'),
           PRESETS_MD: JSON.stringify(presetSlots()),

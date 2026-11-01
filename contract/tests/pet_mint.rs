@@ -199,7 +199,12 @@ async fn a_birth_records_the_pet_and_enumerates_it() -> anyhow::Result<()> {
     assert_eq!(pet["traits"], json!([]));
     let extra: serde_json::Value =
         serde_json::from_str(token["metadata"]["extra"].as_str().unwrap())?;
-    assert_eq!(extra, json!({ "stage": "Baby", "traits": [] }));
+    assert_eq!(
+        extra,
+        json!({ "stage": "Baby", "traits": [], "outfits": [] })
+    );
+    // `add-wardrobe`: no item yet.
+    assert_eq!(pet["outfits"], json!([]));
     assert_eq!(ctx.pet_view("1").await?, serde_json::Value::Null);
 
     // The pool paid the bytes the chain counted plus the owner-list entry and the starter food.
@@ -241,6 +246,7 @@ async fn a_birth_writes_no_counted_day_and_a_mark_after_it_writes_no_byte() -> a
 }
 
 // spec: add-daily-ritual › Streak contract › сутки засчитаны × storage of a birth
+// spec: add-wardrobe › Earned outfit contract › вещь за серию записана × the bytes of a birth
 /// The measured storage of a birth with the longest character, the 32-byte name and a 64-byte
 /// receiver, against `MAX_BIRTH_COST`; and the gas of `pet_mint`. The numbers go to design.md.
 #[tokio::test]
@@ -257,6 +263,9 @@ async fn storage_of_a_birth() -> anyhow::Result<()> {
     eprintln!(
         "storage_of_a_birth: {bytes} bytes written, +{OWNER_LIST_ENTRY_BYTES} owner-list bytes, cost {cost} yocto, gas {gas}"
     );
+    // `add-wardrobe`: the record is one byte longer than `add-daily-ritual`'s 1,883 with the
+    // items; `BIRTH_STORAGE_YOCTO` in `server/src/pricing.ts` is this number at the byte price.
+    assert_eq!(bytes + OWNER_LIST_ENTRY_BYTES, 1_884);
     assert!(
         cost <= MAX_BIRTH_COST,
         "cost {cost} > MAX_BIRTH_COST {MAX_BIRTH_COST}"

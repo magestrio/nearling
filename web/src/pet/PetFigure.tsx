@@ -341,7 +341,7 @@ export function PetFigure({ tokenId, name, state = 'full', stage = 'adult', outf
     onLost?.();
   };
   return (
-    <div className={cx('ds-pet', `ds-pet--${size}`, 'pet-figure', `pet-figure--${size}`)} data-illustration="" data-still={still ? '' : undefined} data-view={flat ? 'flat' : '3d'} data-face={face} data-stage={stage}>
+    <div className={cx('ds-pet', `ds-pet--${size}`, 'pet-figure', `pet-figure--${size}`)} data-illustration="" data-still={still ? '' : undefined} data-view={flat ? 'flat' : '3d'} data-face={face} data-stage={stage} data-outfit={outfit}>
       <div className="pet-figure__box" role={decorative ? undefined : 'img'} aria-label={decorative ? undefined : alt} aria-hidden={decorative || undefined}>
         {flat ? (
           <FigureBoundary key="flat" onFail={() => undefined}>

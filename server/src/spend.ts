@@ -8,6 +8,7 @@ import { complete, replyOf, signatureOf, type CallResult, type Message, type Sig
 import { hasVisible } from './name/clean';
 import { eraseIfCleared, memoryEpoch } from './pet/forget';
 import { energyLeft, energyOf, moodOf, planCount, readLife, replyStatements } from './pet/life';
+import { wornOf } from './pet/outfits';
 import { DIARY_WINDOW_MS } from './pet/ritual';
 import { foodState, markTired, type FoodState } from './pet/view';
 import {
@@ -79,8 +80,9 @@ interface Plan {
 
 function planOf(env: Env, bound: number, fs: FoodState, fuse: number, setAside: bigint): Plan {
   const minCall = minCallPrice(env, bound);
-  if (fs.eff < minCall) return { ceiling: EDGE_CEILING, cutKind: 'food', edge: true };
-  const food = ceilingFor(env, bound, fs.eff - setAside, fuse);
+  // From the room, not the food: a purchase that has gone out and has no outcome yet is held.
+  if (fs.room < minCall) return { ceiling: EDGE_CEILING, cutKind: 'food', edge: true };
+  const food = ceilingFor(env, bound, fs.room - setAside, fuse);
   const cap = ceilingFor(env, bound, fs.capLeft - setAside, fuse);
   const thought = ceilingFor(env, bound, MAX_THOUGHT_PRICE_YOCTO - setAside, fuse);
   const ceiling = Math.max(1, Math.min(fuse, food, cap, thought));
@@ -159,7 +161,7 @@ export async function run(env: Env, tokenId: string, job: ThoughtJob, epoch?: nu
   // `heldEpoch` is older than the memory is read: a clear that lands after the claim makes the
   // answer's words unwanted (`think` erases them with the thought's own batch); one before the claim
   // failed the job and never got here.
-  const messages = await buildMessages(env.DB, tokenId, pet, job, { mood: moodOf(state, life.moodDay, today), energyPercent: energy * 10 });
+  const messages = await buildMessages(env.DB, tokenId, pet, job, { mood: moodOf(state, life.moodDay, today), energyPercent: energy * 10, outfit: await wornOf(env.DB, tokenId) });
   const bound = inputBound(messages);
   const minCall = minCallPrice(env, bound);
   // The re-ask of «Think hard» is paid before the first call is allowed to eat the room: 40 output
@@ -249,10 +251,12 @@ async function think(env: Env, tokenId: string, pet: PetRecord, job: ThoughtJob,
     }
   }
 
-  // The pet pays by usage; at the edge of sleep all it has left, and the project the difference.
+  // The pet pays by usage; at the edge of sleep all it has left, and the project the difference. A purchase
+  // held in `sending` or `unknown` takes its price out of `room` and brings a pet with food to this branch
+  // too: it answers short at the project's cost until the purchase settles (a known risk, D-92).
   const usagePrice = thoughtPrice(env, answers.map((a) => ({ tokensIn: a.tokensIn, tokensOut: a.tokensOut })));
-  let price = plan.edge ? fs.eff : usagePrice;
-  if (price > fs.eff) price = fs.eff;
+  let price = plan.edge ? fs.room : usagePrice;
+  if (price > fs.room) price = fs.room;
   if (price > fs.capLeft) price = fs.capLeft;
   if (price > MAX_THOUGHT_PRICE_YOCTO) price = MAX_THOUGHT_PRICE_YOCTO;
   if (usagePrice > price) {
@@ -365,7 +369,7 @@ async function think(env: Env, tokenId: string, pet: PetRecord, job: ThoughtJob,
 /** The room the re-ask has: what the food, the cap and the thought's limit leave after the first
  * call's price, at its input, with no gas share of its own. Null when not even 40 tokens fit. */
 function reaskPlan(env: Env, bound: number, fs: FoodState, spent: bigint): Plan | null {
-  const food = ceilingFor(env, bound, fs.eff - spent, FUSE_CHAT, false);
+  const food = ceilingFor(env, bound, fs.room - spent, FUSE_CHAT, false);
   const cap = ceilingFor(env, bound, fs.capLeft - spent, FUSE_CHAT, false);
   const thought = ceilingFor(env, bound, MAX_THOUGHT_PRICE_YOCTO - spent, FUSE_CHAT, false);
   const ceiling = Math.min(FUSE_CHAT, food, cap, thought);

@@ -1,5 +1,8 @@
 import type { Page } from '@playwright/test';
-import type { FakeState } from '../src/seams/fakes';
+import type { FakeState, FakeWorkerState } from '../src/seams/fakes';
+import type { OutfitSlug } from '../src/seams/worker-types';
+
+type FakePet = NonNullable<FakeWorkerState['pets']>[string];
 
 /** Nothing outside the local dev server is reachable (no Privy, no RPC); the seams answer from the fakes the test hands
  *  over before the page loads. The pets stand on their stills unless a test says otherwise (`pet: { hold: false }`):
@@ -35,8 +38,8 @@ export async function lookAgain(page: Page): Promise<void> {
   });
 }
 
-export const PIXEL = { tokenId: '9', name: 'Pixel', stage: 'adult' as const, fullness: { state: 'full' as const, level: 1 }, mood: 'happy' as const };
-export const BISCUIT = { tokenId: '2', name: 'Biscuit', stage: 'adult' as const, fullness: { state: 'full' as const, level: 1 }, mood: 'happy' as const };
+export const PIXEL = { tokenId: '9', name: 'Pixel', stage: 'adult' as const, fullness: { state: 'full' as const, level: 1 }, mood: 'happy' as const, worn: null as OutfitSlug | null };
+export const BISCUIT = { tokenId: '2', name: 'Biscuit', stage: 'adult' as const, fullness: { state: 'full' as const, level: 1 }, mood: 'happy' as const, worn: null as OutfitSlug | null };
 export const HISTORY = [
   { id: 'c1', who: 'pet' as const, text: 'Morning! I spent the night counting the hum of your fridge.', at: 1 },
   { id: 'c2:you', who: 'player' as const, text: 'Barely. Big presentation at ten.', at: 2 },
@@ -85,6 +88,45 @@ export async function openPet(page: Page, owner: Record<string, unknown> = {}, w
 /** Changes what Pixel's owner view says from now on (the fake's pets are read at every call). */
 export async function setPixel(page: Page, owner: Record<string, unknown>, base: Record<string, unknown> = {}): Promise<void> {
   await setWorker(page, { pets: { '9': { ...PIXEL, ...base, owner }, '2': BISCUIT } });
+}
+
+/** What Pixel owns in the Wardrobe tests: the Daisy crown, the Thinking cap and the Party hat (the frames' sample values). */
+export const WARDROBE_OWNS: OutfitSlug[] = ['daisy-crown', 'thinking-cap', 'party-hat'];
+
+/** Pixel as the owner has it in the Wardrobe tests: wearing the Thinking cap, owning `WARDROBE_OWNS`; `pet` lays over the pet,
+ *  `owner` over its owner fields, `wardrobe` over the read the fake builds from them. */
+export function wardrobeWorker(
+  pet: Partial<FakePet> = {},
+  owner: NonNullable<FakePet['owner']> = {},
+  wardrobe: FakeWorkerState['wardrobe'] = {},
+  extra: Partial<FakeWorkerState> = {},
+): FakeWorkerState {
+  return {
+    ...OWNER,
+    pets: { '9': { ...PIXEL, worn: 'thinking-cap', ...pet, owner: { ownedCount: 2, outfits: WARDROBE_OWNS, ...owner } }, '2': BISCUIT },
+    wardrobe,
+    ...extra,
+  };
+}
+
+/** The owner's Wardrobe, ready: a tile's action is there and on. */
+export async function openWardrobe(page: Page, worker: FakeWorkerState = wardrobeWorker(), route = '/pet/9/wardrobe'): Promise<void> {
+  await openWith(page, route, { auth: SIGNED_IN, worker });
+  await page.locator('.ds-item button:not([disabled])').first().waitFor();
+}
+
+/** Changes what Pixel's pet and owner view say from now on, like `setPixel`, with the Wardrobe's sample values under it. */
+export async function setWardrobePet(page: Page, pet: Partial<FakePet> = {}, owner: NonNullable<FakePet['owner']> = {}): Promise<void> {
+  await setWorker(page, { pets: wardrobeWorker(pet, owner).pets });
+}
+
+/** A reload as the server sees it: the fakes the page loads with are what the tab held when it left. */
+export async function reloadHolding(page: Page): Promise<void> {
+  const held = await page.evaluate(() => JSON.stringify((globalThis as { __NEARLING_FAKES__?: { worker?: unknown } }).__NEARLING_FAKES__?.worker));
+  await page.addInitScript((worker) => {
+    (globalThis as { __NEARLING_FAKES__?: { worker?: unknown } }).__NEARLING_FAKES__!.worker = JSON.parse(worker);
+  }, held);
+  await page.reload();
 }
 
 /** A line as the screen draws it: the page's live region says it too, visually hidden, once it came while the screen stood. */

@@ -66,6 +66,8 @@ export function Sheet({
   useEffect(() => {
     const onKey = (e: globalThis.KeyboardEvent) => {
       if (e.key !== 'Escape' || e.defaultPrevented || latest.current.busy) return;
+      // a sheet the page marked `inert` (another sheet opened over it) is out of reach: Esc closes the one on top
+      if (sheet.current?.closest('[inert]')) return;
       e.preventDefault();
       latest.current.onClose();
     };

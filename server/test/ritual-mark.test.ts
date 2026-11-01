@@ -13,7 +13,7 @@ import { NEAR_ACCOUNT } from './helpers/network';
 
 const h = harness();
 const OWNER = NEAR_ACCOUNT(1);
-const DAY = Math.floor(Date.UTC(2026, 10, 4) / 86_400_000);
+const DAY = Math.floor(Date.UTC(2036, 10, 4) / 86_400_000);
 const DAY_MS = 86_400_000;
 const at = (hh: number, mm: number, ss = 0, day = DAY) => {
   const t = day * DAY_MS + ((hh * 60 + mm) * 60 + ss) * 1000;
@@ -100,7 +100,7 @@ describe('the mark of a finished day', () => {
     expect(await writeDueMark(env, '1')).toBe('written');
     // between DAY - 4 and DAY: three days; one excused: skipped 1, two missed, one freeze: a restart
     expect(sends()[0]!.args).toEqual({ token_id: '1', day: DAY, skipped: 1 });
-    expect(JSON.parse((await rowOf('1', DAY)).mark_before)).toEqual({ streak: 4, freezes: 1, last: DAY - 4, skipped: 1 });
+    expect(JSON.parse((await rowOf('1', DAY)).mark_before)).toEqual({ streak: 4, freezes: 1, last: DAY - 4, skipped: 1, outfits: [] });
   });
 
   // spec: add-daily-ritual › Streak rule › питомец спал × yesterday is not closed yet

@@ -50,7 +50,9 @@ export function harness(): Harness {
     // A new minute for every test: the shared copies a Durable Object keeps for 15 s and its
     // request counts never carry over from one test to the next.
     vi.useFakeTimers({ toFake: ['Date'] });
-    vi.setSystemTime(new Date(Date.UTC(2026, 10, 1, 10, 0, 0) + testCounter * 60_000));
+    // The year stays ahead of the real clock for good: `setAlarm` hands this time to workerd,
+    // whose alarms run on the real clock, so a fake date the real one has passed fires them by themselves.
+    vi.setSystemTime(new Date(Date.UTC(2036, 10, 1, 10, 0, 0) + testCounter * 60_000));
     network = installNetwork();
     events = [];
     logs = [];
@@ -61,7 +63,7 @@ export function harness(): Harness {
       });
     }
     // Clean tables between tests (storage is isolated per file, not per test).
-    for (const table of ['pets', 'thoughts', 'thought_calls', 'memory_notes', 'debit_sessions', 'pet_spend', 'empty_answers', 'jobs', 'project_spend', 'service_pause', 'births_in_flight', 'feedings', 'friend_snacks', 'known_index', 'pet_life', 'life_friends', 'pending_growth', 'ritual_days', 'riddles', 'riddle_answers', 'ritual_clock']) {
+    for (const table of ['pets', 'thoughts', 'thought_calls', 'memory_notes', 'debit_sessions', 'pet_spend', 'empty_answers', 'jobs', 'project_spend', 'service_pause', 'births_in_flight', 'feedings', 'friend_snacks', 'known_index', 'pet_life', 'life_friends', 'pending_growth', 'ritual_days', 'riddles', 'riddle_answers', 'ritual_clock', 'wardrobe', 'outfit_grants', 'outfit_buys', 'item_sends', 'pet_transactions']) {
       await env.DB.exec(`DELETE FROM ${table}`);
     }
     // The players stay (a token makes its row once), the feeding side of their rows does not.

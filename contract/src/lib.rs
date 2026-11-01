@@ -12,10 +12,11 @@ use near_sdk::store::key::Sha256;
 use near_sdk::store::{LookupMap, LookupSet};
 use near_sdk::{AccountId, NearToken, PanicOnDefault, Promise, env, near};
 
-use crate::events::{NearlingEvent, SnackKind, ThoughtReceipt, hex, unhex32};
+use crate::events::{NearlingEvent, OutfitVia, SnackKind, ThoughtReceipt, hex, unhex32};
 use crate::limits::*;
 use crate::pet::{
-    HatchView, Pet, PetView, RiddleView, Stage, Trait, VersionedPet, next_streak, token_extra,
+    HatchView, Pet, PetView, RiddleView, Stage, THINKING_CAP, Trait, VersionedPet, is_bought,
+    next_streak, streak_item, token_extra,
 };
 
 /// The state layout before `add-daily-ritual`, which `migrate` reads on the dev account: the same
@@ -68,6 +69,35 @@ fn fail(code: &str) -> ! {
 
 fn day_of(timestamp_ns: u64) -> u64 {
     timestamp_ns / DAY_NS
+}
+
+/// Takes `amount` out of the pet's food: the project's first, then the given one, and counts it
+/// into the UTC day's total. The one money rule of `debit_session` and `outfit_buy`: refuses with
+/// `daily_cap` when the day's total would pass `DAILY_CAP`, then with `over_food` when the food
+/// is short. The caller writes the record only after both pass.
+fn take_food(pet: &mut Pet, amount: u128) {
+    let day = day_of(env::block_timestamp());
+    let debited_today = if pet.debit_day == day {
+        pet.debited_today
+    } else {
+        0
+    };
+    let debited_today = debited_today
+        .checked_add(amount)
+        .filter(|d| *d <= DAILY_CAP)
+        .unwrap_or_else(|| fail("daily_cap"));
+    let food = pet
+        .project_food
+        .checked_add(pet.given_food)
+        .unwrap_or_else(|| fail("overflow"));
+    if amount > food {
+        fail("over_food");
+    }
+    let from_project = amount.min(pet.project_food);
+    pet.project_food -= from_project;
+    pet.given_food -= amount - from_project;
+    pet.debit_day = day;
+    pet.debited_today = debited_today;
 }
 
 impl Contract {
@@ -234,7 +264,7 @@ impl Contract {
             .internal_mint_with_refund(token_id.clone(), receiver.clone(), None, None);
         self.pets.insert(
             token_id.clone(),
-            VersionedPet::V4(Pet {
+            VersionedPet::V5(Pet {
                 name,
                 character,
                 born_at: now,
@@ -252,6 +282,7 @@ impl Contract {
                 owner_snack_at: 0,
                 traits: [0, 0],
                 last_streak_day: 0,
+                outfits: 0,
             }),
         );
         self.hatched.insert(receiver.clone(), token_id.clone());
@@ -326,30 +357,8 @@ impl Contract {
                 .unwrap_or_else(|| fail("overflow"));
         }
 
-        let day = day_of(env::block_timestamp());
-        let debited_today = if pet.debit_day == day {
-            pet.debited_today
-        } else {
-            0
-        };
-        let debited_today = debited_today
-            .checked_add(sum)
-            .filter(|d| *d <= DAILY_CAP)
-            .unwrap_or_else(|| fail("daily_cap"));
-        let food = pet
-            .project_food
-            .checked_add(pet.given_food)
-            .unwrap_or_else(|| fail("overflow"));
-        if sum > food {
-            fail("over_food");
-        }
-
-        // The project's food first, then the given one.
-        let from_project = sum.min(pet.project_food);
-        pet.project_food -= from_project;
-        pet.given_food -= sum - from_project;
-        pet.debit_day = day;
-        pet.debited_today = debited_today;
+        // The project's food first, then the given one; the cap of the day (`take_food`).
+        take_food(pet, sum);
         pet.last_debit_id = debit_id;
         self.pets.insert(token_id.clone(), record);
 
@@ -528,16 +537,92 @@ impl Contract {
         pet.streak = streak;
         pet.freezes = freezes;
         pet.last_streak_day = day;
+        // The threshold's item (1 and 3 days), once: a restart that meets it again earns nothing.
+        let earned = streak_item(streak).filter(|item| !pet.has(*item));
+        if let Some(item) = earned {
+            pet.give(item);
+        }
         self.pets.insert(token_id.clone(), record);
 
         NearlingEvent::Streak {
-            token_id,
+            token_id: token_id.clone(),
             day,
             streak,
             freezes,
             spent,
         }
         .emit();
+        if let Some(item) = earned {
+            NearlingEvent::Outfit {
+                token_id,
+                item,
+                via: OutfitVia::Streak,
+                price: None,
+            }
+            .emit();
+        }
+    }
+
+    /// Server only, no deposit. Gives the pet the item of its first solved riddle (the Thinking
+    /// cap), once, and not before the UTC day after the day it was born. It is the only item this
+    /// method gives. The record has a byte for it since the birth, so the call writes no new byte.
+    pub fn outfit_grant(&mut self, token_id: TokenId) {
+        self.assert_server();
+        let mut record = self
+            .pets
+            .get(&token_id)
+            .cloned()
+            .unwrap_or_else(|| fail("no_pet"));
+        let pet = record.current_mut();
+        if day_of(env::block_timestamp()) <= day_of(pet.born_at) {
+            fail("outfit_too_early");
+        }
+        if pet.has(THINKING_CAP) {
+            fail("outfit_owned");
+        }
+        pet.give(THINKING_CAP);
+        self.pets.insert(token_id.clone(), record);
+
+        NearlingEvent::Outfit {
+            token_id,
+            item: THINKING_CAP,
+            via: OutfitVia::Riddle,
+            price: None,
+        }
+        .emit();
+    }
+
+    /// Server only, no deposit. Buys the pet one of the four items for sale at `OUTFIT_PRICE`:
+    /// out of the pet's food, the project's first, to the treasury, inside the day's cap it
+    /// shares with the thoughts. «Stays Full» is the server's check, not this method's.
+    pub fn outfit_buy(&mut self, token_id: TokenId, item: u8) {
+        self.assert_server();
+        if !is_bought(item) {
+            fail("not_for_sale");
+        }
+        let mut record = self
+            .pets
+            .get(&token_id)
+            .cloned()
+            .unwrap_or_else(|| fail("no_pet"));
+        let pet = record.current_mut();
+        if pet.has(item) {
+            fail("outfit_owned");
+        }
+        take_food(pet, OUTFIT_PRICE);
+        pet.give(item);
+        self.pets.insert(token_id.clone(), record);
+
+        NearlingEvent::Outfit {
+            token_id,
+            item,
+            via: OutfitVia::Bought,
+            price: Some(U128(OUTFIT_PRICE)),
+        }
+        .emit();
+        Promise::new(self.treasury_id.clone())
+            .transfer(NearToken::from_yoctonear(OUTFIT_PRICE))
+            .detach();
     }
 
     /// Server only, no deposit. Seals the riddle of the current UTC day (`block_timestamp`, never
@@ -628,7 +713,7 @@ impl Contract {
         self.known.contains(&(token_id, account_id))
     }
 
-    /// The standard's token; `metadata.extra` holds the pet's stage and traits as JSON, built here
+    /// The standard's token; `metadata.extra` holds the pet's stage, traits and items as JSON, built here
     /// from the record on every read (NEP-177: `extra` is «anything extra»).
     pub fn nft_token(&self, token_id: TokenId) -> Option<Token> {
         let mut token = self.tokens.nft_token(token_id.clone())?;
@@ -733,8 +818,8 @@ mod tests {
         let mut contract = funded_contract(7_000_000_000_000_000_000_000_000);
         testing_env!(context(server(), 1_000, 0).build());
         let token_id = contract.pet_mint(player(0), "Pixel".into(), "I am curious.".into());
-        let Some(VersionedPet::V4(born)) = contract.pets.get(&token_id).cloned() else {
-            panic!("a birth writes version 4");
+        let Some(VersionedPet::V5(born)) = contract.pets.get(&token_id).cloned() else {
+            panic!("a birth writes version 5");
         };
         contract.known.insert((token_id.clone(), player(7)));
         let old_record = VersionedPet::V1(crate::pet::PetV1 {
@@ -1189,7 +1274,8 @@ mod tests {
         contract.streak_mark(born.clone(), 5, 9);
         assert_eq!(streak_of(&contract, &born), (1, 1, Some(5)));
         let logs = get_logs();
-        assert_eq!(logs.len(), 1, "{logs:?}");
+        // The streak, then the crown of day 1 (`Earned outfit contract` › «вещь за серию записана»).
+        assert_eq!(logs.len(), 2, "{logs:?}");
         let json = logs[0].trim_start_matches("EVENT_JSON:");
         let event: near_sdk::serde_json::Value = near_sdk::serde_json::from_str(json).unwrap();
         assert_eq!(event["standard"], "nearling");
@@ -1622,5 +1708,100 @@ mod tests {
         testing_env!(context(server(), 9 * NS_PER_DAY, 0).build());
         let text = panic_text(|| contract.riddle_reveal(3, "r".into(), vec![], "s".into()));
         assert!(text.contains("no_commit"), "{text}");
+    }
+
+    fn edit_pet(contract: &mut Contract, token_id: &str, edit: impl FnOnce(&mut Pet)) {
+        let mut record = contract.pets.get(&token_id.to_string()).unwrap().clone();
+        edit(record.current_mut());
+        contract.pets.insert(token_id.to_string(), record);
+    }
+
+    fn items_of(contract: &Contract, token_id: &str) -> Vec<u8> {
+        contract.pet_view(token_id.into()).unwrap().outfits
+    }
+
+    // spec: add-wardrobe › Earned outfit contract › раньше срока
+    // spec: add-wardrobe › Earned outfit contract › вещь за загадку записана
+    #[test]
+    fn a_grant_waits_for_the_first_00_utc_after_the_birth_day_by_the_block_timestamp() {
+        let mut contract = funded_contract(HUGE_POOL);
+        // Born in the last nanosecond of day 4: the next nanosecond is already day 5.
+        testing_env!(context(server(), 5 * NS_PER_DAY - 1, 0).build());
+        contract.pet_mint(player(0), "Pixel".into(), "I am curious.".into());
+
+        // The birth's own nanosecond, and the first one of the birth day.
+        for ts in [5 * NS_PER_DAY - 1, 4 * NS_PER_DAY] {
+            testing_env!(context(server(), ts, 0).build());
+            let text = panic_text(|| contract.outfit_grant("0".into()));
+            assert!(text.contains("outfit_too_early"), "{ts}: {text}");
+            assert!(items_of(&contract, "0").is_empty());
+        }
+
+        // The first nanosecond of the next UTC day passes.
+        testing_env!(context(server(), 5 * NS_PER_DAY, 0).build());
+        contract.outfit_grant("0".into());
+        assert_eq!(items_of(&contract, "0"), vec![THINKING_CAP]);
+        let logs = get_logs();
+        assert_eq!(logs.len(), 1, "{logs:?}");
+        assert!(logs[0].contains("\"standard\":\"nearling\"") && logs[0].contains("\"outfit\""));
+        assert!(logs[0].contains("\"via\":\"riddle\"") && logs[0].contains("\"item\":2"));
+        assert!(!logs[0].contains("price"), "{}", logs[0]);
+
+        // The same item is never given twice.
+        testing_env!(context(server(), 9 * NS_PER_DAY, 0).build());
+        let text = panic_text(|| contract.outfit_grant("0".into()));
+        assert!(text.contains("outfit_owned"), "{text}");
+    }
+
+    // spec: add-wardrobe › Outfit purchase contract › выше суточного лимита × the cap passes, the next day resets
+    #[test]
+    fn a_purchase_passes_at_the_daily_cap_and_not_a_yocto_over_and_resets_at_00_utc() {
+        let mut contract = funded_contract(HUGE_POOL);
+        testing_env!(context(server(), 1_000, 0).build());
+        contract.pet_mint(player(0), "Pixel".into(), "I am curious.".into());
+        let day = 3;
+        edit_pet(&mut contract, "0", |pet| {
+            pet.given_food = 1_000_000_000_000_000_000_000_000;
+            pet.debit_day = day;
+            // The room left in the day is the price minus one yocto.
+            pet.debited_today = DAILY_CAP - OUTFIT_PRICE + 1;
+        });
+
+        // The last nanosecond of day 3: the cap plus one yocto is refused whole.
+        testing_env!(context(server(), 4 * NS_PER_DAY - 1, 0).build());
+        let before = contract.pet_view("0".into()).unwrap();
+        let text = panic_text(|| contract.outfit_buy("0".into(), 3));
+        assert!(text.contains("daily_cap"), "{text}");
+        let after = contract.pet_view("0".into()).unwrap();
+        assert_eq!(after.debited_today.0, before.debited_today.0);
+        assert_eq!(after.project_food.0, before.project_food.0);
+        assert!(after.outfits.is_empty());
+
+        // With the room equal to the price, the day's total lands exactly on the cap and passes.
+        edit_pet(&mut contract, "0", |pet| {
+            pet.debited_today = DAILY_CAP - OUTFIT_PRICE;
+        });
+        testing_env!(context(server(), 4 * NS_PER_DAY - 1, 0).build());
+        contract.outfit_buy("0".into(), 3);
+        let view = contract.pet_view("0".into()).unwrap();
+        assert_eq!(view.debited_today.0, DAILY_CAP);
+        assert_eq!(view.outfits, vec![3]);
+        let logs = get_logs();
+        assert_eq!(logs.len(), 1, "{logs:?}");
+        assert!(logs[0].contains("\"via\":\"bought\"") && logs[0].contains("\"item\":3"));
+        assert!(
+            logs[0].contains("\"price\":\"1660000000000000000000\""),
+            "{}",
+            logs[0]
+        );
+
+        // The same day another item is over the cap; the first nanosecond of day 4 resets it.
+        let text = panic_text(|| contract.outfit_buy("0".into(), 4));
+        assert!(text.contains("daily_cap"), "{text}");
+        testing_env!(context(server(), 4 * NS_PER_DAY, 0).build());
+        contract.outfit_buy("0".into(), 4);
+        let view = contract.pet_view("0".into()).unwrap();
+        assert_eq!((view.debit_day, view.debited_today.0), (4, OUTFIT_PRICE));
+        assert_eq!(view.outfits, vec![3, 4]);
     }
 }

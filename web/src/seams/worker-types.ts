@@ -33,12 +33,17 @@ export type FeedSource = 'near' | 'snack';
 /** The face of the day (`add-pet-life` › `Mood rule`), the same for every viewer; `null` while the pet sleeps. */
 export type Mood = 'happy' | 'calm' | 'sleepy';
 
+/** The seven items of the wardrobe (`Outfit catalogue rule`), by the slug the Worker and the pictures use. */
+export type OutfitSlug = 'daisy-crown' | 'cozy-scarf' | 'thinking-cap' | 'smart-glasses' | 'bow-tie' | 'headphones' | 'party-hat';
+
 export interface PetBase {
   tokenId: string;
   name: string;
   stage: Stage;
   fullness: Fullness;
   mood: Mood | null;
+  /** the item the pet wears, for every viewer (`Outfit rule`); null: none */
+  worn: OutfitSlug | null;
 }
 /** With a session only: the player's own meal or snack on its way for this pet (`Feeding transaction data` ›
  *  «outcome with the sheet closed»), `null` when none; a reloaded tab starts to watch its outcome from it. */
@@ -81,6 +86,12 @@ export type PetView =
       /** the job on its way (`pendingJob`) is the answer to the question of the day */
       pendingQuestion: boolean;
       ownedCount: number;
+      /** the items the pet has on the chain, in the catalogue's order */
+      outfits: OutfitSlug[];
+      /** the earned items whose notice has not been shown (`New outfit notice screen`), in the catalogue's order */
+      notices: OutfitSlug[];
+      /** what «Buy · {price}» says: the cents of one bought item, and its price in yocto */
+      outfitPrice: { cents: number; yocto: string };
     } & PetBase &
       MyFeed);
 
@@ -280,6 +291,21 @@ export type RiddleStatus = 'accepted' | 'already' | 'late';
 /** The identity token of the player, or null for a visitor. */
 export type Token = string | null;
 
+/** `GET /api/pets/:id/wardrobe`: what Wardrobe screen draws, whole. `owned` and `worn` are the owner's view's, repeated so that
+ *  one answer draws a screen. `buying` is the pet's oldest purchase on its way, `outcome` its newest settled one of the last
+ *  minutes (`code` of a `failed` one: `owned`, `short`, `cap`, `error`, or a chain code). */
+export interface WardrobeView {
+  owned: OutfitSlug[];
+  worn: OutfitSlug | null;
+  price: { cents: number; yocto: string };
+  /** after the price the pet would not stay «Full» (`Outfit purchase flow` › «мало еды») */
+  short: boolean;
+  /** the gas pause only: a purchase works on the pause of NEAR AI */
+  shopPaused: boolean;
+  buying: { id: string; item: OutfitSlug } | null;
+  outcome: { id: string; item: OutfitSlug; status: 'bought' | 'failed'; code: string | null } | null;
+}
+
 export interface WorkerApi {
   health(): Promise<Health>;
   me(token: Token): Promise<Me>;
@@ -329,4 +355,12 @@ export interface WorkerApi {
   answerQuestion(token: Token, tokenId: string, body: { text: string; day: number }): Promise<{ job: string }>;
   /** The answer to the riddle of `day`. Refusals: `409 asleep | not_sealed`, `400 bad_request`. */
   answerRiddle(token: Token, tokenId: string, body: { text: string; day: number }): Promise<{ status: RiddleStatus }>;
+  /** The wardrobe of the owner's pet. Refusals: `401 signed_out`, `403 not_owner`, `404 no_pet`, `429 rate_limited`, `503 chain_unreachable`. */
+  wardrobe(token: Token, tokenId: string): Promise<WardrobeView>;
+  /** «Wear» (an item) and «Take off» (null). Refusals: `409 not_owned`, `400 bad_request`, and the read's. */
+  wear(token: Token, tokenId: string, item: OutfitSlug | null): Promise<{ worn: OutfitSlug | null }>;
+  /** «Buy · {price}»: the purchase's id (`202`). Refusals: `409 owned | paused`, `400 bad_request`, and the read's. */
+  buy(token: Token, tokenId: string, item: OutfitSlug): Promise<{ id: string }>;
+  /** A New outfit notice was shown: the item's name, nothing else. */
+  seenOutfit(token: Token, tokenId: string, item: OutfitSlug): Promise<{ ok: true }>;
 }

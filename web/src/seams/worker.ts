@@ -10,12 +10,14 @@ import type {
   HatchStatus,
   Health,
   Me,
+  OutfitSlug,
   PetState,
   PetView,
   RiddleStatus,
   SignInGate,
   Token,
   WalletInfo,
+  WardrobeView,
   WorkerApi,
 } from './worker-types';
 import { WorkerError } from './worker-types';
@@ -112,6 +114,10 @@ const real: WorkerApi = {
   readDiary: (token, tokenId, day) => call<{ ok: true }>(`/api/pets/${id(tokenId)}/diary/read`, token, { method: 'POST', body: { day } }),
   answerQuestion: (token, tokenId, body) => call<{ job: string }>(`/api/pets/${id(tokenId)}/diary/answer`, token, { method: 'POST', body }),
   answerRiddle: (token, tokenId, body) => call<{ status: RiddleStatus }>(`/api/pets/${id(tokenId)}/riddle`, token, { method: 'POST', body }),
+  wardrobe: (token, tokenId) => call<WardrobeView>(`/api/pets/${id(tokenId)}/wardrobe`, token),
+  wear: (token, tokenId, item) => call<{ worn: OutfitSlug | null }>(`/api/pets/${id(tokenId)}/wardrobe/wear`, token, { method: 'POST', body: { item } }),
+  buy: (token, tokenId, item) => call<{ id: string }>(`/api/pets/${id(tokenId)}/wardrobe/buy`, token, { method: 'POST', body: { item } }),
+  seenOutfit: (token, tokenId, item) => call<{ ok: true }>(`/api/pets/${id(tokenId)}/wardrobe/seen`, token, { method: 'POST', body: { item } }),
 };
 
 export const workerApi: WorkerApi =

@@ -7,7 +7,7 @@ import { NEAR_ACCOUNT, token } from './helpers/network';
 
 const h = harness();
 const OWNER = NEAR_ACCOUNT(1);
-const DAY = Math.floor(Date.UTC(2026, 10, 4) / 86_400_000);
+const DAY = Math.floor(Date.UTC(2036, 10, 4) / 86_400_000);
 const DAY_MS = 86_400_000;
 const at = (hh: number, mm: number, ss = 0, day = DAY) => {
   const t = day * DAY_MS + ((hh * 60 + mm) * 60 + ss) * 1000;

@@ -13,7 +13,7 @@ import { harness } from './helpers/api';
 
 const h = harness();
 beforeEach(() => h.net().contract.fundRiddles());
-const DAY =Math.floor(Date.UTC(2026, 10, 4) / 86_400_000);
+const DAY =Math.floor(Date.UTC(2036, 10, 4) / 86_400_000);
 const DAY_MS = 86_400_000;
 /** The time `hh:mm:ss` of the UTC day `day` (the clock of the Worker and of the fake chain alike). */
 const at = (hh: number, mm: number, ss = 0, day = DAY) => {

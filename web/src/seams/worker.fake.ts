@@ -56,6 +56,9 @@ const OWNER_DEFAULTS = {
   diaryUnread: false,
   pendingQuestion: false,
   ownedCount: 1,
+  outfits: [],
+  notices: [],
+  outfitPrice: { cents: 0.76, yocto: '1660000000000000000000' },
 };
 
 function petsOf(): NonNullable<FakeWorkerState['pets']> {
@@ -109,7 +112,8 @@ async function viewOf(token: string | null, tokenId: string): Promise<PetView> {
   if (refused) throw new WorkerError(refused.fail.status, refused.fail.code);
   const pet = petsOf()[tokenId];
   if (!pet) throw new WorkerError(404, 'no_pet');
-  const { owner, myFeed, ...base } = pet;
+  const { owner, myFeed, worn, ...rest } = pet;
+  const base = { ...rest, worn: worn ?? null };
   if (token === null) return { viewer: 'visitor', ...base };
   if (!(state().owned ?? []).includes(tokenId)) return { viewer: 'guest', ...base, myFeed: myFeed ?? null };
   return { viewer: 'owner', ...base, ...OWNER_DEFAULTS, myFeed: myFeed ?? null, ...owner };
@@ -316,6 +320,68 @@ export const fakeWorkerApi: WorkerApi = {
         held.diary = { ...held.diary, riddle: { kind: 'answered', day: now.riddle.day, text: now.riddle.text, answer: body.text }, parts: now.parts.filter((p) => p !== 'riddle') };
       }
     }
+    return result;
+  },
+
+  wardrobe: async (token, tokenId) => {
+    recordCall('worker:wardrobe');
+    if (token === null) throw new WorkerError(401, 'signed_out');
+    needSession(token);
+    const ms = state().wardrobeDelayMs ?? state().delayMs ?? 0;
+    if (ms > 0) await wait(ms);
+    const pet = petsOf()[tokenId];
+    if (!pet) throw new WorkerError(404, 'no_pet');
+    const configured = state().wardrobe;
+    if (isFail(configured)) throw new WorkerError(configured.fail.status, configured.fail.code);
+    if (!(state().owned ?? []).includes(tokenId)) throw new WorkerError(403, 'not_owner');
+    const owner = { ...OWNER_DEFAULTS, ...pet.owner };
+    return {
+      owned: owner.outfits,
+      worn: pet.worn ?? null,
+      price: owner.outfitPrice,
+      short: false,
+      shopPaused: false,
+      buying: null,
+      outcome: null,
+      ...configured,
+    };
+  },
+
+  wear: async (token, tokenId, item) => {
+    recordCall(`worker:wear:${item ?? 'none'}`);
+    if (token === null) throw new WorkerError(401, 'signed_out');
+    needSession(token);
+    const result = await answer('wear', state().wear, { worn: item }, state().wearDelayMs);
+    // what the real route leaves behind: the pet wears it for every look that follows, the wardrobe's read included
+    const held = fakeState().worker;
+    const pet = petsOf()[tokenId];
+    if (held && pet) {
+      held.pets = { ...petsOf(), [tokenId]: { ...pet, worn: result.worn } };
+      if (held.wardrobe && !isFail(held.wardrobe)) held.wardrobe = { ...held.wardrobe, worn: result.worn };
+    }
+    return result;
+  },
+
+  buy: async (token, _tokenId, item) => {
+    recordCall(`worker:buy:${item}`);
+    if (token === null) throw new WorkerError(401, 'signed_out');
+    needSession(token);
+    const result = await answer('buy', state().buy, { id: 'buy-1' }, state().buyDelayMs);
+    // what the real route leaves behind: the purchase is the pet's open one for every read that follows, until a test lands or refuses it
+    const held = fakeState().worker;
+    if (held && !isFail(held.wardrobe)) held.wardrobe = { ...held.wardrobe, buying: { id: result.id, item } };
+    return result;
+  },
+
+  seenOutfit: async (token, tokenId, item) => {
+    recordCall(`worker:seenOutfit:${item}`);
+    if (token === null) throw new WorkerError(401, 'signed_out');
+    needSession(token);
+    const result = await answer('seenOutfit', state().seenOutfit, { ok: true as const });
+    // what the real route leaves behind: the notice is seen, so no look that follows lists it
+    const held = fakeState().worker;
+    const pet = petsOf()[tokenId];
+    if (held && pet?.owner?.notices) held.pets = { ...petsOf(), [tokenId]: { ...pet, owner: { ...pet.owner, notices: pet.owner.notices.filter((n) => n !== item) } } };
     return result;
   },
 

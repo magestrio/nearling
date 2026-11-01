@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import type { PetState, PetView } from '../../web/src/seams/worker-types';
+import type { PetState, PetView, WardrobeView } from '../../web/src/seams/worker-types';
+import { OUTFITS as CLIENT_OUTFITS } from '../../web/src/wardrobe/catalogue';
+import { OUTFITS as SERVER_OUTFITS } from '../src/pet/outfits';
 import { api, harness, say } from './helpers/api';
 import { NEAR_ACCOUNT, token } from './helpers/network';
 
@@ -32,6 +34,10 @@ const OWNER_VIEW: Record<keyof OwnerView, 'always' | 'sometimes'> = {
   diaryUnread: 'always',
   pendingQuestion: 'always',
   ownedCount: 'always',
+  worn: 'always',
+  outfits: 'always',
+  notices: 'always',
+  outfitPrice: 'always',
 };
 const STATE: Record<keyof PetState, 'always' | 'sometimes'> = {
   tokenId: 'always',
@@ -56,12 +62,26 @@ const STATE: Record<keyof PetState, 'always' | 'sometimes'> = {
   energy: 'always',
   diaryUnread: 'always',
   pendingQuestion: 'always',
+  worn: 'always',
+  outfits: 'always',
+  notices: 'always',
+  outfitPrice: 'always',
   events: 'always',
   pending: 'sometimes',
   jobKind: 'sometimes',
   thought: 'sometimes',
   code: 'sometimes',
   friend: 'sometimes',
+};
+
+const WARDROBE: Record<keyof WardrobeView, 'always' | 'sometimes'> = {
+  owned: 'always',
+  worn: 'always',
+  price: 'always',
+  short: 'always',
+  shopPaused: 'always',
+  buying: 'always',
+  outcome: 'always',
 };
 
 const always = (fields: Record<string, 'always' | 'sometimes'>) => Object.entries(fields).filter(([, when]) => when === 'always').map(([key]) => key);
@@ -88,8 +108,8 @@ describe('the answers the client is typed against', () => {
     const visitor = await api('/api/pets/5');
     // a signed-in viewer also gets `myFeed` (their own meal on its way for this pet); a visitor has none
     // and the mood of the day, which every viewer's face shows (`add-pet-life` › `Pet life display rule`)
-    expect(Object.keys(guest.body).sort()).toEqual(['fullness', 'mood', 'myFeed', 'name', 'stage', 'tokenId', 'viewer']);
-    expect(Object.keys(visitor.body).sort()).toEqual(['fullness', 'mood', 'name', 'stage', 'tokenId', 'viewer']);
+    expect(Object.keys(guest.body).sort()).toEqual(['fullness', 'mood', 'myFeed', 'name', 'stage', 'tokenId', 'viewer', 'worn']);
+    expect(Object.keys(visitor.body).sort()).toEqual(['fullness', 'mood', 'name', 'stage', 'tokenId', 'viewer', 'worn']);
     for (const { body } of [guest, visitor]) expect(body.stage).toBe('baby');
   });
 
@@ -100,6 +120,20 @@ describe('the answers the client is typed against', () => {
     for (const field of always(STATE)) expect(body, field).toHaveProperty(field);
     expect(known(STATE)).toEqual(expect.arrayContaining(Object.keys(body)));
     expect(body).toMatchObject({ tokenId: '5', name: 'Pixel', stage: 'teen', events: [] });
+  });
+
+  // spec: add-wardrobe › Wardrobe screen › success
+  it('gives every field of `WardrobeView` on the wardrobe read, the items as slugs', async () => {
+    h.net().contract.addPet('5', OWNER);
+    const { body } = await api('/api/pets/5/wardrobe', { token: await owner() });
+    for (const field of always(WARDROBE)) expect(body, field).toHaveProperty(field);
+    expect(known(WARDROBE).sort()).toEqual(Object.keys(body).sort());
+    expect(body).toMatchObject({ owned: [], worn: null, buying: null, outcome: null });
+  });
+
+  // spec: add-wardrobe › Outfit catalogue rule › умные очки × the catalogue of the client
+  it("holds the client's catalogue to the server's: the same slugs, in the same order, of the same kinds", () => {
+    expect(CLIENT_OUTFITS.map((o) => [o.slug, o.kind])).toEqual(SERVER_OUTFITS.map((o) => [o.slug, o.kind]));
   });
 
   // spec: add-pet › Conversation flow › Ответ

@@ -292,7 +292,7 @@ async fn a_written_transition_is_public_in_the_event_the_view_and_the_token() ->
     let extra: Value = serde_json::from_str(token["metadata"]["extra"].as_str().unwrap())?;
     assert_eq!(
         extra,
-        json!({ "stage": "Adult", "traits": ["clever", "clever"] })
+        json!({ "stage": "Adult", "traits": ["clever", "clever"], "outfits": [] })
     );
     assert!(token["metadata"]["title"].is_null());
     assert_eq!(ctx.nft_token("9").await?, Value::Null);
@@ -312,7 +312,7 @@ async fn a_written_transition_is_public_in_the_event_the_view_and_the_token() ->
 
 // spec: add-pet-life › Pet growth contract › чужой вызов × a pet of version 2
 #[tokio::test]
-async fn a_pet_of_version_2_reads_with_no_traits_and_grows_by_ten_bytes() -> anyhow::Result<()> {
+async fn a_pet_of_version_2_reads_with_no_traits_and_grows_by_eleven_bytes() -> anyhow::Result<()> {
     let ctx = with_newborn().await?;
     let view = ctx.pet_view("0").await?;
     let amount = |k: &str| -> u128 { view[k].as_str().unwrap().parse().unwrap() };
@@ -345,17 +345,21 @@ async fn a_pet_of_version_2_reads_with_no_traits_and_grows_by_ten_bytes() -> any
             .as_str()
             .unwrap(),
     )?;
-    assert_eq!(extra, json!({ "stage": "Baby", "traits": [] }));
+    assert_eq!(
+        extra,
+        json!({ "stage": "Baby", "traits": [], "outfits": [] })
+    );
 
     // A foreign caller is refused on the old record too.
     let refused = ctx.grow_as(&ctx.funder, "0", "Teen", "clever").await?;
     assert_refused(&refused, "not_server");
 
     // The first write upgrades the record in place to the current one: the traits (2 bytes) and,
-    // since `add-daily-ritual`, the counted streak day (8), from the contract's balance.
+    // since `add-daily-ritual`, the counted streak day (8) and, since `add-wardrobe`, the items
+    // (1), from the contract's balance.
     let storage = ctx.storage_usage().await?;
     ctx.grow("0", "Teen", "cozy").await?.into_result()?;
-    assert_eq!(ctx.storage_usage().await? - storage, 10);
+    assert_eq!(ctx.storage_usage().await? - storage, 11);
     assert_eq!(trait_words(&ctx.pet_view("0").await?), ["cozy"]);
     assert_eq!(ctx.pet_view("0").await?["stage"], "Teen");
 

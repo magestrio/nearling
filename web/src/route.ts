@@ -45,6 +45,8 @@ export type Route =
   | { name: 'pet'; tokenId: string; from: string | null }
   /** Diary screen: the ritual of the day, inside the Pet screen's own state (`add-daily-ritual` › `Diary screen`) */
   | { name: 'diary'; tokenId: string }
+  /** Wardrobe screen: the pet's outfits, inside the Pet screen's own state (`add-wardrobe` › `Wardrobe screen`) */
+  | { name: 'wardrobe'; tokenId: string }
   /** `/pet` or `/pet/<x>` with no token_id in it: a cut or mangled link */
   | { name: 'pet-broken' }
   | { name: 'day1' }
@@ -66,10 +68,13 @@ export function parseRoute(location: string): Route {
   if (pet) return { name: 'pet', tokenId: pet[1]!, from: friend };
   const diary = /^\/pet\/(\d{1,20})\/diary$/.exec(path);
   if (diary) return { name: 'diary', tokenId: diary[1]! };
+  const wardrobe = /^\/pet\/(\d{1,20})\/wardrobe$/.exec(path);
+  if (wardrobe) return { name: 'wardrobe', tokenId: wardrobe[1]! };
   if (/^\/pet(\/[^/]*)?$/.test(path)) return { name: 'pet-broken' };
   return { name: 'unknown' };
 }
 
 export const petPath = (tokenId: string, from?: string | null) => `/pet/${tokenId}${from ? `?from=${from}` : ''}`;
 export const diaryPath = (tokenId: string) => `/pet/${tokenId}/diary`;
+export const wardrobePath = (tokenId: string) => `/pet/${tokenId}/wardrobe`;
 export const hatchPath = (from?: string | null) => `/hatch${from ? `?from=${from}` : ''}`;

@@ -3,8 +3,9 @@
 import type { PetRecord } from '../chain';
 import { utcDay } from '../http';
 import { memoryEpoch } from './forget';
-import { DAILY_CAP_YOCTO, deepEstimate, deepEstimateUsd12, fullness, minCallPrice, type Fullness, type FullnessState, type PriceEnv } from '../pricing';
+import { DAILY_CAP_YOCTO, deepEstimate, deepEstimateUsd12, fullness, minCallPrice, nearUsdRate, OUTFIT_PRICE_YOCTO, outfitCents, type Fullness, type FullnessState, type PriceEnv } from '../pricing';
 import { energyLeft, moodOf, readLife, TRAIT_WORD, type Mood } from './life';
+import { noticesOf, readWardrobe, slugsOf, type OutfitSlug } from './outfits';
 import { entryToday } from './ritual';
 
 /** The exact prices of the thoughts answered but not yet debited on the network, summed. Their
@@ -45,16 +46,35 @@ export interface FoodState {
   /** Food in the contract minus the unbilled thoughts (can be negative only by a defect). */
   eff: bigint;
   unbilled: bigint;
+  /** The prices of the outfit purchases whose send has gone out and has no outcome yet (`sending`,
+   * `unknown`): held against the food and the cap, though the network has not taken them (`Thought
+   * queue data`). The fullness does not count them. */
+  held: bigint;
+  /** What a new spend may use of the food: `eff` less `held`, not below zero. A thought plans and
+   * prices from it; what state the pet is in is read from `eff`. */
+  room: bigint;
   /** The daily cap left: the cap, minus what the contract debited today, minus every unbilled thought
-   * (also a session of yesterday whose batch will run after midnight and count in the new day). */
+   * (also a session of yesterday whose batch will run after midnight and count in the new day), minus
+   * `held`. */
   capLeft: bigint;
+}
+
+/** The prices of the purchases held (see `FoodState.held`). */
+export async function heldYocto(db: D1Database, tokenId: string): Promise<bigint> {
+  const rows = await db
+    .prepare("SELECT price_yocto FROM outfit_buys WHERE token_id = ? AND status IN ('sending', 'unknown')")
+    .bind(tokenId)
+    .all<{ price_yocto: string }>();
+  return rows.results.reduce((sum, row) => sum + BigInt(row.price_yocto), 0n);
 }
 
 export async function foodState(db: D1Database, tokenId: string, pet: PetRecord, nowMs: number): Promise<FoodState> {
   const unbilled = await unbilledYocto(db, tokenId);
+  const held = await heldYocto(db, tokenId);
   const debitedToday = pet.debit_day === utcDay(nowMs) ? BigInt(pet.debited_today) : 0n;
-  const left = DAILY_CAP_YOCTO - debitedToday - unbilled;
-  return { eff: effectiveFood(pet, unbilled), unbilled, capLeft: left < 0n ? 0n : left };
+  const left = DAILY_CAP_YOCTO - debitedToday - unbilled - held;
+  const eff = effectiveFood(pet, unbilled);
+  return { eff, unbilled, held, room: eff > held ? eff - held : 0n, capLeft: left < 0n ? 0n : left };
 }
 
 /** «Устал» holds to 00:00 UTC of the day it was written. It is written when a reply is refused or
@@ -124,6 +144,23 @@ export interface OwnerFields {
   diaryUnread: boolean;
   /** The thought on its way (`pendingJob`) is the answer to the question of the day. */
   pendingQuestion: boolean;
+  /** The outfit items the pet has on the chain, in the catalogue's order (`Wardrobe screen`). */
+  outfits: OutfitSlug[];
+  /** The worn item (`Outfit rule`), or none. */
+  worn: OutfitSlug | null;
+  /** The earned items whose notice has not been shown, in the catalogue's order (`New outfit notice screen`). */
+  notices: OutfitSlug[];
+  /** What «Buy · {price}» says: cents with two significant digits at the rate of NEAR, and the same
+   * price in yocto. */
+  outfitPrice: { cents: number; yocto: string };
+}
+
+/** The price of a bought outfit as the owner's view and the Wardrobe carry it. An empty rate is a
+ * config error, as it is for `deepPrice`. */
+export function outfitPrice(env: Pick<Env, 'NEAR_USD_RATE'>): { cents: number; yocto: string } {
+  const rate = nearUsdRate(env.NEAR_USD_RATE);
+  if (rate === null) throw new Error('rate_missing');
+  return { cents: outfitCents(rate), yocto: OUTFIT_PRICE_YOCTO.toString() };
 }
 
 interface PendingRow {
@@ -167,6 +204,7 @@ export async function ownerFields(env: Env, tokenId: string, pet: PetRecord, pau
   const life = await readLife(env.DB, tokenId);
   const today = utcDay(now);
   const energy = energyLeft(life, today);
+  const wardrobe = await readWardrobe(env.DB, tokenId);
   const { entry, pet: row } = await entryToday(env.DB, tokenId, now);
   const read = await env.DB.prepare('SELECT 1 AS found FROM ritual_days WHERE token_id = ? AND day = ? AND read_at IS NOT NULL').bind(tokenId, today).first();
   return {
@@ -189,6 +227,10 @@ export async function ownerFields(env: Env, tokenId: string, pet: PetRecord, pau
     energy,
     diaryUnread: entry.kind === 'text' && read === null && row?.slept_at == null,
     pendingQuestion: isQuestion(pending),
+    outfits: slugsOf(pet.outfits),
+    worn: wardrobe.worn,
+    notices: noticesOf(pet.outfits, wardrobe.seen),
+    outfitPrice: outfitPrice(env),
   };
 }
 

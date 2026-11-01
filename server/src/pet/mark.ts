@@ -11,12 +11,17 @@ import { nearUsdRate, yoctoToUsdMicros } from '../pricing';
 import { isPaused } from '../servicePause';
 import { track } from '../track';
 import { CLAIM_STALE_MS } from './growth';
+import { dropItemSend, itemTxStatements } from './itemTx';
+import { markItem, type OutfitSlug } from './outfits';
 import { applyMark, type StreakBefore } from './streak';
 
 /** What the writer knew when it sent: the streak, the freezes, the last marked day and `skipped`. It is
  * stored before the send, so a send whose outcome was lost and is found later still fires its events. */
 interface Before extends StreakBefore {
   skipped: number;
+  /** The ids of the items the pet had at the send: a threshold's item it lacked then is the one this
+   * mark earned (`outfit_earned`). Missing in a row stored before the wardrobe: no event for it. */
+  outfits?: number[];
 }
 
 export type MarkResult = 'idle' | 'paused' | 'busy' | 'unreadable' | 'waiting' | 'written' | 'found' | 'failed' | 'excused';
@@ -61,6 +66,7 @@ async function markOldest(env: Env, tokenId: string): Promise<MarkResult> {
   let last: number;
   let streak: number;
   let freezes: number;
+  let outfits: number[];
   let today: number;
   try {
     const pet = await petView(env, tokenId);
@@ -72,6 +78,7 @@ async function markOldest(env: Env, tokenId: string): Promise<MarkResult> {
     last = pet.last_streak_day ?? 0;
     streak = pet.streak;
     freezes = pet.freezes;
+    outfits = pet.outfits;
   } catch (e) {
     if (!(e instanceof ChainUnreachable)) throw e;
     await release(env.DB, tokenId, row.day);
@@ -99,20 +106,25 @@ async function markOldest(env: Env, tokenId: string): Promise<MarkResult> {
     last === 0
       ? 0
       : ((await env.DB.prepare('SELECT COUNT(*) AS n FROM ritual_days WHERE token_id = ? AND excused = 1 AND day > ? AND day < ?').bind(tokenId, last, row.day).first<{ n: number }>())?.n ?? 0);
-  const before: Before = { streak, freezes, last, skipped };
+  const before: Before = { streak, freezes, last, skipped, outfits };
   await env.DB.prepare('UPDATE ritual_days SET mark_before = ? WHERE token_id = ? AND day = ?').bind(JSON.stringify(before), tokenId, row.day).run();
 
+  // A mark that writes an item carries its hash into `item_sends` before the broadcast; one that writes
+  // none leaves no hash (`markItem`).
+  const item = markItem(before, row.day, skipped);
   const answer = await env.SERVER_KEY.get(env.SERVER_KEY.idFromName('server')).send({
     methodName: 'streak_mark',
     args: { token_id: tokenId, day: row.day, skipped },
     gas: (STREAK_MARK_TGAS * 1_000_000_000_000n).toString(),
+    ...(item === null ? {} : { writes: { tokenId, item } }),
   });
   if (answer.status === 'ok') {
     console.log('streak_sent');
-    return finish(env, tokenId, row.day, { burnt: answer.burnt ?? null });
+    return finish(env, tokenId, row.day, { burnt: answer.burnt ?? null, item, txHash: answer.txHash });
   }
   // A refusal, an unreachable network or an outcome nobody heard: the next attempt reads the chain
   // first, so a send that did land is found there and never sent again.
+  if (item !== null && answer.status === 'failed') await dropItemSend(env.DB, answer.txHash);
   await release(env.DB, tokenId, row.day);
   console.log(answer.status === 'unknown' ? 'streak_unknown' : `streak_failed:${answer.status === 'failed' ? answer.code : 'unreachable'}`);
   return 'failed';
@@ -124,8 +136,9 @@ const release = (db: D1Database, tokenId: string, day: number) =>
 /** Finishes a day once: the row's end, the quiet of a gifted pet over, the rows of earlier days gone, in
  * one batch; the events and the project's gas follow only for the writer that flipped `marked_at`.
  * `sent` is null when this writer sent nothing (the chain already had the day), else the gas its own send
- * burned (null when the answer did not say). */
-async function finish(env: Env, tokenId: string, day: number, sent: { burnt: string | null } | null): Promise<MarkResult> {
+ * burned (null when the answer did not say), the item the mark wrote and the hash of its transaction, kept
+ * at once when there is an item (`itemTxStatements`). */
+async function finish(env: Env, tokenId: string, day: number, sent: { burnt: string | null; item: OutfitSlug | null; txHash: string } | null): Promise<MarkResult> {
   const now = Date.now();
   const written = await env.DB.batch([
     env.DB.prepare('UPDATE ritual_days SET marked_at = ?3, sending_at = NULL WHERE token_id = ?1 AND day = ?2 AND marked_at IS NULL RETURNING mark_before').bind(tokenId, day, now),
@@ -133,6 +146,7 @@ async function finish(env: Env, tokenId: string, day: number, sent: { burnt: str
     env.DB.prepare('UPDATE pets SET gifted_unmarked = 0 WHERE token_id = ?').bind(tokenId),
     // The marks, the parts and the days without a ritual of earlier days have done their work.
     env.DB.prepare('DELETE FROM ritual_days WHERE token_id = ? AND day < ?').bind(tokenId, day),
+    ...(sent?.item ? itemTxStatements(env.DB, tokenId, sent.item, sent.txHash, now) : []),
   ]);
   const flipped = written[0]!.results as { mark_before: string | null }[];
   if (flipped.length === 0) return 'busy';
@@ -145,18 +159,15 @@ async function finish(env: Env, tokenId: string, day: number, sent: { burnt: str
   return sent === null ? 'found' : 'written';
 }
 
-/** `streak_frozen` per covered day and `streak_reset {last_days}` when the streak started over, from what
- * the writer knew at the send (`applyMark` is the contract's arithmetic). No record of it: no event. */
+/** `streak_frozen` per covered day and `streak_reset {last_days}` when the streak started over, then
+ * `outfit_earned {via: streak}` when the streak reached the day of an item the pet lacked, from what the
+ * writer knew at the send (`applyMark` is the contract's arithmetic). No record of it: no event. */
 function eventsOf(stored: string | null, day: number): void {
   if (stored === null) return;
   const before = JSON.parse(stored) as Before;
-  if (before.last === 0) return;
-  const missed = Math.max(0, day - before.last - 1 - before.skipped);
-  if (missed === 0) return;
-  if (missed > before.freezes) {
-    track('streak_reset', { last_days: before.streak });
-    return;
-  }
-  const { spent } = applyMark(before, day, before.skipped);
-  for (let n = 0; n < spent; n += 1) track('streak_frozen');
+  const after = applyMark(before, day, before.skipped);
+  const missed = before.last === 0 ? 0 : Math.max(0, day - before.last - 1 - before.skipped);
+  if (missed > before.freezes) track('streak_reset', { last_days: before.streak });
+  else for (let n = 0; n < after.spent; n += 1) track('streak_frozen');
+  if (markItem(before, day, before.skipped) !== null) track('outfit_earned', { via: 'streak' });
 }
