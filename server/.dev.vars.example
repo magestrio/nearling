@@ -20,5 +20,10 @@ NEAR_SERVER_KEY=
 INSULT_LIST=
 RIDDLE_LIST=
 
+# The key that seals every pet's skill instruction (AES-256-GCM): base64 of 32 random bytes, one per env.
+# Make it yourself (for example `openssl rand -base64 32`), keep a copy outside Cloudflare: lose it and the skills
+# can't be read.
+SKILL_KEY=
+
 # Optional: only if the free RPC throttles
 FASTNEAR_API_KEY=

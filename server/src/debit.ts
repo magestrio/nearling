@@ -13,8 +13,10 @@
 // the chain only ever goes out under that id. A second id for it is the one way to debit it twice.
 import { ChainUnreachable, isNodeRefusal, petView, txStatus } from './chain';
 import { utcDay } from './http';
+import { wakeIfFed } from './pet/wake';
 import { gasShareYocto, nearUsdRate, yoctoToUsdMicros } from './pricing';
 import { gasIsLow } from './servicePause';
+import { track } from './track';
 
 const SESSION_QUIET_MS = 10 * 60_000;
 export const MAX_THOUGHTS_PER_DEBIT = 12;
@@ -34,6 +36,15 @@ interface ThoughtRow {
   id: string;
   model: string;
   price_yocto: string;
+  /** The pet whose answer this thought is (advice, a hire's answer), also an answer with no words: it travels
+   * with the receipt (`Hire food data`). Null for every thought of the paying pet itself. */
+  worker: string | null;
+  /** The hire this answer is the fee of, while it is not settled; null for none. */
+  hire_id: string | null;
+  hire_kind: 'player' | 'pet' | null;
+  hire_mode: 'auto' | 'manual' | null;
+  hire_skilled: number | null;
+  hire_fee: string | null;
 }
 
 interface CallRow {
@@ -54,10 +65,10 @@ function micros(env: Env, yocto: bigint): number {
   return rate === null ? 0 : yoctoToUsdMicros(yocto, rate);
 }
 
-/** The gas to attach: 15 Tgas for a batch of 12 (the sandbox measured 9.78 with a margin of 1.5),
- * fewer thoughts less, never under 5. */
-export function gasFor(thoughts: number): string {
-  const tgas = Math.min(15, Math.max(5, Math.ceil(thoughts * 1.25)));
+/** The gas to attach: a plain thought 1.25 Tgas (the sandbox measured 9.78 for 12, with a margin of 1.5), a thought
+ * with a hire 1.9 (12 hires over new pairs burn 15.3 Tgas, ×1.5 is 23 for the batch), never under 5. */
+export function gasFor(thoughts: number, hires = 0): string {
+  const tgas = Math.max(5, Math.ceil((thoughts - hires) * 1.25 + hires * 1.9));
   return (BigInt(tgas) * TGAS).toString();
 }
 
@@ -119,9 +130,16 @@ export async function closeAndDebit(env: Env, nowMs: number): Promise<void> {
   }
 }
 
+/** The next thoughts to debit. A worker's answer (kind `advice` or `hire_answer`, a hire question is the paying pet's
+ * own thought) carries its worker whatever came of it; an unsettled hire of it rides along. */
 async function nextBatch(env: Env, sessionId: string): Promise<ThoughtRow[]> {
   return (
-    await env.DB.prepare("SELECT id, model, price_yocto FROM thoughts WHERE session_id = ? AND status = 'unbilled' ORDER BY created_at, rowid LIMIT ?")
+    await env.DB.prepare(
+      `SELECT t.id, t.model, t.price_yocto, CASE WHEN t.kind IN ('advice', 'hire_answer') THEN t.worker_id END AS worker,
+              h.id AS hire_id, h.kind AS hire_kind, h.mode AS hire_mode, h.skilled AS hire_skilled, h.fee_yocto AS hire_fee
+       FROM thoughts t LEFT JOIN hires h ON h.answer_thought_id = t.id AND h.status = 'unbilled'
+       WHERE t.session_id = ? AND t.status = 'unbilled' ORDER BY t.created_at, t.rowid LIMIT ?`,
+    )
       .bind(sessionId, MAX_THOUGHTS_PER_DEBIT)
       .all<ThoughtRow>()
   ).results;
@@ -130,12 +148,54 @@ async function nextBatch(env: Env, sessionId: string): Promise<ThoughtRow[]> {
 /** Writes a batch's outcome and clears the batch in flight, in one write. Returns how many thoughts
  * changed: a thought that is not `unbilled` any more keeps its status. `debitId` is the batch's own
  * (null: never signed): a late answer never clears the next batch of the tick that took over. */
-async function settle(env: Env, sessionId: string, debitId: number | null, ids: string[], status: 'billed' | 'project'): Promise<number> {
-  const [marked] = await env.DB.batch([
-    env.DB.prepare(`UPDATE thoughts SET status = ? WHERE id IN (${ids.map(() => '?').join(',')}) AND status = 'unbilled'`).bind(status, ...ids),
-    env.DB.prepare('UPDATE debit_sessions SET debit_id = NULL, tx_hash = NULL WHERE id = ? AND debit_id IS ?').bind(sessionId, debitId),
-  ]);
-  return marked?.meta.changes ?? 0;
+async function settle(env: Env, session: Pick<Session, 'id' | 'token_id'>, debitId: number | null, batch: ThoughtRow[], status: 'billed' | 'project', rejected = ''): Promise<number> {
+  const ids = batch.map((t) => t.id);
+  const inIds = `(${ids.map(() => '?').join(',')})`;
+  const hires = batch.filter((t) => t.hire_id !== null);
+  const statements: D1PreparedStatement[] = [];
+  // The hires of the batch settle in the same write as their answers, never after: a hire whose answer is billed
+  // and which is still `unbilled` would take its fee out of the food a second time (`Pet food data`). They go first,
+  // while their answers are still `unbilled`: a batch another tick settled already moves nothing.
+  const live = `answer_thought_id IN ${inIds} AND status = 'unbilled' AND EXISTS (SELECT 1 FROM thoughts t WHERE t.id = hires.answer_thought_id AND t.status = 'unbilled')`;
+  if (hires.length > 0 && status === 'billed') {
+    // The hirer as the network has it after the batch: the day of the record is the contract's, and the name is
+    // the hirer's in the work record. A stale read (the batch not in it yet) gives the Worker's clock.
+    const pet = await petView(env, session.token_id);
+    const day = pet !== null && debitId !== null && pet.last_debit_id >= debitId ? pet.debit_day : utcDay(Date.now());
+    statements.push(
+      env.DB.prepare(
+        `INSERT OR IGNORE INTO work_records (hire_id, worker_id, hirer_id, hirer_name, fee_yocto, answer_yocto, earned_usd_micros, kind, day, recorded_at)
+         SELECT hires.id, hires.worker_id, hires.hirer_id, ?, hires.fee_yocto, (SELECT price_yocto FROM thoughts t WHERE t.id = hires.answer_thought_id),
+                MAX(hires.fee_usd_micros - (SELECT price_usd_micros FROM thoughts t WHERE t.id = hires.answer_thought_id), 0), hires.kind, ?, ?
+         FROM hires WHERE ${live}`,
+      ).bind(pet?.name ?? '', day, Date.now(), ...ids),
+      env.DB.prepare(`UPDATE hires SET status = 'recorded', record_day = ? WHERE ${live}`).bind(day, ...ids),
+    );
+  } else if (hires.length > 0) {
+    statements.push(env.DB.prepare(`UPDATE hires SET status = 'dropped', dropped_code = ? WHERE ${live}`).bind(rejected, ...ids));
+  }
+  const at = statements.length;
+  statements.push(
+    env.DB.prepare(`UPDATE thoughts SET status = ? WHERE id IN ${inIds} AND status = 'unbilled'`).bind(status, ...ids),
+    env.DB.prepare('UPDATE debit_sessions SET debit_id = NULL, tx_hash = NULL WHERE id = ? AND debit_id IS ?').bind(session.id, debitId),
+  );
+  const results = await env.DB.batch(statements);
+  const changed = results[at]?.meta.changes ?? 0;
+  if (changed > 0 && status === 'billed') await afterRecord(env, hires);
+  return changed;
+}
+
+/** What follows a hire the network took: the worker wakes on the earning, the event is counted (`Worker rule` ›
+ * «заработок записан»). Best effort: the batch is settled whatever happens here, and the worker's owner wakes it
+ * with the next poll otherwise. */
+async function afterRecord(env: Env, hires: ThoughtRow[]): Promise<void> {
+  for (const hire of hires) {
+    track('pet_hired', { by: hire.hire_kind ?? 'player', ...(hire.hire_kind === 'pet' && hire.hire_mode !== null ? { mode: hire.hire_mode } : {}), skill: hire.hire_skilled === 1 });
+  }
+  for (const worker of new Set(hires.map((t) => t.worker))) {
+    if (worker === null) continue;
+    await wakeIfFed(env, worker, 'work').catch(() => console.log('work_wake_failed'));
+  }
 }
 
 /** The only signature of a batch was refused for its id: nothing of it is on the chain, the next
@@ -177,14 +237,14 @@ async function debitSession(env: Env, session: Session, held: Claim, accepted: M
       // The network's word first, a second signature only after that.
       const outcome = await outcomeOf(env, session.token_id, inFlight, tx);
       if (outcome === 'billed') {
-        await settle(env, session.id, inFlight, ids, 'billed');
+        await settle(env, session, inFlight, batch, 'billed');
         accepted.set(session.token_id, inFlight);
         inFlight = null;
         tx = null;
         continue;
       }
       if (outcome !== 'unknown') {
-        await reject(env, session.id, inFlight, batch, outcome.refused);
+        await refuse(env, session, inFlight, batch, outcome.refused);
         inFlight = null;
         tx = null;
         continue;
@@ -200,7 +260,7 @@ async function debitSession(env: Env, session: Session, held: Claim, accepted: M
     if (debitId === null) {
       const pet = await petView(env, session.token_id);
       if (pet === null) {
-        await reject(env, session.id, null, batch, 'no_pet');
+        await reject(env, session, null, batch, 'no_pet');
         continue;
       }
       debitId = Math.max(pet.last_debit_id, accepted.get(session.token_id) ?? 0) + 1;
@@ -215,6 +275,9 @@ async function debitSession(env: Env, session: Session, held: Claim, accepted: M
     const thoughts = batch.map((t) => ({
       model: t.model,
       price: t.price_yocto,
+      // The worker of an answer, and the hire it is the fee of: the contract writes `hire` right after the receipt.
+      ...(t.worker !== null ? { worker: t.worker } : {}),
+      ...(t.worker !== null && t.hire_id !== null ? { hire: { kind: t.hire_kind, skill: t.hire_skilled === 1, fee: t.hire_fee } } : {}),
       calls: calls
         .filter((c) => c.thought_id === t.id)
         .map((c) => ({
@@ -240,11 +303,11 @@ async function debitSession(env: Env, session: Session, held: Claim, accepted: M
     const answer = await env.SERVER_KEY.get(env.SERVER_KEY.idFromName('server')).send({
       methodName: 'debit_session',
       args: { token_id: session.token_id, debit_id: debitId, thoughts },
-      gas: gasFor(batch.length),
+      gas: gasFor(batch.length, thoughts.filter((t) => 'hire' in t).length),
     });
     if (answer.status === 'unreachable') return false;
     if (answer.status === 'ok') {
-      await settle(env, session.id, debitId, ids, 'billed');
+      await settle(env, session, debitId, batch, 'billed');
       accepted.set(session.token_id, debitId);
       inFlight = null;
       await gasOfShortBatch(env, batch.length, answer.burnt);
@@ -261,12 +324,12 @@ async function debitSession(env: Env, session: Session, held: Claim, accepted: M
         // then the id stays, the record of the batch: the read may come from an old block.
         const after = await petView(env, session.token_id);
         if (after === null || after.last_debit_id < debitId) return false;
-        await settle(env, session.id, debitId, ids, 'billed');
+        await settle(env, session, debitId, batch, 'billed');
         accepted.set(session.token_id, debitId);
         inFlight = null;
         continue;
       }
-      await reject(env, session.id, debitId, batch, answer.code);
+      await refuse(env, session, debitId, batch, answer.code);
       inFlight = null;
       continue;
     }
@@ -278,14 +341,14 @@ async function debitSession(env: Env, session: Session, held: Claim, accepted: M
     // one look now; if the network has not heard of it yet, wait for the next minute
     const look = await txStatus(env, answer.txHash, env.SERVER_ACCOUNT_ID);
     if (look?.status === 'ok') {
-      await settle(env, session.id, debitId, ids, 'billed');
+      await settle(env, session, debitId, batch, 'billed');
       accepted.set(session.token_id, debitId);
       inFlight = null;
       tx = null;
       continue;
     }
     if (look?.status === 'failed' && look.code !== 'bad_debit_id') {
-      await reject(env, session.id, debitId, batch, look.code);
+      await refuse(env, session, debitId, batch, look.code);
       inFlight = null;
       tx = null;
       continue;
@@ -298,12 +361,26 @@ async function debitSession(env: Env, session: Session, held: Claim, accepted: M
 
 /** The contract refused a batch: its thoughts become the project's spend, the unbilled mark is
  * gone, the next batch takes the same `debit_id`. */
-async function reject(env: Env, sessionId: string, debitId: number | null, batch: ThoughtRow[], code: string): Promise<void> {
+async function reject(env: Env, session: Pick<Session, 'id' | 'token_id'>, debitId: number | null, batch: ThoughtRow[], code: string): Promise<void> {
   const total = batch.reduce((sum, t) => sum + BigInt(t.price_yocto), 0n);
-  const changed = await settle(env, sessionId, debitId, batch.map((t) => t.id), 'project');
+  const changed = await settle(env, session, debitId, batch, 'project', code);
   const usd = changed > 0 ? micros(env, total) : 0;
   if (usd > 0) await env.DB.prepare("INSERT INTO project_spend (at, kind, usd_micros) VALUES (?, 'rejected_batch', ?)").bind(Date.now(), usd).run();
   console.log(`debit_rejected:${code}`);
+}
+
+/** The contract's refusal of a batch. `hire:<i>:<code>` is the refusal of one hire (`Hire food data` › «повтор без
+ * найма»): the contract applied nothing, that hire is dropped and the same batch goes again under the same `debit_id`
+ * with its answer billed by usage and no `hire`. Any other code sends the batch to the project. */
+async function refuse(env: Env, session: Pick<Session, 'id' | 'token_id'>, debitId: number | null, batch: ThoughtRow[], code: string): Promise<void> {
+  const refused = /^hire:(\d+):([a-z_]+)$/.exec(code);
+  const hireId = refused === null ? undefined : batch[Number(refused[1])]?.hire_id;
+  if (refused === null || hireId == null) return reject(env, session, debitId, batch, code);
+  await env.DB.batch([
+    env.DB.prepare("UPDATE hires SET status = 'dropped', dropped_code = ? WHERE id = ? AND status = 'unbilled'").bind(refused[2] ?? '', hireId),
+    env.DB.prepare('UPDATE debit_sessions SET debit_id = NULL, tx_hash = NULL WHERE id = ? AND debit_id IS ?').bind(session.id, debitId),
+  ]);
+  console.log(`hire_dropped:${refused[2]}`);
 }
 
 /** A batch of fewer than 4 thoughts burns more gas than the share its thoughts bring: the

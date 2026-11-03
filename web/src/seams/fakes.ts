@@ -1,12 +1,14 @@
 // State a test hands to the fakes before the page loads (Playwright's addInitScript). Fakes exist
 // only in the e2e mode (VITE_FAKES); no dev or prod build contains this file's users.
 import type {
+  AdviceRead,
   ClosedReason,
   Conversation,
   DiaryView,
   FeedOutcome,
   FeedSheetData,
   HatchStatus,
+  HireMode,
   Me,
   MyFeed,
   OutfitSlug,
@@ -15,6 +17,7 @@ import type {
   RiddleStatus,
   SessionResult,
   SignInGate,
+  SkillText,
   WalletInfo,
   WardrobeView,
 } from './worker-types';
@@ -42,7 +45,7 @@ export interface FakeWorkerState {
   hatchDelayMs?: number;
   me?: Me | FakeFail;
   /** the pets the fake knows, by token_id */
-  pets?: Record<string, Omit<PetBase, 'worn'> & Partial<Pick<PetBase, 'worn'>> & Partial<MyFeed> & { owner?: Partial<Omit<Extract<import('./worker-types').PetView, { viewer: 'owner' }>, keyof PetBase | keyof MyFeed | 'viewer'>> }>;
+  pets?: Record<string, Omit<PetBase, 'worn' | 'skill'> & Partial<Pick<PetBase, 'worn' | 'skill'>> & Partial<MyFeed> & { owner?: Partial<Omit<Extract<import('./worker-types').PetView, { viewer: 'owner' }>, keyof PetBase | keyof MyFeed | 'viewer'>> }>;
   /** `GET /api/pets/:id` refused (the server, the network, the rate limit) instead of answering */
   petResult?: FakeFail;
   /** the token_ids the signed-in fake player owns: those answer with the owner's view, the rest with the guest's */
@@ -107,6 +110,25 @@ export interface FakeWorkerState {
   buyDelayMs?: number;
   /** `POST …/wardrobe/seen`; default `{ ok: true }` */
   seenOutfit?: { ok: true } | FakeFail;
+  /** `PUT …/hire-mode`; default the mode asked, which the pet then has for every look the fake answers */
+  setHireMode?: { mode: HireMode } | FakeFail;
+  hireModeDelayMs?: number;
+  adviceDelayMs?: number;
+  /** `POST …/offer/ask`, `…/offer/decline`, `…/hire/finish`; default `{ job: 'job-hire' | 'job-decline' | 'job-finish' }` */
+  askOffer?: { job: string } | FakeFail;
+  declineOffer?: { job: string } | FakeFail;
+  finishHire?: { job: string } | FakeFail;
+  /** `GET …/advice?payer=`: fields laid over the column the fake builds (the friend's pet awake, the payer fine, 0.38¢, nothing on its
+   *  way), or a refusal instead */
+  advice?: Partial<AdviceRead> | FakeFail;
+  /** `POST …/advice`; default `{ job: 'job-advice' }` */
+  askAdvice?: { job: string } | FakeFail;
+  /** `GET …/skill`; default no skill */
+  skill?: { skill: SkillText | null } | FakeFail;
+  /** `PUT …/skill`; default the label asked, which the pet then shows and the owner's read then holds */
+  saveSkill?: { skill: { label: string } } | FakeFail;
+  /** `DELETE …/skill`; default `{ skill: null }` */
+  forgetSkill?: { skill: null } | FakeFail;
 }
 
 export interface FakeState {

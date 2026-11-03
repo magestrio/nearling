@@ -72,13 +72,15 @@ export function Trait({ name }: { name: TraitName }) {
 }
 
 /** Under the pet, where its light falls: the name in its one slot, its Fullness with the action beside it, then the
- *  owner's extras as children. `level` — the heading level (0 for no heading). */
+ *  owner's extras as children. `level` — the heading level (0 for no heading). `badge` — the SkillBadge, right under the
+ *  name (on the phone's compact plate, its own row under the name and the energy). */
 export function PetPlate({
   name,
   size,
   level,
   align,
   compact,
+  badge,
   fullness,
   action,
   children,
@@ -88,6 +90,7 @@ export function PetPlate({
   level?: 0 | 1 | 2 | 3;
   align?: 'start';
   compact?: boolean;
+  badge?: ReactNode;
   fullness?: { state?: FullnessState; level?: number };
   action?: ReactNode;
   children?: ReactNode;
@@ -96,6 +99,7 @@ export function PetPlate({
   return (
     <div className={cx('ds-plate', align === 'start' && 'ds-plate--start', compact && 'ds-plate--compact')}>
       <Tag className={cx('ds-plate__name', size === 'title' ? 'type-title-2' : 'type-display')}>{name}</Tag>
+      {badge ? <div className="ds-plate__badge">{badge}</div> : null}
       <div className="ds-plate__state">
         <Fullness {...(fullness ?? {})} />
         {action ?? null}
@@ -105,8 +109,52 @@ export function PetPlate({
   );
 }
 
+/** The pet's skill under its name (`add-pet-work` › `Skill rule` › «label on the pet's page»): «Good at {label}» with the skill's
+ *  gem, for every viewer, inert; a pet with no skill shows nothing to anyone else. `owner` — a button that opens Skill sheet: with a
+ *  `label` it is the badge itself, named «{name}'s skill: Good at {label}»; with none, a dashed slot «Teach {name} a skill».
+ *  `expanded` — its sheet is open. */
+export function SkillBadge({
+  name,
+  label,
+  owner,
+  expanded,
+  preview,
+  onClick,
+}: {
+  name: string;
+  label?: string | null;
+  owner?: boolean;
+  expanded?: boolean;
+  /** on Skill sheet: the label as typed and not saved — dashed and grey, hidden from a screen reader (the field says it) */
+  preview?: boolean;
+  onClick?: () => void;
+}) {
+  const text = label ? `Good at ${label}` : `Teach ${name} a skill`;
+  const inner = (
+    <>
+      <Icon name="skill" size="sm" />
+      <span>{text}</span>
+    </>
+  );
+  if (preview) return label ? <p className="ds-skill-badge ds-skill-badge--preview type-label" aria-hidden="true">{inner}</p> : null;
+  if (!owner) return label ? <p className="ds-skill-badge type-label">{inner}</p> : null;
+  return (
+    <button
+      type="button"
+      className={cx('ds-skill-badge', 'ds-skill-badge--button', !label && 'ds-skill-badge--empty', 'type-label')}
+      aria-label={label ? `${name}'s skill: ${text}` : undefined}
+      aria-haspopup="dialog"
+      aria-expanded={expanded}
+      onClick={onClick}
+    >
+      {inner}
+    </button>
+  );
+}
+
 /** The pet's zone: the pet and its rail as one tight pair, the plate and a foot line under the pet. `compact` — the
- *  owner's phone. `motion` — the MotionToggle, in the corner of the pet's figure. */
+ *  owner's phone. `owner` — the owner's stage, awake or asleep: on the phone the pet takes the owner's smaller cap.
+ *  `motion` — the MotionToggle, in the corner of the pet's figure. */
 export function PetStage({
   pet,
   rail,
@@ -114,6 +162,7 @@ export function PetStage({
   foot,
   motion,
   compact,
+  owner,
 }: {
   pet: ReactNode;
   rail?: ReactNode;
@@ -121,9 +170,10 @@ export function PetStage({
   foot?: ReactNode;
   motion?: ReactNode;
   compact?: boolean;
+  owner?: boolean;
 }) {
   return (
-    <div className={cx('ds-stage', !rail && 'ds-stage--bare', compact && 'ds-stage--compact')}>
+    <div className={cx('ds-stage', !rail && 'ds-stage--bare', compact && 'ds-stage--compact', owner && 'ds-stage--owner')}>
       <div className="ds-stage__pet">
         {motion ? (
           <div className="ds-stage__figure">

@@ -15,6 +15,7 @@ import {
   HELD_LINE,
   notesLine,
   partsLine,
+  workLine,
   writingLine,
   yesterdayLine,
 } from './lines';
@@ -55,10 +56,10 @@ export type EntryDraw =
   | { kind: 'text'; lines: string[]; question: string | null; work: string | null }
   | { kind: 'line'; text: string };
 
-export function entryDraw(entry: DiaryEntry, name: string, until: string): EntryDraw {
+export function entryDraw(entry: DiaryEntry, name: string, until: string, closedAt = ''): EntryDraw {
   switch (entry.kind) {
     case 'text':
-      return { kind: 'text', lines: entry.lines, question: entry.question, work: entry.work };
+      return { kind: 'text', lines: entry.lines, question: entry.question, work: entry.work === null ? null : workLine(name, closedAt, entry.work) };
     case 'first':
       return { kind: 'line', text: firstEntryLine(name, until) };
     case 'cleared':

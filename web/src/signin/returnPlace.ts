@@ -8,8 +8,9 @@ const KEY = 'nearling.returnPlace';
 export interface ReturnPlace {
   /** the path with its query, e.g. `/hatch?from=2` */
   path: string;
-  /** what the player tapped: «Sign in», or «Feed {name}» (passed to the feeding slot) */
-  action?: 'signin' | 'feed';
+  /** what the player tapped: «Sign in», «Feed {name}» (passed to the feeding slot), or the line of Skill sheet's ended session
+   *  (the sheet opens again, `Skill writing flow` › «sheet after sign-in») */
+  action?: 'signin' | 'feed' | 'skill';
   /** the text that was in the field when the session ended, for the time of the sign-in */
   text?: string;
   /** the record a cancel (or a failed sign-in) rewrote: the place and the action stay, the text is gone. It is what survives
@@ -27,7 +28,7 @@ function parse(raw: string | null): ReturnPlace | null {
   try {
     const value: unknown = JSON.parse(raw);
     if (typeof value !== 'object' || value === null || !('path' in value) || typeof value.path !== 'string' || !value.path.startsWith('/')) return null;
-    const action = 'action' in value && (value.action === 'signin' || value.action === 'feed') ? value.action : undefined;
+    const action = 'action' in value && (value.action === 'signin' || value.action === 'feed' || value.action === 'skill') ? value.action : undefined;
     const text = 'text' in value && typeof value.text === 'string' && value.text !== '' ? value.text : undefined;
     const cancelled = 'cancelled' in value && value.cancelled === true;
     return { path: value.path, ...(action ? { action } : {}), ...(text !== undefined ? { text } : {}), ...(cancelled ? { cancelled } : {}) };
@@ -71,6 +72,7 @@ export function markSignInUnderWay(on: boolean): void {
 export function rememberReturnPlace(place: ReturnPlace | string): void {
   const value: ReturnPlace = typeof place === 'string' ? { path: place } : place;
   held = null;
+  heldSkill = null;
   try {
     sessionStorage.setItem(KEY, JSON.stringify(value));
   } catch {
@@ -94,6 +96,7 @@ export function takeReturnPlace(): ReturnPlace | null {
 export function clearReturnPlace(): void {
   erase();
   held = null;
+  heldSkill = null;
 }
 
 /** A sign-in that never came back (the player typed another address at Google) leaves its record in the tab. The next start
@@ -107,6 +110,29 @@ export function eraseLeftBehind(here: string): void {
 /** `ReturnToPlace` keeps the text of the record it took for the path it leads the tab to. */
 export function holdReturnText(path: string, text: string): void {
   held = { path, text };
+}
+
+/** Both fields of Skill sheet, as typed (`{ label, instruction }` as JSON text in the record), for the sheet that opens again. Never
+ *  the owner's line: a return with the action `skill` hands its text here and not to `takeReturnText`. */
+let heldSkill: { path: string; fields: { label: string; instruction: string } } | null = null;
+
+export function holdReturnSkill(path: string, text: string): void {
+  try {
+    const value: unknown = JSON.parse(text);
+    if (typeof value === 'object' && value !== null && 'label' in value && 'instruction' in value && typeof value.label === 'string' && typeof value.instruction === 'string') {
+      heldSkill = { path, fields: { label: value.label, instruction: value.instruction } };
+    }
+  } catch {
+    // a record that is not both fields brings nothing back
+  }
+}
+
+/** The fields a return handed back to the sheet at `path`, once. */
+export function takeReturnSkill(path: string): { label: string; instruction: string } | null {
+  if (heldSkill === null || heldSkill.path !== path) return null;
+  const { fields } = heldSkill;
+  heldSkill = null;
+  return fields;
 }
 
 /** The screen at `path` calls it once its view is decided. A screen with the field gives the text back, unsent; one without

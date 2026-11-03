@@ -263,9 +263,10 @@ async fn storage_of_a_birth() -> anyhow::Result<()> {
     eprintln!(
         "storage_of_a_birth: {bytes} bytes written, +{OWNER_LIST_ENTRY_BYTES} owner-list bytes, cost {cost} yocto, gas {gas}"
     );
-    // `add-wardrobe`: the record is one byte longer than `add-daily-ritual`'s 1,883 with the
-    // items; `BIRTH_STORAGE_YOCTO` in `server/src/pricing.ts` is this number at the byte price.
-    assert_eq!(bytes + OWNER_LIST_ENTRY_BYTES, 1_884);
+    // `add-pet-work`: the record is nine bytes longer than `add-wardrobe`'s 1,884 with the job
+    // counter (a day and a count); `BIRTH_STORAGE_YOCTO` in `server/src/pricing.ts` is this number
+    // at the byte price.
+    assert_eq!(bytes + OWNER_LIST_ENTRY_BYTES, 1_893);
     assert!(
         cost <= MAX_BIRTH_COST,
         "cost {cost} > MAX_BIRTH_COST {MAX_BIRTH_COST}"

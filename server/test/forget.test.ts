@@ -339,7 +339,13 @@ describe('Memory deletion data, the pairs', () => {
   it('fails a line waiting in the queue with «memory_cleared», without a call to NEAR AI and without its text', async () => {
     h.net().contract.addPet('5', OWNER);
     const tk = await owner();
-    h.net().ai.push({ delay: 100 });
+    // the first call stays in flight until the test lets it go: a wall-clock delay let a slow machine
+    // finish it, and run the queued line, before the clear
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    h.net().ai.push({ during: () => gate });
     const first = await api('/api/pets/5/thoughts', { token: tk, body: { text: 'First line', mode: 'chat' } });
     await until(() => h.net().ai.calls.length === 1);
     const queued = await api('/api/pets/5/thoughts', { token: tk, body: { text: 'Queued secret', mode: 'chat' } });
@@ -353,6 +359,7 @@ describe('Memory deletion data, the pairs', () => {
     expect(row.payload).toBeNull();
 
     expect(await settle(tk, '5', queued.body.job)).toMatchObject({ code: 'memory_cleared' });
+    release();
     await settle(tk, '5', first.body.job);
     // the queued line never left the Worker
     expect(h.net().ai.calls).toHaveLength(1);

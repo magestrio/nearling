@@ -106,6 +106,18 @@ test('the name is cleaned in the browser for the notice and goes to the server o
   expect((await calls(page)).filter((c) => c.startsWith('worker:hatch:'))).toEqual([`worker:hatch:${typed}`]);
 });
 
+// spec: add-pet › Hatch screen › уведомление о публичности
+test('the public-data notice names every public item, the skill included, with the cleaned name', async ({ page }) => {
+  await openWith(page, '/hatch', { auth: SIGNED_IN });
+  await nameField(page).fill('Pixel');
+  await expect(
+    page.getByText(
+      'Your pet\'s name "Pixel", character, ID, hatch date, owner and who gave it to whom, growth, traits, streak and freezes (so the days you finish its ritual), every outfit, meal and thought receipt, every pet it asks for help or helps, whether a skill shaped it, and every price and fee are public forever — even if this game shuts down.',
+      { exact: true },
+    ),
+  ).toBeVisible();
+});
+
 // spec: add-pet › Hatch screen › уведомление о публичности × в поле одни пробелы или невидимые
 test('only blanks or invisibles in the field: the notice has no name, the button is active, the refusal keeps the text', async ({ page }) => {
   await openWith(page, '/hatch', { auth: SIGNED_IN });

@@ -17,6 +17,7 @@ import { idOf } from './pet/outfits';
 import { DIARY_WINDOW_MS, markDueDays, settleOpenRows } from './pet/ritual';
 import { FEEDINGS_COLUMNS, settleFeeding, type FeedingRow } from './pet/settle';
 import { riddleTick } from './riddle/cron';
+import { cleanQuotes } from './work/quote';
 import { clearPause, gasReserve, lastProbe, noteProbe, pauseReason, setPause } from './servicePause';
 import { monthOf } from './signin';
 
@@ -249,4 +250,6 @@ export async function clean(env: Env, nowMs: number): Promise<void> {
     // The purchases that are over, a day on (their outcome is shown for minutes).
     env.DB.prepare("DELETE FROM outfit_buys WHERE status IN ('bought', 'failed') AND settled_at < ?").bind(nowMs - 86_400_000),
   ]);
+  // The places of a worker's calls a dead desk left, and the worker's answers of days before yesterday.
+  await cleanQuotes(env, nowMs, utcDay(nowMs));
 }

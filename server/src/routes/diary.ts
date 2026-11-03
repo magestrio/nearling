@@ -13,6 +13,7 @@ import { doableParts, entryToday, isComplete, readDay } from '../pet/ritual';
 import { forecastOf } from '../pet/streak';
 import { isPaused } from '../servicePause';
 import { track } from '../track';
+import { workOfDay } from '../work/record';
 import { ownedPet, run, settleLater } from './thoughts';
 
 export const diaryRoutes = new Hono<AppEnv>();
@@ -99,8 +100,8 @@ diaryRoutes.get('/api/pets/:id/diary', async (c) => {
     day: today,
     closedAt: new Date(today * DAY_MS).toISOString(),
     until: new Date((today + 1) * DAY_MS).toISOString(),
-    // `work` is `add-pet-work`'s: null until then.
-    entry: entry.kind === 'text' ? { kind: 'text', id: entry.id, lines: entry.lines, question: entry.question, work: null } : { kind: entry.kind },
+    // `work`: the hires recorded in the day before this entry's (`Work diary rule`); the client writes the line.
+    entry: entry.kind === 'text' ? { kind: 'text', id: entry.id, lines: entry.lines, question: entry.question, work: await workOfDay(c.env.DB, id, today - 1) } : { kind: entry.kind },
     read: facts.read,
     exchange,
     riddle,

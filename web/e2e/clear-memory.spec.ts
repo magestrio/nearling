@@ -224,9 +224,10 @@ test('уже не владелец: «Pixel belongs to a new owner now, so nothi
   await setWorker(page, { owned: [], clearMemory: { fail: { status: 403, code: 'not_owner' } } });
   await dialog(page).getByRole('button', { name: 'Clear memory' }).click();
   await expect(dialog(page)).toHaveCount(0);
-  // the guest's page: «Feed Pixel» in the one column, no conversation, no memory row
-  await expect(page.getByRole('button', { name: 'Feed Pixel' })).toBeVisible();
-  await expect(page.getByRole('log')).toHaveCount(0);
+  // the guest's page: «Feed Pixel», no conversation with Pixel (the player's own pet, Biscuit, has the advice column), no memory row
+  await expect(page.getByRole('button', { name: 'Feed Pixel' }).first()).toBeVisible();
+  await expect(page.getByRole('log')).toHaveAccessibleName('Advice from Pixel');
+  await expect(page.getByPlaceholder('Talk to Pixel…')).toHaveCount(0);
   await expect(page.locator('.ds-toast')).toHaveText(NEW_OWNER);
   await expect(page.getByRole('status').filter({ hasText: NEW_OWNER })).toHaveCount(1);
   await page.getByRole('button', { name: 'Account' }).click();

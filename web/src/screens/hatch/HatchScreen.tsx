@@ -28,7 +28,7 @@ const NOT_HATCHED = "Your pet didn't hatch this time. Nothing was lost — try a
 /** The first notice names the pet once there is a name; with none — «Your pet's name, character, ID, …». */
 function publicNotice(name: string): string {
   const subject = name ? `Your pet's name "${name}", character` : "Your pet's name, character";
-  return `${subject}, ID, hatch date, owner and who gave it to whom, growth, traits, streak and freezes (so the days you finish its ritual), every outfit, meal and thought receipt, every pet it asks for help or helps, and every price and fee are public forever — even if this game shuts down.`;
+  return `${subject}, ID, hatch date, owner and who gave it to whom, growth, traits, streak and freezes (so the days you finish its ritual), every outfit, meal and thought receipt, every pet it asks for help or helps, whether a skill shaped it, and every price and fee are public forever — even if this game shuts down.`;
 }
 
 /** A line why, then what can be done — the one place for every «why» of this screen. The line is silent where it is

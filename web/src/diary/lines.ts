@@ -1,5 +1,6 @@
+import { formatCents } from '../lib/price';
 import { resetTime } from '../lib/time';
-import type { DiaryPart, DiaryYesterday, StreakNote } from '../seams/worker-types';
+import type { DiaryPart, DiaryWork, DiaryYesterday, StreakNote } from '../seams/worker-types';
 
 // The words of add-daily-ritual that the Diary screen draws, verbatim from the Scenarios and the frames' `copy`. A `{time}` is
 // 00:00 UTC as the player's clock shows it: the Worker sends the two midnights of the day as ISO times, `closedAt` and `until`.
@@ -18,7 +19,18 @@ const NOTES: Record<StreakNote, string> = { forecast: NOTE_FORECAST, saving: NOT
 /** The notes under the streak, in the order the Worker gives them. */
 export const notesLine = (notes: StreakNote[]): string | undefined => (notes.length === 0 ? undefined : notes.map((n) => NOTES[n]).join(' '));
 
-export const frozenLine = (n: number, k: number) => `A streak freeze kept your ${n}-day streak safe. Freezes left: ${k}.`;
+/** «A», «A and B», «A, B and C» (`Work diary rule`). */
+export function joinNames(names: string[]): string {
+  if (names.length <= 1) return names.join('');
+  return `${names.slice(0, -1).join(', ')} and ${names.at(-1)}`;
+}
+
+/** The entry's line about the work of the day before (`add-pet-work` › `Work diary rule` › «нанимали вчера»): who hired the pet and what it
+ *  earned. `{time}` is today's 00:00 UTC (`closedAt`) on the player's clock. */
+export const workLine = (name: string, closedAt: string, work: DiaryWork) =>
+  `In the 24 hours before ${clock(closedAt)}, ${name} helped ${joinNames(work.hirers)} and got ${formatCents(work.cents)} of food for it.`;
+
+export const frozenLine =(n: number, k: number) => `A streak freeze kept your ${n}-day streak safe. Freezes left: ${k}.`;
 export const freshLine = (n: number) => `A fresh streak starts today! Your last one ran ${n} ${dayUnit(n)}.`;
 export const earnedLine = (n: number) => `${n} days in a row! You earned a streak freeze — it covers a day you miss.`;
 

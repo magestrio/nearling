@@ -7,15 +7,28 @@ import { DAILY_CAP_YOCTO, deepEstimate, deepEstimateUsd12, fullness, minCallPric
 import { energyLeft, moodOf, readLife, TRAIT_WORD, type Mood } from './life';
 import { noticesOf, readWardrobe, slugsOf, type OutfitSlug } from './outfits';
 import { entryToday } from './ritual';
+import { hireModeOf, type HireMode } from '../work/mode';
+import { readOffer } from '../work/offerRead';
+import { priceView } from '../work/quote';
+import { skillLabel } from '../work/skill';
 
 /** The exact prices of the thoughts answered but not yet debited on the network, summed. Their
- * reserves (a call in flight) are not here: the fullness does not count them. */
+ * reserves (a call in flight) are not here: the fullness does not count them. A hired answer is counted
+ * as its fee, not its own price: the fee pays it, and the contract takes the fee (`Hire price rule`,
+ * `Advice flow` › «ответ»: the paying pet's fullness is lower by the price at once). */
 export async function unbilledYocto(db: D1Database, tokenId: string): Promise<bigint> {
-  const rows = await db
-    .prepare("SELECT price_yocto FROM thoughts WHERE token_id = ? AND status = 'unbilled'")
-    .bind(tokenId)
-    .all<{ price_yocto: string }>();
-  return rows.results.reduce((sum, row) => sum + BigInt(row.price_yocto), 0n);
+  const [thoughts, hires] = await db.batch<{ yocto: string }>([
+    db
+      .prepare(
+        "SELECT price_yocto AS yocto FROM thoughts t WHERE token_id = ? AND status = 'unbilled' AND NOT EXISTS (SELECT 1 FROM hires h WHERE h.answer_thought_id = t.id AND h.status = 'unbilled')",
+      )
+      .bind(tokenId),
+    // Only while the answer is `unbilled` too: once the batch took the thought the network has the fee.
+    db
+      .prepare("SELECT fee_yocto AS yocto FROM hires h WHERE hirer_id = ? AND status = 'unbilled' AND EXISTS (SELECT 1 FROM thoughts t WHERE t.id = h.answer_thought_id AND t.status = 'unbilled')")
+      .bind(tokenId),
+  ]);
+  return [...(thoughts?.results ?? []), ...(hires?.results ?? [])].reduce((sum, row) => sum + BigInt(row.yocto), 0n);
 }
 
 /** Food in the contract (the project's and the given) minus the unbilled thoughts. */
@@ -153,6 +166,18 @@ export interface OwnerFields {
   /** What «Buy · {price}» says: cents with two significant digits at the rate of NEAR, and the same
    * price in yocto. */
   outfitPrice: { cents: number; yocto: string };
+  /** How the pet hires, for the switch of the Pet screen (`Hire mode rule`): the owner's only. */
+  hireMode: HireMode;
+  /** The Manual offer standing, with the worker's name and the price named (`Pet hire flow` › «предложение в Manual»);
+   * none for a pet that sleeps (the offer goes where it is read). */
+  offer: { worker: string; question: string; price: { yocto: string; cents: number } } | null;
+  /** Whom the pet on its way is asking, so a reloaded page says «{name} is asking {worker}…» (`jobs.progress`). */
+  pendingProgress: { asking: string } | null;
+  /** How many hires of the pet are settled on the network (recorded or refused): a page that sees the number move
+   * reads the conversation again, and learns «· no fee» without a reload. */
+  hiresSeen: number;
+  /** The pet's skill label, the owner's view of it (`Skill rule`); never the instruction. */
+  skill: { label: string } | null;
 }
 
 /** The price of a bought outfit as the owner's view and the Wardrobe carry it. An empty rate is a
@@ -165,9 +190,11 @@ export function outfitPrice(env: Pick<Env, 'NEAR_USD_RATE'>): { cents: number; y
 
 interface PendingRow {
   id: string;
-  kind: 'reply' | 'greeting' | 'wake';
+  // `hire`, `decline` and `finish` (`work/offer.ts`) are the pet's own reply to the owner's line, whichever way it came
+  kind: 'reply' | 'greeting' | 'wake' | 'hire' | 'decline' | 'finish';
   mode: string | null;
   payload: string | null;
+  progress: string | null;
 }
 
 function pendingLine(row: PendingRow | null): string | null {
@@ -193,7 +220,8 @@ export async function wakeState(db: D1Database, tokenId: string): Promise<{ wake
 export async function ownerFields(env: Env, tokenId: string, pet: PetRecord, pausedNow: boolean): Promise<OwnerFields> {
   const now = Date.now();
   const food = await foodState(env.DB, tokenId, pet, now);
-  const pending = await env.DB.prepare("SELECT id, kind, mode, payload FROM jobs WHERE token_id = ? AND status IN ('queued', 'running') AND kind <> 'diary' ORDER BY created_at, rowid LIMIT 1")
+  // An advice the pet pays for is read on the friend's page, not this one (`Advice flow`): not the owner's «is thinking…».
+  const pending = await env.DB.prepare("SELECT id, kind, mode, payload, progress FROM jobs WHERE token_id = ? AND status IN ('queued', 'running') AND kind NOT IN ('diary', 'advice') ORDER BY created_at, rowid LIMIT 1")
     .bind(tokenId)
     .first<PendingRow>();
   const last = await env.DB.prepare('SELECT id FROM thoughts WHERE token_id = ? AND reply_text IS NOT NULL ORDER BY created_at DESC, rowid DESC LIMIT 1')
@@ -207,6 +235,7 @@ export async function ownerFields(env: Env, tokenId: string, pet: PetRecord, pau
   const wardrobe = await readWardrobe(env.DB, tokenId);
   const { entry, pet: row } = await entryToday(env.DB, tokenId, now);
   const read = await env.DB.prepare('SELECT 1 AS found FROM ritual_days WHERE token_id = ? AND day = ? AND read_at IS NOT NULL').bind(tokenId, today).first();
+  const offer = await readOffer(env.DB, tokenId, state.state === 'asleep');
   return {
     fullness: state,
     tired,
@@ -217,7 +246,7 @@ export async function ownerFields(env: Env, tokenId: string, pet: PetRecord, pau
     hello: await hello(env.DB, tokenId),
     pendingJob: pending?.id ?? null,
     pendingMode: pending === null ? null : pending.mode === 'deep' ? 'deep' : 'chat',
-    pendingKind: pending?.kind ?? null,
+    pendingKind: pending === null ? null : pending.kind === 'hire' || pending.kind === 'decline' || pending.kind === 'finish' ? 'reply' : pending.kind,
     pendingText: pendingLine(pending),
     lastThought: last?.id ?? null,
     memoryEpoch: await memoryEpoch(env.DB, tokenId),
@@ -231,7 +260,19 @@ export async function ownerFields(env: Env, tokenId: string, pet: PetRecord, pau
     worn: wardrobe.worn,
     notices: noticesOf(pet.outfits, wardrobe.seen),
     outfitPrice: outfitPrice(env),
+    hireMode: await hireModeOf(env.DB, tokenId),
+    offer: offer === null ? null : { worker: offer.worker, question: offer.question, price: priceView(env, offer.price) },
+    pendingProgress: progressOf(pending?.progress ?? null),
+    hiresSeen: (await env.DB.prepare("SELECT COUNT(*) AS n FROM hires WHERE hirer_id = ? AND status <> 'unbilled'").bind(tokenId).first<{ n: number }>())?.n ?? 0,
+    skill: await skillLabel(env.DB, tokenId),
   };
+}
+
+/** `jobs.progress` as the page reads it: whom the pet is asking, or nothing. */
+function progressOf(raw: string | null): { asking: string } | null {
+  if (raw === null) return null;
+  const asking = (JSON.parse(raw) as { asking?: unknown }).asking;
+  return typeof asking === 'string' ? { asking } : null;
 }
 
 /** The mood of the day for any viewer, from the pet's fullness (`Mood rule`). The Worker's UTC day. */

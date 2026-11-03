@@ -17,13 +17,18 @@ export function Conversation({ label, intro, introOn, children }: { label?: stri
   // it is the player's own scroll — the browser nudging the scroll by 2–4 px while a line rises in, or the page
   // laying out again, must not make the log let go of its newest line
   const endTop = useRef(0);
+  // the list's and the box's heights as the log last saw them: a scroll that comes with a change of either is the browser's
+  // (clamping, scroll anchoring), not the player's — on a loaded machine it reaches the log before the ResizeObserver does
+  const seen = useRef({ list: 0, box: 0 });
   useLayoutEffect(() => {
     const el = ref.current;
     if (!el) return undefined;
     el.scrollTop = el.scrollHeight;
+    seen.current = { list: el.scrollHeight, box: el.clientHeight };
     if (!window.ResizeObserver) return undefined;
     const ro = new ResizeObserver(() => {
       if (atEnd.current) el.scrollTop = el.scrollHeight;
+      seen.current = { list: el.scrollHeight, box: el.clientHeight };
     });
     ro.observe(el);
     if (el.firstElementChild) ro.observe(el.firstElementChild);
@@ -39,10 +44,13 @@ export function Conversation({ label, intro, introOn, children }: { label?: stri
         ref={ref}
         onScroll={(e) => {
           const el = e.currentTarget;
+          const resized = el.scrollHeight !== seen.current.list || el.clientHeight !== seen.current.box;
+          seen.current = { list: el.scrollHeight, box: el.clientHeight };
           if (el.scrollHeight - el.scrollTop - el.clientHeight < 2) {
             atEnd.current = true;
             endTop.current = el.scrollTop;
-          } else if (endTop.current - el.scrollTop > 8) atEnd.current = false;
+          } else if (resized && atEnd.current) el.scrollTop = el.scrollHeight;
+          else if (endTop.current - el.scrollTop > 8) atEnd.current = false;
         }}
       >
         <ol className="ds-convo__list">
@@ -56,7 +64,7 @@ export function Conversation({ label, intro, introOn, children }: { label?: stri
 
 /** from: pet | player | worker | event | offer | error. `latest` — the pet's newest line, in its voice. `fresh` — the
  *  line arrived while the screen is open: it rises in; the history on open stands still. `speaker` — who said it, for
- *  a screen reader. `verify` — the entry to the thought's receipt. `meta` — the small line under it. */
+ *  a screen reader. `verify` — the entry to the thought's receipt. `meta` — the small line under it (or lines, one under another). */
 export function Message({
   from = 'pet',
   latest,
@@ -74,7 +82,7 @@ export function Message({
   speaker?: string;
   hue?: Accent;
   verify?: { href: string; label: string };
-  meta?: ReactNode;
+  meta?: ReactNode | ReactNode[];
   actions?: ReactNode;
   children?: ReactNode;
 }) {
@@ -96,7 +104,13 @@ export function Message({
             <Icon name="verify" size="sm" />
           </a>
         ) : null}
-        {meta ? <span className="type-small">{meta}</span> : null}
+        {meta ? (
+          <span className="ds-message__meta type-small">
+            {([] as ReactNode[]).concat(meta).map((m, i) => (
+              <span key={i}>{m}</span>
+            ))}
+          </span>
+        ) : null}
       </div>
     ) : null;
   return (

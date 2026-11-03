@@ -42,6 +42,17 @@ export interface FakePet {
   last_streak_day: number | null;
   /** The item ids the pet has, ascending (`Vec<u8>` of `PetView`). */
   outfits: number[];
+  /** The pets met through work, ascending (`pet_view.work_known`); absent reads as none. */
+  work_known?: string[];
+  jobs_today?: number;
+}
+
+/** One thought of a `debit_session` batch as the Worker sends it (`ThoughtReceipt`). */
+export interface FakeThought {
+  price: string;
+  calls: unknown[];
+  worker?: string;
+  hire?: { kind: 'player' | 'pet'; skill: boolean; fee: string };
 }
 
 /** The traits a `pet_grow` takes (`Trait` of the contract, JSON). */
@@ -221,6 +232,8 @@ export class FakeContract {
         return { hash: this.riddleCommits.get(Number(args.day)) ?? null, reserve: this.riddleReserve.toString(), commit_cost: RIDDLE_COMMIT_COST.toString() };
       case 'nft_supply_for_owner':
         return String(this.ownedBy(String(args.account_id)));
+      case 'nft_tokens_for_owner':
+        return [...this.pets].filter(([, p]) => p.owner_id === String(args.account_id)).map(([token_id]) => ({ token_id, owner_id: String(args.account_id) })).slice(0, Number(args.limit ?? 50));
       case 'pet_knows':
         return this.known.has(`${String(args.token_id)}:${String(args.account_id)}`);
       default:
@@ -248,31 +261,64 @@ export class FakeContract {
 
   /** The contract's `debit_session`: a panic code, or nothing. Its rules are the ones the Scenarios of
    * `Session debit contract` name; the contract itself is proved by `contract/tests/`. */
-  debit(tokenId: string, debitId: number, thoughts: { price: string; calls: unknown[] }[]): { code: string } | null {
+  debit(tokenId: string, debitId: number, thoughts: FakeThought[]): { code: string } | null {
     const pet = this.pets.get(tokenId);
     if (this.debitFails !== null) return { code: this.debitFails };
     if (!pet) return { code: 'no_pet' };
     if (thoughts.length === 0) return { code: 'empty_batch' };
     if (thoughts.length > 12) return { code: 'too_many_thoughts' };
     if (debitId !== pet.last_debit_id + 1) return { code: 'bad_debit_id' };
-    let sum = 0n;
-    for (const t of thoughts) {
+    // The thoughts without a hire cost their price; a hire its fee, which holds the worker's answer. A refused hire
+    // is `hire:<index>:<code>`, as the contract panics (`Hire debit contract`).
+    let rest = 0n;
+    let fromGivenOnly = 0n;
+    const hires: { worker: FakePet; workerId: string; fee: bigint; price: bigint }[] = [];
+    const jobsGiven = new Map<string, number>();
+    for (const [i, t] of thoughts.entries()) {
       const price = BigInt(t.price);
       if (price > 5_000_000_000_000_000_000_000n) return { code: 'price_over_cap' };
-      sum += price;
+      if (t.hire === undefined) {
+        rest += price;
+        continue;
+      }
+      const fee = BigInt(t.hire.fee);
+      const worker = t.worker === undefined ? undefined : this.pets.get(t.worker);
+      if (worker === undefined || t.worker === undefined) return { code: `hire:${i}:no_worker` };
+      if (fee < 830_000_000_000_000_000_000n || fee > 4_430_000_000_000_000_000_000n) return { code: `hire:${i}:fee_band` };
+      if (price >= fee) return { code: `hire:${i}:answer_over_fee` };
+      if (worker.owner_id === pet.owner_id) return { code: `hire:${i}:same_owner` };
+      const jobs = (worker.jobs_today ?? 0) + (jobsGiven.get(t.worker) ?? 0);
+      if (jobs >= 10) return { code: `hire:${i}:jobs` };
+      jobsGiven.set(t.worker, (jobsGiven.get(t.worker) ?? 0) + 1);
+      if (t.hire.kind === 'pet' && !(pet.work_known ?? []).includes(t.worker) && !this.known.has(`${tokenId}:${worker.owner_id}`)) return { code: `hire:${i}:not_known` };
+      if (t.hire.kind === 'pet') {
+        fromGivenOnly += fee;
+        if (fromGivenOnly > BigInt(pet.given_food)) return { code: `hire:${i}:given_short` };
+      } else {
+        rest += fee;
+      }
+      hires.push({ worker, workerId: t.worker, fee, price });
     }
+    const sum = rest + fromGivenOnly;
     const already = pet.debit_day === this.day ? BigInt(pet.debited_today) : 0n;
     if (already + sum > 50_000_000_000_000_000_000_000n) return { code: 'daily_cap' };
     const project = BigInt(pet.project_food);
-    const given = BigInt(pet.given_food);
-    if (sum > project + given) return { code: 'over_food' };
-    const fromProject = sum < project ? sum : project;
+    const given = BigInt(pet.given_food) - fromGivenOnly;
+    if (rest > project + given) return { code: 'over_food' };
+    const fromProject = rest < project ? rest : project;
     this.past.set(tokenId, [...(this.past.get(tokenId) ?? []), { ...pet }]);
     pet.project_food = (project - fromProject).toString();
-    pet.given_food = (given - (sum - fromProject)).toString();
+    pet.given_food = (given - (rest - fromProject)).toString();
     pet.debit_day = this.day;
     pet.debited_today = (already + sum).toString();
     pet.last_debit_id = debitId;
+    for (const { worker, workerId, fee, price } of hires) {
+      worker.given_food = (BigInt(worker.given_food) + fee - price).toString();
+      worker.jobs_today = (worker.jobs_today ?? 0) + 1;
+      const pair = (list: string[] | undefined, other: string) => [...new Set([...(list ?? []), other])].sort((a, b) => Number(a) - Number(b));
+      pet.work_known = pair(pet.work_known, workerId);
+      worker.work_known = pair(worker.work_known, tokenId);
+    }
     this.debits.push({ tokenId, debitId, thoughts });
     return null;
   }
@@ -442,7 +488,7 @@ export class FakeContract {
   }
 
   /** Every accepted `debit_session`. */
-  debits: { tokenId: string; debitId: number; thoughts: { price: string; calls: unknown[] }[] }[] = [];
+  debits: { tokenId: string; debitId: number; thoughts: FakeThought[] }[] = [];
 
   /** Executes a signed transaction the Worker sent; returns the RPC answer or throws a network error. */
   private async deliver(base64: string): Promise<unknown> {
@@ -496,7 +542,7 @@ export class FakeContract {
             ? { Failure: { ActionError: { index: 0, kind: { FunctionCallError: { ExecutionError: `Smart contract panicked: ${result.code}` } } } } }
             : { SuccessValue: btoa(JSON.stringify(result.tokenId)) };
       } else if (call.methodName === 'debit_session') {
-        const refused = this.debit(String(args.token_id), Number(args.debit_id), args.thoughts as { price: string; calls: unknown[] }[]);
+        const refused = this.debit(String(args.token_id), Number(args.debit_id), args.thoughts as FakeThought[]);
         status = refused
           ? { Failure: { ActionError: { index: 0, kind: { FunctionCallError: { ExecutionError: `Smart contract panicked: ${refused.code}` } } } } }
           : { SuccessValue: '' };
@@ -651,7 +697,8 @@ export interface AiCall {
   url: string;
   headers: Record<string, string>;
   reqBytes: Uint8Array;
-  body: { model: string; messages: { role: string; content: string }[]; max_tokens: number; stream: boolean; chat_template_kwargs: { enable_thinking: boolean } };
+  /** `nonce`: the random field of a skilled worker's request (`Skilled answer data`), outside `messages`. */
+  body: { model: string; messages: { role: string; content: string }[]; max_tokens: number; stream: boolean; chat_template_kwargs: { enable_thinking: boolean }; nonce?: string };
 }
 
 const sha = async (bytes: Uint8Array) => [...new Uint8Array(await crypto.subtle.digest('SHA-256', bytes))].map((b) => b.toString(16).padStart(2, '0')).join('');

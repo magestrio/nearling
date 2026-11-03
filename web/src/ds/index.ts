@@ -1,4 +1,4 @@
-// The DS components of design/ds/components.js, ported. Not here yet (parts of other changes): Segmented and the verification parts. `Pet` is web/src/pet/PetFigure.tsx.
+// The DS components of design/ds/components.js, ported. Not here yet (parts of other changes): the verification parts. `Pet` is web/src/pet/PetFigure.tsx.
 export { ActionRow } from './ActionRow';
 export { Banner, Nest, Skeleton } from './Feedback';
 export { Block } from './Block';
@@ -18,8 +18,9 @@ export { Live } from './Live';
 export { Menu, MenuItem } from './Menu';
 export { MotionToggle } from './MotionToggle';
 export { Note } from './Note';
-export { Energy, Growth, PetPlate, PetStage, Trait, type StageName, type TraitName } from './PetParts';
+export { Energy, Growth, PetPlate, PetStage, SkillBadge, Trait, type StageName, type TraitName } from './PetParts';
 export { Rail, RailItem } from './Rail';
+export { Segmented, type SegmentedOption } from './Segmented';
 export { Sheet } from './Sheet';
 export { Streak, type StreakCell } from './Streak';
 export { Heading, Hidden, Text } from './Text';

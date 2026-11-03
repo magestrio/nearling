@@ -306,7 +306,7 @@ export function DiaryPage({
     body = <Skeletons name={name} />;
   } else if (view !== null) {
     const streak = streakDraw(view);
-    const entry = entryDraw(view.entry, name, view.until);
+    const entry = entryDraw(view.entry, name, view.until, view.closedAt);
     const riddle = riddleDraw(view);
     // the question whose answer is on its way is no part left (`Daily ritual flow` › «part still to do»)
     const end = endNote(asked !== null ? { ...view, parts: view.parts.filter((p) => p !== 'question') } : view);

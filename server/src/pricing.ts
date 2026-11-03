@@ -7,10 +7,10 @@ import { PET_FEED_FEES_TGAS, PET_FEED_TGAS } from './chain';
  * to the tests, which compare (`test/pricing.test.ts`). */
 export const STARTER_FOOD_YOCTO = 2_000_000_000_000_000_000_000n;
 
-/** The storage a birth locks, in yoctoNEAR, at its upper bound: 1,884 bytes x 1e19, the V5 record of
- * `add-wardrobe` (design.md › Контракт › Storage, measured by `contract/tests/pet_mint.rs`: 1,454
- * bytes of the birth plus the owner-list entry of 430). */
-export const BIRTH_STORAGE_YOCTO = 18_840_000_000_000_000_000_000n;
+/** The storage a birth locks, in yoctoNEAR, at its upper bound: 1,893 bytes x 1e19, the V6 record of
+ * `add-pet-work` (design.md › Контракт, measured by `contract/tests/pet_mint.rs`: 1,463 bytes of the
+ * birth plus the owner-list entry of 430). */
+export const BIRTH_STORAGE_YOCTO = 18_930_000_000_000_000_000_000n;
 
 /** A pre-check of the pool before a birth: `MAX_BIRTH_COST` of `contract/src/limits.rs`. */
 export const MAX_BIRTH_COST_YOCTO = 22_000_000_000_000_000_000_000n;
@@ -80,6 +80,44 @@ export const OUTFIT_PRICE_YOCTO = 1_660_000_000_000_000_000_000n;
  * «0.76¢» at $4.59), as the «Think hard» estimate is shown. The rate of NEAR moves only this. */
 export function outfitCents(rate: number): number {
   return Number(((Number(OUTFIT_PRICE_YOCTO) * rate) / 1e22).toPrecision(2));
+}
+
+// ---------------------------------------------------------------------------------------------
+// The price of a worker (`add-pet-work` › `Hire price rule`, `Hire quote data`, ADR-011 › «A band»).
+
+/** The lowest fee of a hire, 0.00083 NEAR (≈ 0.38¢): the price of a pet without a skill, and the first
+ * answer of a day of a pet with one. `HIRE_FEE_MIN` of `contract/src/limits.rs`; `server/vitest.config.ts`
+ * hands the contract's value to `test/pricing.test.ts`, which compares. */
+export const HIRE_FEE_MIN_YOCTO = 830_000_000_000_000_000_000n;
+
+/** What each answer of its UTC day adds to the price of a pet with a skill, 0.0004 NEAR (≈ 0.18¢). The
+ * contract has only the band, so this number is the Worker's alone. */
+export const HIRE_FEE_STEP_YOCTO = 400_000_000_000_000_000_000n;
+
+/** The highest fee, 0.00443 NEAR (≈ 2¢): a skilled worker's tenth hire of a day, floor + 9 steps.
+ * `HIRE_FEE_MAX` of `contract/src/limits.rs`. */
+export const HIRE_FEE_MAX_YOCTO = 4_430_000_000_000_000_000_000n;
+
+/** The most a pet pays in Auto, 0.00163 NEAR (≈ 0.75¢): the price of the third answer of a day (floor +
+ * 2 steps). Above it Auto does not hire, Manual offers (`Hire eligibility rule` › «over the Auto limit»). */
+export const HIRE_AUTO_LIMIT_YOCTO = 1_630_000_000_000_000_000_000n;
+
+/** The answers a pet gives other pets in a UTC day: `MAX_JOBS_PER_DAY` of `contract/src/limits.rs`. At this
+ * count, the answers of the day plus the places held, a pet is no worker (`Hire eligibility rule`). */
+export const MAX_JOBS_PER_DAY = 10;
+
+/** A worker's price when `count` answers of its UTC day, with the places held, came before: without a
+ * skill always the floor; with one the floor plus a step each, never above the highest fee. */
+export function workerPrice(skilled: boolean, count: number): bigint {
+  if (!skilled) return HIRE_FEE_MIN_YOCTO;
+  const price = HIRE_FEE_MIN_YOCTO + HIRE_FEE_STEP_YOCTO * BigInt(count);
+  return price > HIRE_FEE_MAX_YOCTO ? HIRE_FEE_MAX_YOCTO : price;
+}
+
+/** A worker's price in cents at `rate` USD per NEAR, two significant digits (the frames' «0.38¢» at $4.59),
+ * as `outfitCents` and the «Think hard» estimate are shown. The rate of NEAR moves only this. */
+export function hireCents(yocto: bigint, rate: number): number {
+  return Number(((Number(yocto) * rate) / 1e22).toPrecision(2));
 }
 
 export type FullnessState = 'full' | 'hungry' | 'asleep';

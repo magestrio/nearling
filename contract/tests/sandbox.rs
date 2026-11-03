@@ -2,7 +2,7 @@ mod common;
 
 use common::*;
 use near_sdk::borsh;
-use nearling_contract::limits::MIN_FEED;
+use nearling_contract::limits::{HIRE_FEE_MIN, MIN_FEED};
 use nearling_contract::pet::{PetV1, Stage, VersionedPet};
 use serde_json::json;
 
@@ -55,10 +55,10 @@ async fn new_and_migrate_refuse_a_foreign_caller() -> anyhow::Result<()> {
     Ok(())
 }
 
-/// The dev account holds the layout before `add-daily-ritual` with pets in it: version-1 records,
-/// an acquaintance, and no riddle commits or reserve. `migrate` takes it, with the pool, the
-/// counters, the pets and `known` as they were; a pet of version 1 reads with zero counters and is
-/// fed (so written) as the current version.
+/// The dev account holds the layout before `add-pet-work` with pets in it: version-1 records, an
+/// acquaintance, and no work pairs or index. `migrate` takes it, with the pool, the counters, the
+/// pets, `known` and the riddle fields as they were; a pet of version 1 reads with zero counters
+/// and is fed (so written) as the current version; a hire then works on the migrated state.
 // spec: add-daily-ritual › Streak contract › сутки засчитаны × the layout migrates
 #[tokio::test]
 async fn migrate_takes_the_previous_layout_of_a_deployed_contract() -> anyhow::Result<()> {
@@ -98,13 +98,12 @@ async fn migrate_takes_the_previous_layout_of_a_deployed_contract() -> anyhow::R
         )
         .await?;
 
-    // The state before this change is this one without the two trailing fields: the commits'
-    // prefix (a 4-byte length and `r`) and the reserve (16 bytes).
+    // The state before this change is this one without the two trailing fields: the prefixes of
+    // the work pairs and of the index (each a 4-byte length and one letter).
     let pool_before = ctx.pool().await?;
     let state = ctx.read_state().await?;
-    let tail = state.len() - 21;
-    assert_eq!(&state[tail..tail + 5], &[1, 0, 0, 0, b'r']);
-    assert_eq!(&state[tail + 5..], &[0u8; 16]);
+    let tail = state.len() - 10;
+    assert_eq!(&state[tail..], &[1, 0, 0, 0, b'w', 1, 0, 0, 0, b'x']);
     ctx.worker
         .patch_state(ctx.contract.id(), b"STATE", &state[..tail])
         .await?;
@@ -142,13 +141,30 @@ async fn migrate_takes_the_previous_layout_of_a_deployed_contract() -> anyhow::R
         (5 + MIN_FEED).to_string()
     );
 
-    // The new methods work on the migrated state.
+    // The riddle methods still work on the migrated state.
     ctx.fund_riddles(10_000_000_000_000_000_000_000)
         .await?
         .into_result()?;
     ctx.riddle_commit(&"ab".repeat(32)).await?.into_result()?;
 
-    // A second call finds the riddle fields after the old layout and fails: the pool is never reset.
+    // A hire works on it: the pairs and the index were added empty and take the first pair.
+    ctx.set_pet("0", |pet| pet.given_food = 10 * HIRE_FEE_MIN)
+        .await?;
+    ctx.debit(
+        "0",
+        1,
+        vec![hired_json(
+            300_000_000_000_000_000_000,
+            "1",
+            Some(("player", HIRE_FEE_MIN, false)),
+        )],
+    )
+    .await?
+    .into_result()?;
+    assert_eq!(ctx.pet_view("0").await?["work_known"], json!(["1"]));
+    assert_eq!(ctx.pet_view("1").await?["work_known"], json!(["0"]));
+
+    // A second call finds the work fields after the old layout and fails: the pool is never reset.
     let again = ctx
         .contract
         .call("migrate")

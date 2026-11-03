@@ -66,7 +66,12 @@ describe('Thought queue data', () => {
   // spec: add-pet › Thought queue data › параллельные запросы ждут очереди × перезагрузка посреди мысли
   it('keeps an alarm armed while a job runs, and none once the queue is empty', async () => {
     h.net().contract.addPet('5', OWNER);
-    h.net().ai.push({ delay: 100 });
+    // held open by the test, not by a wall-clock delay: a loaded machine let the call end before the check
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    h.net().ai.push({ during: () => gate });
     const id = await enqueueJob(env.DB, '5', { kind: 'reply', mode: 'chat', text: 'Slowly' });
     const stub = desk(env, '5');
     const done = stub.process('5');
@@ -74,6 +79,7 @@ describe('Thought queue data', () => {
     await new Promise((resolve) => setTimeout(resolve, 20));
     const armed = await runInDurableObject(stub, (_, state) => state.storage.getAlarm());
     expect(armed).toBeGreaterThanOrEqual(Date.now() + 4 * MIN);
+    release();
     await done;
     expect(await runInDurableObject(stub, (_, state) => state.storage.getAlarm())).toBeNull();
   });

@@ -59,6 +59,10 @@ const OWNER_DEFAULTS = {
   outfits: [],
   notices: [],
   outfitPrice: { cents: 0.76, yocto: '1660000000000000000000' },
+  hireMode: 'auto' as const,
+  offer: null,
+  pendingProgress: null,
+  hiresSeen: 0,
 };
 
 function petsOf(): NonNullable<FakeWorkerState['pets']> {
@@ -112,8 +116,8 @@ async function viewOf(token: string | null, tokenId: string): Promise<PetView> {
   if (refused) throw new WorkerError(refused.fail.status, refused.fail.code);
   const pet = petsOf()[tokenId];
   if (!pet) throw new WorkerError(404, 'no_pet');
-  const { owner, myFeed, worn, ...rest } = pet;
-  const base = { ...rest, worn: worn ?? null };
+  const { owner, myFeed, worn, skill, ...rest } = pet;
+  const base = { ...rest, worn: worn ?? null, skill: skill ?? null };
   if (token === null) return { viewer: 'visitor', ...base };
   if (!(state().owned ?? []).includes(tokenId)) return { viewer: 'guest', ...base, myFeed: myFeed ?? null };
   return { viewer: 'owner', ...base, ...OWNER_DEFAULTS, myFeed: myFeed ?? null, ...owner };
@@ -382,6 +386,103 @@ export const fakeWorkerApi: WorkerApi = {
     const held = fakeState().worker;
     const pet = petsOf()[tokenId];
     if (held && pet?.owner?.notices) held.pets = { ...petsOf(), [tokenId]: { ...pet, owner: { ...pet.owner, notices: pet.owner.notices.filter((n) => n !== item) } } };
+    return result;
+  },
+
+  setHireMode: async (token, tokenId, mode) => {
+    recordCall(`worker:setHireMode:${mode}`);
+    if (token === null) throw new WorkerError(401, 'signed_out');
+    needSession(token);
+    const result = await answer('setHireMode', state().setHireMode, { mode }, state().hireModeDelayMs);
+    // what the real route leaves behind: the pet has the mode for every look that follows
+    const held = fakeState().worker;
+    const pet = petsOf()[tokenId];
+    if (held && pet) held.pets = { ...petsOf(), [tokenId]: { ...pet, owner: { ...pet.owner, hireMode: result.mode } } };
+    return result;
+  },
+
+  askOffer: async (token, _tokenId, price) => {
+    recordCall(`worker:askOffer:${price}`);
+    if (token === null) throw new WorkerError(401, 'signed_out');
+    needSession(token);
+    return answer('askOffer', state().askOffer, { job: 'job-hire' });
+  },
+
+  declineOffer: async (token) => {
+    if (token === null) throw new WorkerError(401, 'signed_out');
+    needSession(token);
+    return answer('declineOffer', state().declineOffer, { job: 'job-decline' });
+  },
+
+  finishHire: async (token) => {
+    if (token === null) throw new WorkerError(401, 'signed_out');
+    needSession(token);
+    return answer('finishHire', state().finishHire, { job: 'job-finish' });
+  },
+
+  advice: async (token, tokenId, payer) => {
+    recordCall('worker:advice');
+    if (token === null) throw new WorkerError(401, 'signed_out');
+    needSession(token);
+    const ms = state().adviceDelayMs ?? state().delayMs ?? 0;
+    if (ms > 0) await wait(ms);
+    const worker = petsOf()[tokenId];
+    if (!worker) throw new WorkerError(404, 'no_pet');
+    const own = petsOf()[payer];
+    if (!own || !(state().owned ?? []).includes(payer)) throw new WorkerError(403, 'not_payer');
+    const configured = state().advice;
+    if (isFail(configured)) throw new WorkerError(configured.fail.status, configured.fail.code);
+    return {
+      price: { yocto: '830000000000000000000', cents: 0.38 },
+      skilled: false,
+      workerAsleep: worker.fullness.state === 'asleep',
+      resting: null,
+      payer: { tokenId: payer, name: own.name, state: 'ok', until: null },
+      dropsAt: null,
+      pending: null,
+      last: null,
+      paused: false,
+      ...configured,
+    };
+  },
+
+  askAdvice: async (token, _tokenId, body) => {
+    recordCall(`worker:askAdvice:${body.price}`);
+    if (token === null) throw new WorkerError(401, 'signed_out');
+    needSession(token);
+    return answer('askAdvice', state().askAdvice, { job: 'job-advice' });
+  },
+
+  skill: async (token) => {
+    if (token === null) throw new WorkerError(401, 'signed_out');
+    needSession(token);
+    return answer('skill', state().skill, { skill: null });
+  },
+
+  saveSkill: async (token, tokenId, body) => {
+    if (token === null) throw new WorkerError(401, 'signed_out');
+    needSession(token);
+    const result = await answer('saveSkill', state().saveSkill, { skill: { label: body.label } });
+    // what the real route leaves behind: the owner's read holds the text, and every look at the pet carries the label
+    const held = fakeState().worker;
+    const pet = petsOf()[tokenId];
+    if (held && pet) {
+      held.skill = { skill: { label: result.skill.label, instruction: body.instruction } };
+      held.pets = { ...petsOf(), [tokenId]: { ...pet, skill: result.skill } };
+    }
+    return result;
+  },
+
+  forgetSkill: async (token, tokenId) => {
+    if (token === null) throw new WorkerError(401, 'signed_out');
+    needSession(token);
+    const result = await answer('forgetSkill', state().forgetSkill, { skill: null });
+    const held = fakeState().worker;
+    const pet = petsOf()[tokenId];
+    if (held && pet) {
+      held.skill = { skill: null };
+      held.pets = { ...petsOf(), [tokenId]: { ...pet, skill: null } };
+    }
     return result;
   },
 

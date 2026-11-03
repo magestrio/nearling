@@ -29,13 +29,38 @@ pub struct CallReceipt {
     pub cut: bool,
 }
 
-/// One thought of a debit batch: one receipt, one or two calls, one price.
+/// Who asked: a player's advice, or the pet's own decision (`Hire debit contract`).
+#[near(serializers = [json])]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum HireKind {
+    Player,
+    Pet,
+}
+
+/// The hire a thought's answer was made for: it travels with the answer's receipt, so the
+/// contract writes `hire` right after that receipt (ADR-011 › «How a hire finds its receipt»).
+/// `skill` is the server's word: the contract does not compare it with the fee (OD-1780).
+#[near(serializers = [json])]
+#[derive(Clone, Debug)]
+pub struct HireEntry {
+    pub kind: HireKind,
+    pub skill: bool,
+    pub fee: U128,
+}
+
+/// One thought of a debit batch: one receipt, one or two calls, one price. A worker's answer
+/// carries the worker's token id, and, when the hire is recorded, its `hire` entry.
 #[near(serializers = [json])]
 #[derive(Clone, Debug)]
 pub struct ThoughtReceipt {
     pub model: String,
     pub price: U128,
     pub calls: Vec<CallReceipt>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub worker: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub hire: Option<HireEntry>,
 }
 
 /// Whose snack it is (`Pet snack contract`): the owner's own, or a friend's.
@@ -74,6 +99,22 @@ pub enum NearlingEvent {
         model: String,
         price: U128,
         calls: Vec<CallReceipt>,
+        /// The token id of the pet whose answer this receipt is; `token_id` stays the payer's.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        worker: Option<String>,
+    },
+
+    /// A hire was recorded, right after the receipt of the worker's answer (`Hire debit
+    /// contract`): the fee left the hirer's food, `fee − answer_cost` went to the worker's.
+    #[event_version("1.0.0")]
+    Hire {
+        debit_id: u64,
+        hirer: String,
+        worker: String,
+        kind: HireKind,
+        skill: bool,
+        fee: U128,
+        answer_cost: U128,
     },
 
     /// A meal: the whole deposit went into the pet's given food.

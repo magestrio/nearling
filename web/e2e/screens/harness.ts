@@ -17,6 +17,32 @@ export function readManifestFrames(): ManifestFrame[] {
   return (JSON.parse(fs.readFileSync(MANIFEST_PATH, 'utf8')) as { frames: ManifestFrame[] }).frames;
 }
 
+// Mona Sans in the page before its first layout: the faces of web/src/ds/ds.css, their files read once per worker. Asked
+// for over the network, the type came from a dev server busy with eight pages up to 12 s late (measured, add-pet-work fix
+// round 3); landing after the conversation had settled on its newest line, it re-laid the text and the browser's scroll
+// anchoring moved the log 2 px up with no change of size, which the log does not follow back — the capture then waited
+// for an end the log no longer rested on. Same files, same descriptors: the page draws the same type.
+type MonaFace = { family: string; data: string; descriptors: FontFaceDescriptors };
+let monaFaces: MonaFace[] | undefined;
+function readMonaFaces(): MonaFace[] {
+  if (monaFaces) return monaFaces;
+  const css = fs.readFileSync(path.join(REPO_ROOT, 'web', 'src', 'ds', 'ds.css'), 'utf8');
+  const faces = Array.from(css.matchAll(/@font-face\s*\{([^}]*)\}/g), (m): MonaFace => {
+    const body = m[1] ?? '';
+    const get = (prop: string) => body.match(new RegExp(`${prop}:\\s*([^;]+);`))?.[1]?.trim() ?? '';
+    const file = get('src').match(/url\('\/([^']+)'\)/)?.[1];
+    if (!file) throw new Error(`no url() in an @font-face of ds.css: ${body}`);
+    return {
+      family: get('font-family').replace(/['"]/g, ''),
+      data: fs.readFileSync(path.join(REPO_ROOT, 'web', 'public', file)).toString('base64'),
+      // the CSS keyword as written in ds.css (`block`)
+      descriptors: { style: get('font-style'), weight: get('font-weight'), stretch: get('font-stretch'), unicodeRange: get('unicode-range'), display: get('font-display') as FontDisplay },
+    };
+  });
+  monaFaces = faces;
+  return faces;
+}
+
 /** The frame's own scroll, as design/bundle/frame.js does it: the first inner column that scrolls, else the document. */
 async function scrollToEnd(page: Page): Promise<void> {
   await page.evaluate(() => {
@@ -39,6 +65,12 @@ export async function captureFrame(page: Page, frame: ManifestFrame, viewport: V
     (globalThis as { __NEARLING_FAKES__?: unknown }).__NEARLING_FAKES__ = fakes;
   }, { pet: { hold: true }, ...fixture.fakes });
   if (fixture.beforeLoad) await fixture.beforeLoad(page);
+  await page.addInitScript((faces) => {
+    for (const face of faces) {
+      const bytes = Uint8Array.from(atob(face.data), (c) => c.charCodeAt(0));
+      document.fonts.add(new FontFace(face.family, bytes, face.descriptors));
+    }
+  }, readMonaFaces());
   await page.goto(fixture.route);
   await page.evaluate(() => document.fonts.ready);
   if (fixture.prepare) await fixture.prepare(page);

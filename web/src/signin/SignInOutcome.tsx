@@ -32,17 +32,19 @@ export interface SignInLinesOptions {
   /** the text in the screen's field (the Hatch screen's name, the owner's draft), kept in the tab through a sign-in from the
    *  ended-session line */
   text?: string;
+  /** what the tap on «Sign in» carries back: the action the player was at (Skill sheet's `skill`), `signin` by default */
+  action?: 'signin' | 'skill';
 }
 
 /** What a sign-in, a read of the gate at its tap, or the end of a session left on this screen, in the order they are read. An
  *  outcome is newer than the ended session's line, which a tap on it began. A cancel has no line of its own on a desktop, so
  *  «Sign in» stays the way on. */
-export function useSignInLines({ unreachable = UNREACHABLE, text }: SignInLinesOptions = {}): SignInLine[] {
+export function useSignInLines({ unreachable = UNREACHABLE, text, action = 'signin' }: SignInLinesOptions = {}): SignInLine[] {
   const auth = useAuth();
   const outcome = useOutcome();
   const { begin, readFailed, retry, openInBrowser } = useSignIn();
   const [phone] = useState(() => thisBrowser().phone);
-  const tap = () => begin('signin', text ? { text } : undefined);
+  const tap = () => begin(action, text ? { text } : undefined);
 
   if (readFailed) return [{ text: readFailed === 'busy' ? BUSY : unreachable, action: { label: 'Try again', onClick: retry } }];
   const lines: SignInLine[] = [];

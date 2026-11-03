@@ -1,7 +1,7 @@
 # ADR-011: What a hire records on chain, and who pays the acquaintance it makes
 
-**Status:** Accepted (2026-10-28: the defaults «Принимаю все»; OD-500 → «Пул без предела», Option A; add-pet-work critic MAJOR 1–4, 2026-10-28); amended 2026-10-29 — the hire turn paid by usage (see «Paid by usage, 2026-10-29»); its point on the worker's earning — Accepted 2026-10-29 (OD-1521 → A, «Заработок — после записи в сети»); when the hirer's batch with a hire is sent — Accepted 2026-10-29 (OD-1550 → A, «Как любой разговор»)
-**Date:** 2026-10-28; amended 2026-10-29
+**Status:** Accepted (2026-10-28: the defaults «Принимаю все»; OD-500 → «Пул без предела», Option A; add-pet-work critic MAJOR 1–4, 2026-10-28); amended 2026-10-29 — the hire turn paid by usage (see «Paid by usage, 2026-10-29»); its point on the worker's earning — Accepted 2026-10-29 (OD-1521 → A, «Заработок — после записи в сети»); when the hirer's batch with a hire is sent — Accepted 2026-10-29 (OD-1550 → A, «Как любой разговор»); amended 2026-11-01 — the fee is a band (see «A band, 2026-11-01»), Accepted («Брать, цену задаёт игра», option A of the price), its skill flag Accepted (OD-1780 → «Отметка в сети»)
+**Date:** 2026-10-28; amended 2026-10-29, 2026-11-01
 **Deciders:** the user
 
 ## Context
@@ -16,7 +16,7 @@ Accepted by the user as proposed (2026-10-28, «Принимаю все»):
 - A pet met through work is recorded as one pair record {lower token id, higher token id}, read both ways — half the stake of a record on each side. It stays with the pets on a gift.
 - Hire mode and the pending Manual offer live in D1 by token id and go with the pet on a gift: switching the mode costs no gas and changes nothing public.
 - The pet decides to hire, and writes the question, in the same model call as its ordinary answer — no separate decision call (critic MAJOR 2 → «В том же вызове, что ответ», 2026-10-28). That call is whole and model-signed like every thought (OD-7) but has no receipt of its own: its bytes and signature stay with the hirer in D1, and the question it wrote is part of the worker's request, under the worker's receipt.
-- The hirer's ordinary call carries only the characters and token ids of eligible known pets, never their names (critic MAJOR 3 → «Только характеры, без имён», 2026-10-28): names are written by players, characters are assembled by the server from presets, so no player text reaches the hire decision.
+- The hirer's ordinary call carries only the characters (and, with a skill, the labels — ADR-023) of eligible known pets, each a quoted line «[n] character: …; good at: …», never their names (critic MAJOR 3 → «Только характеры, без имён», 2026-10-28) nor their token ids (code-critic core MAJOR 3 → «Без token_id, поправить спеку», 2026-11-03): names are written by players, characters are assembled by the server from presets, so no player text reaches the hire decision; the server keeps the n → token mapping.
 - At most 3 eligible known pets a turn (post-CLOSED critic MAJOR 2 → «Не больше 3 за ход», 2026-10-29), drawn at random among the eligible each turn (tech-architect default, open to the user's veto; the alternative — the 3 most recently met — favours the friend who just fed and a cacheable prompt prefix, but never again offers older acquaintances). A character is ≤ the longest preset assembly (≈ 2.4 KB ≈ 600 tokens [hypothesis: ~4 characters a token]), so the turn grows by ≤ ≈ 1,800 input tokens ≈ $0.00007 on `Qwen/Qwen3.8-27B` at $0.04 per 1M input [estimate: arithmetic; price — `near-ai` › Models and prices, 2026-10-27, volatile] (since the Init model change, 2026-10-29, ADR-005 › «Init check, 2026-10-29»; on `z-ai/glm-5.3-flash` it was ≈ $0.00015); the thought's price that covers it is §4's.
 - The pairs are read by the server from `pet_view` (`add-verification` › `Pet view contract`) before a hire (post-CLOSED critic MINOR 5 → «Читает из контракта», 2026-10-29). The known feeders are not a list the contract gives: the server keeps them as an index in D1 and checks each candidate with `pet_knows`, so the chain stays the truth (add-feeding critic MAJOR 2 → «Вести в нашей базе», 2026-10-30; `add-feeding` › `Pet knows contract`).
 - The worker's answer is a cheap-model thought (`Qwen/Qwen3.8-27B` with reasoning off, `chat_template_kwargs.enable_thinking=false`, since 2026-10-29 — ADR-005 › «Init check, 2026-10-29»; was `z-ai/glm-5.3-flash`) capped at 400 output tokens like every thought (`add-pet` › `Thought request data`).
@@ -32,8 +32,8 @@ Critic MAJOR 4 → «Только обновлением кода» (2026-10-28)
 | Dimension | Assessment |
 |-----------|------------|
 | What the player sees | nothing; a pair is known after any accepted hire |
-| Project cost | ≈ 0.0011 NEAR (≈ 0.5¢) per new pair, locked for good; ≈ 100 pairs in the playtest ≈ $0.5 [hypothesis] |
-| Stolen server key | ≤ 10 new pairs per pet a day (the job cap) → ≤ 0.011 NEAR per pet a day; 100 pets ≈ 1.1 NEAR ≈ $5 a day of the pool locked [estimate: arithmetic, NEAR ≈ $4.59] |
+| Project cost | 0.00141 NEAR (≈ 0.65¢) per new pair with one fresh partner, 0.00194 NEAR with two, locked for good [measured: 141 and 194 bytes, add-pet-work stage 1]; ≈ 100 pairs in the playtest ≈ $0.7 [hypothesis] |
+| Stolen server key | ≤ 10 new pairs per pet a day as the worker (the job cap; as a hirer a pet can join more, up to its daily cap and fee, but each pair has one worker) → ≤ ≈ 0.0194 NEAR per pet a day at the dearest measured pair (both pets fresh), ≈ 0.0141 with one fresh; 100 pets ≤ ≈ 1.94 NEAR ≈ $8.9 a day of the pool locked [estimate: arithmetic on the measured pairs, NEAR ≈ $4.59; corrected 2026-11-03] |
 | Pool empty | the hire is accepted without the record |
 | Spec | +1 Scenario (`Known pets contract` › «пул не покрывает знакомство») |
 
@@ -47,7 +47,7 @@ Critic MAJOR 4 → «Только обновлением кода» (2026-10-28)
 | Spec | +2 Scenarios (pool empty; over the per-day pair cap) and a per-day counter in the pet record |
 
 ## Trade-off Analysis
-A keeps one rule — every accepted hire makes the pair known — at a thief bound of ≈ 1.1 NEAR a day at 100 pets, the same order as the accepted birth bound (≈ 1.63 NEAR a day, OD-100, OD-1310); both drain the same pool, and an empty pool closes births (`birth_blocked {reason: pool}`), so the user notices within the day and revokes the key (ADR-002). B cuts the thief bound by ~70% at the cost of a second counter and a case where a popular pet's advice on a viral day does not introduce the pets.
+A keeps one rule — every accepted hire makes the pair known — at a thief bound of ≤ ≈ 1.94 NEAR a day at 100 pets, the same order as the accepted birth bound (≈ 1.05 NEAR a day at the measured birth of 0.02093 NEAR, §8 › `pet_mint`, OD-100, OD-1310); both drain the same pool, and an empty pool closes births (`birth_blocked {reason: pool}`), so the user notices within the day and revokes the key (ADR-002). B cuts the thief bound by ~70% at the cost of a second counter and a case where a popular pet's advice on a viral day does not introduce the pets.
 
 ## Recommendation
 Option A — one rule, the drain is bounded by the job cap and the pool, and it is of the same order as the birth bound the user already accepted.
@@ -70,8 +70,22 @@ The user's decisions at Init fix (2026-10-29): «Да, платит по фак�
 - **Re-gate fixes (the user, 2026-10-29, «Исправить все как рекомендуешь»; add-pet-work MINOR 5–7, MAJOR 1):** the work record is written only once the hirer's batch with that hire is recorded — the worker's memory, diary line and talk of its work see only recorded hires, and a rejected hire record leaves no record to withdraw (`Work record data`); a sleeping worker whose recorded earning lifts its food above one typical thought wakes as if fed, and its first thought draws on that record (`add-pet` › `Sleep and wake flow` › «разбудил заработок», `pet_woke {via: work}`); the worker's request carries the length layer, as the pet's own (`Hire request data`); a failed worker call releases its reserve like the pet's own, its tokens are the project's, and an answer without a line counts toward the paying pet's three a UTC day, beyond which the paying pet pays it by usage (ADR-005 › «No line»).
 - **Thief bound, numbers updated:** ≤ 10 fees ≈ 3.8¢ a day per worker into the thief's pet (was ≈ 5¢); births ≈ 1.6 NEAR a day (was ≈ 1.63, ADR-002 › amendment).
 
+## A band, 2026-11-01
+The user's decision of 2026-11-01 (a worker with a skill rises with the day's hires, option A of the price). The bullets above stand except where this section says otherwise: «fee = the hire fee, a constant», «Critic MAJOR 4 → Только обновлением кода» and the consequence «a batch with the old fee is rejected» are replaced here for the fee; the band itself keeps that rule.
+- **The contract checks a band, 0.00083–0.00443 NEAR:** floor ≈ 5 typical thoughts, top the 10th hire of a day, floor + 9 × 0.0004. Both are constants in its code with no method to change them; a new band is an upgrade by the user's key (ADR-003), made while no batch with a fee outside it is pending.
+- **The server names the exact fee.** A hirer's batch lands after the answer, in any order, sometimes in a new UTC day, so the contract can't recount it from its own job counter (PRODUCT.md §4 › Работа для других). A fee moves without a code update, and the published code still shows its limits.
+- **Option rejected: the contract computes the price from its counter.** It would price hires by when batches land, not by what the asker was shown, and every batch crossing midnight would be rejected or repriced.
+- **What counts** (`Hire quote data`): every pet's answers that reached an asker this UTC day, by the server's clock, with a place held from the start of the call. A failed call gives its place back, so nobody's price rises on a failure. A hire record rejected later keeps its place: the worker did answer, and quotes already shown stand.
+- **Auto's limit is 0.00163 NEAR**, the third hire's price, in NEAR so the exchange rate doesn't move it: at ≈ $4.59 it reads ≈ 0.75¢, and the fourth, 0.00203 NEAR ≈ 0.93¢, doesn't pass.
+- **The skill flag (OD-1780 → «Отметка в сети», the user, 2026-11-01):** `hire` gains a boolean, written on the server's word; the contract doesn't compare it with the fee, a stolen key sets it freely, so it proves nothing and bounds nothing. With it the chain alone tells skilled hires apart for README after the playtest table is wiped on 2026-12-01. Its cost: a permanent «this pet had a skill then» that outlives a cleared memory, with no word of the skill. ≈ 13 bytes of log, no state.
+- **The batch:** a worker's answer is one of the batch's 1–12 thoughts, its `hire` record takes no place among them. 12 receipts ≈ 11 kB and 12 `hire` events ≈ 2.4 kB stay under 16 kB and 100 logs [arithmetic: ≈ 200 bytes a `hire`, ADR-004 › Batches of at most 12; the sandbox test proves it].
+- **How a hire finds its receipt:** `debit_id` numbers the batch, and one batch can hold two answers of one worker, or an answer whose hire was dropped on a resend, so neither the number nor the order among receipts tells them apart. The hire entry travels with its answer's receipt and the contract emits `hire` right after that receipt in the log. The verification page reads the fee and the skill flag from the `hire` next to the receipt and compares them with the pointer, as it does the price. A receipt with no `hire` after it has no fee, and its skill mark is the server's word (2026-11-01, the user's «Принять все»).
+- **Thief bound:** ≤ 10 × 0.00443 ≈ 0.044 NEAR ≈ 20¢ a day per worker into the thief's pet, at the top of the band on any pet, a skill or not (was ≈ 3.8¢) [estimate: arithmetic; NEAR ≈ $4.59, volatile].
+- A skill's layer and instruction: ADR-023.
+
 ## Action Items
 1. [x] The user picks A or B (OD-500) — A, 2026-10-28.
 2. [ ] The publicity notice on Hatch screen names hires and the pets met through work (ux-architect, `add-pet` › Hatch screen).
 3. [x] The user decides OD-1521 (the worker's spent earning after a rejected hire record) — A, 2026-10-29.
 4. [x] The user decides OD-1550 (when the hirer's batch with a hire is sent) — A, 2026-10-29.
+5. [x] The user decides OD-1780 (the skill flag in `hire`) — the flag, 2026-11-01.

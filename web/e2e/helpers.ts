@@ -38,8 +38,8 @@ export async function lookAgain(page: Page): Promise<void> {
   });
 }
 
-export const PIXEL = { tokenId: '9', name: 'Pixel', stage: 'adult' as const, fullness: { state: 'full' as const, level: 1 }, mood: 'happy' as const, worn: null as OutfitSlug | null };
-export const BISCUIT = { tokenId: '2', name: 'Biscuit', stage: 'adult' as const, fullness: { state: 'full' as const, level: 1 }, mood: 'happy' as const, worn: null as OutfitSlug | null };
+export const PIXEL = { tokenId: '9', name: 'Pixel', stage: 'adult' as const, fullness: { state: 'full' as const, level: 1 }, mood: 'happy' as const, worn: null as OutfitSlug | null, skill: null as { label: string } | null };
+export const BISCUIT = { tokenId: '2', name: 'Biscuit', stage: 'adult' as const, fullness: { state: 'full' as const, level: 1 }, mood: 'happy' as const, worn: null as OutfitSlug | null, skill: null as { label: string } | null };
 export const HISTORY = [
   { id: 'c1', who: 'pet' as const, text: 'Morning! I spent the night counting the hum of your fridge.', at: 1 },
   { id: 'c2:you', who: 'player' as const, text: 'Barely. Big presentation at ten.', at: 2 },

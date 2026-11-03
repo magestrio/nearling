@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import {
   Banner,
   Button,
@@ -23,6 +23,7 @@ import {
   RailItem,
   Shell,
   Skeleton,
+  SkillBadge,
   Split,
   Stack,
   Text,
@@ -43,9 +44,13 @@ import { closeFeed, useAddNearRequest, useFeedRequest } from '../../feeding/feed
 import { FeedLayer } from '../../feeding/FeedLayer';
 import { useFeedLinkOpened } from '../../feeding/useFeedLinkOpened';
 import { energyLine } from '../../life/lines';
+import { OfferMessage, OwnLostMessage, WorkerMessage } from '../../work/hireLines';
+import { askingLine, offerLine, offerRoseLine, skillSavedLine } from '../../work/lines';
+import { SkillSheet } from '../../work/SkillSheet';
+import { useSkill } from '../../work/useSkill';
 import { formatCents } from '../../lib/price';
 import { resetTime } from '../../lib/time';
-import { hatchPath, navigate, petPath } from '../../route';
+import { hatchPath, navigate, petPath, useLocation } from '../../route';
 import { canUseWebGL } from '../../pet/flat';
 import { makePet } from '../../pet/proto/generator.js';
 import { useMotionPaused } from '../../pet/motion';
@@ -58,7 +63,8 @@ import { toastHeld, type PetView } from '../../seams/worker';
 import { SignInLines, SignInOutcome, useSignInLines } from '../../signin/SignInOutcome';
 import { useSignIn } from '../../signin/signIn';
 import { emptyPaidLine, lostLine, pausedLine, WAIT_LINE } from './lines';
-import { hasSlot, runAction, Slot, type ActionName, type Viewer } from './parts';
+import { hasSlot, peekPendingAction, runAction, Slot, takePendingAction, type ActionName, type Viewer } from './parts';
+import { takeReturnSkill } from '../../signin/returnPlace';
 import { usePetScreen, type Banner as BannerKind, type OwnerView } from './usePetScreen';
 import { useWaking } from './useWaking';
 
@@ -194,11 +200,46 @@ function OwnerPage({ pet, s }: { pet: OwnerView; s: ReturnType<typeof usePetScre
   const asleep = pet.fullness.state === 'asleep';
   const hungry = pet.fullness.state === 'hungry';
   const hello = pet.hello && !s.spoke;
-  const slot = { tokenId, name, viewer: 'owner' as const, asleep, life: { stage: pet.stage, traits: pet.traits, energy: pet.energy } };
+  const slot = {
+    tokenId,
+    name,
+    viewer: 'owner' as const,
+    asleep,
+    life: { stage: pet.stage, traits: pet.traits, energy: pet.energy },
+    hiring: { mode: pet.hireMode, set: s.setHireMode },
+  };
   const ctx = { tokenId, name, viewer: 'owner' as const };
   const birth = useBirth(tokenId);
   const { hub } = figure;
-  const cover = useFeedCover(tokenId);
+  const feedCover = useFeedCover(tokenId);
+
+  // Skill sheet (`Skill sheet screen`): the badge under the name opens it, over the conversation column like Feed sheet. The label
+  // the badge shows is the poll's, until a save or a forget of this tab says otherwise.
+  const [skillLabel, setSkillLabel] = useState<string | null | undefined>(undefined);
+  const [skillSaved, setSkillSaved] = useState(false);
+  useEffect(() => setSkillLabel(undefined), [pet.skill?.label]);
+  const label = skillLabel !== undefined ? skillLabel : (pet.skill?.label ?? null);
+  const skill = useSkill(tokenId, { tokenOf: s.tokenOf, refused: (e) => s.report(e, () => undefined) }, (next, saved) => {
+    setSkillLabel(next);
+    setSkillSaved(saved);
+  });
+  const skillShown = skill.phase === 'open' || skill.phase === 'error';
+  // the sheets cover the page the same way: the one that is open takes the column
+  const cover = { ...feedCover, open: feedCover.open || skillShown };
+  const here = useLocation();
+  // Back from the sign-in of Skill sheet's ended-session line: the sheet opens again with both fields as typed, unsaved
+  useEffect(() => {
+    if (peekPendingAction() !== 'skill') return;
+    takePendingAction();
+    void skill.open(takeReturnSkill(here) ?? undefined);
+    // once, when the owner's page is first drawn
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  const openSkill = () => {
+    if (!auth.needSession()) return;
+    closeFeed();
+    void skill.open();
+  };
 
   // The pet fell asleep while this page was open: the field goes off and keeps the focus, the Live says the sleep line, Tab
   // reaches «Feed {name}» (DS › Composer › Keyboard: no line inside the Composer takes the focus); it woke: the focus comes
@@ -232,7 +273,9 @@ function OwnerPage({ pet, s }: { pet: OwnerView; s: ReturnType<typeof usePetScre
   // Every control that needs a session asks first: with the session ended it shows the line and does nothing else
   // (`Session expiry flow` › «сессия кончилась при открытом экране»).
   const act = (name: ActionName) => {
-    if (auth.needSession()) runAction(name, ctx);
+    if (!auth.needSession()) return;
+    if (name === 'feed') skill.close();
+    runAction(name, ctx);
   };
   const feedButton = (compact: boolean, variant?: 'secondary') => (
     <Button variant={variant} size={compact ? 'compact' : undefined} icon="feed" role="food" haspopup="dialog" expanded={cover.opener || undefined} onClick={() => act('feed')}>
@@ -243,31 +286,58 @@ function OwnerPage({ pet, s }: { pet: OwnerView; s: ReturnType<typeof usePetScre
   // The newest thing the pet said is in its lead voice — while nothing is on its way, nothing failed, and only the
   // note of a reply that stopped at its limit follows it.
   const all = s.lines ?? [];
-  const lastPet = all.reduce((at, l, i) => (l.who === 'pet' ? i : at), -1);
+  // the pet's question to a worker is not the reply the turn waits for, so it never takes the lead voice
+  const lastPet = all.reduce((at, l, i) => (l.who === 'pet' && !l.question ? i : at), -1);
   const settled = !s.busy && s.failure === null;
-  const history = all.map((line, i) =>
-    line.who === 'event' ? (
-      <Message key={line.id} from="event" fresh={line.fresh}>
-        {line.text}
-      </Message>
-    ) : line.who === 'player' ? (
-      <Message key={line.id} from="player" speaker="You" fresh={line.fresh}>
-        {line.text}
-      </Message>
-    ) : (
-      <Message
-        key={line.id}
-        from="pet"
-        speaker={name}
-        fresh={line.fresh}
-        latest={settled && i === lastPet && all.slice(i + 1).every((l) => l.cutNote)}
-        verify={{ href: `/pet/${tokenId}/verify/${line.id}`, label: 'Check this thought' }}
-        meta={line.meta}
-      >
-        {line.text}
-      </Message>
-    ),
-  );
+  // The Manual offer is a card after the pet's question of its turn: open (with its buttons) while it stands and nothing answers it,
+  // its words alone once answered; the tab keeps the words.
+  const offer = pet.offer;
+  // the worker whose answer the own reply is lost after: the newest worker line
+  const lastWorker = all.reduce((at, l) => (l.who === 'worker' && l.worker ? l.worker.name : at), '');
+  const lastQuestion = all.reduce<string | null>((at, l) => (l.question ? l.id : at), null);
+  const offerCards = (afterId: string | null): ReactNode[] => [
+    ...s.answeredOffers.filter((o) => o.after === afterId).map((o) => <OfferMessage key={o.id} text={o.text} worker="" />),
+    ...(offer !== null && lastQuestion === afterId
+      ? [
+          <OfferMessage
+            key="offer"
+            text={s.rose ? offerRoseLine(offer.worker, offer.price.cents) : offerLine(name, offer.worker, offer.price.cents)}
+            worker={offer.worker}
+            buttons={s.offerBusy || s.busy ? undefined : { onAsk: s.askOffer, onDecline: s.declineOffer }}
+          />,
+        ]
+      : []),
+  ];
+  const history = [
+    ...all.flatMap((line, i): ReactNode[] => [
+      line.who === 'event' ? (
+        <Message key={line.id} from="event" fresh={line.fresh}>
+          {line.text}
+        </Message>
+      ) : line.who === 'player' ? (
+        <Message key={line.id} from="player" speaker="You" fresh={line.fresh}>
+          {line.text}
+        </Message>
+      ) : line.who === 'worker' ? (
+        <WorkerMessage key={line.id} line={line} />
+      ) : (
+        <Message
+          key={line.id}
+          from="pet"
+          speaker={name}
+          fresh={line.fresh}
+          latest={settled && i === lastPet && all.slice(i + 1).every((l) => l.cutNote)}
+          verify={{ href: `/pet/${tokenId}/verify/${line.id}`, label: 'Check this thought' }}
+          meta={line.meta}
+        >
+          {line.text}
+        </Message>
+      ),
+      ...(line.question ? offerCards(line.id) : []),
+    ]),
+    // a card with no question line to follow (the page opened on an offer whose question is not read yet) stands at the end
+    ...offerCards(null),
+  ];
 
   const card = (
     <Stack gap={3}>
@@ -343,7 +413,7 @@ function OwnerPage({ pet, s }: { pet: OwnerView; s: ReturnType<typeof usePetScre
       {signedOut ? <SignInLines lines={moreLines} /> : null}
       {asleep ? null : (
         <Only on="desktop">
-          <Slot slot="hiring" {...slot} />
+          <Slot slot="hiring" {...slot} row />
         </Only>
       )}
     </Stack>
@@ -382,6 +452,7 @@ function OwnerPage({ pet, s }: { pet: OwnerView; s: ReturnType<typeof usePetScre
             <Inert on={cover.open ? 'phone' : undefined}>
               <PetStage
                 compact
+                owner
                 pet={<PetFigure tokenId={tokenId} name={name} state={state} stage={pet.stage} mood={asleep ? null : pet.mood} size="hero" lost={figure.lost} onLost={figure.onLost} hub={hub} birth={birth} {...wearProps(pet.worn)} />}
                 motion={figure.motion}
                 rail={
@@ -397,6 +468,11 @@ function OwnerPage({ pet, s }: { pet: OwnerView; s: ReturnType<typeof usePetScre
                   <PetPlate
                     name={name}
                     compact={hasSlot('energy')}
+                    badge={
+                      asleep && !label ? undefined : (
+                        <SkillBadge name={name} label={label} owner={!asleep} expanded={skillShown || undefined} onClick={openSkill} />
+                      )
+                    }
                     fullness={{ state: pet.fullness.state, level: hungry ? pet.fullness.level : undefined }}
                     action={asleep ? null : feedButton(true, 'secondary')}
                   >
@@ -420,17 +496,20 @@ function OwnerPage({ pet, s }: { pet: OwnerView; s: ReturnType<typeof usePetScre
                       key="failure"
                       from="error"
                       actions={
-                        <Button variant="secondary" size="compact" onClick={s.retryThought}>
-                          Try again
-                        </Button>
+                        s.failure.noRetry ? undefined : (
+                          <Button variant="secondary" size="compact" onClick={s.retryThought}>
+                            Try again
+                          </Button>
+                        )
                       }
                     >
                       {s.failure.code === 'empty_paid' ? emptyPaidLine(name) : lostLine(name)}
                     </Message>
                   ) : null}
+                  {s.ownLost && !s.busy ? <OwnLostMessage key="own-lost" name={name} worker={lastWorker} onTryAgain={s.finishHire} /> : null}
                   {s.busy ? (
                     <Thinking key="thinking" wait={s.waiting ? WAIT_LINE : undefined}>
-                      {`${name} is thinking${s.jobMode === 'deep' ? ' hard' : ''}…`}
+                      {s.asking ? askingLine(name, s.asking) : `${name} is thinking${s.jobMode === 'deep' ? ' hard' : ''}…`}
                     </Thinking>
                   ) : null}
                 </Conversation>
@@ -441,10 +520,17 @@ function OwnerPage({ pet, s }: { pet: OwnerView; s: ReturnType<typeof usePetScre
                 </Dock>
               </Inert>
               <FeedLayer column pageFullness={pet.fullness} />
+              <SkillSheet name={name} skill={skill} hasLabel={label !== null} onClose={skill.close} />
             </Stack>
           }
         />
       </Page>
+      <Live>{skillSaved ? skillSavedLine(name) : ''}</Live>
+      {skillSaved ? (
+        <Toast icon="check" silent onDone={toastHeld() ? undefined : () => setSkillSaved(false)}>
+          {skillSavedLine(name)}
+        </Toast>
+      ) : null}
     </Shell>
   );
 }
@@ -462,6 +548,8 @@ function OutsiderPage({ pet, s }: { pet: Exclude<PetView, { viewer: 'owner' }>; 
   const slot = { tokenId, name, viewer, asleep };
   const me = s.me;
   const home = me?.currentPet ?? null;
+  // the label under the name, for every viewer, inert (`Skill rule` › «label on the pet's page»); none for a pet with no skill
+  const skillBadge = pet.skill ? <SkillBadge name={name} label={pet.skill.label} /> : undefined;
   // a guest who never hatched is offered a pet of their own
   const fresh = viewer === 'guest' && me !== null && me.hatched === null;
   // a guest with a pet of their own would have the advice column (add-pet-work); without it the page stands as the visitor's
@@ -486,10 +574,98 @@ function OutsiderPage({ pet, s }: { pet: Exclude<PetView, { viewer: 'owner' }>; 
   );
   // a friend's meal wakes the pet on this screen too: the boot, as on the owner's page
   const waking = useWaking(asleep);
-  const state = waking ? 'waking' : pet.fullness.state;
+  // what the advice column tells the page: a question on its way gives the friend's pet its thinking face
+  const [adviceStatus, setAdviceStatus] = useState({ thinking: false, cantPay: false });
+  const onAdviceStatus = useCallback(
+    (next: { thinking: boolean; cantPay: boolean }) => setAdviceStatus((now) => (now.thinking === next.thinking && now.cantPay === next.cantPay ? now : next)),
+    [],
+  );
+  const state = waking ? 'waking' : adviceStatus.thinking && !asleep ? 'thinking' : pet.fullness.state;
   // the pet falls asleep or wakes while this page is open (it re-reads by itself): the line is said by the page's own region
   const asleepLine = `${name} is asleep — food from you would wake ${name} up.`;
   const covered = cover.open ? 'phone' : undefined;
+  // The connection line is drawn silent over the pet and said by a region of the page; the pet given away under a clear says its
+  // words in a Toast — silent, the screen's own Live says them
+  const tail = (
+    <>
+      <Live>{bannerLine(s.banner, name)}</Live>
+      {s.notice ? (
+        <Toast icon="check" silent onDone={toastHeld() ? undefined : s.clearNotice}>
+          {s.notice}
+        </Toast>
+      ) : null}
+    </>
+  );
+
+  // A guest with a pet of their own asks the friend's pet for advice (add-pet-work › Advice flow): the frame `guestAdvice` — the pet
+  // at the left with «Feed {name}» beside the name on the phone and under the plate on the desktop, the advice log and its field at
+  // the right where the owner's conversation stands, Feed sheet taking the column's place when it opens.
+  if (viewer === 'guest' && home !== null && hasSlot('advice')) {
+    const feedBeside = (compact: boolean) => (
+      <Button
+        size={compact ? 'compact' : undefined}
+        variant={adviceStatus.cantPay ? 'secondary' : undefined}
+        icon="feed"
+        role={adviceStatus.cantPay ? 'food' : undefined}
+        haspopup="dialog"
+        expanded={cover.opener || undefined}
+        onClick={() => auth.needSession() && runAction('feed', ctx)}
+      >
+        {`Feed ${name}`}
+      </Button>
+    );
+    const advice = {
+      payer: home,
+      tokenOf: s.tokenOf,
+      report: s.report,
+      payerChanged: s.refreshMe,
+      onStatus: onAdviceStatus,
+      look: () => void s.look(),
+      covered: cover.open,
+      check: <CheckLink tokenId={tokenId} name={name} />,
+      offline: offlineLine(name),
+      carried: s.carried,
+      takeCarried: s.takeCarried,
+    };
+    return (
+      <Shell accent={accentOf(tokenId)} fill header={<Inert on={covered}>{header}</Inert>}>
+        <Page fill>
+          <ConnectionBanner banner={s.banner} name={name} tryAgain={s.tryAgain} />
+          <Split
+            fill
+            ratio="start"
+            start={
+              <Inert on={covered}>
+                <PetStage
+                  compact
+                  pet={<PetFigure tokenId={tokenId} name={name} state={state} stage={pet.stage} mood={asleep ? null : pet.mood} size="hero" lost={figure.lost} onLost={figure.onLost} hub={figure.hub} {...wearProps(pet.worn)} />}
+                  motion={figure.motion}
+                  plate={
+                    <PetPlate name={name} compact badge={skillBadge} fullness={{ state: pet.fullness.state, level: pet.fullness.state === 'hungry' ? pet.fullness.level : undefined }}>
+                      <Only on="phone">{feedBeside(true)}</Only>
+                    </PetPlate>
+                  }
+                  foot={
+                    <Stack gap={2} align="center">
+                      {feedBeside(false)}
+                      <CheckLink tokenId={tokenId} name={name} />
+                    </Stack>
+                  }
+                />
+              </Inert>
+            }
+            end={
+              <Stack gap={0} grow>
+                <Slot slot="advice" {...slot} advice={advice} />
+                <FeedLayer column pageFullness={pet.fullness} />
+              </Stack>
+            }
+          />
+        </Page>
+        {tail}
+      </Shell>
+    );
+  }
   return (
     <Shell accent={accentOf(tokenId)} fill header={<Inert on={covered}>{header}</Inert>}>
       <Inert on={covered}>
@@ -519,21 +695,14 @@ function OutsiderPage({ pet, s }: { pet: Exclude<PetView, { viewer: 'owner' }>; 
             <PetStage
               pet={<PetFigure tokenId={tokenId} name={name} state={state} stage={pet.stage} mood={asleep ? null : pet.mood} size="hero" lost={figure.lost} onLost={figure.onLost} hub={figure.hub} {...wearProps(pet.worn)} />}
               motion={figure.motion}
-              plate={<PetPlate name={name} fullness={{ state: pet.fullness.state, level: pet.fullness.state === 'hungry' ? pet.fullness.level : undefined }} />}
+              plate={<PetPlate name={name} badge={skillBadge} fullness={{ state: pet.fullness.state, level: pet.fullness.state === 'hungry' ? pet.fullness.level : undefined }} />}
               foot={<CheckLink tokenId={tokenId} name={name} />}
             />
           </Centerpiece>
         </Page>
       </Inert>
       <FeedLayer pageFullness={pet.fullness} />
-      {/* the connection line is drawn silent over the pet, and said here */}
-      <Live>{bannerLine(s.banner, name)}</Live>
-      {/* the pet was given away under a clear: the Toast is silent, the screen's own Live says its words */}
-      {s.notice ? (
-        <Toast icon="check" silent onDone={toastHeld() ? undefined : s.clearNotice}>
-          {s.notice}
-        </Toast>
-      ) : null}
+      {tail}
     </Shell>
   );
 }

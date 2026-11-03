@@ -15,12 +15,49 @@ export interface Life {
   energy: number;
 }
 
+/** How the owner's pet hires and the switch for it (add-pet-work › Hire mode rule): given by the owner's page alone. */
+export interface Hiring {
+  mode: 'auto' | 'manual';
+  set: (mode: 'auto' | 'manual') => void;
+}
+
+/** What the guest's advice column needs of the page it stands on (add-pet-work › Advice flow): given by the guest page with a pet of
+ *  its own alone. */
+export interface Advice {
+  /** the player's own pet that pays */
+  payer: { tokenId: string; name: string };
+  /** a session token (null: signed out) or a `401` thrown when the session ended */
+  tokenOf: () => Promise<string | null>;
+  /** a failed request of the column: the connection line of the page, a lost session, a dead address */
+  report: (e: unknown, retry: () => void) => void;
+  /** the payer is not the player's pet any more: the page reads who the player's current pet is again */
+  payerChanged: () => void;
+  /** the friend's pet is read again (it fell asleep under a question, the price moved) */
+  look: () => void;
+  /** what the column tells the page it stands on: a question is on its way (the friend's pet thinks, its face too) and the own pet
+   *  can't pay («Feed your {my_pet}» is the one filled action, «Feed {name}» steps down) */
+  onStatus: (status: { thinking: boolean; cantPay: boolean }) => void;
+  /** the Feed sheet or another sheet covers the page: the column is out of reach */
+  covered: boolean;
+  /** «Check it's really {name}», the card before the first line of the phone's log */
+  check: ReactNode;
+  /** the page's «Can't reach {name}» line, for a sign-in that could not be read */
+  offline: string;
+  /** the text a sign-in from the ended-session line brought back, to put in the field once */
+  carried: string | null;
+  takeCarried: () => void;
+}
+
 export interface SlotProps {
   tokenId: string;
   name: string;
   viewer: Viewer;
   asleep: boolean;
   life?: Life;
+  hiring?: Hiring;
+  advice?: Advice;
+  /** the slot stands in a row (under the desktop's input), not stacked (the phone's card) */
+  row?: boolean;
 }
 
 export type SlotName = 'energy' | 'growth' | 'hiring' | 'advice' | 'account';
@@ -69,13 +106,18 @@ export function runAction(name: ActionName, context: ActionContext): boolean {
 
 // «Feed {name}» tapped without a session: the place and the action wait in the tab through the sign-in, and the
 // screen the player returns to runs the action once (add-pet › Pet screen › «signed-out»).
-let pendingAction: 'feed' | null = null;
+// The line of Skill sheet's ended session does the same with `skill`: the owner's page opens the sheet again.
+let pendingAction: 'feed' | 'skill' | null = null;
 
-export function queueAction(action: 'feed' | undefined): void {
+export function queueAction(action: 'feed' | 'skill' | undefined): void {
   pendingAction = action ?? null;
 }
 
-export function takePendingAction(): 'feed' | null {
+export function peekPendingAction(): 'feed' | 'skill' | null {
+  return pendingAction;
+}
+
+export function takePendingAction(): 'feed' | 'skill' | null {
   const action = pendingAction;
   pendingAction = null;
   return action;

@@ -496,17 +496,119 @@
 .ds-plate--start { align-items: flex-start; text-align: start; }
 .ds-plate--start .ds-plate__state, .ds-plate--start .ds-plate__extras { justify-content: flex-start; }
 /* compact (the owner's phone): the extras (energy) beside the name, the fullness with its action under both */
-.ds-plate--compact {
-  display: grid;
-  grid-template-columns: auto auto;
-  grid-template-areas: "name extras" "state state";
-  justify-content: center;
-  align-items: center;
-  gap: var(--space-2) var(--space-4);
+.ds-plate__badge { display: flex; justify-content: center; }
+.ds-plate--start .ds-plate__badge { justify-content: flex-start; }
+/* the phone's compact plate (the desktop keeps the plate's column): the name with its extras (the owner's energy, the
+   guest's «Feed {name}»); the fullness on a line of its own; then the skill's badge beside the action («Feed {name}»)
+   on their own line — each line sized by itself, so the badge costs no row and never squeezes (add-pet-work critic
+   layout B1, 2026-11-03) */
+@media not all and (min-width: 768px) {
+  .ds-plate--compact { flex-direction: row; flex-wrap: wrap; justify-content: center; align-items: center; gap: var(--space-1) var(--space-2); }
+  .ds-plate--compact .ds-plate__name { order: 1; }
+  .ds-plate--compact .ds-plate__extras { order: 2; }
+  .ds-plate--compact .ds-plate__state { display: contents; }
+  .ds-plate--compact .ds-plate__state > .ds-fullness { order: 3; flex-basis: 100%; justify-content: center; }
+  .ds-plate--compact .ds-plate__badge { order: 4; }
+  .ds-plate--compact .ds-plate__state > :not(.ds-fullness) { order: 5; }
+  .ds-plate--compact .ds-skill-badge { padding-inline: var(--space-2); }
 }
-.ds-plate--compact .ds-plate__name { grid-area: name; }
-.ds-plate--compact .ds-plate__extras { grid-area: extras; }
-.ds-plate--compact .ds-plate__state { grid-area: state; }
+
+/* ── Skill badge: the pet's skill under its name, «Good at {label}» with its gem; the owner's opens Skill sheet ── */
+.ds-skill-badge {
+  box-sizing: border-box;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: var(--size-target-compact);
+  margin: var(--space-0);
+  padding: var(--space-1) var(--space-3);
+  border: var(--stroke-control) solid transparent;
+  border-radius: var(--radius-sm);
+  background: var(--color-bg-raised-2);
+  color: var(--color-text-primary);
+  font-family: inherit;
+}
+.ds-skill-badge .ds-icon { flex: none; color: var(--color-role-trust); }
+.ds-skill-badge--button {
+  min-height: var(--size-target);
+  border-color: var(--color-line-border);
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition: background-color var(--duration-micro) var(--easing-standard);
+}
+.ds-skill-badge--empty, .ds-skill-badge--preview { border-color: var(--color-line-border); border-style: dashed; background: transparent; color: var(--color-text-secondary); }
+.ds-skill-badge--empty .ds-icon, .ds-skill-badge--preview .ds-icon { color: var(--color-text-secondary); }
+@media (hover: hover) {
+  .ds-skill-badge--button:hover { background: var(--color-line-hairline); }
+}
+.ds-skill-badge--button:focus-visible { outline: var(--stroke-focus) solid var(--color-focus); outline-offset: var(--stroke-focus-offset); }
+.ds-skill-badge--button[aria-expanded="true"] { border-color: var(--color-selected); border-style: solid; }
+@media (min-width: 768px) {
+  .ds-skill-badge--button { min-height: var(--size-target-compact); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ds-skill-badge--button { transition: none; }
+}
+@media (forced-colors: active) {
+  .ds-skill-badge { border-color: CanvasText; }
+  .ds-skill-badge .ds-icon { color: currentColor; }
+}
+
+/* ── Sockets: a skill's data sources (round) and its code (square), each opening its sheet ──────────────── */
+.ds-sockets { display: flex; flex-direction: column; gap: var(--space-3); }
+.ds-sockets__list {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: var(--space-4) var(--space-2);
+  margin: var(--space-0);
+  padding: var(--space-0);
+  list-style: none;
+}
+.ds-sockets__item { display: flex; flex-direction: column; align-items: center; gap: var(--space-1); text-align: center; }
+.ds-socket {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-2);
+  width: 100%;
+  padding: var(--space-0);
+  border: var(--space-0);
+  background: transparent;
+  color: var(--color-text-primary);
+  font-family: inherit;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.ds-socket__disc {
+  box-sizing: border-box;
+  display: grid;
+  place-items: center;
+  width: var(--size-rail-disc);
+  height: var(--size-rail-disc);
+  border: var(--stroke-selected) solid var(--color-role-trust);
+  border-radius: var(--radius-full);
+  background: var(--color-bg-raised-2);
+  color: var(--color-role-trust);
+  transition: background-color var(--duration-micro) var(--easing-standard);
+}
+.ds-socket--code .ds-socket__disc { border-radius: var(--radius-md); }
+.ds-socket--empty .ds-socket__disc { border: var(--stroke-control) dashed var(--color-line-border); background: transparent; color: var(--color-text-primary); }
+.ds-socket__label { text-wrap: balance; overflow-wrap: anywhere; }
+.ds-socket__note { margin: var(--space-0); color: var(--color-text-secondary); text-wrap: balance; }
+.ds-socket:disabled { cursor: default; color: var(--color-text-disabled); }
+.ds-socket:disabled .ds-socket__disc { border-color: var(--color-line-hairline); color: var(--color-line-border); }
+@media (hover: hover) {
+  .ds-socket:not(:disabled):hover .ds-socket__disc { background: var(--color-line-hairline); }
+}
+.ds-socket:focus-visible { outline: none; }
+.ds-socket:focus-visible .ds-socket__disc { outline: var(--stroke-focus) solid var(--color-focus); outline-offset: var(--stroke-focus-offset); }
+@media (prefers-reduced-motion: reduce) {
+  .ds-socket__disc { transition: none; }
+}
+@media (forced-colors: active) {
+  .ds-socket__disc { border-color: CanvasText; color: CanvasText; }
+  .ds-socket:disabled .ds-socket__disc { border-color: GrayText; color: GrayText; }
+}
 
 /* ── Pet stage: the pet, the rail at its right, the plate under it where its light falls ────────────────── */
 .ds-stage {
@@ -527,8 +629,15 @@
 .ds-stage--compact { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; }
 .ds-stage--compact .ds-stage__plate { flex: 1 0 100%; }
 .ds-stage--compact .ds-pet--hero .ds-pet__img { max-height: var(--size-pet-compact-max-height); }
+/* the owner's phone, awake or asleep: the pet a little smaller, so the conversation keeps its room at 390×650 even when
+   a long skill label or name wraps the plate (the user, 2026-11-03: «A · Питомец чуть меньше», «A · Кегль + сон»;
+   add-pet-work critic layout B1 rechecks) */
+@media not all and (min-width: 768px) {
+  .ds-stage--compact.ds-stage--owner .ds-pet--hero .ds-pet__img { max-height: var(--size-pet-compact-owner-max-height); }
+}
 .ds-stage--compact .ds-stage__foot { display: none; }
 .ds-stage--compact .ds-rail__item { position: relative; width: auto; }
+.ds-stage--compact .ds-rail { display: grid; grid-template-columns: repeat(2, auto); gap: var(--space-2); }
 .ds-stage--compact .ds-rail__label {
   position: absolute;
   width: var(--stroke-hairline);
@@ -549,6 +658,187 @@
   overflow: hidden;
   clip-path: inset(50%);
   white-space: nowrap;
+}
+
+/* ── Away: the pet out on an errand — its pool of light, a dotted path from it to «?», a walker on it ─────── */
+.ds-away { position: relative; display: grid; place-items: end center; width: var(--size-pet-compact-owner-max-height); height: var(--size-pet-compact-owner-max-height); }
+@media (min-width: 768px) {
+  .ds-away, .ds-stage--compact .ds-away { width: min(var(--size-pet-hero), var(--size-pet-hero-max-height-desktop)); height: min(var(--size-pet-hero), var(--size-pet-hero-max-height-desktop)); }
+}
+.ds-away__pool {
+  width: 70%;
+  aspect-ratio: 3 / 1;
+  border-radius: var(--radius-full);
+  background: radial-gradient(closest-side, var(--color-accent), transparent);
+  opacity: var(--opacity-nest);
+}
+/* the path runs from the pool out to the left, away from «Pause motion» at the figure's right corner */
+.ds-away__path { position: absolute; inset-inline: 12% 50%; inset-block-end: 12%; border-block-end: var(--stroke-selected) dotted var(--color-line-border); }
+.ds-away__walker {
+  position: absolute;
+  inset-block-start: calc(50% - var(--size-dot) / 2);
+  inset-inline-start: 0;
+  width: var(--size-dot);
+  height: var(--size-dot);
+  border-radius: var(--radius-full);
+  background: var(--color-accent);
+  animation: ds-away-walk var(--duration-breathe) var(--easing-standard) infinite alternate;
+}
+@keyframes ds-away-walk {
+  from { inset-inline-start: 100%; }
+  to { inset-inline-start: 0; }
+}
+.ds-away__mark { position: absolute; inset-inline-start: 0; inset-block-end: 8%; color: var(--color-text-secondary); }
+@media (prefers-reduced-motion: reduce) {
+  .ds-away__walker { animation: none; }
+}
+@media (forced-colors: active) {
+  .ds-away__pool { display: none; }
+  .ds-away__path { border-color: CanvasText; }
+  .ds-away__walker { forced-color-adjust: none; background: CanvasText; }
+}
+
+/* ── Missions: the errand's three forms as cards to pick from ────────────────────────────────────────────── */
+.ds-missions { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--space-2); }
+.ds-mission {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  min-height: var(--size-target);
+  padding: var(--space-3);
+  border: var(--stroke-control) solid var(--color-line-border);
+  border-radius: var(--radius-md);
+  background: var(--color-bg-raised-2);
+  color: var(--color-text-primary);
+  transition: background-color var(--duration-micro) var(--easing-standard);
+}
+.ds-mission--on { border: var(--stroke-selected) solid var(--color-selected); }
+/* the radio covers the card: its hit area is the card's */
+.ds-mission__input { position: absolute; inset: 0; width: 100%; height: 100%; margin: var(--space-0); opacity: 0; cursor: pointer; }
+.ds-mission:has(.ds-mission__input:focus-visible) { outline: var(--stroke-focus) solid var(--color-focus); outline-offset: var(--stroke-focus-offset); }
+/* the phone's rows compact: the icon inline with the name; the desktop's cards give it a tile */
+.ds-mission__icon { display: grid; flex: none; place-items: center; color: var(--color-role); }
+.ds-mission__check { display: flex; color: var(--color-text-primary); }
+@media (hover: hover) {
+  .ds-mission:hover { background: var(--color-line-hairline); }
+}
+@media (min-width: 768px) {
+  .ds-missions { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .ds-mission__icon { width: var(--size-target); height: var(--size-target); border-radius: var(--radius-md); background: var(--color-bg-raised); }
+  .ds-mission { flex-direction: column; align-items: flex-start; }
+  .ds-mission__check { position: absolute; inset-block-start: var(--space-3); inset-inline-end: var(--space-3); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ds-mission { transition: none; }
+}
+@media (forced-colors: active) {
+  .ds-mission { border-color: CanvasText; }
+  .ds-mission--on { border-color: Highlight; }
+}
+
+/* ── ShareCard: the «Is it true?» result card, square, a picture of a moment ──────────────────────────────── */
+.ds-share-card {
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  width: min(var(--size-content-narrow), 100%);
+  aspect-ratio: 1;
+  margin: var(--space-0) auto;
+  padding: var(--space-5);
+  border: var(--stroke-hairline) solid var(--color-line-hairline);
+  border-radius: var(--radius-xl);
+  background: var(--color-bg-raised-2);
+}
+.ds-share-card__who { display: flex; align-items: center; gap: var(--space-3); }
+.ds-share-card__name { display: flex; flex-direction: column; }
+.ds-share-card__form, .ds-share-card__foot, .ds-share-card__link { color: var(--color-text-secondary); }
+.ds-share-card__claim { margin: var(--space-0); }
+.ds-share-card__line { margin: var(--space-0); }
+.ds-share-card__moment { display: flex; align-items: flex-end; justify-content: space-between; gap: var(--space-3); }
+.ds-share-card__moment .ds-pet { flex: 0 1 auto; min-width: var(--space-0); }
+.ds-share-card__stamp { flex: none; margin-block-end: var(--space-0); padding: var(--space-2) var(--space-4); }
+.ds-share-card__foot { display: flex; flex-direction: column; gap: var(--space-1); margin-block-start: auto; }
+.ds-share-card__link { overflow-wrap: anywhere; }
+@media (forced-colors: active) {
+  .ds-share-card { border-color: CanvasText; }
+}
+
+/* ── ToolList: an adapter's tools, each a checkbox row ──────────────────────────────────────────────────── */
+.ds-tools { display: flex; flex-direction: column; gap: var(--space-2); margin: var(--space-0); padding: var(--space-0); list-style: none; }
+.ds-tool {
+  position: relative;
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-3);
+  padding: var(--space-3);
+  border: var(--stroke-hairline) solid var(--color-line-hairline);
+  border-radius: var(--radius-md);
+}
+/* the checkbox covers the row: its hit area is the row's; the drawn box shows its state */
+.ds-tool__check { position: absolute; inset: 0; width: 100%; height: 100%; margin: var(--space-0); opacity: 0; cursor: pointer; }
+.ds-tool__check:disabled { cursor: default; }
+.ds-tool__box {
+  box-sizing: border-box;
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: var(--size-icon);
+  height: var(--size-icon);
+  border: var(--stroke-control) solid var(--color-line-border);
+  border-radius: var(--radius-sm);
+  color: transparent;
+}
+.ds-tool__check:checked + .ds-tool__box { border-color: var(--color-text-primary); background: var(--color-text-primary); color: var(--color-text-on-accent); }
+.ds-tool__check:focus-visible + .ds-tool__box { outline: var(--stroke-focus) solid var(--color-focus); outline-offset: var(--stroke-focus-offset); }
+.ds-tool__label { display: flex; flex-direction: column; gap: var(--space-1); }
+.ds-tool__label label { cursor: pointer; }
+.ds-tool__desc { color: var(--color-text-secondary); }
+.ds-tool--off .ds-tool__label .type-mono { color: var(--color-text-secondary); cursor: default; }
+.ds-tool--off .ds-tool__box { border-color: var(--color-line-hairline); }
+@media (forced-colors: active) {
+  .ds-tool__box { border-color: CanvasText; }
+  .ds-tool__check:checked + .ds-tool__box { forced-color-adjust: none; background: Highlight; color: HighlightText; }
+}
+
+/* ── Catalog: the published adapters, one column of entries ──────────────────────────────────────────────── */
+.ds-catalog { display: flex; flex-direction: column; gap: var(--space-3); margin: var(--space-0); padding: var(--space-0); list-style: none; }
+.ds-catalog__entry {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-4);
+  border: var(--stroke-hairline) solid var(--color-line-hairline);
+  border-radius: var(--radius-lg);
+  background: var(--color-bg-raised);
+}
+.ds-catalog__head { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: var(--space-2); }
+.ds-catalog__name { margin: var(--space-0); }
+.ds-catalog__from { display: inline-flex; align-items: center; gap: var(--space-2); color: var(--color-text-secondary); }
+.ds-catalog__address { color: var(--color-text-secondary); overflow-wrap: anywhere; }
+.ds-catalog__tools { display: flex; flex-direction: column; gap: var(--space-1); margin: var(--space-0); padding: var(--space-0); list-style: none; }
+.ds-catalog__action { display: flex; justify-content: flex-end; padding-block-start: var(--space-2); }
+@media (forced-colors: active) {
+  .ds-catalog__entry { border-color: CanvasText; }
+}
+
+/* ── Console: the code's test output ────────────────────────────────────────────────────────────────────── */
+.ds-console {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-3) var(--space-4);
+  border: var(--stroke-hairline) solid var(--color-line-hairline);
+  border-radius: var(--radius-md);
+  background: var(--color-bg-canvas);
+}
+.ds-console__title { display: flex; align-items: flex-start; gap: var(--space-2); margin: var(--space-0); }
+.ds-console__icon { display: flex; flex: none; align-items: center; height: var(--size-line); }
+.ds-console--error .ds-console__icon { color: var(--color-error); }
+.ds-console__out { margin: var(--space-0); color: var(--color-text-secondary); white-space: pre-wrap; overflow-wrap: anywhere; }
+@media (forced-colors: active) {
+  .ds-console { border-color: CanvasText; }
 }
 
 /* ── Rail: round labelled buttons beside the pet ──────────────────────────────────────────────────────────── */
@@ -592,6 +882,18 @@
 .ds-rail__item:focus-visible { outline: none; }
 .ds-rail__item:focus-visible .ds-rail__disc { outline: var(--stroke-focus) solid var(--color-focus); outline-offset: var(--stroke-focus-offset); }
 .ds-rail__item[aria-expanded="true"] .ds-rail__disc { border-color: var(--color-selected); }
+/* off: the disc keeps its place, its icon at the 3:1 border grey, no hover or press */
+.ds-rail__item--off { cursor: default; }
+.ds-rail__item--off .ds-rail__disc,
+.ds-rail__item--off[data-role] .ds-rail__disc { background: var(--color-bg-raised); color: var(--color-line-border); }
+.ds-rail__item--off .ds-rail__label { color: var(--color-text-secondary); }
+.ds-rail__item--off:active .ds-rail__disc { transform: none; }
+@media (hover: hover) {
+  .ds-rail__item--off:hover .ds-rail__disc { background: var(--color-bg-raised); }
+}
+@media (forced-colors: active) {
+  .ds-rail__item--off .ds-rail__disc { color: GrayText; }
+}
 @media (prefers-reduced-motion: reduce) {
   .ds-rail__disc { transition: none; }
   .ds-rail__item:active .ds-rail__disc { transform: none; }
@@ -615,6 +917,7 @@
   --ds-fade: var(--fade-edge-compact);
   -webkit-mask-image: linear-gradient(to bottom, transparent, var(--color-bg-canvas) var(--ds-fade));
   mask-image: linear-gradient(to bottom, transparent, var(--color-bg-canvas) var(--ds-fade));
+  scroll-padding-block-start: var(--ds-fade);
 }
 .ds-convo__list {
   box-sizing: border-box;
@@ -625,7 +928,8 @@
   min-height: 100%;
   margin: var(--space-0);
   /* no bottom padding on the phone: the Dock's own top space is the gap to the input */
-  padding: var(--ds-fade) var(--space-0) var(--space-0);
+  /* at its end only the room a focus ring on the last control needs, so a pill there is never cut */
+  padding: var(--ds-fade) var(--space-0) calc(var(--stroke-focus) + var(--stroke-focus-offset) + var(--space-1));
   list-style: none;
 }
 /* the card before the first line: about the pet, not a line of the conversation */
@@ -646,20 +950,37 @@
 .ds-message--fresh { animation: ds-message-in var(--duration-short) var(--easing-enter) both; }
 .ds-message__bubble { padding: var(--space-3) var(--space-4); border-radius: var(--radius-lg); background: var(--color-bg-raised-2); overflow-wrap: anywhere; }
 .ds-message--pet .ds-message__bubble { border-end-start-radius: var(--radius-sm); }
-.ds-message--player { align-self: flex-end; align-items: flex-end; }
+.ds-message--player { align-self: flex-end; align-items: flex-end; max-width: var(--size-bubble-player); }
 .ds-message--player .ds-message__bubble { border-end-end-radius: var(--radius-sm); background: var(--color-line-hairline); }
 /* the pet's newest line is its voice beside it: no bubble, the lead size */
 .ds-message--latest .ds-message__bubble { padding: var(--space-0); background: transparent; }
 .ds-message--worker .ds-message__bubble { border: var(--stroke-hairline) solid var(--color-line-hairline); background: var(--color-bg-raised); }
 /* not a control: a raised card with a hairline, its buttons the only things that act */
 .ds-message--offer .ds-message__bubble { border: var(--stroke-hairline) solid var(--color-line-hairline); background: var(--color-bg-raised); }
+.ds-message--report .ds-message__bubble { border: var(--stroke-hairline) solid var(--color-line-hairline); background: var(--color-bg-raised); }
+.ds-message__kicker { display: block; margin-block-end: var(--space-1); color: var(--color-text-secondary); }
+.ds-message__stamp {
+  display: inline-flex;
+  align-items: center;
+  align-self: flex-start;
+  gap: var(--space-2);
+  margin-block-end: var(--space-2);
+  padding: var(--space-1) var(--space-3);
+  border: var(--stroke-selected) solid var(--color-text-primary);
+  border-radius: var(--radius-sm);
+  color: var(--color-text-primary);
+}
+.ds-message__sources { display: flex; flex-direction: column; gap: var(--space-1); margin-block-start: var(--space-3); }
+.ds-message__source-list { display: flex; flex-wrap: wrap; gap: var(--space-1) var(--space-4); margin: var(--space-0); padding: var(--space-0); list-style: none; }
 .ds-message--event { align-self: center; align-items: center; max-width: var(--size-measure); text-align: center; }
 .ds-message--event .ds-message__bubble { padding: var(--space-0); background: transparent; color: var(--color-text-secondary); }
 .ds-message--error .ds-message__bubble { padding: var(--space-0); background: transparent; }
 .ds-message__speaker { display: inline-flex; align-items: center; gap: var(--space-2); color: var(--color-text-secondary); }
 .ds-message__dot { width: var(--size-dot); height: var(--size-dot); border-radius: var(--radius-full); background: var(--color-accent); }
 .ds-message__actions { display: flex; flex-wrap: wrap; gap: var(--space-2); padding-block-start: var(--space-2); }
-.ds-message__foot { display: flex; align-items: center; gap: var(--space-1); color: var(--color-text-secondary); }
+.ds-message__foot { display: flex; align-items: flex-start; gap: var(--space-1); color: var(--color-text-secondary); }
+.ds-message__foot .ds-message__meta { padding-block-start: calc((var(--size-target) - var(--size-line)) / 2); }
+.ds-message__meta { display: flex; flex-direction: column; gap: var(--space-1); }
 .ds-message__verify {
   display: inline-grid;
   flex: none;
@@ -751,6 +1072,7 @@
 .ds-field { display: flex; flex-direction: column; gap: var(--space-2); width: 100%; }
 .ds-field__label { color: var(--color-text-primary); }
 .ds-field__hints { display: flex; flex-direction: column; gap: var(--space-1); }
+.ds-field__label { display: inline-flex; align-items: center; gap: var(--space-2); }
 /* the field and its button: stacked on the phone with the error and the hint between them (the hint sits under the
    field it speaks of), side by side on the desktop */
 .ds-field__row { display: contents; }
@@ -766,7 +1088,13 @@
   color: var(--color-text-primary);
   font-family: inherit;
 }
+/* mono — an address, code: the mono family at the body size (16 px, so iOS doesn't zoom) */
+.ds-field__input--mono { font-family: var(--font-mono); font-variant-ligatures: none; }
 .ds-field__input--multiline { resize: none; field-sizing: content; overflow-wrap: anywhere; }
+.ds-field__input--multiline:not([readonly]) { field-sizing: fixed; }
+/* grow — an editable long text that grows with its words (the code): no scroll of its own inside a sheet's scroll */
+.ds-field__input--grow:not([readonly]) { field-sizing: content; min-height: var(--size-field-grow-min); }
+.ds-field__count { align-self: flex-end; color: var(--color-text-secondary); font-variant-numeric: tabular-nums; }
 .ds-field__input::placeholder { color: var(--color-text-secondary); opacity: 1; }
 .ds-field__input[aria-invalid="true"] { border-color: var(--color-error); }
 .ds-field__input:disabled { border-color: var(--color-line-hairline); background: var(--color-bg-raised); color: var(--color-text-disabled); }
@@ -947,6 +1275,9 @@
 .ds-sheet__title:focus-visible { outline: none; }
 .ds-sheet__sub { padding-inline: var(--space-4); }
 .ds-sheet__body { display: flex; flex-direction: column; gap: var(--space-4); min-height: var(--space-0); overflow-y: auto; overscroll-behavior: contain; padding: var(--space-3) var(--space-4) var(--space-2); }
+.ds-sheet__foot { display: flex; flex-direction: column; gap: var(--space-2); padding: var(--space-3) var(--space-4) var(--space-0); border-block-start: var(--stroke-hairline) solid var(--color-line-hairline); }
+.ds-sheet-layer--wide .ds-sheet { height: var(--size-sheet-max-height); }
+.ds-sheet-layer--wide .ds-sheet__body { flex: 1 1 auto; }
 @keyframes ds-sheet-up { from { transform: translateY(var(--shift-enter)); opacity: 0; } to { transform: none; opacity: 1; } }
 @keyframes ds-sheet-in { from { transform: translateX(var(--shift-enter)); opacity: 0; } to { transform: none; opacity: 1; } }
 /* the layer's selector outranks the desktop's own animation-name */
@@ -1210,6 +1541,7 @@
   /* the strong scrim: the page's own primary must not read as the dialog's third button */
   .ds-sheet-layer--centered .ds-sheet__scrim { display: block; background: var(--color-scrim-strong); }
   .ds-sheet-layer--centered .ds-sheet { max-height: 100%; border: var(--stroke-hairline) solid var(--color-line-hairline); border-radius: var(--radius-xl); animation-name: ds-sheet-fade; }
+  .ds-sheet-layer--wide .ds-sheet { width: var(--size-content); height: auto; }
   .ds-menu { inset-inline-end: max(var(--space-gutter-desktop), calc((100% - var(--size-content-wide)) / 2 + var(--space-gutter-desktop))); }
   .ds-actions { flex-direction: row; flex-wrap: wrap; justify-content: center; }
   .ds-centerpiece { justify-content: center; gap: var(--space-5); }
@@ -1254,9 +1586,11 @@
   .ds-stage--compact .ds-pet--hero .ds-pet__img { max-height: var(--size-pet-hero-max-height-desktop); }
   .ds-stage--compact .ds-stage__foot { display: flex; }
   .ds-stage--compact .ds-rail__item { position: static; width: var(--size-rail-label); }
+  .ds-stage--compact .ds-rail { display: flex; gap: var(--space-3); }
   .ds-stage--compact .ds-rail__label { position: static; width: auto; height: auto; overflow: visible; clip-path: none; white-space: normal; }
   .ds-stage--compact .ds-stage__motion .ds-button { width: auto; padding-inline: var(--space-3); }
   .ds-stage--compact .ds-stage__motion .ds-button__label { position: static; width: auto; height: auto; overflow: visible; clip-path: none; white-space: nowrap; }
   .ds-message__verify { width: var(--size-target-compact); height: var(--size-target-compact); }
+  .ds-message__foot .ds-message__meta { padding-block-start: calc((var(--size-target-compact) - var(--size-line)) / 2); }
   .ds-segmented__option { min-height: var(--size-target-compact); }
 }

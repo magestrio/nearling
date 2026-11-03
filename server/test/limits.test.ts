@@ -90,7 +90,8 @@ describe('Session request limit data', () => {
   });
 
   // spec: add-pet › Session request limit data › предел на сессию
-  it('counts from the next minute again', async () => {
+  // 123 requests one after another, each through the whole app: the default 5 s is too short when the full run loads the machine
+  it('counts from the next minute again', { timeout: 30_000 }, async () => {
     vi.useFakeTimers({ toFake: ['Date'] });
     vi.setSystemTime(new Date('2036-11-01T10:00:10Z'));
     h.net().contract.addPet('9', NEAR_ACCOUNT(1));

@@ -62,6 +62,11 @@ export interface PetRecord {
   last_streak_day: number | null;
   /** The ids of the outfit items the pet has, ascending (`Vec<u8>` of `PetView`): 0 Daisy crown … 6 Party hat. */
   outfits: number[];
+  /** The token ids of the pets this one met through work, ascending (`Known pets contract`). Absent on a contract
+   * that has not been upgraded: read it as none. */
+  work_known?: string[];
+  /** The jobs the pet did in the UTC day of its last one, 0 when that day is not today. */
+  jobs_today?: number;
 }
 
 /** `riddle_view(day)` of the contract: the commit filed for that day (64 hex characters, `null` when
@@ -175,6 +180,17 @@ export async function chainDay(env: Pick<Env, 'NEAR_RPC_URL' | 'CONTRACT_ID' | '
 /** The riddle commit of a UTC day and the reserve that pays for it (`riddle_view`). Never cached. */
 export function riddleView(env: Pick<Env, 'NEAR_RPC_URL' | 'CONTRACT_ID'>, day: number): Promise<RiddleRecord> {
   return view<RiddleRecord>(env, 'riddle_view', { day });
+}
+
+/** The token ids of the pets the account owns now, at most `limit` (NEP-181 `nft_tokens_for_owner`). */
+export async function tokenIdsOf(env: Pick<Env, 'NEAR_RPC_URL' | 'CONTRACT_ID'>, accountId: string, limit: number): Promise<string[]> {
+  const tokens = await view<{ token_id: string }[]>(env, 'nft_tokens_for_owner', { account_id: accountId, from_index: null, limit });
+  return tokens.map((t) => t.token_id);
+}
+
+/** Whether the pet's record of acquaintances holds the account (`pet_knows`): the truth the hire candidates rest on. */
+export function petKnows(env: Pick<Env, 'NEAR_RPC_URL' | 'CONTRACT_ID'>, tokenId: string, accountId: string): Promise<boolean> {
+  return view<boolean>(env, 'pet_knows', { token_id: tokenId, account_id: accountId });
 }
 
 /** How many pets the account owns now (NEP-181). */
@@ -317,7 +333,9 @@ function interpret(out: RawOutcome | null): TxOutcome {
     }
     if ('Failure' in status) {
       const text = JSON.stringify(status['Failure']);
-      const code = CONTRACT_CODES.find((c) => text.includes(c)) ?? 'failed';
+      // A refused hire of a batch: `hire:<index of the thought>:<code>` (`Hire debit contract`).
+      const hire = /hire:\d+:[a-z_]+/.exec(text);
+      const code = hire?.[0] ?? CONTRACT_CODES.find((c) => text.includes(c)) ?? 'failed';
       return { status: 'failed', code };
     }
   }

@@ -35,9 +35,14 @@ const OWNER_VIEW: Record<keyof OwnerView, 'always' | 'sometimes'> = {
   pendingQuestion: 'always',
   ownedCount: 'always',
   worn: 'always',
+  skill: 'always',
   outfits: 'always',
   notices: 'always',
   outfitPrice: 'always',
+  hireMode: 'always',
+  offer: 'always',
+  pendingProgress: 'always',
+  hiresSeen: 'always',
 };
 const STATE: Record<keyof PetState, 'always' | 'sometimes'> = {
   tokenId: 'always',
@@ -63,14 +68,23 @@ const STATE: Record<keyof PetState, 'always' | 'sometimes'> = {
   diaryUnread: 'always',
   pendingQuestion: 'always',
   worn: 'always',
+  // `ownerFields` carries it since add-pet-work group 8
+  skill: 'always',
   outfits: 'always',
   notices: 'always',
   outfitPrice: 'always',
+  hireMode: 'always',
+  offer: 'always',
+  pendingProgress: 'always',
+  hiresSeen: 'always',
   events: 'always',
   pending: 'sometimes',
   jobKind: 'sometimes',
   thought: 'sometimes',
   code: 'sometimes',
+  // the outcome of the tab's own job only (`own_lost`, `price_rose`), never of `ownerFields`
+  ownLost: 'sometimes',
+  price: 'sometimes',
   friend: 'sometimes',
 };
 
@@ -108,8 +122,8 @@ describe('the answers the client is typed against', () => {
     const visitor = await api('/api/pets/5');
     // a signed-in viewer also gets `myFeed` (their own meal on its way for this pet); a visitor has none
     // and the mood of the day, which every viewer's face shows (`add-pet-life` › `Pet life display rule`)
-    expect(Object.keys(guest.body).sort()).toEqual(['fullness', 'mood', 'myFeed', 'name', 'stage', 'tokenId', 'viewer', 'worn']);
-    expect(Object.keys(visitor.body).sort()).toEqual(['fullness', 'mood', 'name', 'stage', 'tokenId', 'viewer', 'worn']);
+    expect(Object.keys(guest.body).sort()).toEqual(['fullness', 'mood', 'myFeed', 'name', 'skill', 'stage', 'tokenId', 'viewer', 'worn']);
+    expect(Object.keys(visitor.body).sort()).toEqual(['fullness', 'mood', 'name', 'skill', 'stage', 'tokenId', 'viewer', 'worn']);
     for (const { body } of [guest, visitor]) expect(body.stage).toBe('baby');
   });
 

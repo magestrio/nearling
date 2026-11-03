@@ -7,6 +7,8 @@ import { DurableObject } from 'cloudflare:workers';
 import { utcDay } from '../http';
 import { run, type JobResult } from '../spend';
 import type { ThoughtJob } from '../prompt';
+import { runAdvice, type AdviceJob } from '../work/advice';
+import { runDecline, runFinish, runHire, type OfferJob } from '../work/offer';
 import { failIfQueued, nextBuy, runBuy } from './buy';
 import { writeDueGrowth } from './growth';
 import { settleRitual } from './ritual';
@@ -28,9 +30,21 @@ interface Claimed extends Row {
   epoch: number;
 }
 
-export function jobOf(row: Row): ThoughtJob {
+/** What a desk runs: a thought of the pet, the advice it pays a friend's pet for (`work/advice.ts`), or the owner's
+ * answer to a Manual offer and «Try again» of a lost own reply (`work/offer.ts`). */
+export type DeskJob = ThoughtJob | AdviceJob | OfferJob;
+
+export function jobOf(row: Row): DeskJob {
   const data = row.payload === null ? {} : (JSON.parse(row.payload) as Record<string, unknown>);
   switch (row.kind) {
+    case 'hire':
+      return { kind: 'hire', price: String(data.price ?? '0') };
+    case 'decline':
+      return data.line === true ? { kind: 'decline', line: true } : { kind: 'decline' };
+    case 'finish':
+      return { kind: 'finish' };
+    case 'advice':
+      return { kind: 'advice', worker: String(data.worker ?? ''), text: String(data.text ?? ''), shown: String(data.shown ?? '0') };
     case 'reply':
       return {
         kind: 'reply',
@@ -48,7 +62,7 @@ export function jobOf(row: Row): ThoughtJob {
 }
 
 /** Queues a job of a pet; returns its id. The caller then asks the desk to run it. */
-export async function enqueueJob(db: D1Database, tokenId: string, job: ThoughtJob): Promise<string> {
+export async function enqueueJob(db: D1Database, tokenId: string, job: DeskJob): Promise<string> {
   const id = crypto.randomUUID().replaceAll('-', '');
   const payload =
     job.kind === 'reply'
@@ -57,7 +71,13 @@ export async function enqueueJob(db: D1Database, tokenId: string, job: ThoughtJo
         ? { cause: job.cause, friend: job.friend ?? null }
         : job.kind === 'diary'
           ? { day: job.day }
-          : {};
+          : job.kind === 'advice'
+            ? { worker: job.worker, text: job.text, shown: job.shown }
+            : job.kind === 'hire'
+              ? { price: job.price }
+              : job.kind === 'decline' && job.line
+                ? { line: true }
+                : {};
   await db
     .prepare("INSERT INTO jobs (id, token_id, kind, mode, payload, status, created_at) VALUES (?, ?, ?, ?, ?, 'queued', ?)")
     .bind(id, tokenId, job.kind, job.kind === 'reply' ? job.mode : null, JSON.stringify(payload), Date.now())
@@ -76,6 +96,20 @@ export async function enqueueQuestion(db: D1Database, tokenId: string, text: str
       "INSERT INTO jobs (id, token_id, kind, mode, payload, status, created_at) SELECT ?1, ?2, 'reply', 'chat', ?3, 'queued', ?4 WHERE NOT EXISTS (SELECT 1 FROM ritual_days WHERE token_id = ?2 AND day = ?5 AND question_at IS NOT NULL) AND NOT EXISTS (SELECT 1 FROM jobs WHERE token_id = ?2 AND kind = 'reply' AND status IN ('queued', 'running') AND json_extract(payload, '$.question') = ?5) RETURNING id",
     )
     .bind(id, tokenId, JSON.stringify({ text, question: day }), Date.now(), day)
+    .first<{ id: string }>();
+  return row?.id ?? null;
+}
+
+/** Queues the advice of a paying pet, or returns null when one of its advice is already queued or running
+ * (`Advice flow` › «вопрос отправлен»: no second question until the answer). One statement, so two sends at once
+ * cannot both pass. */
+export async function enqueueAdvice(db: D1Database, tokenId: string, job: AdviceJob): Promise<string | null> {
+  const id = crypto.randomUUID().replaceAll('-', '');
+  const row = await db
+    .prepare(
+      "INSERT INTO jobs (id, token_id, kind, mode, payload, status, created_at) SELECT ?1, ?2, 'advice', NULL, ?3, 'queued', ?4 WHERE NOT EXISTS (SELECT 1 FROM jobs WHERE token_id = ?2 AND kind = 'advice' AND status IN ('queued', 'running')) RETURNING id",
+    )
+    .bind(id, tokenId, JSON.stringify({ worker: job.worker, text: job.text, shown: job.shown }), Date.now())
     .first<{ id: string }>();
   return row?.id ?? null;
 }
@@ -145,7 +179,23 @@ export class PetDesk extends DurableObject<Env> {
       let result: JobResult;
       let status = 'done';
       try {
-        result = await run(this.env, tokenId, jobOf(row), row.epoch);
+        const job = jobOf(row);
+        switch (job.kind) {
+          case 'advice':
+            result = await runAdvice(this.env, tokenId, job, row.epoch);
+            break;
+          case 'hire':
+            result = await runHire(this.env, tokenId, job, row.epoch, row.id);
+            break;
+          case 'decline':
+            result = await runDecline(this.env, tokenId, row.epoch, job.line === true);
+            break;
+          case 'finish':
+            result = await runFinish(this.env, tokenId, row.epoch);
+            break;
+          default:
+            result = await run(this.env, tokenId, job, row.epoch, { jobId: row.id });
+        }
       } catch {
         console.log('job_failed');
         result = { code: 'ai_unavailable' };
@@ -159,7 +209,7 @@ export class PetDesk extends DurableObject<Env> {
       // A failed wake thought keeps what its «Try again» needs, read from the column: the copy this
       // loop took at the start would bring back a friend's name the owner has cleared since.
       const keep = row.kind === 'wake' && 'code' in result && result.code === 'ai_unavailable';
-      await this.env.DB.prepare('UPDATE jobs SET status = ?1, result = ?2, payload = CASE WHEN ?3 = 1 THEN payload END WHERE id = ?4')
+      await this.env.DB.prepare('UPDATE jobs SET status = ?1, result = ?2, payload = CASE WHEN ?3 = 1 THEN payload END, progress = NULL WHERE id = ?4')
         .bind(status, JSON.stringify(result), keep ? 1 : 0, row.id)
         .run();
       // A counted reply left a transition to write: after the result is stored, so the reply reaches

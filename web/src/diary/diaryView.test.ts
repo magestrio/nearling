@@ -69,6 +69,23 @@ describe('what the Diary draws', () => {
     expect(entry).toEqual({ kind: 'text', lines: ['a', 'b'], question: 'Why?', work: null });
   });
 
+  // spec: add-pet-work › Work diary rule › нанимали вчера
+  it('writes the work line from the data: the hirers joined, the food in cents, the time of the day\'s 00:00 UTC', () => {
+    const clock = (iso: string) => new Intl.DateTimeFormat('en-GB', { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(new Date(iso));
+    const closed = '2026-10-31T00:00:00.000Z';
+    const draw = (hirers: string[]) => entryDraw({ kind: 'text', id: 'd', lines: ['a'], question: null, work: { hirers, cents: 0.38 } }, 'Pixel', '', closed);
+    expect(draw(['Biscuit', 'Nori', 'Mochi'])).toMatchObject({
+      work: `In the 24 hours before ${clock(closed)}, Pixel helped Biscuit, Nori and Mochi and got 0.38¢ of food for it.`,
+    });
+    expect(draw(['Biscuit', 'Nori'])).toMatchObject({ work: expect.stringContaining('helped Biscuit and Nori and got') });
+    expect(draw(['Biscuit'])).toMatchObject({ work: expect.stringContaining('helped Biscuit and got') });
+  });
+
+  // spec: add-pet-work › Work diary rule › не нанимали
+  it('has no work line when nobody hired the pet', () => {
+    expect(entryDraw({ kind: 'text', id: 'd', lines: ['a'], question: null, work: null }, 'Pixel', '', '2026-10-31T00:00:00.000Z')).toMatchObject({ work: null });
+  });
+
   // spec: add-daily-ritual › Riddle rule › загадка ещё не запечатана
   it('holds the riddle\'s place with a line when it is not sealed, and has no block for a riddle that never opened', () => {
     const held = riddleDraw(diary({ riddle: { kind: 'held' }, yesterday: null }));

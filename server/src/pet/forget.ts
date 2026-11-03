@@ -29,6 +29,12 @@ export function forgetStatements(db: D1Database, tokenId: string, now: number): 
     db.prepare('DELETE FROM riddle_answers WHERE token_id = ?').bind(tokenId),
     // The name of the friend who woke the pet is memory too (`wake_by`); the counter stays.
     db.prepare('UPDATE pets SET wake_by = NULL WHERE token_id = ?').bind(tokenId),
+    // The skill goes in the same batch (`Skill data` › «удаление памяти»), and so do the Manual offer standing
+    // and what the pet's work recorded (names and amounts of its hirers). What stays holds no words: the day's
+    // count of answers (`worker_answers`) and the hire mode (`hire_modes`), the hires' prices and receipts.
+    db.prepare('DELETE FROM skills WHERE token_id = ?').bind(tokenId),
+    db.prepare('DELETE FROM hire_offers WHERE token_id = ?').bind(tokenId),
+    db.prepare('DELETE FROM work_records WHERE worker_id = ?').bind(tokenId),
   ];
 }
 
@@ -40,7 +46,7 @@ export function eraseIfCleared(db: D1Database, tokenId: string, thoughtId: strin
   return [
     db
       .prepare(
-        `UPDATE thoughts SET erased_at = CASE WHEN player_text IS NOT NULL OR reply_text IS NOT NULL THEN ?4 END, player_text = NULL, reply_text = NULL WHERE id = ?1 AND ${cleared}`,
+        `UPDATE thoughts SET erased_at = CASE WHEN player_text IS NOT NULL OR reply_text IS NOT NULL THEN ?4 ELSE erased_at END, player_text = NULL, reply_text = NULL WHERE id = ?1 AND ${cleared}`,
       )
       .bind(thoughtId, tokenId, epoch, now),
     db

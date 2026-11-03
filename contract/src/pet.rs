@@ -196,8 +196,44 @@ pub fn is_bought(item: u8) -> bool {
     (FIRST_BOUGHT..OUTFITS).contains(&item)
 }
 
-/// The pet's record, version 5 (`add-wardrobe`): version 4 and the items. Later changes add a
-/// variant of `VersionedPet` and migrate the record on write.
+/// The pet's record, version 5 (`add-wardrobe`): version 4 and the items.
+#[near(serializers = [borsh])]
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct PetV5 {
+    pub name: String,
+    pub character: String,
+    /// Birth time, nanoseconds.
+    pub born_at: u64,
+    pub project_food: u128,
+    pub given_food: u128,
+    /// The UTC day `debited_today` belongs to.
+    pub debit_day: u64,
+    pub debited_today: u128,
+    /// The last accepted `debit_id`; 0 at birth.
+    pub last_debit_id: u64,
+    pub stage: Stage,
+    /// The UTC day of the last stage change, the birth included.
+    pub stage_day: u64,
+    pub streak: u32,
+    pub freezes: u8,
+    /// The UTC day `friend_snacks` belongs to.
+    pub friend_snack_day: u64,
+    /// Snacks from friends in `friend_snack_day`.
+    pub friend_snacks: u8,
+    /// When the owner last took a snack, nanoseconds; 0 = never.
+    pub owner_snack_at: u64,
+    /// `Trait::code`s: the teen's trait, then the adult's; 0 = not yet. Fixed size, paid at birth.
+    pub traits: [u8; 2],
+    /// The UTC day of the last `streak_mark`; 0 = no mark yet. A real day is ~20,700, so 0 is
+    /// nobody's day, and the fixed size keeps the first mark from growing the record.
+    pub last_streak_day: u64,
+    /// The items the pet has: bit `i` is item id `i`. A byte of fixed size, paid at birth, so a
+    /// grant or a purchase writes no new byte; no method clears a bit.
+    pub outfits: u8,
+}
+
+/// The pet's record, version 6 (`add-pet-work`): version 5 and the counter of the jobs the pet
+/// did for others. Later changes add a variant of `VersionedPet` and migrate the record on write.
 #[near(serializers = [borsh])]
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Pet {
@@ -231,9 +267,23 @@ pub struct Pet {
     /// The items the pet has: bit `i` is item id `i`. A byte of fixed size, paid at birth, so a
     /// grant or a purchase writes no new byte; no method clears a bit.
     pub outfits: u8,
+    /// The UTC day `jobs_today` belongs to. Fixed size, paid at birth (ADR-011: a counter in the
+    /// pet record), so a hire writes no new byte here.
+    pub job_day: u64,
+    /// The jobs this pet did for hirers in `job_day`.
+    pub jobs_today: u8,
 }
 
 impl Pet {
+    /// The jobs the pet has done in the UTC `day`: 0 when the counter belongs to an earlier day.
+    pub fn jobs_today_now(&self, day: u64) -> u8 {
+        if self.job_day == day {
+            self.jobs_today
+        } else {
+            0
+        }
+    }
+
     /// Whether the pet has the item; false for an id outside the catalogue.
     pub fn has(&self, item: u8) -> bool {
         item < OUTFITS && self.outfits & (1 << item) != 0
@@ -251,7 +301,34 @@ impl Pet {
     }
 }
 
-impl From<PetV4> for Pet {
+impl From<PetV5> for Pet {
+    fn from(old: PetV5) -> Self {
+        Self {
+            name: old.name,
+            character: old.character,
+            born_at: old.born_at,
+            project_food: old.project_food,
+            given_food: old.given_food,
+            debit_day: old.debit_day,
+            debited_today: old.debited_today,
+            last_debit_id: old.last_debit_id,
+            stage: old.stage,
+            stage_day: old.stage_day,
+            streak: old.streak,
+            freezes: old.freezes,
+            friend_snack_day: old.friend_snack_day,
+            friend_snacks: old.friend_snacks,
+            owner_snack_at: old.owner_snack_at,
+            traits: old.traits,
+            last_streak_day: old.last_streak_day,
+            outfits: old.outfits,
+            job_day: 0,
+            jobs_today: 0,
+        }
+    }
+}
+
+impl From<PetV4> for PetV5 {
     fn from(old: PetV4) -> Self {
         Self {
             name: old.name,
@@ -352,34 +429,39 @@ pub enum VersionedPet {
     V2(PetV2),
     V3(PetV3),
     V4(PetV4),
-    V5(Pet),
+    V5(PetV5),
+    V6(Pet),
 }
 
 impl VersionedPet {
     /// The current record, by value; an older version is read with zero counters, no traits, no
-    /// counted day and no items.
+    /// counted day, no items and no jobs.
     pub fn current(&self) -> Pet {
         match self {
-            VersionedPet::V1(old) => Pet::from(PetV4::from(PetV3::from(PetV2::from(old.clone())))),
-            VersionedPet::V2(old) => Pet::from(PetV4::from(PetV3::from(old.clone()))),
-            VersionedPet::V3(old) => Pet::from(PetV4::from(old.clone())),
-            VersionedPet::V4(old) => Pet::from(old.clone()),
-            VersionedPet::V5(pet) => pet.clone(),
+            VersionedPet::V1(old) => Pet::from(PetV5::from(PetV4::from(PetV3::from(PetV2::from(
+                old.clone(),
+            ))))),
+            VersionedPet::V2(old) => Pet::from(PetV5::from(PetV4::from(PetV3::from(old.clone())))),
+            VersionedPet::V3(old) => Pet::from(PetV5::from(PetV4::from(old.clone()))),
+            VersionedPet::V4(old) => Pet::from(PetV5::from(old.clone())),
+            VersionedPet::V5(old) => Pet::from(old.clone()),
+            VersionedPet::V6(pet) => pet.clone(),
         }
     }
 
     /// The current record to change; an older version becomes the current one in place, and
     /// the next write stores it as such.
     pub fn current_mut(&mut self) -> &mut Pet {
-        if !matches!(self, VersionedPet::V5(_)) {
-            *self = VersionedPet::V5(self.current());
+        if !matches!(self, VersionedPet::V6(_)) {
+            *self = VersionedPet::V6(self.current());
         }
         match self {
-            VersionedPet::V5(pet) => pet,
+            VersionedPet::V6(pet) => pet,
             VersionedPet::V1(_)
             | VersionedPet::V2(_)
             | VersionedPet::V3(_)
-            | VersionedPet::V4(_) => {
+            | VersionedPet::V4(_)
+            | VersionedPet::V5(_) => {
                 unreachable!("upgraded above")
             }
         }
@@ -437,11 +519,18 @@ pub struct PetView {
     pub last_streak_day: Option<u64>,
     /// The ids of the items the pet has (`Outfit catalogue rule`), ascending.
     pub outfits: Vec<u8>,
+    /// The token ids of the pets this pet met through work (`Known pets contract`), ascending.
+    pub work_known: Vec<String>,
+    /// The jobs the pet did in the current UTC day; 0 when the counter belongs to an earlier day.
+    pub jobs_today: u8,
 }
 
 impl PetView {
-    pub fn new(owner_id: AccountId, pet: &Pet) -> Self {
+    /// `today` is the current UTC day; `work_known` the pet's partners from the work index.
+    pub fn new(owner_id: AccountId, pet: &Pet, today: u64, work_known: Vec<String>) -> Self {
         Self {
+            work_known,
+            jobs_today: pet.jobs_today_now(today),
             owner_id,
             name: pet.name.clone(),
             character: pet.character.clone(),
@@ -548,7 +637,10 @@ mod tests {
         let pet = VersionedPet::V2(v2).current();
         assert_eq!(pet.traits, [0, 0]);
         assert_eq!(pet.friend_snacks, 2);
-        assert_eq!(PetView::new("a.near".parse().unwrap(), &pet).traits, vec![]);
+        assert_eq!(
+            PetView::new("a.near".parse().unwrap(), &pet, 0, vec![]).traits,
+            vec![]
+        );
     }
 
     fn v3_pet() -> PetV3 {
@@ -556,12 +648,12 @@ mod tests {
     }
 
     #[test]
-    fn a_write_leaves_v5_with_its_food_intact_and_the_stored_variants_still_decode() {
+    fn a_write_leaves_v6_with_its_food_intact_and_the_stored_variants_still_decode() {
         let mut record = VersionedPet::V1(old_pet());
         record.current_mut().given_food += 10_000_000;
         record.current_mut().friend_snacks = 2;
-        let VersionedPet::V5(pet) = &record else {
-            panic!("the record must be V5 after a write");
+        let VersionedPet::V6(pet) = &record else {
+            panic!("the record must be V6 after a write");
         };
         assert_eq!(pet.given_food, 10_003_000);
         assert_eq!(pet.project_food, 2_000);
@@ -569,9 +661,10 @@ mod tests {
         assert_eq!(pet.traits, [0, 0]);
         assert_eq!(pet.last_streak_day, 0);
         assert_eq!(pet.outfits, 0);
+        assert_eq!((pet.job_day, pet.jobs_today), (0, 0));
 
         // The bytes on chain: V1 is variant 0, V2 variant 1, V3 variant 2, V4 variant 3, V5
-        // variant 4, so a stored older record still decodes.
+        // variant 4, V6 variant 5, so a stored older record still decodes.
         let stored_v1 = borsh::to_vec(&VersionedPet::V1(old_pet())).unwrap();
         assert_eq!(stored_v1[0], 0);
         let decoded: VersionedPet = borsh::from_slice(&stored_v1).unwrap();
@@ -591,12 +684,80 @@ mod tests {
         assert_eq!(stored_v4[0], 3);
         assert_eq!(stored_v4.len() - stored_v3.len(), 8);
         let decoded: VersionedPet = borsh::from_slice(&stored_v4).unwrap();
-        assert_eq!(decoded, VersionedPet::V4(v4));
-        let stored_v5 = borsh::to_vec(&record).unwrap();
+        assert_eq!(decoded, VersionedPet::V4(v4.clone()));
+        let v5 = PetV5::from(v4);
+        let stored_v5 = borsh::to_vec(&VersionedPet::V5(v5.clone())).unwrap();
         assert_eq!(stored_v5[0], 4);
         assert_eq!(stored_v5.len() - stored_v4.len(), 1);
         let decoded: VersionedPet = borsh::from_slice(&stored_v5).unwrap();
+        assert_eq!(decoded, VersionedPet::V5(v5));
+        let stored_v6 = borsh::to_vec(&record).unwrap();
+        assert_eq!(stored_v6[0], 5);
+        assert_eq!(stored_v6.len() - stored_v5.len(), 9);
+        let decoded: VersionedPet = borsh::from_slice(&stored_v6).unwrap();
         assert_eq!(decoded, record);
+    }
+
+    // spec: add-pet-work › Hire debit contract › одиннадцатая работа за сутки × V5 and V6 records
+    #[test]
+    fn a_v5_record_reads_with_no_jobs_and_grows_nine_bytes_on_its_first_write() {
+        let mut v5 = PetV5::from(PetV4::from(v3_pet()));
+        v5.outfits = 0b101;
+        v5.given_food = 77;
+        let record = VersionedPet::V5(v5.clone());
+        let pet = record.current();
+        assert_eq!((pet.job_day, pet.jobs_today), (0, 0));
+        assert_eq!(
+            (pet.outfits, pet.given_food, pet.name.as_str()),
+            (0b101, 77, "Pixel")
+        );
+        for day in [0, 1, 20_700] {
+            assert_eq!(pet.jobs_today_now(day), 0);
+        }
+
+        let before = borsh::to_vec(&record).unwrap().len();
+        let mut written = record.clone();
+        written.current_mut().jobs_today = 3;
+        written.current_mut().job_day = 20_700;
+        assert!(matches!(written, VersionedPet::V6(_)));
+        // The day of the counter (8) and the counter (1): the layout's whole cost.
+        assert_eq!(borsh::to_vec(&written).unwrap().len(), before + 9);
+        let pet = written.current();
+        assert_eq!((pet.outfits, pet.given_food), (0b101, 77));
+        assert_eq!(pet.jobs_today_now(20_700), 3);
+    }
+
+    // The counter belongs to its UTC day: another day reads 0, whichever side the boundary is.
+    // spec: add-pet-work › Hire debit contract › одиннадцатая работа за сутки × the UTC day boundary
+    #[test]
+    fn the_job_counter_reads_zero_in_a_new_utc_day() {
+        let mut pet = VersionedPet::V5(PetV5::from(PetV4::from(v3_pet()))).current();
+        pet.job_day = 20_700;
+        pet.jobs_today = 10;
+        assert_eq!(pet.jobs_today_now(20_700), 10);
+        assert_eq!(pet.jobs_today_now(20_701), 0, "the next day starts at 0");
+        assert_eq!(
+            pet.jobs_today_now(20_699),
+            0,
+            "a counter of a later day is not today's"
+        );
+        let view = PetView::new("a.near".parse().unwrap(), &pet, 20_700, vec!["4".into()]);
+        assert_eq!(
+            (view.jobs_today, view.work_known),
+            (10, vec!["4".to_string()])
+        );
+        let view = PetView::new("a.near".parse().unwrap(), &pet, 20_701, vec![]);
+        assert_eq!(view.jobs_today, 0);
+    }
+
+    // The counter is a field of fixed size: a job writes no new byte of the record.
+    #[test]
+    fn a_job_takes_the_bytes_of_none() {
+        let mut record = VersionedPet::V6(VersionedPet::V3(v3_pet()).current());
+        let none = borsh::to_vec(&record).unwrap().len();
+        record.current_mut().job_day = 20_757;
+        record.current_mut().jobs_today = 10;
+        assert_eq!(borsh::to_vec(&record).unwrap().len(), none);
     }
 
     // spec: add-wardrobe › Earned outfit contract › вещь за серию записана × a V4 record
@@ -610,14 +771,15 @@ mod tests {
         assert_eq!(pet.outfits, 0);
         assert!(pet.item_ids().is_empty());
         assert_eq!((pet.streak, pet.last_streak_day), (2, 20_700));
-        let view = PetView::new("a.near".parse().unwrap(), &pet);
+        let view = PetView::new("a.near".parse().unwrap(), &pet, 0, vec![]);
         assert_eq!(view.outfits, Vec::<u8>::new());
 
         let before = borsh::to_vec(&record).unwrap().len();
         let mut written = record.clone();
         written.current_mut().give(DAISY_CROWN);
-        assert!(matches!(written, VersionedPet::V5(_)));
-        assert_eq!(borsh::to_vec(&written).unwrap().len(), before + 1);
+        assert!(matches!(written, VersionedPet::V6(_)));
+        // The items (1) and the job counter (9).
+        assert_eq!(borsh::to_vec(&written).unwrap().len(), before + 10);
         let pet = written.current();
         assert_eq!(pet.name, v4.name);
         assert_eq!(pet.last_streak_day, 20_700);
@@ -679,20 +841,20 @@ mod tests {
         assert_eq!(pet.last_streak_day, 0);
         assert_eq!(pet.traits, [Trait::Cozy.code(), 0]);
         assert_eq!((pet.streak, pet.freezes), (4, 2));
-        let view = PetView::new("a.near".parse().unwrap(), &pet);
+        let view = PetView::new("a.near".parse().unwrap(), &pet, 0, vec![]);
         assert_eq!(view.last_streak_day, None, "no mark yet reads as none");
         assert_eq!(view.traits, vec![Trait::Cozy]);
 
         let before = borsh::to_vec(&record).unwrap().len();
         let mut written = record.clone();
         written.current_mut().last_streak_day = 20_700;
-        assert!(matches!(written, VersionedPet::V5(_)));
-        // The counted day (8) and the items (1).
-        assert_eq!(borsh::to_vec(&written).unwrap().len(), before + 9);
+        assert!(matches!(written, VersionedPet::V6(_)));
+        // The counted day (8), the items (1) and the job counter (9).
+        assert_eq!(borsh::to_vec(&written).unwrap().len(), before + 18);
         let pet = written.current();
         assert_eq!(pet.name, v3.name);
         assert_eq!(pet.traits, v3.traits);
-        let view = PetView::new("a.near".parse().unwrap(), &pet);
+        let view = PetView::new("a.near".parse().unwrap(), &pet, 0, vec![]);
         assert_eq!(view.last_streak_day, Some(20_700));
     }
 
@@ -768,14 +930,15 @@ mod tests {
     fn a_record_with_its_traits_filled_takes_the_bytes_of_an_empty_one() {
         let mut record = VersionedPet::V2(v2_pet());
         let v2 = borsh::to_vec(&record).unwrap().len();
-        // The upgrade to the current record: the traits (2), the counted day (8), the items (1).
+        // The upgrade to the current record: the traits (2), the counted day (8), the items (1),
+        // the job counter (9).
         let empty = borsh::to_vec(&{
             record.current_mut();
             record.clone()
         })
         .unwrap()
         .len();
-        assert_eq!(empty, v2 + 11);
+        assert_eq!(empty, v2 + 20);
         record.current_mut().traits = [Trait::Cozy.code(), Trait::HardWorking.code()];
         assert_eq!(borsh::to_vec(&record).unwrap().len(), empty);
         record.current_mut().traits = [0, 0];

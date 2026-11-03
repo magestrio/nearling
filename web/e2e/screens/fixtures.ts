@@ -1,6 +1,6 @@
 import type { Page } from '@playwright/test';
 import type { FakeState, FakeWorkerState } from '../../src/seams/fakes';
-import type { FeedSheetData, Fullness, OutfitSlug, SheetPortion } from '../../src/seams/worker-types';
+import type { AdviceRead, ConversationLine, FeedSheetData, Fullness, HireMeta, OutfitSlug, SheetPortion } from '../../src/seams/worker-types';
 import { SAMPLE_DAY, sampleDiary } from '../../src/seams/diary.sample';
 import type { DiaryView } from '../../src/seams/worker-types';
 import { CLOSED_ALL, CLOSED_NEW, lookAgain, setWorker, UA } from '../helpers';
@@ -99,6 +99,34 @@ const CUT_REPLY =
 const WAKE_REPLY = 'Thanks, Maya! While I slept I dreamed I was a lighthouse for moths. They were very polite.';
 const GREETING = "Hi! I'm Pixel. I hatched a minute ago and I already have a question: what's the first thing you do in the morning?";
 
+// add-pet-work, the owner's hire frames (design/bundle/screens/work.js — generated words, not spec copy): Pixel asks Nori (seed 5,
+// aqua) at 0.38¢ (BRIEF.md §1)
+const HIRE_QUESTION = 'How do you make a room care about a chart in one sentence?';
+const NORI_SAYS = 'Tell them what the chart changed for you. One sentence, then stop — silence after a point makes it land.';
+const PET_SAYS = "Nori says: one sentence on what changed for you, then a pause. I'd add — look at one friendly face while you say it.";
+const PET_ALONE = 'Say what the chart changed for you — one sentence. Then let the room catch up.';
+const NORI_REF = { tokenId: '5', name: 'Nori' };
+const NORI_PRICE = { yocto: '380000000000000000000', cents: 0.38 };
+const NORI_PAID: HireMeta = { worker: 'Nori', price: NORI_PRICE.yocto, priceCents: 0.38 };
+/** the history, then the owner's line and the pet's question to Nori (its own thought, with its receipt) and what the turn went on to */
+const hireTurn = (...tail: ConversationLine[]): { lines: ConversationLine[]; more: false; before: null } => ({
+  lines: [
+    ...HISTORY,
+    { id: 'w1:you', who: 'player', text: TYPED, at: 1_700_000_000_100 },
+    { id: 'w1', who: 'pet', text: HIRE_QUESTION, at: 1_700_000_000_101, cut: null, hireTo: 'Nori' },
+    ...tail.map((l, i) => ({ ...l, at: 1_700_000_000_102 + i })),
+  ],
+  more: false,
+  before: null,
+});
+const nori = (hire?: HireMeta): ConversationLine => ({ id: 'w2', who: 'worker', text: NORI_SAYS, at: 0, worker: NORI_REF, skilled: false, ...(hire ? { hire } : {}) });
+const pixelSays = (text: string, hire: HireMeta | null): ConversationLine => ({ id: 'w3', who: 'pet', text, at: 0, cut: null, ...(hire ? { hire } : {}) });
+const hireEvent = (code: 'hire_failed' | 'hire_empty'): ConversationLine => ({ id: 'w2', who: 'event', code, at: 0, worker: NORI_REF });
+/** the owner view of the turn on its way: the job, and what it is doing */
+const HIRE_JOB = { pendingJob: 'job-1', pendingKind: 'reply' as const, pendingMode: 'chat' as const, pendingText: TYPED, pendingProgress: { asking: 'Nori' } };
+/** Manual, with the offer standing */
+const MANUAL_OFFER = { hireMode: 'manual' as const, offer: { worker: 'Nori', question: HIRE_QUESTION, price: NORI_PRICE } };
+
 /** Pixel with its owner, who has two pets (the frames show «My pets»), and the history; `extra` — more of the owner's
  *  fields (tired, paused…), `fullness` — the pet's food. Pixel wears the Thinking cap and owns what the frames' wardrobe has
  *  (design/bundle/screens/pet.js › OWN); the baby frames below wear nothing (pet.js › `ownerAwake`: a baby has no outfit). */
@@ -110,15 +138,100 @@ function owner(extra: Record<string, unknown> = {}, fullness: Fullness = PIXEL.f
   };
 }
 
-/** The parts of the owner's frames that other changes build: the hiring mode */
-const OWNER_ELSEWHERE = [
-  { line: 'Hiring: Auto — {name} asks pets it knows when they can help, then tells you what it cost.', change: 'add-pet-work' },
-  { line: 'Auto', change: 'add-pet-work' },
-  { line: 'Ask me first', change: 'add-pet-work' },
-];
+// add-pet-work, the frames of a pet with a skill (design/bundle/screens/work.js › SAGE): «Sage» (seed 7, lavender), «Good at weather»;
+// its price climbs ≈ 0.18¢ a job of the day from 0.38¢ (Hire price rule): 0.56¢ after one job, 0.74¢ after two. Its data source
+// (the lines of add-pet-errands) is not drawn here.
+const BIKE = 'Should I bike to the office tomorrow?';
+const SAGE_REF = { tokenId: '7', name: 'Sage' };
+const SAGE_PET = { tokenId: '7', name: 'Sage', stage: 'adult' as const, fullness: { state: 'full' as const, level: 1 }, mood: 'happy' as const, skill: { label: 'weather' } };
+const SAGE_PRICE_NOW = { yocto: '560000000000000000000', cents: 0.56 };
+const SAGE_PRICE_ROSE = { yocto: '740000000000000000000', cents: 0.74 };
+const SAGE_Q = 'Will it rain in Lisbon tomorrow between 8 and 10?';
+const SAGE_SAYS = "Dry until about noon, then light rain from the west. Between 8 and 10 you're fine — the clouds come in after lunch.";
+const PET_ON_SAGE = "Sage says dry until noon — bike it. You'll arrive with your first line already said out loud twice.";
+const SAGE_PAID: HireMeta = { worker: 'Sage', price: SAGE_PRICE_NOW.yocto, priceCents: 0.56 };
+const ASK_SAGE = 'Will it rain in Porto on Saturday? I want to bike to the coast.';
+const SAGE_ADVICE = "Dry until about two, then light rain from the west. Go early and be back by lunch — the wind turns against you after one.";
+const SAGE_OFFER = { hireMode: 'manual' as const, offer: { worker: 'Sage', question: SAGE_Q, price: SAGE_PRICE_NOW } };
+/** Pixel, Biscuit and Sage, Pixel with the owner fields `ownerExtra` lays over */
+const sagePets = (ownerExtra: Record<string, unknown> = {}, fullness: Fullness = PIXEL.fullness): NonNullable<FakeWorkerState['pets']> => ({
+  '9': { ...PIXEL, worn: 'thinking-cap', fullness, owner: { ownedCount: 2, outfits: WARDROBE_OWNS, ...ownerExtra } },
+  '2': BISCUIT,
+  '7': SAGE_PET,
+});
+/** the history, the owner's line, Pixel's question to Sage and what the turn went on to */
+const sageTurn = (...tail: ConversationLine[]): { lines: ConversationLine[]; more: false; before: null } => ({
+  lines: [
+    ...HISTORY,
+    { id: 's1:you', who: 'player', text: BIKE, at: 1_700_000_000_100 },
+    { id: 's1', who: 'pet', text: SAGE_Q, at: 1_700_000_000_101, cut: null, hireTo: 'Sage' },
+    ...tail.map((l, i) => ({ ...l, at: 1_700_000_000_102 + i })),
+  ],
+  more: false,
+  before: null,
+});
+const sageSays = (): ConversationLine => ({ id: 's2', who: 'worker', text: SAGE_SAYS, at: 0, worker: SAGE_REF, skilled: true });
+/** Sage's page for Pixel's player; `advice` lays over the column's read */
+function guestSage(advice: Partial<AdviceRead> = {}): FakeWorkerState {
+  return {
+    owned: ['9'],
+    pets: { '9': PIXEL, '2': BISCUIT, '7': SAGE_PET },
+    me: { accountId: 'a'.repeat(64), hatched: PIXEL_REF, currentPet: PIXEL_REF, ownedCount: 1 },
+    advice: { price: SAGE_PRICE_NOW, skilled: true, ...advice },
+  };
+}
 
-/** The line of the frame `advice-resting`: the advice column that says it is `add-pet-work`'s (Advice flow), not built yet */
-const RESTING_LINE = { line: '{name} is resting until {time}. Nothing was spent — ask again after that.', change: 'add-pet-work' };
+// add-pet-work, the Skill sheet frames (design/bundle/screens/skill.js): Pixel and the skill it is taught, «opening lines»
+const SKILL_LABEL = 'opening lines';
+const SKILL_INSTRUCTION = 'Give one surprising opening line, then say in one sentence why it works. Count the words: twelve at most in the opener.';
+/** Pixel with its skill written: the badge «Good at opening lines» and the owner's read that holds both fields */
+function skillWorker(label: string): FakeWorkerState {
+  return { ...owner(), pets: { '9': { ...PIXEL, worn: 'thinking-cap', skill: { label }, owner: { ownedCount: 2, outfits: WARDROBE_OWNS } }, '2': BISCUIT }, skill: { skill: { label, instruction: SKILL_INSTRUCTION } } };
+}
+/** the badge under the name tapped, the sheet open and at rest */
+const openSkillSheet = async (page: Page) => {
+  await page.getByRole('button', { name: /Teach Pixel a skill|Pixel's skill: Good at/ }).click();
+  await page.getByRole('dialog').getByLabel('What is Pixel good at?').waitFor();
+  await page.mouse.move(0, 0);
+  await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
+  await settle(page);
+};
+
+/** The parts of the owner's frames that other changes build: the hiring mode was one (`add-pet-work`), and is built now */
+const OWNER_ELSEWHERE: Array<{ line: string; change: string }> = [];
+
+// add-pet-work, the guest's advice frames (design/bundle/screens/pet.js › ADVICE, work.js — generated words, not spec copy): Pixel's
+// player asks Biscuit (seed 2) at 0.38¢; the question is the one of the sample cat.
+const ADVICE_QUESTION = 'My cat ignores me after I travel. How do I make up for it?';
+const ADVICE_ANSWER = "Don't chase. Sit on the floor near the cat's spot with a book and wait — let the cat come to you. Treats only after the first head-bump.";
+const ADVICE_PRICE = { yocto: '380000000000000000000', cents: 0.38 };
+const ADVICE_PAYER = { tokenId: '9', name: 'Pixel' };
+/** Biscuit's page for Pixel's player; `advice` lays over the column's read, `extra` over the Worker fake */
+function guestAdvice(advice: Partial<AdviceRead> = {}, extra: Partial<FakeWorkerState> = {}): FakeWorkerState {
+  return {
+    owned: ['9'],
+    pets: { '9': PIXEL, '2': BISCUIT },
+    me: { accountId: 'a'.repeat(64), hatched: PIXEL_REF, currentPet: PIXEL_REF, ownedCount: 1 },
+    advice: { price: ADVICE_PRICE, ...advice },
+    ...extra,
+  };
+}
+const adviceReady = (page: Page) => page.getByRole('button', { name: /^Ask Biscuit/ }).waitFor();
+/** the question typed and the field at rest: the frames show no focus ring from the typing */
+const typeAdvice = async (page: Page, text = ADVICE_QUESTION, worker = 'Biscuit') => {
+  const field = page.getByPlaceholder(`Ask ${worker} for advice…`);
+  await field.fill(text);
+  await field.blur();
+};
+/** The question sent, and the answer to it as the server gives it (`code`, or a `thought`) */
+const askAdvice = async (page: Page, answer: Record<string, unknown>) => {
+  await setWorker(page, { petState: { pending: true } });
+  const field = page.getByPlaceholder('Ask Biscuit for advice…');
+  await field.fill(ADVICE_QUESTION);
+  await field.press('Enter');
+  await page.getByText('Biscuit is thinking…').first().waitFor();
+  await setWorker(page, { petState: answer });
+};
 
 /** The parts of the frames of a guest with a pet of their own that `add-pet-work` builds: the advice column */
 const GUEST_ELSEWHERE = [
@@ -154,12 +267,17 @@ const ownerReady = (page: Page) => page.getByText('Start with the chart, then.')
 const typeLine = async (page: Page, text: string) => {
   await page.getByPlaceholder('Talk to Pixel…').fill(text);
 };
-/** The conversation rests on its newest line (it keeps its end while a line arrives, as the frames show it). */
+/** The conversation rests on its newest line (it keeps its end while a line arrives, as the frames show it). Polled on a
+ *  timer, not per frame: the scroll is set at once, while a frame of the software-GL pet can take seconds under load. */
 const atNewest = (page: Page) =>
-  page.waitForFunction(() => {
-    const el = document.querySelector('[role="log"]');
-    return el !== null && el.scrollHeight - el.scrollTop - el.clientHeight < 2;
-  });
+  page.waitForFunction(
+    () => {
+      const el = document.querySelector('[role="log"]');
+      return el !== null && el.scrollHeight - el.scrollTop - el.clientHeight < 2;
+    },
+    undefined,
+    { polling: 100 },
+  );
 /** The owner's tap on «Send»: the line goes into the conversation and the field is empty again */
 const sendLine = async (page: Page, text: string) => {
   const field = page.getByPlaceholder('Talk to Pixel…');
@@ -245,7 +363,7 @@ const browserWith = (what: { clipboard: 'ok' | 'denied' }) => async (page: Page)
 
 // Diary screen (design/bundle/screens/diary.js): Pixel is the player's own pet, the Diary's day is Oct 31 (BRIEF.md §1), {time} 02:00.
 // The entry, the question, the answers and the riddles are the frame's samples.
-const DIARY_WORK = 'In the 24 hours before 02:00, Pixel helped Biscuit and Nori, earning 0.6¢.';
+const DIARY_WORK = { hirers: ['Biscuit', 'Nori'], cents: 0.6 };
 const DIARY_ANSWER = 'It did — the CFO laughed at the dip and then asked for the slides.';
 const DIARY_RIDDLE = "What has hands but can't clap?";
 const DIARY_TYPED = 'a clock';
@@ -454,15 +572,16 @@ export const fixtures: Record<string, ScreenFixture> = {
     otherChange: GUEST_ELSEWHERE,
   },
 
-  // Biscuit at rest, its energy spent, seen by a player with a pet of their own: the page stands as the guest's; the question's
-  // field and the pet's resting line are the advice column of `add-pet-work`, built after this change: the frame moves there
-  // (the user, 2026-10-31) and this fixture stays until its `req` moves in the manifest. No anchor: this capture can't fail
-  // on the Scenario's THEN, the worker test of `spendEnergy` holds it
+  // Biscuit at rest, its energy spent, seen by a player with a pet of their own: the advice column of `add-pet-work` says so in the
+  // button's place and keeps the question (its `req` is still `add-pet-life`'s in the manifest, design/INBOX.md line 134)
+  // spec: add-pet-life › Energy rule › совет питомцу на нуле
   'advice-resting': {
     route: '/pet/2',
-    fakes: { auth: SIGNED_IN, worker: { me: ME_PIXEL } },
-    prepare: (page) => page.getByRole('link', { name: 'Go to your Pixel' }).waitFor(),
-    otherChange: [...GUEST_ELSEWHERE, RESTING_LINE],
+    fakes: { auth: SIGNED_IN, worker: guestAdvice({ resting: { until: MIDNIGHT_UTC } }) },
+    prepare: async (page) => {
+      await page.getByText(/is resting until/).first().waitFor();
+      await typeAdvice(page);
+    },
   },
 
   // a signed-in player who never hatched
@@ -1333,6 +1452,9 @@ export const fixtures: Record<string, ScreenFixture> = {
     route: '/pet/9/diary',
     fakes: { auth: SIGNED_IN, worker: diaryWorker({ entry: entryWithWork(), streak: STREAK_2 }) },
     prepare: diaryReady,
+    // the work line is `add-pet-work`'s `Work diary rule` (2026-11-03): «…helped {hirers} and got {amount} of food for it.»; the frame
+    // still has «…helped {hirers}, earning {amount}.» (design/INBOX.md). `web/e2e/hire.spec.ts` asserts the spec's words
+    staleCopy: ['In the 24 hours before {time}, {name} helped {hirers}, earning {amount}.'],
   },
 
   // spec: add-daily-ritual › Diary screen › empty
@@ -1620,6 +1742,448 @@ export const fixtures: Record<string, ScreenFixture> = {
       await page.getByText("Couldn't put it on just now. The Cozy scarf is waiting in Pixel's wardrobe.").first().waitFor();
       await page.mouse.move(0, 0);
       await settle(page);
+    },
+  },
+
+  // The owner's hire frames (design/bundle/screens/work.js): Pixel asks Nori (seed 5, aqua), 0.38¢. The hiring mode is built:
+  // the frames' «Auto» / «Ask me first» and its line are drawn by the real switch.
+
+  // spec: add-pet-work › Pet hire flow › спрашивает
+  'work-asking': {
+    route: '/pet/9',
+    // the frame is the first seconds: a slow machine must not reach the 10 s line before the shot
+    fakes: { auth: SIGNED_IN, worker: { ...owner(HIRE_JOB), conversation: hireTurn(), petState: { pending: true }, waitLineMs: FOREVER } },
+    prepare: async (page) => {
+      await page.getByText('Pixel is asking Nori…').waitFor();
+      await atNewest(page);
+    },
+  },
+
+  // spec: add-pet-work › Pet hire flow › спросил
+  'work-asked': {
+    route: '/pet/9',
+    fakes: { auth: SIGNED_IN, worker: { ...owner(), conversation: hireTurn(nori(), pixelSays(PET_SAYS, NORI_PAID)) } },
+    prepare: async (page) => {
+      await page.getByText('Pixel asked Nori · 0.38¢').waitFor();
+      await atNewest(page);
+    },
+  },
+
+  // spec: add-pet-work › Pet hire flow › предложение в Manual
+  'work-offer': {
+    route: '/pet/9',
+    fakes: { auth: SIGNED_IN, worker: { ...owner(MANUAL_OFFER), conversation: hireTurn() } },
+    prepare: async (page) => {
+      await page.getByRole('button', { name: 'Ask Nori' }).waitFor();
+      await atNewest(page);
+      await page.mouse.move(0, 0);
+    },
+  },
+
+  // spec: add-pet-work › Pet hire flow › отказ в Manual
+  'work-declined': {
+    route: '/pet/9',
+    fakes: { auth: SIGNED_IN, worker: { ...owner(MANUAL_OFFER), conversation: hireTurn(), petState: { pending: true } } },
+    prepare: async (page) => {
+      await page.getByRole('button', { name: 'No thanks' }).click();
+      await page.getByText('Pixel is thinking…').waitFor();
+      // the server dropped the offer and the pet answered on its own, nothing spent
+      await setWorker(page, {
+        conversation: hireTurn(pixelSays(PET_ALONE, null)),
+        pets: { '9': { ...PIXEL, worn: 'thinking-cap', owner: { ownedCount: 2, outfits: WARDROBE_OWNS, hireMode: 'manual', offer: null } }, '2': BISCUIT },
+        petState: { offer: null, thought: { id: 'w3', text: PET_ALONE, cut: null } },
+      });
+      await page.getByText(PET_ALONE).waitFor();
+      await setWorker(page, { petState: {} });
+      await atNewest(page);
+      await page.mouse.move(0, 0);
+    },
+  },
+
+  // the tap on «Ask Nori» ended with no answer: the lost thought's line where the answer would be, no «Try again» — the card's own
+  // buttons are back, the offer still standing
+  // spec: add-pet-work › Pet hire flow › нажатая кнопка вернулась
+  'work-tap-back': {
+    route: '/pet/9',
+    fakes: { auth: SIGNED_IN, worker: { ...owner(MANUAL_OFFER), conversation: hireTurn(), petState: { pending: true } } },
+    prepare: async (page) => {
+      await page.getByRole('button', { name: 'Ask Nori' }).click();
+      await page.getByRole('button', { name: 'Ask Nori' }).waitFor({ state: 'detached' });
+      await setWorker(page, { petState: { pending: false, code: 'ai_unavailable', jobKind: 'hire' } });
+      await page.getByText('Pixel lost that thought. Nothing was spent — try again.').first().waitFor();
+      await page.getByRole('button', { name: 'Ask Nori' }).waitFor();
+      await atNewest(page);
+      await page.mouse.move(0, 0);
+    },
+  },
+
+  // spec: add-pet-work › Pet hire flow › найм не состоялся
+  'work-hire-failed': {
+    route: '/pet/9',
+    fakes: { auth: SIGNED_IN, worker: { ...owner(), conversation: hireTurn(hireEvent('hire_failed'), pixelSays(PET_ALONE, null)) } },
+    prepare: async (page) => {
+      await page.getByText("Nori couldn't help just now, so Pixel answered on its own. No fee was paid.").waitFor();
+      await atNewest(page);
+    },
+  },
+
+  // spec: add-pet-work › Pet hire flow › работник ответил пусто
+  'work-came-up-empty': {
+    route: '/pet/9',
+    fakes: { auth: SIGNED_IN, worker: { ...owner(), conversation: hireTurn(hireEvent('hire_empty'), pixelSays(PET_ALONE, null)) } },
+    prepare: async (page) => {
+      await page.getByText("Nori came up empty, so Pixel answered on its own. No fee was paid — the try used a little of Pixel's food.").waitFor();
+      await atNewest(page);
+    },
+  },
+
+  // spec: add-pet-work › Pet hire flow › свой ответ не пришёл
+  'work-own-reply-lost': {
+    route: '/pet/9',
+    // the lost own reply is the outcome of the tab's own job: the page adopts the job on its way and learns how it ended
+    fakes: {
+      auth: SIGNED_IN,
+      worker: {
+        ...owner({ pendingJob: 'job-1', pendingKind: 'reply', pendingMode: 'chat', pendingText: null }),
+        conversation: hireTurn(nori(NORI_PAID)),
+        petState: { code: 'own_lost', ownLost: { turn: 'w1' } },
+      },
+    },
+    prepare: async (page) => {
+      await page.getByRole('button', { name: 'Try again' }).waitFor();
+      await atNewest(page);
+      await page.mouse.move(0, 0);
+    },
+  },
+
+  // spec: add-pet-work › Pet hire flow › найм не записан в сети
+  'work-no-fee': {
+    route: '/pet/9',
+    fakes: { auth: SIGNED_IN, worker: { ...owner(), conversation: hireTurn(nori(), pixelSays(PET_SAYS, { worker: 'Nori', noFee: true })) } },
+    prepare: async (page) => {
+      await page.getByText('Pixel asked Nori · no fee').waitFor();
+      await atNewest(page);
+    },
+  },
+
+  // The guest's advice frames (design/bundle/screens/work.js): Pixel's player on Biscuit's page, the column where the owner's
+  // conversation stands. `advice-cant-pay` has no fixture: its frame contradicts the Scenario (design.md › Клиент › Frames).
+
+  // the question sent, Biscuit thinking: the page read the question on its way (a reload brings it back the same way)
+  // spec: add-pet-work › Advice flow › вопрос отправлен
+  'advice-sent': {
+    route: '/pet/2',
+    // the frame is the first seconds: a slow machine must not reach the 10 s line before the shot
+    fakes: { auth: SIGNED_IN, worker: { ...guestAdvice({ pending: { job: 'job-advice', question: ADVICE_QUESTION } }), petState: { pending: true }, waitLineMs: FOREVER } },
+    prepare: async (page) => {
+      await page.getByText('Biscuit is thinking…').first().waitFor();
+      await page.mouse.move(0, 0);
+    },
+  },
+
+  // Biscuit's answer in its voice, with its receipt and where it is kept
+  // spec: add-pet-work › Advice flow › ответ
+  'advice-answer': {
+    route: '/pet/2',
+    fakes: { auth: SIGNED_IN, worker: guestAdvice({ last: { id: 'a1', question: ADVICE_QUESTION, text: ADVICE_ANSWER, skilled: false } }) },
+    prepare: async (page) => {
+      await page.getByText(ADVICE_ANSWER).waitFor();
+      await page.mouse.move(0, 0);
+    },
+  },
+
+  // on the asker's own pet's page the advice it paid for stays in the conversation
+  // spec: add-pet-work › Advice flow › совет потом
+  'advice-later': {
+    route: '/pet/9',
+    fakes: {
+      auth: SIGNED_IN,
+      worker: {
+        ...owner(),
+        conversation: {
+          lines: [
+            ...HISTORY,
+            { id: 'adv:you', who: 'player', text: ADVICE_QUESTION, at: 1_700_000_000_100 },
+            { id: 'adv', who: 'worker', text: ADVICE_ANSWER, at: 1_700_000_000_101, worker: { tokenId: '2', name: 'Biscuit' }, skilled: false },
+          ],
+          more: false,
+          before: null,
+        },
+      },
+    },
+    prepare: async (page) => {
+      await page.getByText(ADVICE_ANSWER).waitFor();
+      await atNewest(page);
+    },
+  },
+
+  // the answer came back empty past the third today: the line where it would be, the question back in the field
+  // spec: add-pet-work › Advice flow › пустой ответ работника
+  'advice-empty': {
+    route: '/pet/2',
+    fakes: { auth: SIGNED_IN, worker: guestAdvice() },
+    prepare: async (page) => {
+      await adviceReady(page);
+      await askAdvice(page, { code: 'empty_paid' });
+      await page.getByText(/lost that answer/).first().waitFor();
+      await page.getByRole('button', { name: /^Ask Biscuit/ }).and(page.locator(':not([aria-busy])')).waitFor();
+      await page.getByPlaceholder('Ask Biscuit for advice…').blur();
+    },
+  },
+
+  // Biscuit fell asleep after the question went: the sent question is back in the field, the line why «Ask» is off
+  // spec: add-pet-work › Advice flow › работник уснул
+  'advice-worker-asleep': {
+    route: '/pet/2',
+    fakes: { auth: SIGNED_IN, worker: guestAdvice() },
+    prepare: async (page) => {
+      await adviceReady(page);
+      await setWorker(page, { pets: { '9': PIXEL, '2': { ...BISCUIT, fullness: { state: 'asleep', level: 0 } } }, advice: { price: ADVICE_PRICE, workerAsleep: true } });
+      await askAdvice(page, { code: 'worker_asleep' });
+      await page.getByText("Biscuit couldn't help just now. Nothing was spent — your question is kept.").first().waitFor();
+      await page.getByText('Asleep', { exact: true }).first().waitFor();
+      await page.getByPlaceholder('Ask Biscuit for advice…').blur();
+    },
+  },
+
+  // Pixel is at its day's limit: the line in the button's place, the question kept
+  // spec: add-pet-work › Advice flow › свой питомец устал
+  'advice-tired': {
+    route: '/pet/2',
+    fakes: { auth: SIGNED_IN, worker: guestAdvice({ payer: { ...ADVICE_PAYER, state: 'tired', until: MIDNIGHT_UTC } }) },
+    prepare: async (page) => {
+      await page.getByText(/is tired for today/).first().waitFor();
+      await typeAdvice(page);
+    },
+  },
+
+  // Pixel cannot pay Biscuit's price: the line and «Feed your Pixel» in the button's place, the question kept
+  // spec: add-pet-work › Advice flow › свой питомец не может заплатить
+  'advice-cant-pay': {
+    route: '/pet/2',
+    fakes: { auth: SIGNED_IN, worker: guestAdvice({ payer: { ...ADVICE_PAYER, state: 'short', until: null } }) },
+    prepare: async (page) => {
+      await page.getByRole('button', { name: 'Feed your Pixel' }).waitFor();
+      await typeAdvice(page);
+    },
+  },
+
+  // the same for a skilled worker above its starting price: its price drops back at the day's end
+  // spec: add-pet-work › Advice flow › свой питомец не может заплатить
+  'advice-cant-pay-skilled': {
+    route: '/pet/7',
+    fakes: { auth: SIGNED_IN, worker: guestSage({ price: SAGE_PRICE_NOW, dropsAt: MIDNIGHT_UTC, payer: { ...ADVICE_PAYER, state: 'short', until: null } }) },
+    prepare: async (page) => {
+      await page.getByRole('button', { name: 'Feed your Pixel' }).waitFor();
+      await typeAdvice(page, ASK_SAGE, 'Sage');
+    },
+  },
+
+  // Sage's page: its label under its name, its price now 0.56¢, the notes under «Your Pixel pays…»
+  // spec: add-pet-work › Advice flow › advice from a pet with a skill
+  'advice-skilled': {
+    route: '/pet/7',
+    fakes: { auth: SIGNED_IN, worker: guestSage({ price: SAGE_PRICE_NOW }) },
+    prepare: async (page) => {
+      await page.getByRole('button', { name: /^Ask Sage/ }).waitFor();
+      await page.mouse.move(0, 0);
+    },
+  },
+
+  // the question met a price that rose: not sent, kept in the field, the line above the bar, the button at the new price
+  // spec: add-pet-work › Advice flow › price rose
+  'advice-price-rose': {
+    route: '/pet/7',
+    fakes: { auth: SIGNED_IN, worker: guestSage({ price: SAGE_PRICE_NOW }) },
+    prepare: async (page) => {
+      await page.getByRole('button', { name: /^Ask Sage/ }).waitFor();
+      await setWorker(page, { petState: { pending: true } });
+      const field = page.getByPlaceholder('Ask Sage for advice…');
+      await field.fill(ASK_SAGE);
+      await field.press('Enter');
+      await page.getByText('Sage is thinking…').first().waitFor();
+      await setWorker(page, { advice: { price: SAGE_PRICE_ROSE, skilled: true }, petState: { code: 'price_rose', price: SAGE_PRICE_ROSE } });
+      await page.getByText("Sage is busier now — it's 0.74¢. Your question is still here, and nothing was spent.").first().waitFor();
+      await field.blur();
+    },
+  },
+
+  // the asker opens the page again: the last question and Sage's answer with its receipt; the field empty, today's price on the button
+  // spec: add-pet-work › Advice flow › page opened again
+  'advice-reopened': {
+    route: '/pet/7',
+    fakes: { auth: SIGNED_IN, worker: guestSage({ price: SAGE_PRICE_ROSE, last: { id: 'a1', question: ASK_SAGE, text: SAGE_ADVICE, skilled: true } }) },
+    prepare: async (page) => {
+      await page.getByText(SAGE_ADVICE).waitFor();
+      await page.mouse.move(0, 0);
+    },
+  },
+
+  // the paying pet's memory was cleared while the answer was on its way: the line in place of the answer, the question in the field
+  // spec: add-pet-work › Advice flow › memory cleared on the way
+  'advice-memory-cleared': {
+    route: '/pet/2',
+    fakes: { auth: SIGNED_IN, worker: guestAdvice() },
+    prepare: async (page) => {
+      await adviceReady(page);
+      await askAdvice(page, { code: 'memory_cleared' });
+      await page.getByText("Pixel's memory was cleared, so this answer wasn't kept. It used a little of your Pixel's food.").first().waitFor();
+      await page.getByRole('button', { name: /^Ask Biscuit/ }).and(page.locator(':not([aria-busy])')).waitFor();
+      await page.getByPlaceholder('Ask Biscuit for advice…').blur();
+    },
+  },
+
+  // Sage answered in Auto with its skill: the line in the answer's foot beside its receipt, the price on Pixel's reply
+  // spec: add-pet-work › Worker rule › answer with a skill
+  'work-skilled': {
+    route: '/pet/9',
+    fakes: { auth: SIGNED_IN, worker: { ...owner(), pets: sagePets(), conversation: sageTurn(sageSays(), pixelSays(PET_ON_SAGE, SAGE_PAID)) } },
+    prepare: async (page) => {
+      await page.getByText('Pixel asked Sage · 0.56¢').waitFor();
+      await atNewest(page);
+    },
+  },
+
+  // the Manual tap met a price that rose: nothing spent, the card says the new price, its buttons at it
+  // spec: add-pet-work › Pet hire flow › price rose on an offer
+  'work-price-rose': {
+    route: '/pet/9',
+    fakes: { auth: SIGNED_IN, worker: { ...owner(SAGE_OFFER), pets: sagePets(SAGE_OFFER), conversation: sageTurn(), petState: { pending: true } } },
+    prepare: async (page) => {
+      await page.getByRole('button', { name: 'Ask Sage' }).click();
+      await setWorker(page, {
+        pets: sagePets({ ...SAGE_OFFER, offer: { ...SAGE_OFFER.offer, price: SAGE_PRICE_ROSE } }),
+        petState: { pending: false, code: 'price_rose', price: SAGE_PRICE_ROSE },
+      });
+      await page.getByText("Sage is busier now — it's 0.74¢. Nothing was spent.").first().waitFor();
+      await atNewest(page);
+      await page.mouse.move(0, 0);
+    },
+  },
+
+  // the pet fell asleep before the owner answered: the card keeps its words, its buttons gone; the page asleep
+  // spec: add-pet-work › Pet hire flow › offer goes stale
+  'work-offer-stale': {
+    route: '/pet/9',
+    fakes: { auth: SIGNED_IN, worker: { ...owner(SAGE_OFFER), pets: sagePets(SAGE_OFFER), conversation: sageTurn() } },
+    prepare: async (page) => {
+      await page.getByRole('button', { name: 'Ask Sage' }).waitFor();
+      // the owner had typed a line when the pet fell asleep: the field keeps it, off
+      await typeLine(page, TYPED);
+      await setWorker(page, { pets: sagePets({ hireMode: 'manual', offer: null }, ASLEEP) });
+      await lookAgain(page);
+      await page.getByText('Pixel is asleep. A meal will wake Pixel up.').first().waitFor();
+      await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
+      await atNewest(page);
+      await page.mouse.move(0, 0);
+    },
+  },
+
+  // the owner cleared Pixel's memory while it was asking Nori: the cleared conversation holds the line that says the answer was not kept
+  // spec: add-pet-work › Pet hire flow › hire memory cleared on the way
+  'work-memory-cleared': {
+    route: '/pet/9',
+    fakes: { auth: SIGNED_IN, worker: { ...owner(HIRE_JOB), conversation: hireTurn(), petState: { pending: true } } },
+    prepare: async (page) => {
+      await page.getByText('Pixel is asking Nori…').waitFor();
+      await openClearDialog(page);
+      await page.getByRole('button', { name: 'Clear memory' }).click();
+      await setWorker(page, { petState: { pending: false, pendingProgress: null, code: 'memory_cleared' } });
+      await page.getByText("Pixel's memory was cleared, so this answer wasn't kept. It used a little of Pixel's food.").first().waitFor();
+      await page.mouse.move(0, 0);
+      await settle(page);
+    },
+  },
+
+  // The Skill sheet (design/bundle/screens/skill.js): the badge under Pixel's name opens the pet's ability card over the conversation
+  // column. Its sockets for data and code belong to add-pet-errands and are not drawn.
+
+  // spec: add-pet-work › Skill sheet screen › success
+  'skill-sheet': {
+    route: '/pet/9',
+    fakes: { auth: SIGNED_IN, worker: { ...owner(), skill: { skill: null } } },
+    prepare: openSkillSheet,
+  },
+
+  // spec: add-pet-work › Skill sheet screen › skill already written
+  'skill-sheet-written': {
+    route: '/pet/9',
+    fakes: { auth: SIGNED_IN, worker: skillWorker(SKILL_LABEL) },
+    prepare: openSkillSheet,
+  },
+
+  // spec: add-pet-work › Skill sheet screen › error
+  'skill-sheet-error': {
+    route: '/pet/9',
+    fakes: { auth: SIGNED_IN, worker: { ...owner(), skill: { fail: { status: 0, code: 'unreachable' } } } },
+    prepare: async (page) => {
+      await page.getByRole('button', { name: 'Teach Pixel a skill' }).click();
+      await page.getByText("We couldn't open Pixel's skill right now. Try again in a moment.").last().waitFor();
+      await page.mouse.move(0, 0);
+      await settle(page);
+    },
+  },
+
+  // saved: the sheet closed, the badge «Good at opening lines», the toast in the header's band
+  // spec: add-pet-work › Skill writing flow › skill saved
+  'skill-saved': {
+    route: '/pet/9',
+    fakes: { auth: SIGNED_IN, worker: { ...owner(), skill: { skill: null }, toastHeld: true } },
+    prepare: async (page) => {
+      await page.getByRole('button', { name: 'Teach Pixel a skill' }).click();
+      await page.getByLabel('What is Pixel good at?').fill(SKILL_LABEL);
+      await page.getByLabel('How should Pixel do it?').fill(SKILL_INSTRUCTION);
+      await page.getByRole('button', { name: 'Save skill' }).click();
+      await page.getByRole('button', { name: `Pixel's skill: Good at ${SKILL_LABEL}` }).waitFor();
+      // the drawn toast, not the page's Live region that says the same words
+      await page.locator('.ds-toast').filter({ hasText: 'Saved. Pixel will use this from its next job.' }).waitFor();
+      await page.mouse.move(0, 0);
+      await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
+    },
+  },
+
+  // the label refused by the names' check (no visible character): the line under the label, both fields keep their text
+  // spec: add-pet-work › Skill writing flow › label not accepted
+  'skill-label-rejected': {
+    route: '/pet/9',
+    fakes: { auth: SIGNED_IN, worker: { ...owner(), skill: { skill: null }, saveSkill: { fail: { status: 400, code: 'bad_label' } } } },
+    prepare: async (page) => {
+      await page.getByRole('button', { name: 'Teach Pixel a skill' }).click();
+      await page.getByLabel('What is Pixel good at?').fill('   ');
+      await page.getByLabel('How should Pixel do it?').fill(SKILL_INSTRUCTION);
+      await page.getByRole('button', { name: 'Save skill' }).click();
+      await page.getByText("Let's pick different words.").first().waitFor();
+      await page.mouse.move(0, 0);
+      await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
+    },
+  },
+
+  // forgotten: the line at the body's top, the fields keep their text, the badge back to «Teach Pixel a skill»
+  // spec: add-pet-work › Skill writing flow › skill forgotten
+  'skill-forgotten': {
+    route: '/pet/9',
+    fakes: { auth: SIGNED_IN, worker: skillWorker(SKILL_LABEL) },
+    prepare: async (page) => {
+      await openSkillSheet(page);
+      await page.getByRole('button', { name: 'Forget this skill' }).click();
+      await page.getByText('Pixel forgot this skill. Changed your mind? Save it again before you close this.').first().waitFor();
+      await page.mouse.move(0, 0);
+      await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
+    },
+  },
+
+  // no answer to «Save skill»: the line and «Try again» at the body's top, the fields keep their text
+  // spec: add-pet-work › Skill writing flow › save failed
+  'skill-save-failed': {
+    route: '/pet/9',
+    fakes: { auth: SIGNED_IN, worker: { ...skillWorker(SKILL_LABEL), saveSkill: { fail: { status: 0, code: 'unreachable' } } } },
+    prepare: async (page) => {
+      await openSkillSheet(page);
+      await page.getByLabel('How should Pixel do it?').fill(`${SKILL_INSTRUCTION} End on a question.`);
+      await page.getByRole('button', { name: 'Save skill' }).click();
+      await page.getByText("We couldn't save that. Nothing's lost — try again.").first().waitFor();
+      await page.mouse.move(0, 0);
+      await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
     },
   },
 };

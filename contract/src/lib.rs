@@ -11,18 +11,19 @@ use near_sdk::json_types::U128;
 use near_sdk::store::key::Sha256;
 use near_sdk::store::{LookupMap, LookupSet};
 use near_sdk::{AccountId, NearToken, PanicOnDefault, Promise, env, near};
+use std::collections::HashMap;
 
-use crate::events::{NearlingEvent, OutfitVia, SnackKind, ThoughtReceipt, hex, unhex32};
+use crate::events::{HireKind, NearlingEvent, OutfitVia, SnackKind, ThoughtReceipt, hex, unhex32};
 use crate::limits::*;
 use crate::pet::{
     HatchView, Pet, PetView, RiddleView, Stage, THINKING_CAP, Trait, VersionedPet, is_bought,
     next_streak, streak_item, token_extra,
 };
 
-/// The state layout before `add-daily-ritual`, which `migrate` reads on the dev account: the same
-/// prefixes as `Contract`, without the riddle commits and their reserve.
+/// The state layout before `add-pet-work`, which `migrate` reads on the dev account: the same
+/// prefixes as `Contract`, without the work pairs and their index.
 #[near(serializers = [borsh])]
-pub struct ContractV2 {
+pub struct ContractV3 {
     owner_id: AccountId,
     server_id: AccountId,
     treasury_id: AccountId,
@@ -34,6 +35,8 @@ pub struct ContractV2 {
     next_token_id: u64,
     pool: u128,
     known: LookupSet<(TokenId, AccountId), Sha256>,
+    riddle_commits: LookupMap<u64, [u8; 32]>,
+    riddle_reserve: u128,
 }
 
 /// The game's contract. Errors are `env::panic_str` with a code in the text; the Worker tells
@@ -61,6 +64,12 @@ pub struct Contract {
     /// What `riddle_storage_fund` put in and the commits have not taken: pays the commits'
     /// storage, separate from the pool and from the pets' food.
     riddle_reserve: u128,
+    /// The pairs of pets met through work: one record per pair, keyed {lower, higher} by numeric
+    /// order. The hashed key makes every record `KNOWN_RECORD_BYTES`, so the pool can price it.
+    work_pairs: LookupSet<(TokenId, TokenId), Sha256>,
+    /// Each pet's partners (token ids as numbers, ascending): what `pet_view` lists for the
+    /// server. The contract's token ids are its own decimal counters, so they fit a `u64`.
+    work_index: LookupMap<u64, Vec<u64>>,
 }
 
 fn fail(code: &str) -> ! {
@@ -71,11 +80,37 @@ fn day_of(timestamp_ns: u64) -> u64 {
     timestamp_ns / DAY_NS
 }
 
+/// The refusal of the hire on thought `i`: the Worker reads `hire:<i>:<code>` to drop that record.
+fn fail_hire(i: usize, code: &str) -> ! {
+    fail(&format!("hire:{i}:{code}"))
+}
+
+/// The key of the pair of pets `a` and `b`, the lower id first by number; `None` for an id that is
+/// not a number (no pet has one).
+fn pair_key(a: &str, b: &str) -> Option<(TokenId, TokenId)> {
+    let (x, y) = (a.parse::<u64>().ok()?, b.parse::<u64>().ok()?);
+    Some(if x <= y {
+        (x.to_string(), y.to_string())
+    } else {
+        (y.to_string(), x.to_string())
+    })
+}
+
 /// Takes `amount` out of the pet's food: the project's first, then the given one, and counts it
 /// into the UTC day's total. The one money rule of `debit_session` and `outfit_buy`: refuses with
 /// `daily_cap` when the day's total would pass `DAILY_CAP`, then with `over_food` when the food
 /// is short. The caller writes the record only after both pass.
 fn take_food(pet: &mut Pet, amount: u128) {
+    take_food_split(pet, 0, amount);
+}
+
+/// `take_food` for a batch with hires of kind `pet`: `from_given` comes out of the given food
+/// only (OD-491), `rest` project food first. The day's cap counts both. The caller has checked
+/// that `from_given` is within the given food.
+fn take_food_split(pet: &mut Pet, from_given: u128, rest: u128) {
+    let amount = from_given
+        .checked_add(rest)
+        .unwrap_or_else(|| fail("overflow"));
     let day = day_of(env::block_timestamp());
     let debited_today = if pet.debit_day == day {
         pet.debited_today
@@ -86,18 +121,32 @@ fn take_food(pet: &mut Pet, amount: u128) {
         .checked_add(amount)
         .filter(|d| *d <= DAILY_CAP)
         .unwrap_or_else(|| fail("daily_cap"));
+    let given_left = pet
+        .given_food
+        .checked_sub(from_given)
+        .unwrap_or_else(|| fail("over_food"));
     let food = pet
         .project_food
-        .checked_add(pet.given_food)
+        .checked_add(given_left)
         .unwrap_or_else(|| fail("overflow"));
-    if amount > food {
+    if rest > food {
         fail("over_food");
     }
-    let from_project = amount.min(pet.project_food);
+    let from_project = rest.min(pet.project_food);
     pet.project_food -= from_project;
-    pet.given_food -= amount - from_project;
+    pet.given_food = given_left - (rest - from_project);
     pet.debit_day = day;
     pet.debited_today = debited_today;
+}
+
+/// One hire of a batch that passed its checks, with what `debit_session` writes for it.
+struct PlannedHire {
+    thought: usize,
+    worker: TokenId,
+    kind: HireKind,
+    skill: bool,
+    fee: u128,
+    price: u128,
 }
 
 impl Contract {
@@ -123,6 +172,8 @@ impl Contract {
             known: LookupSet::with_hasher(b"k".to_vec()),
             riddle_commits: LookupMap::new(b"r".to_vec()),
             riddle_reserve: 0,
+            work_pairs: LookupSet::with_hasher(b"w".to_vec()),
+            work_index: LookupMap::new(b"x".to_vec()),
         }
     }
 
@@ -155,6 +206,47 @@ impl Contract {
         true
     }
 
+    /// Writes the pair of pets `a` and `b` and both index entries when the pair is new and the
+    /// pool holds `PAIR_MAX_BYTES` of storage; takes the bytes actually written from the pool.
+    /// Returns whether a pair was written; a known pair and a short pool write nothing
+    /// (`Known pets contract` › «пул не покрывает знакомство»).
+    fn introduce_pair(&mut self, a: &str, b: &str) -> bool {
+        let Some(key) = pair_key(a, b) else {
+            return false;
+        };
+        if self.work_pairs.contains(&key) {
+            return false;
+        }
+        let byte_cost = env::storage_byte_cost().as_yoctonear();
+        let bound = u128::from(PAIR_MAX_BYTES)
+            .checked_mul(byte_cost)
+            .unwrap_or_else(|| fail("overflow"));
+        if self.pool < bound {
+            return false;
+        }
+        let (Ok(a), Ok(b)) = (a.parse::<u64>(), b.parse::<u64>()) else {
+            return false;
+        };
+        let before = env::storage_usage();
+        self.work_pairs.insert(key);
+        for (pet, partner) in [(a, b), (b, a)] {
+            let mut partners = self.work_index.get(&pet).cloned().unwrap_or_default();
+            let at = partners.partition_point(|n| *n < partner);
+            partners.insert(at, partner);
+            self.work_index.insert(pet, partners);
+        }
+        self.work_index.flush();
+        let written = env::storage_usage().saturating_sub(before);
+        let cost = u128::from(written)
+            .checked_mul(byte_cost)
+            .unwrap_or_else(|| fail("overflow"));
+        self.pool = self
+            .pool
+            .checked_sub(cost)
+            .unwrap_or_else(|| fail("pool_empty"));
+        true
+    }
+
     fn assert_server(&self) {
         if env::predecessor_account_id() != self.server_id {
             fail("not_server");
@@ -179,14 +271,15 @@ impl Contract {
         Self::fresh(owner_id, server_id, treasury_id)
     }
 
-    /// Takes the layout before `add-daily-ritual` into this one: adds the riddle commits and their
-    /// reserve; the pool, the pets and the counters stay as they were. The dev account upgrades
-    /// with it (`cargo near deploy … with-init-call migrate`). A second call meets a state with
-    /// the bytes of the new fields after the old layout and fails, so the pool is never reset.
+    /// Takes the layout before `add-pet-work` into this one: adds the work pairs and their index,
+    /// empty; the pool, the pets, the feeders, the riddle commits and the counters stay as they
+    /// were. The dev account upgrades with it (`cargo near deploy … with-init-call migrate`). A
+    /// second call meets a state with the bytes of the new fields after the old layout and
+    /// fails, so the pool is never reset.
     #[init(ignore_state)]
     #[private]
     pub fn migrate() -> Self {
-        let old: ContractV2 = env::state_read().unwrap_or_else(|| fail("no_state"));
+        let old: ContractV3 = env::state_read().unwrap_or_else(|| fail("no_state"));
         Self {
             owner_id: old.owner_id,
             server_id: old.server_id,
@@ -199,8 +292,10 @@ impl Contract {
             next_token_id: old.next_token_id,
             pool: old.pool,
             known: old.known,
-            riddle_commits: LookupMap::new(b"r".to_vec()),
-            riddle_reserve: 0,
+            riddle_commits: old.riddle_commits,
+            riddle_reserve: old.riddle_reserve,
+            work_pairs: LookupSet::with_hasher(b"w".to_vec()),
+            work_index: LookupMap::new(b"x".to_vec()),
         }
     }
 
@@ -264,7 +359,7 @@ impl Contract {
             .internal_mint_with_refund(token_id.clone(), receiver.clone(), None, None);
         self.pets.insert(
             token_id.clone(),
-            VersionedPet::V5(Pet {
+            VersionedPet::V6(Pet {
                 name,
                 character,
                 born_at: now,
@@ -283,6 +378,8 @@ impl Contract {
                 traits: [0, 0],
                 last_streak_day: 0,
                 outfits: 0,
+                job_day: 0,
+                jobs_today: 0,
             }),
         );
         self.hatched.insert(receiver.clone(), token_id.clone());
@@ -344,36 +441,162 @@ impl Contract {
             fail("bad_debit_id");
         }
 
-        let mut sum: u128 = 0;
-        for thought in &thoughts {
+        let today = day_of(env::block_timestamp());
+        let hirer_owner = self
+            .tokens
+            .owner_by_id
+            .get(&token_id)
+            .unwrap_or_else(|| fail("no_pet"));
+
+        // The thoughts without a hire cost their price; a hire costs its fee, which holds the
+        // worker's answer, so an answer's price is never counted twice.
+        let mut plain: u128 = 0;
+        let mut hires: Vec<PlannedHire> = Vec::new();
+        // The workers touched, read once, and the jobs this batch already gives each.
+        let mut workers: HashMap<TokenId, VersionedPet> = HashMap::new();
+        let mut batch_jobs: HashMap<TokenId, u8> = HashMap::new();
+        for (i, thought) in thoughts.iter().enumerate() {
             if thought.calls.is_empty() || thought.calls.len() > MAX_CALLS_PER_THOUGHT {
                 fail("bad_calls");
             }
             if thought.price.0 > MAX_THOUGHT_PRICE {
                 fail("price_over_cap");
             }
-            sum = sum
-                .checked_add(thought.price.0)
-                .unwrap_or_else(|| fail("overflow"));
+            let Some(hire) = &thought.hire else {
+                plain = plain
+                    .checked_add(thought.price.0)
+                    .unwrap_or_else(|| fail("overflow"));
+                continue;
+            };
+            // The checks of a hire, in the order of `Hire debit contract`.
+            let worker = thought
+                .worker
+                .clone()
+                .unwrap_or_else(|| fail_hire(i, "no_worker"));
+            let worker_owner = self
+                .tokens
+                .owner_by_id
+                .get(&worker)
+                .unwrap_or_else(|| fail_hire(i, "no_worker"));
+            if !workers.contains_key(&worker) {
+                let stored = self
+                    .pets
+                    .get(&worker)
+                    .cloned()
+                    .unwrap_or_else(|| fail_hire(i, "no_worker"));
+                workers.insert(worker.clone(), stored);
+            }
+            if !(HIRE_FEE_MIN..=HIRE_FEE_MAX).contains(&hire.fee.0) {
+                fail_hire(i, "fee_band");
+            }
+            if thought.price.0 >= hire.fee.0 {
+                fail_hire(i, "answer_over_fee");
+            }
+            if worker_owner == hirer_owner {
+                fail_hire(i, "same_owner");
+            }
+            let given_jobs = workers[&worker].current().jobs_today_now(today);
+            let batch = batch_jobs.entry(worker.clone()).or_insert(0);
+            if u16::from(given_jobs) + u16::from(*batch) >= u16::from(MAX_JOBS_PER_DAY) {
+                fail_hire(i, "jobs");
+            }
+            *batch += 1;
+            if hire.kind == HireKind::Pet {
+                let paired = pair_key(&token_id, &worker)
+                    .is_some_and(|pair| self.work_pairs.contains(&pair));
+                if !paired && !self.known.contains(&(token_id.clone(), worker_owner)) {
+                    fail_hire(i, "not_known");
+                }
+            }
+            hires.push(PlannedHire {
+                thought: i,
+                worker,
+                kind: hire.kind,
+                skill: hire.skill,
+                fee: hire.fee.0,
+                price: thought.price.0,
+            });
         }
 
-        // The project's food first, then the given one; the cap of the day (`take_food`).
-        take_food(pet, sum);
+        // The money: a pet's own hire is paid from the food given to it only, the rest from the
+        // project's food first, the cap of the day over all of it (`take_food_split`).
+        let mut from_given: u128 = 0;
+        let mut rest = plain;
+        for hire in &hires {
+            match hire.kind {
+                HireKind::Pet => {
+                    from_given = from_given
+                        .checked_add(hire.fee)
+                        .unwrap_or_else(|| fail("overflow"));
+                    if from_given > pet.given_food {
+                        fail_hire(hire.thought, "given_short");
+                    }
+                }
+                HireKind::Player => {
+                    rest = rest
+                        .checked_add(hire.fee)
+                        .unwrap_or_else(|| fail("overflow"));
+                }
+            }
+        }
+        take_food_split(pet, from_given, rest);
         pet.last_debit_id = debit_id;
         self.pets.insert(token_id.clone(), record);
 
-        for thought in thoughts {
+        // What the treasury gets: the thoughts without a hire and the worker answers' prices; the
+        // rest of each fee stays in the contract as the worker's given food.
+        let mut to_treasury = plain;
+        for hire in &hires {
+            let record = workers
+                .get_mut(&hire.worker)
+                .unwrap_or_else(|| fail("no_worker"));
+            let worker = record.current_mut();
+            worker.given_food = worker
+                .given_food
+                .checked_add(hire.fee - hire.price)
+                .unwrap_or_else(|| fail("overflow"));
+            worker.jobs_today = worker.jobs_today_now(today) + 1;
+            worker.job_day = today;
+            to_treasury = to_treasury
+                .checked_add(hire.price)
+                .unwrap_or_else(|| fail("overflow"));
+        }
+        for (worker, record) in workers {
+            self.pets.insert(worker, record);
+        }
+        // The pets' records first, so the measure of a pair below counts the pair alone.
+        self.pets.flush();
+        for hire in &hires {
+            self.introduce_pair(&token_id, &hire.worker);
+        }
+
+        // The events in receipt order, a hire right after its answer's receipt.
+        let mut planned = hires.into_iter().peekable();
+        for (i, thought) in thoughts.into_iter().enumerate() {
             NearlingEvent::Receipt {
                 token_id: token_id.clone(),
                 debit_id,
                 model: thought.model,
                 price: thought.price,
                 calls: thought.calls,
+                worker: thought.worker,
             }
             .emit();
+            if let Some(hire) = planned.next_if(|h| h.thought == i) {
+                NearlingEvent::Hire {
+                    debit_id,
+                    hirer: token_id.clone(),
+                    worker: hire.worker,
+                    kind: hire.kind,
+                    skill: hire.skill,
+                    fee: U128(hire.fee),
+                    answer_cost: U128(hire.price),
+                }
+                .emit();
+            }
         }
         Promise::new(self.treasury_id.clone())
-            .transfer(NearToken::from_yoctonear(sum))
+            .transfer(NearToken::from_yoctonear(to_treasury))
             .detach();
     }
 
@@ -704,7 +927,18 @@ impl Contract {
     pub fn pet_view(&self, token_id: TokenId) -> Option<PetView> {
         let record = self.pets.get(&token_id)?;
         let owner_id = self.tokens.owner_by_id.get(&token_id)?;
-        Some(PetView::new(owner_id, &record.current()))
+        let work_known = token_id
+            .parse::<u64>()
+            .ok()
+            .and_then(|id| self.work_index.get(&id))
+            .map(|partners| partners.iter().map(u64::to_string).collect())
+            .unwrap_or_default();
+        Some(PetView::new(
+            owner_id,
+            &record.current(),
+            day_of(env::block_timestamp()),
+            work_known,
+        ))
     }
 
     /// Whether the pet knows the account: a record `pet_feed` or `pet_snack` wrote. False for a
@@ -818,8 +1052,8 @@ mod tests {
         let mut contract = funded_contract(7_000_000_000_000_000_000_000_000);
         testing_env!(context(server(), 1_000, 0).build());
         let token_id = contract.pet_mint(player(0), "Pixel".into(), "I am curious.".into());
-        let Some(VersionedPet::V5(born)) = contract.pets.get(&token_id).cloned() else {
-            panic!("a birth writes version 5");
+        let Some(VersionedPet::V6(born)) = contract.pets.get(&token_id).cloned() else {
+            panic!("a birth writes version 6");
         };
         contract.known.insert((token_id.clone(), player(7)));
         let old_record = VersionedPet::V1(crate::pet::PetV1 {
@@ -840,8 +1074,12 @@ mod tests {
         contract.pets.flush();
         let pool = contract.pool;
 
-        // The layout before this change: the fields of Contract without the riddle ones.
-        let old = ContractV2 {
+        // The layout before this change: the fields of Contract without the work ones. A commit
+        // and a reserve are in it, and `migrate` must keep them.
+        contract.riddle_reserve = 5_000;
+        contract.riddle_commits.insert(20_001, [7u8; 32]);
+        contract.riddle_commits.flush();
+        let old = ContractV3 {
             owner_id: contract.owner_id,
             server_id: contract.server_id,
             treasury_id: contract.treasury_id,
@@ -853,6 +1091,8 @@ mod tests {
             next_token_id: contract.next_token_id,
             pool: contract.pool,
             known: contract.known,
+            riddle_commits: contract.riddle_commits,
+            riddle_reserve: contract.riddle_reserve,
         };
         env::state_write(&old);
         drop(old);
@@ -876,7 +1116,18 @@ mod tests {
         assert!(migrated.pet_knows("0".into(), player(7)), "known is kept");
         assert_eq!(view.last_streak_day, None);
         let riddle = migrated.riddle_view(20_000);
-        assert_eq!((riddle.hash, riddle.reserve.0), (None, 0));
+        assert_eq!((riddle.hash, riddle.reserve.0), (None, 5_000));
+        assert_eq!(
+            migrated.riddle_view(20_001).hash,
+            Some(hex(&[7u8; 32])),
+            "the commits are kept"
+        );
+        assert!(migrated.pet_view("0".into()).unwrap().work_known.is_empty());
+        assert!(
+            !migrated
+                .work_pairs
+                .contains(&("0".to_string(), "1".to_string()))
+        );
 
         // A second call reads the state migrate itself wrote: the bytes of the riddle fields trail
         // the old layout, so it fails and the pool is never reset.
@@ -1149,6 +1400,8 @@ mod tests {
             model: "Qwen/Qwen3.8-27B".into(),
             price: U128(price),
             calls: vec![call.clone()],
+            worker: None,
+            hire: None,
         };
         testing_env!(context(server(), 2_000, 0).build());
         // 2.5e21 from the project's 2e21 and 0.5e21 of the given food
@@ -1803,5 +2056,218 @@ mod tests {
         let view = contract.pet_view("0".into()).unwrap();
         assert_eq!((view.debit_day, view.debited_today.0), (4, OUTFIT_PRICE));
         assert_eq!(view.outfits, vec![3, 4]);
+    }
+
+    fn pair_known(contract: &Contract, a: &str, b: &str) -> bool {
+        contract.work_pairs.contains(&pair_key(a, b).unwrap())
+    }
+
+    // The three prices of a new pair: both pets with no index entry, one with, both with. The
+    // first is the bound the pool must hold before a pair is written.
+    // spec: add-pet-work › Known pets contract › пул не покрывает знакомство × the pair's bytes
+    #[test]
+    fn a_pair_costs_the_measured_bytes_and_the_bound_covers_the_worst() {
+        let mut contract = funded_contract(HUGE_POOL);
+        let byte = env::storage_byte_cost().as_yoctonear();
+        let measure = |contract: &mut Contract, a: &str, b: &str| -> u64 {
+            let (usage, pool) = (env::storage_usage(), contract.pool);
+            assert!(contract.introduce_pair(a, b), "{a}-{b} is a new pair");
+            let bytes = env::storage_usage() - usage;
+            assert_eq!(
+                pool - contract.pool,
+                u128::from(bytes) * byte,
+                "the pool paid the bytes"
+            );
+            bytes
+        };
+        let both_new = measure(&mut contract, "5", "2");
+        let one_new = measure(&mut contract, "2", "9");
+        let none_new = measure(&mut contract, "5", "9");
+        eprintln!("pair bytes: both new {both_new}, one new {one_new}, none new {none_new}");
+        assert_eq!((both_new, one_new, none_new), (194, 141, 88));
+        assert_eq!(both_new, PAIR_MAX_BYTES, "the bound is the worst pair");
+        assert!(pair_known(&contract, "2", "5") && pair_known(&contract, "9", "5"));
+
+        // The ids' length changes no byte: the key is hashed, the index key a `u64`.
+        let big = u64::MAX.to_string();
+        let widest = measure(&mut contract, &big, "18446744073709551614");
+        assert!(widest <= PAIR_MAX_BYTES, "{widest}");
+
+        // The partners come back ascending, whatever the order they were met in.
+        assert_eq!(contract.work_index.get(&5).cloned().unwrap(), vec![2, 9]);
+        assert_eq!(contract.work_index.get(&2).cloned().unwrap(), vec![5, 9]);
+    }
+
+    // spec: add-pet-work › Known pets contract › пул не покрывает знакомство × the pool at the bound
+    #[test]
+    fn a_pool_below_the_bound_writes_nothing_and_at_the_bound_writes_the_pair() {
+        let bound = u128::from(PAIR_MAX_BYTES) * env::storage_byte_cost().as_yoctonear();
+        let mut contract = funded_contract(bound - 1);
+        let usage = env::storage_usage();
+        assert!(!contract.introduce_pair("1", "2"));
+        assert_eq!(env::storage_usage(), usage, "no byte written");
+        assert_eq!(contract.pool, bound - 1, "the pool is as it was");
+        assert!(!pair_known(&contract, "1", "2"));
+        assert!(contract.work_index.get(&1).is_none() && contract.work_index.get(&2).is_none());
+
+        let mut contract = funded_contract(bound);
+        assert!(contract.introduce_pair("1", "2"));
+        assert_eq!(
+            contract.pool, 0,
+            "a new pair of unindexed pets takes the whole bound"
+        );
+        // A known pair writes nothing and takes nothing, with the pool empty.
+        assert!(!contract.introduce_pair("2", "1"));
+        assert_eq!(contract.pool, 0);
+    }
+
+    fn receipt(
+        price: u128,
+        worker: Option<&str>,
+        hire: Option<(HireKind, u128)>,
+    ) -> ThoughtReceipt {
+        ThoughtReceipt {
+            model: "Qwen/Qwen3.8-27B".into(),
+            price: U128(price),
+            calls: vec![crate::events::CallReceipt {
+                req_sha256: "a".repeat(64),
+                res_sha256: "b".repeat(64),
+                signature: "0x00".into(),
+                sig_kind: crate::events::SigKind::ProviderTee,
+                signer: "0x00".into(),
+                tokens_in: 100,
+                tokens_out: 10,
+                tokens_reasoning: 0,
+                cut: false,
+            }],
+            worker: worker.map(String::from),
+            hire: hire.map(|(kind, fee)| crate::events::HireEntry {
+                kind,
+                skill: false,
+                fee: U128(fee),
+            }),
+        }
+    }
+
+    /// Pets "0" (the hirer, rich in given food) and "1" (the worker), two owners.
+    fn hirer_and_worker() -> Contract {
+        let mut contract = funded_contract(HUGE_POOL);
+        testing_env!(context(server(), 1_000, 0).build());
+        contract.pet_mint(player(0), "Pixel".into(), "I am curious.".into());
+        contract.pet_mint(player(1), "Nori".into(), "I am calm.".into());
+        edit_pet(&mut contract, "0", |pet| {
+            pet.given_food = 1_000_000_000_000_000_000_000_000;
+            pet.last_debit_id = 0;
+        });
+        contract
+    }
+
+    const PRICE: u128 = 200_000_000_000_000_000_000;
+
+    // spec: add-pet-work › Hire debit contract › питомец того же владельца × two pets of one owner
+    #[test]
+    fn two_pets_of_one_owner_never_hire_each_other_and_a_pet_never_hires_itself() {
+        let mut contract = hirer_and_worker();
+        // The giver's pet now belongs to the hirer's owner.
+        contract
+            .tokens
+            .internal_transfer_unguarded(&"1".to_string(), &player(1), &player(0));
+        testing_env!(context(server(), 2_000, 0).build());
+        for worker in ["1", "0"] {
+            let batch = vec![receipt(
+                PRICE,
+                Some(worker),
+                Some((HireKind::Player, HIRE_FEE_MIN)),
+            )];
+            let text = panic_text(|| contract.debit_session("0".into(), 1, batch));
+            assert!(text.contains("hire:0:same_owner"), "{worker}: {text}");
+        }
+        let (hirer, worker) = (
+            contract.pet_view("0".into()).unwrap(),
+            contract.pet_view("1".into()).unwrap(),
+        );
+        assert_eq!((hirer.last_debit_id, hirer.debited_today.0), (0, 0));
+        assert_eq!((worker.given_food.0, worker.jobs_today), (0, 0));
+    }
+
+    // spec: add-pet-work › Hire debit contract › одиннадцатая работа за сутки × the block_timestamp boundary
+    #[test]
+    fn the_eleventh_job_fails_at_the_last_nanosecond_of_the_day_and_the_next_day_passes() {
+        let mut contract = hirer_and_worker();
+        edit_pet(&mut contract, "1", |pet| {
+            pet.job_day = 3;
+            pet.jobs_today = MAX_JOBS_PER_DAY;
+        });
+        let hire = || receipt(PRICE, Some("1"), Some((HireKind::Player, HIRE_FEE_MIN)));
+
+        testing_env!(context(server(), 4 * NS_PER_DAY - 1, 0).build());
+        let text = panic_text(|| contract.debit_session("0".into(), 1, vec![hire()]));
+        assert!(text.contains("hire:0:jobs"), "{text}");
+        let worker = contract.pet_view("1".into()).unwrap();
+        assert_eq!(worker.jobs_today, 10, "the day's ten stand");
+        assert_eq!(worker.given_food.0, 0, "nothing was paid");
+
+        testing_env!(context(server(), 4 * NS_PER_DAY, 0).build());
+        contract.debit_session("0".into(), 1, vec![hire()]);
+        let worker = contract.pet_view("1".into()).unwrap();
+        assert_eq!(worker.jobs_today, 1, "the counter starts the new day");
+        assert_eq!(worker.given_food.0, HIRE_FEE_MIN - PRICE);
+    }
+
+    // spec: add-pet-work › Hire debit contract › одиннадцатая работа за сутки × a batch counts its own hires
+    #[test]
+    fn a_batch_counts_the_hires_it_has_already_made() {
+        let mut contract = hirer_and_worker();
+        testing_env!(context(server(), 2_000, 0).build());
+        let hire = || receipt(PRICE, Some("1"), Some((HireKind::Player, HIRE_FEE_MIN)));
+        let eleven = (0..11).map(|_| hire()).collect::<Vec<_>>();
+        let text = panic_text(|| contract.debit_session("0".into(), 1, eleven));
+        assert!(
+            text.contains("hire:10:jobs"),
+            "the 11th of one batch: {text}"
+        );
+
+        let ten = (0..10).map(|_| hire()).collect::<Vec<_>>();
+        contract.debit_session("0".into(), 1, ten);
+        let worker = contract.pet_view("1".into()).unwrap();
+        assert_eq!(worker.jobs_today, 10);
+        assert_eq!(worker.given_food.0, 10 * (HIRE_FEE_MIN - PRICE));
+        let text = panic_text(|| contract.debit_session("0".into(), 2, vec![hire()]));
+        assert!(text.contains("hire:0:jobs"), "{text}");
+    }
+
+    // spec: add-pet-work › Hire debit contract › плата вне коридора × the band's edges
+    #[test]
+    fn the_fee_passes_at_both_edges_of_the_band_and_not_a_yocto_outside() {
+        let mut contract = hirer_and_worker();
+        testing_env!(context(server(), 2_000, 0).build());
+        for (id, fee, code) in [
+            (1, HIRE_FEE_MIN - 1, Some("hire:0:fee_band")),
+            (1, HIRE_FEE_MAX + 1, Some("hire:0:fee_band")),
+            (1, HIRE_FEE_MIN, None),
+            (2, HIRE_FEE_MAX, None),
+        ] {
+            let batch = vec![receipt(PRICE, Some("1"), Some((HireKind::Player, fee)))];
+            match code {
+                Some(code) => {
+                    let text = panic_text(|| contract.debit_session("0".into(), id, batch));
+                    assert!(text.contains(code), "{fee}: {text}");
+                }
+                None => contract.debit_session("0".into(), id, batch),
+            }
+        }
+        assert_eq!(contract.pet_view("0".into()).unwrap().last_debit_id, 2);
+    }
+
+    // spec: add-pet-work › Hire debit contract › ответ дороже платы × the price equal to the fee
+    #[test]
+    fn an_answer_priced_at_the_fee_is_refused_and_one_yocto_under_passes() {
+        let mut contract = hirer_and_worker();
+        testing_env!(context(server(), 2_000, 0).build());
+        let at = |price| receipt(price, Some("1"), Some((HireKind::Player, HIRE_FEE_MIN)));
+        let text = panic_text(|| contract.debit_session("0".into(), 1, vec![at(HIRE_FEE_MIN)]));
+        assert!(text.contains("hire:0:answer_over_fee"), "{text}");
+        contract.debit_session("0".into(), 1, vec![at(HIRE_FEE_MIN - 1)]);
+        assert_eq!(contract.pet_view("1".into()).unwrap().given_food.0, 1);
     }
 }

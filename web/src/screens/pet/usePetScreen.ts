@@ -8,8 +8,9 @@ import { onFed } from '../../feeding/feedRequest';
 import { useLocation } from '../../route';
 import { useAuth } from '../../seams/auth';
 import { takeReturnText } from '../../signin/returnPlace';
-import { WorkerError, waitLineMs, workerApi, type ConversationLine, type JobKind, type Me, type PetState, type PetView, type Thought } from '../../seams/worker';
-import { runAction, takePendingAction } from './parts';
+import { WorkerError, waitLineMs, workerApi, type ConversationLine, type HireMode, type HireOffer, type JobKind, type Me, type PetState, type PetView, type Thought } from '../../seams/worker';
+import { askedMeta, hireClearedLine, hireEmptyLine, hireFailedLine, offerLine, toLine } from '../../work/lines';
+import { peekPendingAction, runAction, takePendingAction } from './parts';
 
 // The Pet screen's state (add-pet › Pet screen, Connection rule): what the page shows is chosen from the answer of
 // `GET /api/pets/:id` — a viewer of `owner | guest | visitor` — and kept as the last known pet; a failed request after
@@ -31,14 +32,52 @@ export type Banner = 'offline' | 'busy' | null;
 
 export interface Line {
   id: string;
-  who: 'player' | 'pet' | 'event';
+  who: 'player' | 'pet' | 'event' | 'worker';
   text: string;
   /** arrived while the screen is open: it rises in */
   fresh?: boolean;
-  /** the small line under a reply: «Thought hard · {price}» */
+  /** the small line under a reply: «Thought hard · {price}», or «{name} asked {worker} · {price}» under a hire's answer */
   meta?: string;
   /** the note under a reply that stopped at one thought's limit — the reply is still the newest thing the pet said */
   cutNote?: boolean;
+  /** the pet's own question to a worker, «To {worker}: …»: not the reply the turn waits for */
+  question?: boolean;
+  /** `worker`: whose words, and whether a private skill shaped them */
+  worker?: { tokenId: string; name: string };
+  skilled?: boolean;
+}
+
+/** One line of the server's conversation as lines of the screen (`Pet hire flow`: the pet's question to a worker, the worker's own
+ *  words, the game's line of a hire that did not happen, the price under the answer). `fresh`: it rises in. */
+export function lineOf(l: ConversationLine, name: string, fresh: boolean): Line[] {
+  const text = l.text ?? '';
+  switch (l.who) {
+    case 'worker':
+      return [
+        {
+          id: l.id,
+          who: 'worker',
+          text,
+          fresh,
+          worker: { tokenId: l.worker?.tokenId ?? '', name: l.worker?.name ?? '' },
+          skilled: l.skilled === true,
+          meta: l.hire ? askedMeta(name, l.hire) : undefined,
+        },
+      ];
+    case 'event': {
+      if (!l.code) return [{ id: l.id, who: 'event', text, fresh: fresh || undefined }];
+      const worker = l.worker?.name ?? '';
+      return [{ id: l.id, who: 'event', text: l.code === 'hire_empty' ? hireEmptyLine(name, worker) : hireFailedLine(name, worker), fresh: fresh || undefined }];
+    }
+    case 'pet': {
+      const lines = replyLines({ id: l.id, text: l.hireTo !== undefined ? toLine(l.hireTo, text) : text, cut: l.cut ?? null, priceCents: l.priceCents }, name, fresh);
+      if (l.hireTo !== undefined) lines[0]!.question = true;
+      if (l.hire) lines[0]!.meta = askedMeta(name, l.hire);
+      return lines;
+    }
+    default:
+      return [{ id: l.id, who: 'player', text }];
+  }
 }
 
 /** A thought that did not come: the player's line stays in the conversation under the line and «Try again»
@@ -52,7 +91,22 @@ export interface Failure {
   mode?: 'chat' | 'deep';
   /** the line was the answer to the question of this UTC day: «Try again» sends it as that answer */
   question?: number;
+  /** the job was a tap on a hire (`Ask {worker}`, `No thanks`): the line it answers is already sent, so there is no «Try again» */
+  noRetry?: true;
 }
+
+/** The Manual offer after it was answered (or went stale): its words stay in the conversation, tab memory, after the line that is
+ *  the pet's question of that turn (`Pet hire flow` › «отказ в Manual», «offer goes stale»). */
+export interface AnsweredOffer {
+  id: string;
+  text: string;
+  /** the id of the line the card follows: the pet's question to the worker; null: the card stood with no question line yet */
+  after: string | null;
+}
+
+/** A hire turn's marks (the tab's memory): the job that is one, so its end re-reads the conversation. */
+type HireJobKind = 'hire' | 'decline' | 'finish';
+const isHireKind = (kind: unknown): kind is HireJobKind => kind === 'hire' || kind === 'decline' || kind === 'finish';
 
 /** The answer to the question of the day, on its way or landed, for the Diary to draw under the question until the diary itself
  *  holds the exchange. `day` null: adopted after a reload, of whatever day the diary shows. */
@@ -100,6 +154,10 @@ export function usePetScreen(tokenId: string, from: string | null, diary = false
   // the owner's first line was sent in this tab: «Talk to {name}…» whatever the server still says
   const [spoke, setSpoke] = useState(false);
   const [me, setMe] = useState<Me | null>(null);
+  // `me` read again: the advice column found the paying pet is not the player's (add-pet-work › Hire access data)
+  const [meAttempt, setMeAttempt] = useState(0);
+  // the text a sign-in from the ended-session line brought back to a guest's page: the advice column's field takes it, unsent
+  const [carried, setCarried] = useState<string | null>(null);
   // the mode of the job on its way: «is thinking…» or «is thinking hard…»
   const [jobMode, setJobMode] = useState<'chat' | 'deep'>('chat');
   // no reply for 10 s: the line under the thinking line
@@ -115,6 +173,14 @@ export function usePetScreen(tokenId: string, from: string | null, diary = false
   const [returned, setReturned] = useState<{ text: string; n: number } | null>(null);
   // the Diary is read again at once: a question's answer landed, or the server says the screen is behind
   const [nudge, setNudge] = useState(0);
+  // The hire (add-pet-work › Pet hire flow), all of it the tab's memory: the offers answered (their words stay), the answer to the
+  // offer on its way (the buttons are gone, the card's words stay), a price that rose (the card says so, with the buttons back), the
+  // worker the pet is asking, and the own reply that did not come.
+  const [answeredOffers, setAnsweredOffers] = useState<AnsweredOffer[]>([]);
+  const [offerBusy, setOfferBusy] = useState(false);
+  const [rose, setRose] = useState(false);
+  const [asking, setAsking] = useState<string | null>(null);
+  const [ownLost, setOwnLost] = useState<{ turn: string } | null>(null);
 
   const pageRef = useRef(page);
   // what the player sent with the job on its way, to put it back in the field or retry it when the job is refused
@@ -145,6 +211,13 @@ export function usePetScreen(tokenId: string, from: string | null, diary = false
   // how many times a meal woke the pet, as this page knows it: sent with the poll, so a page learns of a wake that came after
   // it loaded and never replays an old one (`Sleep and wake flow` › «разбудил друг при открытой странице»)
   const wakes = useRef(0);
+  // the job on its way is a hire turn (it asked a worker, or it answers an offer): its end re-reads the conversation, since the
+  // question, the worker's words and the price are thoughts of the server the tab has not seen
+  const hireJob = useRef<string | null>(null);
+  // how many hires the batch settled, as this page knows it: a later number re-reads the conversation («· no fee» without a reload)
+  const hiresSeen = useRef(0);
+  // the offer standing at the last look: when it is gone its words stay as an answered one
+  const offerSeen = useRef<HireOffer | null>(null);
 
   const setDraft = useCallback((text: string) => {
     draftRef.current = text;
@@ -178,12 +251,18 @@ export function usePetScreen(tokenId: string, from: string | null, diary = false
   /** A job the server has and this tab did not start (a reload, another tab, an answer that was lost): its thinking
    *  line and the player's own line come back, and a line that went after all leaves the field. */
   const adopt = useCallback(
-    (view: Pick<PetState, 'pendingJob' | 'pendingMode' | 'pendingKind' | 'pendingText' | 'pendingQuestion'>) => {
+    (view: Pick<PetState, 'pendingJob' | 'pendingMode' | 'pendingKind' | 'pendingText' | 'pendingQuestion' | 'pendingProgress'>) => {
       const job = view.pendingJob;
       if (!job || jobRef.current !== null || sendingRef.current || finished.current.has(job)) return;
       const mode = view.pendingMode ?? 'chat';
       changeJob(job);
       setJobMode(mode);
+      // the turn asked a worker: the owner's line is the question's thought already, in the conversation the page reads
+      if (view.pendingProgress) {
+        hireJob.current = job;
+        setSpoke(true);
+        return;
+      }
       const text = view.pendingKind === 'reply' ? view.pendingText : null;
       if (text === null) return;
       const id = `you-${(localLine.current += 1)}`;
@@ -241,6 +320,7 @@ export function usePetScreen(tokenId: string, from: string | null, diary = false
         if (pet.viewer === 'owner') {
           epoch.current = pet.memoryEpoch;
           wakes.current = pet.wakes;
+          hiresSeen.current = pet.hiresSeen;
           adopt(pet);
         }
         // a meal or snack of this player's the server still holds for this pet (a reload, another tab): the tab watches its outcome,
@@ -283,7 +363,7 @@ export function usePetScreen(tokenId: string, from: string | null, diary = false
     return () => {
       live = false;
     };
-  }, [viewer, tokenOf]);
+  }, [viewer, tokenOf, meAttempt]);
 
   // The friend's pet a newborn came from: «Back to {friend_pet}» (`Birth flow` › «пришёл по ссылке друга»).
   useEffect(() => {
@@ -307,18 +387,19 @@ export function usePetScreen(tokenId: string, from: string | null, diary = false
   }, [viewer, from, tokenId, tokenOf]);
 
   /** Reads the conversation; the lines the server holds replace this tab's copy of them. Null when it could not. */
-  const loadLines = useCallback(async (): Promise<ConversationLine[] | null> => {
+  const loadLines = useCallback(async (opts?: { fresh?: boolean }): Promise<ConversationLine[] | null> => {
     try {
       const token = await tokenOf();
       const history = await workerApi.conversation(token, tokenId);
       historyRead.current = true;
       const name = pageRef.current.kind === 'pet' ? pageRef.current.pet.name : '';
       // a line of a stage change this page did not hold before (the conversation was read already) came while it was open:
-      // it rises in (`Growth flow` › «переход записан позже ответа»); on the first read, and after a clear, nothing is new
+      // it rises in (`Growth flow` › «переход записан позже ответа»); on the first read, and after a clear, nothing is new.
+      // The end of a hire turn reads it again, and everything the turn wrote that the page did not hold rises in.
       const known = new Set((linesRef.current ?? []).map((l) => l.id));
       const reread = linesRef.current !== null && linesRef.current.length > 0;
       const past = history.lines.flatMap((l): Line[] =>
-        l.who === 'pet' ? replyLines(l, name, false) : [{ id: l.id, who: l.who, text: l.text, fresh: reread && l.who === 'event' && !known.has(l.id) ? true : undefined }],
+        lineOf(l, name, l.who !== 'player' && !known.has(l.id) && ((reread && l.who === 'event') || (opts?.fresh === true && reread))),
       );
       const held = new Set(past.map((l) => l.id));
       setLines((now) => {
@@ -342,6 +423,14 @@ export function usePetScreen(tokenId: string, from: string | null, diary = false
       changeJob(null);
       setFailure(null);
       sent.current = null;
+      // the owner's hire (the offers answered, the reply lost, the worker asked) goes with the owner's page
+      hireJob.current = null;
+      offerSeen.current = null;
+      setAnsweredOffers([]);
+      setOfferBusy(false);
+      setRose(false);
+      setAsking(null);
+      setOwnLost(null);
       greeted.current = false;
       historyRead.current = false;
       unconfirmed.current.clear();
@@ -388,6 +477,9 @@ export function usePetScreen(tokenId: string, from: string | null, diary = false
   const jobGone = useCallback(async () => {
     const was = sent.current;
     sent.current = null;
+    hireJob.current = null;
+    setAsking(null);
+    setOfferBusy(false);
     if (jobRef.current !== null) finished.current.add(jobRef.current);
     changeJob(null);
     if (was) unconfirmed.current.delete(was.lineId);
@@ -397,15 +489,44 @@ export function usePetScreen(tokenId: string, from: string | null, diary = false
 
   /** The answer on its way and the lines of this page's own are over: the memory was cleared. The typed draft stays. */
   const forgetConversation = useCallback(() => {
+    // a turn that asked a worker was on its way: its answer is lost with the rest, and the cleared conversation says so
+    const hired = jobRef.current !== null && hireJob.current === jobRef.current;
     if (jobRef.current !== null) finished.current.add(jobRef.current);
     changeJob(null);
     sent.current = null;
+    hireJob.current = null;
     unconfirmed.current.clear();
     setFailure(null);
     setAsked(null);
+    setAnsweredOffers([]);
+    setOfferBusy(false);
+    setRose(false);
+    setAsking(null);
+    setOwnLost(null);
+    offerSeen.current = null;
     // the pet doesn't speak first after a clear (`Memory deletion flow` › «стёр»)
     greeted.current = true;
+    return hired;
   }, [changeJob]);
+
+  /** The hire turn on its way is over, whatever it came to: its job, the line drawn for the owner's words (the conversation holds
+   *  them now) and its marks are gone. */
+  const endHire = useCallback(() => {
+    const local = sent.current;
+    if (local) unconfirmed.current.delete(local.lineId);
+    sent.current = null;
+    hireJob.current = null;
+    changeJob(null);
+    setAsking(null);
+    setOfferBusy(false);
+  }, [changeJob]);
+
+  /** «{name}'s memory was cleared, so this answer wasn't kept…» in the cleared conversation (`Pet hire flow` › «hire memory cleared
+   *  on the way»). */
+  const hireClearedLineOf = useCallback((): Line => {
+    const shown = pageRef.current.kind === 'pet' ? pageRef.current.pet.name : '';
+    return { id: `event-${(localLine.current += 1)}`, who: 'event', text: hireClearedLine(shown), fresh: true };
+  }, []);
 
   const poll = useCallback(async () => {
     if (polling.current) return;
@@ -441,6 +562,11 @@ export function usePetScreen(tokenId: string, from: string | null, diary = false
                 worn: s.worn,
                 notices: s.notices,
                 outfitPrice: s.outfitPrice,
+                hireMode: s.hireMode,
+                offer: s.offer,
+                pendingProgress: s.pendingProgress,
+                hiresSeen: s.hiresSeen,
+                skill: s.skill,
               },
             }
           : p,
@@ -449,16 +575,38 @@ export function usePetScreen(tokenId: string, from: string | null, diary = false
       // is read again; a poll that was on its way before this tab's own clear carries the older number and is not a change
       if (s.memoryEpoch > epoch.current) {
         epoch.current = s.memoryEpoch;
-        forgetConversation();
-        setLines([]);
+        const hired = forgetConversation();
+        setLines(hired ? [hireClearedLineOf()] : []);
         void loadLines();
         return;
       }
       if (!historyRead.current) void loadLines();
+      // the hires the batch settled since this page looked: a hire that the contract did not take reads «· no fee» with no reload
+      if (s.hiresSeen !== hiresSeen.current) {
+        hiresSeen.current = s.hiresSeen;
+        if (historyRead.current) void loadLines();
+      }
       // the outcome belongs to the job this request asked about; a job that ended meanwhile is not read twice
       const mine = asked !== null && jobRef.current === asked;
+      // the turn asked a worker (it says so while it asks, and a tap on a hire is one): the conversation holds its question and the
+      // worker's words, so the line this tab drew for the owner's words gives way to what the server holds
+      if (mine && (s.pendingProgress || isHireKind(s.jobKind)) && hireJob.current !== asked) {
+        hireJob.current = asked;
+        const local = sent.current?.job === asked ? sent.current : null;
+        if (local) {
+          unconfirmed.current.delete(local.lineId);
+          setLines((now) => (now ?? []).filter((l) => l.id !== local.lineId));
+        }
+        void loadLines({ fresh: true });
+      }
+      const hired = mine && hireJob.current === asked;
       const thought = mine ? s.thought : undefined;
-      if (thought) {
+      if (thought && hired) {
+        finished.current.add(asked!);
+        endHire();
+        setFailure(null);
+        await loadLines({ fresh: true });
+      } else if (thought) {
         const local = sent.current;
         if (local) unconfirmed.current.delete(local.lineId);
         finished.current.add(asked!);
@@ -476,23 +624,36 @@ export function usePetScreen(tokenId: string, from: string | null, diary = false
         changeJob(null);
         setFailure(null);
         sent.current = null;
+      } else if (mine && (s.code === 'offer' || s.code === 'price_rose' || s.code === 'own_lost')) {
+        // a hire turn ended without the pet's own reply: on a Manual offer, a price that rose past the offer's, or an own reply that
+        // was lost after the worker answered (`own_lost` comes with this tab's own job only: a reload shows the line and no button)
+        finished.current.add(asked!);
+        endHire();
+        setFailure(null);
+        setRose(s.code === 'price_rose');
+        setOwnLost(s.code === 'own_lost' && s.ownLost ? s.ownLost : null);
+        await loadLines({ fresh: true });
       } else if (mine && s.code) {
         const code = s.code;
         const was = sent.current?.job === asked ? sent.current : null;
         sent.current = null;
         finished.current.add(asked!);
         changeJob(null);
+        hireJob.current = null;
+        setAsking(null);
+        setOfferBusy(false);
         if (code === 'ai_unavailable' || code === 'empty_paid') {
           // the player's line stays in the conversation; a greeting or a wake thought has none
-          const kind = s.jobKind === 'wake' || s.jobKind === 'greeting' ? s.jobKind : was ? 'reply' : 'greeting';
-          setFailure({ code, kind, lineId: was?.lineId, text: was?.text, mode: was?.mode, question: was?.question });
+          const kind = s.jobKind === 'wake' || s.jobKind === 'greeting' ? s.jobKind : was || isHireKind(s.jobKind) ? 'reply' : 'greeting';
+          setFailure({ code, kind, lineId: was?.lineId, text: was?.text, mode: was?.mode, question: was?.question, ...(isHireKind(s.jobKind) ? { noRetry: true as const } : {}) });
         } else if (code === 'memory_cleared') {
           // the memory was cleared while the answer was on its way: its line never lands and the player's own line is gone with
-          // the rest; the conversation is read again (`Memory deletion data` › «ответ в пути»)
+          // the rest; the conversation is read again (`Memory deletion data` › «ответ в пути»). A turn that asked a worker says so.
           if (was) {
             unconfirmed.current.delete(was.lineId);
             setLines((now) => (now ?? []).filter((l) => l.id !== was.lineId));
           }
+          if (hired) setLines((now) => [...(now ?? []), hireClearedLineOf()]);
           setAsked(null);
           void loadLines();
         } else if (was) {
@@ -530,7 +691,7 @@ export function usePetScreen(tokenId: string, from: string | null, diary = false
         void poll();
       }
     }
-  }, [tokenOf, tokenId, loadLines, fail, giveBack, adopt, jobGone, changeJob, forgetConversation]);
+  }, [tokenOf, tokenId, loadLines, fail, giveBack, adopt, jobGone, changeJob, forgetConversation, endHire, hireClearedLineOf]);
 
   /** A read the screen asks for because the pet's own view moved (an item worn): a poll in flight does not stand in for it. */
   const lookNow = useCallback(async () => {
@@ -610,6 +771,12 @@ export function usePetScreen(tokenId: string, from: string | null, diary = false
       sendingRef.current = true;
       setSending(true);
       setFailure(null);
+      // a new line ends the chance of «Try again» for a lost own reply, and a Manual offer standing is declined by the line that came
+      // instead (`Pet hire flow` › «отказ в Manual»): its buttons go, the pet answers its old line first
+      setOwnLost(null);
+      setRose(false);
+      const offerStanding = question === undefined && pageRef.current.kind === 'pet' && pageRef.current.pet.viewer === 'owner' && pageRef.current.pet.offer !== null;
+      if (offerStanding) setOfferBusy(true);
       setJobMode(mode);
       unconfirmed.current.add(id);
       setLines((now) => [...(now ?? []), { id, who: 'player', text, fresh: true }]);
@@ -625,9 +792,11 @@ export function usePetScreen(tokenId: string, from: string | null, diary = false
         const token = await tokenOf();
         const answer = question === undefined ? await workerApi.say(token, tokenId, text, mode) : await workerApi.answerQuestion(token, tokenId, { text, day: question });
         sent.current = { job: answer.job, lineId: id, text, mode, question };
+        if (offerStanding) hireJob.current = answer.job;
         changeJob(answer.job);
         setBanner(null);
       } catch (e) {
+        setOfferBusy(false);
         if (statusOf(e) === 401) {
           // the session ended under this tap: the same line as when it had ended before; nothing was sent, the text is back
           giveBack(id, text, question);
@@ -677,6 +846,99 @@ export function usePetScreen(tokenId: string, from: string | null, diary = false
     [tokenOf, tokenId, fail, giveBack, setDraft, changeJob],
   );
 
+  /** The owner's tap on a hire: the job it queued is the thing the page waits for, like a line's. */
+  const startHire = useCallback(
+    async (ask: (token: string | null) => Promise<{ job: string }>, worker: string | null) => {
+      if (jobRef.current !== null || sendingRef.current || pageRef.current.kind !== 'pet') return;
+      // a session that ended: the line, nothing sent
+      if (!authRef.current.needSession()) return;
+      setOfferBusy(true);
+      setRose(false);
+      setOwnLost(null);
+      setAsking(worker);
+      setJobMode('chat');
+      // the buttons are gone: the focus goes to the input (DS › Message › Keyboard)
+      document.querySelector<HTMLTextAreaElement>('.ds-composer__field')?.focus();
+      sendingRef.current = true;
+      setSending(true);
+      try {
+        const answer = await ask(await tokenOf());
+        hireJob.current = answer.job;
+        changeJob(answer.job);
+        setBanner(null);
+      } catch (e) {
+        setOfferBusy(false);
+        setAsking(null);
+        if (statusOf(e) === 401) {
+          authRef.current.endSession(true, true);
+        } else if (e instanceof WorkerError && e.status === 409 && e.code === 'paused') {
+          setPage((p) => (p.kind === 'pet' && p.pet.viewer === 'owner' ? { kind: 'pet', pet: { ...p.pet, paused: true } } : p));
+        } else if (e instanceof WorkerError && e.status === 409) {
+          // the offer or the lost reply is gone (another tab answered it, the pet fell asleep): the page reads it again
+          void poll();
+        } else {
+          fail(e, () => void startHire(ask, worker));
+        }
+      } finally {
+        sendingRef.current = false;
+        setSending(false);
+      }
+    },
+    [tokenOf, fail, changeJob, poll],
+  );
+
+  /** «Ask {worker}» on the Manual offer, at the price the card names. */
+  const askOffer = useCallback(() => {
+    const p = pageRef.current;
+    const offer = p.kind === 'pet' && p.pet.viewer === 'owner' ? p.pet.offer : null;
+    if (offer === null) return;
+    void startHire((token) => workerApi.askOffer(token, tokenId, offer.price.yocto), offer.worker);
+  }, [startHire, tokenId]);
+
+  /** «No thanks»: the pet answers on its own. */
+  const declineOffer = useCallback(() => void startHire((token) => workerApi.declineOffer(token, tokenId), null), [startHire, tokenId]);
+
+  /** «Try again» under a lost own reply: the own reply only, no new fee. */
+  const finishHire = useCallback(() => void startHire((token) => workerApi.finishHire(token, tokenId), null), [startHire, tokenId]);
+
+  /** The switch of the hiring mode: the page shows the new mode at once; a refusal puts the old one back (`Hire mode rule`). */
+  const setHireMode = useCallback(
+    async (mode: HireMode) => {
+      const p = pageRef.current;
+      if (p.kind !== 'pet' || p.pet.viewer !== 'owner' || p.pet.hireMode === mode) return;
+      if (!authRef.current.needSession()) return;
+      const before = p.pet.hireMode;
+      const show = (m: HireMode) => setPage((now) => (now.kind === 'pet' && now.pet.viewer === 'owner' ? { kind: 'pet', pet: { ...now.pet, hireMode: m } } : now));
+      show(mode);
+      try {
+        await workerApi.setHireMode(await tokenOf(), tokenId, mode);
+      } catch (e) {
+        show(before);
+        if (statusOf(e) === 401) authRef.current.endSession(true, true);
+        else if (e instanceof WorkerError && e.status === 409) void poll();
+        else fail(e, () => void setHireMode(mode));
+      }
+    },
+    [tokenOf, tokenId, fail, poll],
+  );
+
+  // The Manual offer after it was answered (or went stale): its words stay, after the pet's question of that turn. They are the tab's
+  // memory — a reload shows the question and the pet's reply only.
+  const standing = page.kind === 'pet' && page.pet.viewer === 'owner' ? page.pet.offer : null;
+  useEffect(() => {
+    const before = offerSeen.current;
+    offerSeen.current = standing;
+    if (before === null || standing !== null) return;
+    const shown = pageRef.current.kind === 'pet' ? pageRef.current.pet.name : '';
+    const questions = (linesRef.current ?? []).filter((l) => l.question);
+    const after = questions.at(-1)?.id ?? null;
+    setAnsweredOffers((now) => [...now, { id: `offer-${(localLine.current += 1)}`, text: offerLine(shown, before.worker, before.price.cents), after }]);
+    setOfferBusy(false);
+    setRose(false);
+    // the focus was on a button that is gone: it goes to the input
+    if (document.activeElement === document.body) document.querySelector<HTMLTextAreaElement>('.ds-composer__field')?.focus();
+  }, [standing]);
+
   // No reply for 10 s: the waiting line joins the thinking line (`Conversation flow` › «долгий ответ»).
   useEffect(() => {
     setWaiting(false);
@@ -720,14 +982,15 @@ export function usePetScreen(tokenId: string, from: string | null, diary = false
           setAttempt((a) => a + 1);
           return;
         }
-        forgetConversation();
+        // a hire turn on its way is lost with the rest, and the cleared conversation says so after the fresh start
+        const hired = forgetConversation();
         epoch.current += 1;
         // the entry is erased: a Diary that waited to open has nothing to open (`Daily ritual flow` › «сначала действие»)
         setPage((p) => (p.kind === 'pet' && p.pet.viewer === 'owner' ? { kind: 'pet', pet: { ...p.pet, diaryUnread: false, pendingQuestion: false } } : p));
         const id = `event-${(localLine.current += 1)}`;
-        setLines([{ id, who: 'event', text: `${shown}'s memory is clear — same ${shown}, fresh start.`, fresh: true }]);
+        setLines([{ id, who: 'event', text: `${shown}'s memory is clear — same ${shown}, fresh start.`, fresh: true }, ...(hired ? [hireClearedLineOf()] : [])]);
       }),
-    [tokenId, forgetConversation],
+    [tokenId, forgetConversation, hireClearedLineOf],
   );
   const clearNotice = useCallback(() => setNotice(null), []);
   const clearAsked = useCallback(() => setAsked(null), []);
@@ -778,13 +1041,15 @@ export function usePetScreen(tokenId: string, from: string | null, diary = false
     if (diary && ownerNow) return;
     const text = takeReturnText(here);
     if (text !== null && ownerNow) setDraft(text);
-  }, [decided, ownerNow, here, setDraft, diary]);
+    else if (text !== null && viewer === 'guest') setCarried(text);
+  }, [decided, ownerNow, viewer, here, setDraft, diary]);
 
   // Back from the sign-in with «Feed {name}» tapped: the feeding change takes the action, as the owner or as a guest.
   const pet = page.kind === 'pet' ? page.pet : null;
   useEffect(() => {
     if (!pet || pet.viewer === 'visitor') return;
-    if (takePendingAction() === 'feed') runAction('feed', { tokenId, name: pet.name, viewer: pet.viewer });
+    // the owner's page takes `skill` itself: Skill sheet opens again there
+    if (peekPendingAction() === 'feed' && takePendingAction() === 'feed') runAction('feed', { tokenId, name: pet.name, viewer: pet.viewer });
   }, [pet?.viewer, pet?.name, tokenId]);
 
   return {
@@ -802,6 +1067,12 @@ export function usePetScreen(tokenId: string, from: string | null, diary = false
     busy: job !== null || sending,
     spoke,
     me,
+    /** the advice column's seams with this page: a token, the connection line, `me` read again, the text a sign-in brought back */
+    tokenOf,
+    report: fail,
+    refreshMe: useCallback(() => setMeAttempt((a) => a + 1), []),
+    carried,
+    takeCarried: useCallback(() => setCarried(null), []),
     send,
     retryThought,
     tryAgain,
@@ -814,5 +1085,18 @@ export function usePetScreen(tokenId: string, from: string | null, diary = false
     nudge,
     /** reads the pet's condition now (the Diary met a riddle answer the pet being asleep refused) */
     look: lookNow,
+    // the hire (add-pet-work › Pet hire flow)
+    /** the worker the turn on its way asks: «{name} is asking {worker}…» in place of «is thinking…» */
+    asking: job !== null || sending ? (pet?.viewer === 'owner' ? pet.pendingProgress?.asking : undefined) ?? asking : null,
+    answeredOffers,
+    /** the card's buttons: gone while an answer to the offer is on its way */
+    offerBusy,
+    /** the card names a price that rose: «{worker} is busier now…» */
+    rose,
+    ownLost,
+    askOffer,
+    declineOffer,
+    finishHire,
+    setHireMode,
   };
 }

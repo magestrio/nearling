@@ -23,7 +23,16 @@ export default defineConfig({
   },
   projects: [
     { name: 'e2e', testDir: './e2e', testIgnore: '**/screens/**', testMatch: '**/*.spec.ts' },
-    // `{time}` of the frames is 02:00: 00:00 UTC seen from UTC+2 (design/BRIEF.md §1)
-    { name: 'screens', testDir: './e2e/screens', testMatch: '**/*.spec.ts', use: { deviceScaleFactor: 2, timezoneId: 'Etc/GMT-2' } },
+    // `{time}` of the frames is 02:00: 00:00 UTC seen from UTC+2 (design/BRIEF.md §1).
+    // A capture waits on frames of the software-GL pet (the pet's first draw, its freeze, two screenshots): with eight
+    // workers on a loaded machine one frame took 6–29 s (measured, add-pet-work fix round 3), so a capture runs past
+    // Playwright's default 30 s while every wait of it is still on its way. The budget is the capture's whole run.
+    {
+      name: 'screens',
+      testDir: './e2e/screens',
+      testMatch: '**/*.spec.ts',
+      timeout: 120_000,
+      use: { deviceScaleFactor: 2, timezoneId: 'Etc/GMT-2' },
+    },
   ],
 });

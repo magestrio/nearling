@@ -5,14 +5,18 @@ const PIXEL_REF = { tokenId: '9', name: 'Pixel' };
 const ME = { accountId: 'a'.repeat(64), hatched: PIXEL_REF, currentPet: PIXEL_REF, ownedCount: 1 };
 
 // spec: add-pet › Pet screen › success (гость)
-test('success (гость): the pet, its name and fullness, no conversation; «Go to your Pixel», «Feed Biscuit»', async ({ page }) => {
+test('success (гость): the pet, its name and fullness, no conversation with the pet; «Go to your Pixel», «Feed Biscuit», the advice column', async ({ page }) => {
   await openWith(page, '/pet/2', { auth: SIGNED_IN, worker: { me: ME } });
   await expect(page.getByRole('heading', { level: 1, name: 'Biscuit' })).toBeVisible();
   await expect(page.getByText('Full', { exact: true })).toBeVisible();
   await expect(page.getByRole('link', { name: 'Go to your Pixel' })).toHaveAttribute('href', '/pet/9');
   await expect(page.getByRole('button', { name: 'Feed Biscuit' })).toBeVisible();
-  await expect(page.getByRole('log')).toHaveCount(0);
-  await expect(page.getByRole('textbox')).toHaveCount(0);
+  // a player with a pet of their own has `Advice flow` here, not a conversation with Biscuit: the one log and the one field are the advice's
+  await expect(page.getByRole('log')).toHaveCount(1);
+  await expect(page.getByRole('log')).toHaveAccessibleName('Advice from Biscuit');
+  await expect(page.getByRole('textbox')).toHaveCount(1);
+  await expect(page.getByRole('textbox')).toHaveAccessibleName('Ask Biscuit for advice…');
+  await expect(page.getByPlaceholder('Talk to Biscuit…')).toHaveCount(0);
   await expect(page.getByRole('link', { name: 'Get your own pet' })).toHaveCount(0);
   await expect(page.getByRole('button', { name: 'Pause motion' })).toBeVisible();
 });

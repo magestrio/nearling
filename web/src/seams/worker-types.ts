@@ -21,6 +21,8 @@ export class WorkerError extends Error {
 
 export type Stage = 'baby' | 'teen' | 'adult';
 export type JobKind = 'reply' | 'greeting' | 'wake';
+/** What a job of the state poll is: also the owner's taps on a hire (`hire`, `decline`, `finish`) and an advice. */
+export type StateJobKind = JobKind | 'hire' | 'decline' | 'finish' | 'advice' | 'diary';
 export interface Fullness {
   state: 'full' | 'hungry' | 'asleep';
   /** 0–1, the food's share of the scale's 12 thoughts */
@@ -44,6 +46,8 @@ export interface PetBase {
   mood: Mood | null;
   /** the item the pet wears, for every viewer (`Outfit rule`); null: none */
   worn: OutfitSlug | null;
+  /** the public label of the pet's skill, for every viewer (`Skill rule` › «label on the pet's page»); null: none */
+  skill: { label: string } | null;
 }
 /** With a session only: the player's own meal or snack on its way for this pet (`Feeding transaction data` ›
  *  «outcome with the sheet closed»), `null` when none; a reloaded tab starts to watch its outcome from it. */
@@ -92,8 +96,29 @@ export type PetView =
       notices: OutfitSlug[];
       /** what «Buy · {price}» says: the cents of one bought item, and its price in yocto */
       outfitPrice: { cents: number; yocto: string };
+      /** how the pet hires: Auto, or Manual, «Ask me first» (`Hire mode rule`) */
+      hireMode: HireMode;
+      /** the Manual offer standing, with the worker's name and the price named (`Pet hire flow` › «предложение в Manual»);
+       *  null for a pet that sleeps */
+      offer: HireOffer | null;
+      /** the hire turn on its way: «{name} is asking {worker}…» (a reloaded page learns it here) */
+      pendingProgress: { asking: string } | null;
+      /** how many of the pet's hires the batch settled (recorded or dropped): a change makes the page read the conversation again */
+      hiresSeen: number;
     } & PetBase &
       MyFeed);
+
+export type HireMode = 'auto' | 'manual';
+/** A price as the server names it: the exact yocto and the cents at the rate of the moment (two significant digits). */
+export interface Price {
+  yocto: string;
+  cents: number;
+}
+export interface HireOffer {
+  worker: string;
+  question: string;
+  price: Price;
+}
 
 export type ClosedReason = 'service' | 'budget' | 'pool' | 'daily';
 /** `GET /api/hatch` */
@@ -116,7 +141,28 @@ export interface Me {
   ownedCount: number;
 }
 
-export type ThoughtCode = 'ai_unavailable' | 'empty_paid' | 'asleep' | 'tired' | 'no_energy' | 'too_hungry' | 'paused' | 'chain_unreachable' | 'memory_cleared';
+export type ThoughtCode =
+  | 'ai_unavailable'
+  | 'empty_paid'
+  | 'asleep'
+  | 'tired'
+  | 'no_energy'
+  | 'too_hungry'
+  | 'paused'
+  | 'chain_unreachable'
+  | 'memory_cleared'
+  /** a Manual turn ended on an offer (the offer itself is in the owner view) */
+  | 'offer'
+  /** the worker's price rose past the one shown: nothing was spent; `PetState.price` is the price now */
+  | 'price_rose'
+  /** the worker's answer is kept and paid for, the pet's own reply did not come (`ownLost`) */
+  | 'own_lost'
+  /** advice only: the friend's pet, or the paying pet, cannot answer just now (`Advice flow`) */
+  | 'short'
+  | 'worker_asleep'
+  | 'worker_resting'
+  /** advice only: the paying pet or the friend's pet is not there any more, or they now share an owner */
+  | 'no_pet';
 export type PetEvent = 'fell_asleep' | 'daily_cap_reached' | 'woke';
 export interface Thought {
   id: string;
@@ -127,6 +173,15 @@ export interface Thought {
   /** the same price in US cents, at the rate it was made at: what «Thought hard · {price}» shows */
   priceCents?: number;
   reasked?: boolean;
+  /** an advice: the friend's pet's answer in its own voice (`Advice flow`); `price` is the fee the paying pet's fullness fell by */
+  kind?: 'advice';
+  worker?: WorkerRef;
+  skilled?: boolean;
+}
+/** The pet whose answer a worker line is: its token id (the receipt is `/pet/<token_id>/verify/<id>`) and its name. */
+export interface WorkerRef {
+  tokenId: string;
+  name: string;
 }
 /** `GET /api/pets/:id/state` — the owner's view plus the outcome of the job asked for. */
 export type PetState = Omit<Extract<PetView, { viewer: 'owner' }>, 'viewer' | 'ownedCount' | 'myFeed'> & {
@@ -134,23 +189,40 @@ export type PetState = Omit<Extract<PetView, { viewer: 'owner' }>, 'viewer' | 'o
   myFeed?: MyFeed['myFeed'];
   pending?: boolean;
   /** what the job asked about is */
-  jobKind?: JobKind | 'diary';
+  jobKind?: StateJobKind;
   thought?: Thought;
   code?: ThoughtCode;
+  /** with `own_lost`, the outcome of the tab's own job only: the turn «Try again» finishes. A reload does not carry it. */
+  ownLost?: { turn: string };
+  /** with `price_rose`: the worker's price now */
+  price?: Price;
   events: PetEvent[];
   /** with `woke`: the name of the friend whose meal woke the pet — «{friend} fed {name}.»; `'A friend'` for a nameless
    *  feeder. Sent when the wake came from a friend's feeding (`wakes` below the pet's counter). */
   friend?: string;
 };
+/** What a hire cost, under the line it belongs to: the fee in yocto and in cents at the rate it was made, or `noFee` when the
+ *  contract did not take the hire's record (`Pet hire flow` › «найм не записан в сети»). `worker` is the worker's name. */
+export type HireMeta = { worker: string; price: string; priceCents: number } | { worker: string; noFee: true };
 export interface ConversationLine {
   id: string;
-  /** `event`: the line of a stage change (`Growth flow`), the game's, not the pet's */
-  who: 'player' | 'pet' | 'event';
-  text: string;
+  /** `event`: the line of a stage change (`Growth flow`) or a hire that did not happen (`code`), the game's, not the pet's.
+   *  `worker`: the words of another pet, in its voice. */
+  who: 'player' | 'pet' | 'event' | 'worker';
+  /** absent from an event that carries a `code` */
+  text?: string;
   at: number;
   cut?: Thought['cut'];
   price?: string;
   priceCents?: number;
+  /** the pet's own question to a worker: the client writes «To {worker}: {question}» */
+  hireTo?: string;
+  /** `worker`, and an event with a `code`: whose answer, or which hire */
+  worker?: { tokenId: string | null; name: string | null };
+  skilled?: boolean;
+  /** `event`: `hire_failed` — {worker} couldn't help just now; `hire_empty` — {worker} came up empty */
+  code?: 'hire_failed' | 'hire_empty';
+  hire?: HireMeta;
 }
 export interface Conversation {
   lines: ConversationLine[];
@@ -241,9 +313,16 @@ export interface WalletInfo {
  *  UTC (when yesterday's riddle closed: the `{time}` of the verdict lines) and `until` the next 00:00 UTC, both ISO. */
 export type DiaryEntry =
   /** `lines` are the paragraphs, `question` the last line when it asks (null: no question today); `work` is `add-pet-work`'s
-   *  line about the pet's work, null until that change is built */
-  | { kind: 'text'; id: string; lines: string[]; question: string | null; work: string | null }
+   *  the pet's work of the day before as data — who hired it and the cents of food it earned — the client writes the line
+   *  (`Work diary rule`); null when nobody hired it */
+  | { kind: 'text'; id: string; lines: string[]; question: string | null; work: DiaryWork | null }
   | { kind: 'first' | 'cleared' | 'writing' | 'asleep' | 'failed' };
+
+export interface DiaryWork {
+  hirers: string[];
+  /** the food it earned, in US cents (two significant digits) */
+  cents: number;
+}
 
 export type DiaryRiddle =
   | { kind: 'open'; day: number; text: string }
@@ -306,6 +385,30 @@ export interface WardrobeView {
   outcome: { id: string; item: OutfitSlug; status: 'bought' | 'failed'; code: string | null } | null;
 }
 
+/** `GET /api/pets/:id/advice?payer=` (`Advice flow`): what the friend's page needs to draw the column, whole. The price is the
+ *  hire's fee now; `payer.state` is how the paying pet stands (`short`: after the price it could not stay awake; `tired`: its
+ *  day's limit). `pending` is the payer's advice to this worker on its way, `last` its newest one that still holds its words. */
+export interface AdviceRead {
+  price: Price;
+  skilled: boolean;
+  workerAsleep: boolean;
+  /** the friend's pet has no energy left today (or ten answers): when it is back, ISO */
+  resting: { until: string } | null;
+  payer: { tokenId: string; name: string; state: 'ok' | 'asleep' | 'short' | 'tired'; until: string | null };
+  /** a skilled worker above its starting price: when the price falls back, ISO */
+  dropsAt: string | null;
+  pending: { job: string; question: string } | null;
+  last: { id: string; question: string; text: string; skilled: boolean; price?: string; priceCents?: number } | null;
+  /** the services are on a pause: «several at once» draws its line first, and the page reads again until it lifts */
+  paused: boolean;
+}
+
+/** `GET /api/pets/:id/skill` (the owner's only): the skill as written, decrypted in memory for this answer. */
+export interface SkillText {
+  label: string;
+  instruction: string;
+}
+
 export interface WorkerApi {
   health(): Promise<Health>;
   me(token: Token): Promise<Me>;
@@ -363,4 +466,24 @@ export interface WorkerApi {
   buy(token: Token, tokenId: string, item: OutfitSlug): Promise<{ id: string }>;
   /** A New outfit notice was shown: the item's name, nothing else. */
   seenOutfit(token: Token, tokenId: string, item: OutfitSlug): Promise<{ ok: true }>;
+  /** The owner switches how the pet hires. Refusals: `409 asleep`, `403 not_owner`, `404 no_pet`, `400 bad_request`, `503 chain_unreachable`. */
+  setHireMode(token: Token, tokenId: string, mode: HireMode): Promise<{ mode: HireMode }>;
+  /** «Ask {worker}» on a Manual offer, with the price the card named (yocto): the job. Refusals: `409 paused | no_offer`, `400 bad_request`. */
+  askOffer(token: Token, tokenId: string, price: string): Promise<{ job: string }>;
+  /** «No thanks»: the job (the pet answers on its own). Refusals: `409 paused | no_offer`. */
+  declineOffer(token: Token, tokenId: string): Promise<{ job: string }>;
+  /** «Try again» under a lost own reply: the job. Refusals: `409 paused | no_hire`. */
+  finishHire(token: Token, tokenId: string): Promise<{ job: string }>;
+  /** The advice column of a friend's page, for the guest's pet `payer`. Refusals: `403 not_payer`, `404 no_pet`, `409 same_owner`,
+   *  `400 bad_request`, `401 signed_out`, `503 chain_unreachable`. */
+  advice(token: Token, tokenId: string, payer: string): Promise<AdviceRead>;
+  /** The question, at the price the button showed (yocto, a ceiling): the payer's job. Refusals: `409 paused | pending | same_owner`,
+   *  `403 not_payer`, `400 bad_request`. */
+  askAdvice(token: Token, tokenId: string, body: { payer: string; text: string; price: string }): Promise<{ job: string }>;
+  /** The owner's skill, as written; `skill: null` with none. Refusals: `403 not_owner`, `500 skill_unreadable`, `503 chain_unreachable`. */
+  skill(token: Token, tokenId: string): Promise<{ skill: SkillText | null }>;
+  /** Saves it (the label cleaned). Refusals: `400 bad_label | bad_request`, `500 skill_unreadable`, `403 not_owner`, `503`. */
+  saveSkill(token: Token, tokenId: string, body: SkillText): Promise<{ skill: { label: string } }>;
+  /** «Forget this skill». */
+  forgetSkill(token: Token, tokenId: string): Promise<{ skill: null }>;
 }

@@ -7,7 +7,13 @@ import {
   FEED_PORTIONS,
   fullness,
   GAS_TOPUP_YOCTO,
+  HIRE_AUTO_LIMIT_YOCTO,
+  HIRE_FEE_MAX_YOCTO,
+  HIRE_FEE_MIN_YOCTO,
+  HIRE_FEE_STEP_YOCTO,
+  hireCents,
   MAX_BIRTH_COST_YOCTO,
+  MAX_JOBS_PER_DAY,
   nearUsdRate,
   OUTFIT_PRICE_YOCTO,
   outfitCents,
@@ -16,6 +22,7 @@ import {
   portionCents,
   SNACK_YOCTO,
   STARTER_FOOD_YOCTO,
+  workerPrice,
   yoctoToUsdMicros,
 } from '../src/pricing';
 
@@ -26,7 +33,7 @@ describe('the numbers the Worker shares with the contract', () => {
   it('has the starter food and the birth cost pre-check of contract/src/limits.rs', () => {
     expect(S).toBe(BigInt(env.STARTER_FOOD));
     expect(MAX_BIRTH_COST_YOCTO).toBe(BigInt(env.MAX_BIRTH_COST));
-    // the longest birth: 1,884 bytes of storage and the starter food stay under the pre-check
+    // the longest birth: 1,893 bytes of storage and the starter food stay under the pre-check
     expect(BIRTH_STORAGE_YOCTO + S).toBeLessThanOrEqual(MAX_BIRTH_COST_YOCTO);
   });
 
@@ -100,7 +107,7 @@ describe('the project\'s own costs in dollars', () => {
   // spec: add-pet › Birth flow › вылупился
   it('turns yoctoNEAR into micro-dollars at the rate, rounded up', () => {
     expect(yoctoToUsdMicros(S, 4.59)).toBe(9_180);
-    expect(yoctoToUsdMicros(BIRTH_STORAGE_YOCTO, 4.59)).toBe(86_476);
+    expect(yoctoToUsdMicros(BIRTH_STORAGE_YOCTO, 4.59)).toBe(86_889);
     expect(yoctoToUsdMicros(1n, 4.59)).toBe(1);
     expect(yoctoToUsdMicros(0n, 4.59)).toBe(0);
   });
@@ -111,5 +118,32 @@ describe('the project\'s own costs in dollars', () => {
     expect(nearUsdRate('')).toBeNull();
     expect(nearUsdRate('abc')).toBeNull();
     expect(nearUsdRate('0')).toBeNull();
+  });
+});
+
+describe('the price of a worker', () => {
+  // spec: add-pet-work › Hire price rule › price climbs
+  it('holds the band of the contract: the floor, a step of 0.0004 NEAR an answer, the highest at the tenth, the Auto limit at the third', () => {
+    expect(HIRE_FEE_MIN_YOCTO).toBe(BigInt(env.HIRE_FEE_MIN));
+    expect(HIRE_FEE_MAX_YOCTO).toBe(BigInt(env.HIRE_FEE_MAX));
+    expect(MAX_JOBS_PER_DAY).toBe(Number(env.MAX_JOBS_PER_DAY));
+    // without a skill: the floor at every count; with one: floor + a step each, the tenth hire (count 9) at the highest
+    for (let count = 0; count < MAX_JOBS_PER_DAY; count += 1) expect(workerPrice(false, count)).toBe(HIRE_FEE_MIN_YOCTO);
+    expect(workerPrice(true, 0)).toBe(HIRE_FEE_MIN_YOCTO);
+    expect(workerPrice(true, 1)).toBe(HIRE_FEE_MIN_YOCTO + HIRE_FEE_STEP_YOCTO);
+    expect(workerPrice(true, 2)).toBe(HIRE_AUTO_LIMIT_YOCTO);
+    expect(workerPrice(true, MAX_JOBS_PER_DAY - 1)).toBe(HIRE_FEE_MAX_YOCTO);
+    expect(HIRE_FEE_MIN_YOCTO + 9n * HIRE_FEE_STEP_YOCTO).toBe(HIRE_FEE_MAX_YOCTO);
+    // a count past the day's limit never goes above the band
+    expect(workerPrice(true, 40)).toBe(HIRE_FEE_MAX_YOCTO);
+  });
+
+  // spec: add-pet-work › Hire price rule › price climbs
+  it('shows the price in cents with two significant digits: 0.38 at the floor, 0.75 at the Auto limit, 2 at the highest ($4.59)', () => {
+    expect(hireCents(HIRE_FEE_MIN_YOCTO, 4.59)).toBe(0.38);
+    expect(hireCents(HIRE_FEE_STEP_YOCTO, 4.59)).toBe(0.18);
+    expect(hireCents(HIRE_AUTO_LIMIT_YOCTO, 4.59)).toBe(0.75);
+    expect(hireCents(HIRE_FEE_MAX_YOCTO, 4.59)).toBe(2);
+    expect(hireCents(HIRE_FEE_MIN_YOCTO, 10)).toBe(0.83);
   });
 });

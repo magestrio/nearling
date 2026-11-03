@@ -15,7 +15,7 @@ use near_workspaces::{Account, AccountDetailsPatch, AccountId, Contract, Worker}
 use nearling_contract::limits::DAY_NS;
 #[allow(unused_imports)]
 pub use nearling_contract::limits::STARTER_FOOD;
-use nearling_contract::pet::{Pet, Stage, VersionedPet};
+use nearling_contract::pet::{Pet, VersionedPet};
 use serde_json::{Value, json};
 
 pub const NEAR: u128 = 1_000_000_000_000_000_000_000_000;
@@ -50,6 +50,8 @@ struct StateMirror {
     known: LookupSet<(String, near_sdk::AccountId), Sha256>,
     riddle_commits: LookupMap<u64, [u8; 32]>,
     riddle_reserve: u128,
+    work_pairs: LookupSet<(String, String), Sha256>,
+    work_index: LookupMap<u64, Vec<u64>>,
 }
 
 pub struct Ctx {
@@ -303,52 +305,10 @@ impl Ctx {
     /// Rewrites a pet's record through the sandbox's state patch: the caps (0.005 / 0.05 NEAR) are
     /// above the starter food, and a test needs a pet at a given food or a given day's counter.
     pub async fn set_pet(&self, token_id: &str, edit: impl FnOnce(&mut Pet)) -> anyhow::Result<()> {
-        let view = self.pet_view(token_id).await?;
-        let amount = |k: &str| -> u128 { view[k].as_str().unwrap().parse().unwrap() };
-        let mut pet = Pet {
-            name: view["name"].as_str().unwrap().to_string(),
-            character: view["character"].as_str().unwrap().to_string(),
-            born_at: view["born_at"].as_u64().unwrap(),
-            project_food: amount("project_food"),
-            given_food: amount("given_food"),
-            debit_day: view["debit_day"].as_u64().unwrap(),
-            debited_today: amount("debited_today"),
-            last_debit_id: view["last_debit_id"].as_u64().unwrap(),
-            stage: match view["stage"].as_str().unwrap() {
-                "Baby" => Stage::Baby,
-                "Teen" => Stage::Teen,
-                "Adult" => Stage::Adult,
-                other => panic!("a stage of the contract: {other}"),
-            },
-            stage_day: view["stage_day"].as_u64().unwrap(),
-            streak: view["streak"].as_u64().unwrap() as u32,
-            freezes: view["freezes"].as_u64().unwrap() as u8,
-            friend_snack_day: view["friend_snack_day"].as_u64().unwrap(),
-            friend_snacks: view["friend_snacks"].as_u64().unwrap() as u8,
-            owner_snack_at: view["owner_snack_at"].as_str().unwrap().parse().unwrap(),
-            traits: {
-                let mut traits = [0u8; 2];
-                for (slot, word) in traits.iter_mut().zip(view["traits"].as_array().unwrap()) {
-                    *slot = match word.as_str().unwrap() {
-                        "clever" => 1,
-                        "sociable" => 2,
-                        "hard_working" => 3,
-                        "thoughtful" => 4,
-                        "cozy" => 5,
-                        other => panic!("a trait of the contract: {other}"),
-                    };
-                }
-                traits
-            },
-            last_streak_day: view["last_streak_day"].as_u64().unwrap_or(0),
-            outfits: view["outfits"]
-                .as_array()
-                .unwrap()
-                .iter()
-                .fold(0u8, |mask, id| mask | (1 << id.as_u64().unwrap())),
-        };
+        // The stored record itself, not the view: the job counter's day is not in the view.
+        let mut pet = self.read_record(token_id).await?.current();
         edit(&mut pet);
-        self.put_record(token_id, VersionedPet::V5(pet)).await
+        self.put_record(token_id, VersionedPet::V6(pet)).await
     }
 
     /// Writes a record as it is, in any version: a test of an older pet needs the old bytes.
@@ -626,20 +586,33 @@ impl Ctx {
     /// account's `storage_usage`, even for one key: the number is lowered for this one read and put
     /// back.
     pub async fn read_state(&self) -> anyhow::Result<Vec<u8>> {
+        Ok(self.read_key(b"STATE").await?.expect("the contract state"))
+    }
+
+    /// One key of the contract's trie, by the same lowered-usage read as `read_state`.
+    pub async fn read_key(&self, key: &[u8]) -> anyhow::Result<Option<Vec<u8>>> {
         let id = self.contract.id();
         let details = self.worker.view_account(id).await?;
         let real_usage = details.storage_usage;
         let mut lowered: AccountDetailsPatch = details.into();
         lowered.storage_usage = Some(1);
         self.worker.patch(id).account(lowered).transact().await?;
-        let raw = self.worker.view_state(id).prefix(b"STATE").await?;
+        let raw = self.worker.view_state(id).prefix(key).await?;
         let mut restored: AccountDetailsPatch = self.worker.view_account(id).await?.into();
         restored.storage_usage = Some(real_usage);
         self.worker.patch(id).account(restored).transact().await?;
-        Ok(raw
-            .get(b"STATE".as_slice())
-            .expect("the contract state")
-            .clone())
+        Ok(raw.get(key).cloned())
+    }
+
+    /// The pet's stored record, in whatever version it is written.
+    pub async fn read_record(&self, token_id: &str) -> anyhow::Result<VersionedPet> {
+        let mut key = b"p".to_vec();
+        key.extend(borsh::to_vec(&token_id.to_string())?);
+        let bytes = self
+            .read_key(&key)
+            .await?
+            .unwrap_or_else(|| panic!("a record of pet {token_id}"));
+        Ok(borsh::from_slice(&bytes)?)
     }
 
     /// If the sandbox clock is within five minutes of 00:00 UTC, moves it past midnight, so a
@@ -701,6 +674,17 @@ pub fn call_json() -> Value {
 
 pub fn thought_json(price: u128) -> Value {
     json!({ "model": "Qwen/Qwen3.8-27B", "price": price.to_string(), "calls": [call_json()] })
+}
+
+/// A worker's answer as the hirer's batch carries it: the receipt with the worker's token id and,
+/// for `hire = Some((kind, fee, skill))`, the hire entry the contract records.
+pub fn hired_json(price: u128, worker: &str, hire: Option<(&str, u128, bool)>) -> Value {
+    let mut thought = thought_json(price);
+    thought["worker"] = json!(worker);
+    if let Some((kind, fee, skill)) = hire {
+        thought["hire"] = json!({ "kind": kind, "skill": skill, "fee": fee.to_string() });
+    }
+    thought
 }
 
 pub fn thoughts(n: usize, price: u128) -> Vec<Value> {

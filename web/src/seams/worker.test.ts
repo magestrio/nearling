@@ -262,6 +262,72 @@ describe('the Worker seam of the Diary', () => {
   });
 });
 
+describe('the work routes', () => {
+  const calls = (fetchMock: ReturnType<typeof vi.fn>) => fetchMock.mock.calls.map((c) => c as unknown as [string, RequestInit]);
+  const once = (body: unknown, status = 200) => {
+    const fetchMock = vi.fn(async () => Response.json(body, { status }));
+    vi.stubGlobal('fetch', fetchMock);
+    return fetchMock;
+  };
+
+  // spec: add-pet-work › Hire mode rule › Ask me first
+  it('switches the hiring mode by PUT with the mode and nothing else, and keeps the code of a 409', async () => {
+    const fetchMock = once({ mode: 'manual' });
+    expect(await workerApi.setHireMode('t', '9', 'manual')).toEqual({ mode: 'manual' });
+    const [url, init] = calls(fetchMock)[0]!;
+    expect(`${init.method} ${url}`).toBe('PUT /api/pets/9/hire-mode');
+    expect(JSON.parse(init.body as string)).toEqual({ mode: 'manual' });
+    once({ code: 'asleep' }, 409);
+    await expect(workerApi.setHireMode('t', '9', 'auto')).rejects.toMatchObject({ status: 409, code: 'asleep' });
+  });
+
+  // spec: add-pet-work › Pet hire flow › предложение в Manual
+  it('answers an offer by POST: «Ask» with the price the card named, «No thanks» and «Try again» with nothing; the 202 job comes back', async () => {
+    const fetchMock = once({ job: 'j1' }, 202);
+    expect(await workerApi.askOffer('t', '9', '380000000000000000000')).toEqual({ job: 'j1' });
+    expect(await workerApi.declineOffer('t', '9')).toEqual({ job: 'j1' });
+    expect(await workerApi.finishHire('t', '9')).toEqual({ job: 'j1' });
+    const [ask, decline, finish] = calls(fetchMock);
+    expect(`${ask![1].method} ${ask![0]}`).toBe('POST /api/pets/9/offer/ask');
+    expect(JSON.parse(ask![1].body as string)).toEqual({ price: '380000000000000000000' });
+    expect(`${decline![1].method} ${decline![0]}`).toBe('POST /api/pets/9/offer/decline');
+    expect(`${finish![1].method} ${finish![0]}`).toBe('POST /api/pets/9/hire/finish');
+    for (const code of ['paused', 'no_offer']) {
+      once({ code }, 409);
+      await expect(workerApi.askOffer('t', '9', '1')).rejects.toMatchObject({ status: 409, code });
+    }
+  });
+
+  // spec: add-pet-work › Advice flow › вопрос отправлен
+  it('reads the advice column with the payer in the query and sends the question with its payer and the price shown', async () => {
+    const fetchMock = once({ price: { yocto: '1', cents: 0.38 }, skilled: false, workerAsleep: false, resting: null, payer: { tokenId: '9', name: 'Pixel', state: 'ok', until: null }, dropsAt: null, pending: null, last: null });
+    expect((await workerApi.advice('t', '2', '9')).price.cents).toBe(0.38);
+    expect(`${calls(fetchMock)[0]![1].method} ${calls(fetchMock)[0]![0]}`).toBe('GET /api/pets/2/advice?payer=9');
+    const asked = once({ job: 'j2' }, 202);
+    expect(await workerApi.askAdvice('t', '2', { payer: '9', text: 'How?', price: '380' })).toEqual({ job: 'j2' });
+    expect(`${calls(asked)[0]![1].method} ${calls(asked)[0]![0]}`).toBe('POST /api/pets/2/advice');
+    expect(JSON.parse(calls(asked)[0]![1].body as string)).toEqual({ payer: '9', text: 'How?', price: '380' });
+    once({ code: 'not_payer' }, 403);
+    await expect(workerApi.advice('t', '2', '7')).rejects.toMatchObject({ status: 403, code: 'not_payer' });
+  });
+
+  // spec: add-pet-work › Skill writing flow › skill saved
+  it('reads, saves and forgets the skill on its own route, and keeps the code of a label not accepted', async () => {
+    const read = once({ skill: { label: 'charts', instruction: 'Explain charts.' } });
+    expect((await workerApi.skill('t', '9')).skill?.label).toBe('charts');
+    expect(`${calls(read)[0]![1].method} ${calls(read)[0]![0]}`).toBe('GET /api/pets/9/skill');
+    const saved = once({ skill: { label: 'charts' } });
+    expect(await workerApi.saveSkill('t', '9', { label: 'charts', instruction: 'Explain charts.' })).toEqual({ skill: { label: 'charts' } });
+    expect(`${calls(saved)[0]![1].method} ${calls(saved)[0]![0]}`).toBe('PUT /api/pets/9/skill');
+    expect(JSON.parse(calls(saved)[0]![1].body as string)).toEqual({ label: 'charts', instruction: 'Explain charts.' });
+    const gone = once({ skill: null });
+    expect(await workerApi.forgetSkill('t', '9')).toEqual({ skill: null });
+    expect(`${calls(gone)[0]![1].method} ${calls(gone)[0]![0]}`).toBe('DELETE /api/pets/9/skill');
+    once({ code: 'bad_label' }, 400);
+    await expect(workerApi.saveSkill('t', '9', { label: 'x', instruction: 'y' })).rejects.toMatchObject({ status: 400, code: 'bad_label' });
+  });
+});
+
 describe('the wardrobe routes', () => {
   const calls = (fetchMock: ReturnType<typeof vi.fn>) => fetchMock.mock.calls.map((c) => c as unknown as [string, RequestInit]);
 

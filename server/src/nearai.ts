@@ -12,6 +12,9 @@ export interface CallSpec {
   thinking: boolean;
   /** The wait for the answer, ms: 60 s up to 2,000 tokens, 90 s for «Think hard» (design.md). */
   timeoutMs: number;
+  /** Fields of the request body beside the standard ones, merged before the one serialization: a skilled
+   * worker's random `nonce` (`Skilled answer data`, ADR-023). */
+  extra?: Record<string, unknown>;
 }
 
 export interface Signed {
@@ -61,6 +64,7 @@ export async function complete(env: Pick<Env, 'NEARAI_API_KEY' | 'MODEL_ID'>, sp
     max_tokens: spec.maxTokens,
     stream: false,
     chat_template_kwargs: { enable_thinking: spec.thinking },
+    ...spec.extra,
   };
   // Serialized once: these exact bytes are sent and these exact bytes are hashed.
   const reqBytes = new TextEncoder().encode(JSON.stringify(body));

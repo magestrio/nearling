@@ -12,6 +12,9 @@ declare global {
       MIN_FEED: string;
       SNACK_AMOUNT: string;
       OUTFIT_PRICE: string;
+      HIRE_FEE_MIN: string;
+      HIRE_FEE_MAX: string;
+      MAX_JOBS_PER_DAY: string;
       FRIEND_SNACKS_PER_DAY: string;
       OWNER_SNACK_EVERY_NS: string;
       // presets.md › Slots as JSON: string[][].

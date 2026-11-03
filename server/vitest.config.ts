@@ -46,6 +46,9 @@ export default defineConfig({
           MIN_FEED: limit('MIN_FEED'),
           SNACK_AMOUNT: limit('SNACK_AMOUNT'),
           OUTFIT_PRICE: limit('OUTFIT_PRICE'),
+          HIRE_FEE_MIN: limit('HIRE_FEE_MIN'),
+          HIRE_FEE_MAX: limit('HIRE_FEE_MAX'),
+          MAX_JOBS_PER_DAY: limit('MAX_JOBS_PER_DAY'),
           FRIEND_SNACKS_PER_DAY: limit('FRIEND_SNACKS_PER_DAY'),
           OWNER_SNACK_EVERY_NS: limit('OWNER_SNACK_EVERY_NS'),
           PRESETS_MD: JSON.stringify(presetSlots()),
@@ -58,6 +61,9 @@ export default defineConfig({
           NEAR_SERVER_KEY: KeyPairEd25519.fromRandom().toString(),
           // The gas account's key, the same way: made for these tests, it signs nothing anywhere.
           NEAR_GAS_ACCOUNT_KEY: KeyPairEd25519.fromRandom().toString(),
+          // The skill key, made when this config loads for these tests only (base64 of 32 random bytes); the real
+          // `SKILL_KEY` is the user's secret and is never read here.
+          SKILL_KEY: btoa(String.fromCharCode(...crypto.getRandomValues(new Uint8Array(32)))),
           // The tests' list; the real `INSULT_LIST` is the user's secret and is never read here.
           INSULT_LIST: 'idiot\nfuck\nshit\nbiscuit-free\n',
           // The tests' riddles, three of them, made for these tests (`day % 3` picks one); the real

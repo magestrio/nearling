@@ -68,10 +68,13 @@
   --size-popover-width: 22rem;
   --size-measure: 38rem;
   --size-bubble: 34rem;
+  --size-bubble-player: min(34rem, 85%);
+  --size-field-grow-min: 10rem;
   --size-pet-hero: clamp(15rem, 80vw, 28rem);
   --size-pet-hero-max-height: 36dvh;
   --size-pet-hero-max-height-desktop: 52dvh;
   --size-pet-compact-max-height: 26dvh;
+  --size-pet-compact-owner-max-height: 20dvh;
   --size-pet-md: 14rem;
   --size-item-picture: 6rem;
   --size-pet-sm: 3rem;

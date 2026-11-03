@@ -38,6 +38,7 @@ async fn the_explorer_shows_the_owner_name_character_food_and_receipts_but_no_wo
             "friend_snack_day",
             "friend_snacks",
             "given_food",
+            "jobs_today",
             "last_debit_id",
             "last_streak_day",
             "name",
@@ -49,6 +50,7 @@ async fn the_explorer_shows_the_owner_name_character_food_and_receipts_but_no_wo
             "stage_day",
             "streak",
             "traits",
+            "work_known",
         ]
     );
 

@@ -3,18 +3,21 @@
 // means the Worker never answered, any other is its HTTP status with the `code` of its body (`signed_out`,
 // `rate_limited`, `chain_unreachable`, `not_owner`, `no_pet`, …).
 import type {
+  AdviceRead,
   Conversation,
   DiaryView,
   FeedOutcome,
   FeedSheetAnswer,
   HatchStatus,
   Health,
+  HireMode,
   Me,
   OutfitSlug,
   PetState,
   PetView,
   RiddleStatus,
   SignInGate,
+  SkillText,
   Token,
   WalletInfo,
   WardrobeView,
@@ -118,6 +121,15 @@ const real: WorkerApi = {
   wear: (token, tokenId, item) => call<{ worn: OutfitSlug | null }>(`/api/pets/${id(tokenId)}/wardrobe/wear`, token, { method: 'POST', body: { item } }),
   buy: (token, tokenId, item) => call<{ id: string }>(`/api/pets/${id(tokenId)}/wardrobe/buy`, token, { method: 'POST', body: { item } }),
   seenOutfit: (token, tokenId, item) => call<{ ok: true }>(`/api/pets/${id(tokenId)}/wardrobe/seen`, token, { method: 'POST', body: { item } }),
+  setHireMode: (token, tokenId, mode) => call<{ mode: HireMode }>(`/api/pets/${id(tokenId)}/hire-mode`, token, { method: 'PUT', body: { mode } }),
+  askOffer: (token, tokenId, price) => call<{ job: string }>(`/api/pets/${id(tokenId)}/offer/ask`, token, { method: 'POST', body: { price } }),
+  declineOffer: (token, tokenId) => call<{ job: string }>(`/api/pets/${id(tokenId)}/offer/decline`, token, { method: 'POST' }),
+  finishHire: (token, tokenId) => call<{ job: string }>(`/api/pets/${id(tokenId)}/hire/finish`, token, { method: 'POST' }),
+  advice: (token, tokenId, payer) => call<AdviceRead>(`/api/pets/${id(tokenId)}/advice?payer=${encodeURIComponent(payer)}`, token),
+  askAdvice: (token, tokenId, body) => call<{ job: string }>(`/api/pets/${id(tokenId)}/advice`, token, { method: 'POST', body }),
+  skill: (token, tokenId) => call<{ skill: SkillText | null }>(`/api/pets/${id(tokenId)}/skill`, token),
+  saveSkill: (token, tokenId, body) => call<{ skill: { label: string } }>(`/api/pets/${id(tokenId)}/skill`, token, { method: 'PUT', body }),
+  forgetSkill: (token, tokenId) => call<{ skill: null }>(`/api/pets/${id(tokenId)}/skill`, token, { method: 'DELETE' }),
 };
 
 export const workerApi: WorkerApi =
