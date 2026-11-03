@@ -1,6 +1,17 @@
 // @vitest-environment jsdom
 import { beforeEach, describe, expect, it } from 'vitest';
-import { clearReturnPlace, eraseLeftBehind, fromOf, holdReturnText, peekReturnPlace, rememberReturnPlace, takeReturnPlace, takeReturnText } from './returnPlace';
+import {
+  clearReturnPlace,
+  eraseLeftBehind,
+  fromOf,
+  holdReturnSheet,
+  holdReturnText,
+  peekReturnPlace,
+  rememberReturnPlace,
+  takeReturnPlace,
+  takeReturnSheet,
+  takeReturnText,
+} from './returnPlace';
 
 describe('return place', () => {
   beforeEach(() => sessionStorage.clear());
@@ -106,5 +117,49 @@ describe('the record of a sign-in', () => {
     ['/', 'home'],
   ] as const)('says %s is from a %s', (path, from) => {
     expect(fromOf(path)).toBe(from);
+  });
+});
+
+describe('the fields of the sheets of the errands', () => {
+  beforeEach(() => sessionStorage.clear());
+
+  // spec: add-pet-errands › Errand sheet screen › success × the return place
+  it('keeps the action of an Errand, Adapter and Skill code sheet in the record, and hands their fields back once to the path', () => {
+    for (const [action, fields] of [
+      ['errand', { form: 'find', job: 'When do the Leonids peak?' }],
+      ['adapter', { label: 'Daybook', address: 'https://mcp.example.com/daybook' }],
+      ['adapter', { label: 'Daybook', address: '', sid: 'a1b2c3d4e5f60718293a4b5c' }],
+      ['code', { code: 'export const x = 1;', fn: 'openerFor', values: '11, 3' }],
+    ] as const) {
+      const text = JSON.stringify(fields);
+      rememberReturnPlace({ path: '/pet/9', action, text });
+      const place = takeReturnPlace();
+      expect(place).toEqual({ path: '/pet/9', action, text });
+      holdReturnSheet(action, '/pet/9', place!.text!);
+      expect(takeReturnSheet(action, '/pet/2')).toBeNull();
+      expect(takeReturnSheet(action, '/pet/9')).toEqual(fields);
+      expect(takeReturnSheet(action, '/pet/9')).toBeNull();
+    }
+  });
+
+  // spec: add-pet-errands › Errand sheet screen › success × the return place
+  it('drops a record whose text is not that sheet\'s fields, and a cancel keeps the action but not the text', () => {
+    holdReturnSheet('errand', '/pet/9', JSON.stringify({ form: 'poem', job: 'x' }));
+    holdReturnSheet('errand', '/pet/9', 'not json');
+    expect(takeReturnSheet('errand', '/pet/9')).toBeNull();
+    holdReturnSheet('code', '/pet/9', JSON.stringify({ code: 'x' }));
+    expect(takeReturnSheet('code', '/pet/9')).toBeNull();
+    rememberReturnPlace({ path: '/pet/9', action: 'errand', cancelled: true });
+    expect(takeReturnPlace()).toEqual({ path: '/pet/9', action: 'errand', cancelled: true });
+  });
+
+  // spec: add-pet-errands › Errand sheet screen › success × the return place
+  it('is cleared with the fields held in memory: a new record, a sign-out', () => {
+    holdReturnSheet('errand', '/pet/9', JSON.stringify({ form: 'read', job: 'https://example.com/dreams' }));
+    rememberReturnPlace('/pet/2');
+    expect(takeReturnSheet('errand', '/pet/9')).toBeNull();
+    holdReturnSheet('adapter', '/pet/9', JSON.stringify({ label: 'A', address: 'b' }));
+    clearReturnPlace();
+    expect(takeReturnSheet('adapter', '/pet/9')).toBeNull();
   });
 });

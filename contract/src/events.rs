@@ -25,7 +25,8 @@ pub struct CallReceipt {
     pub tokens_in: u32,
     pub tokens_out: u32,
     pub tokens_reasoning: u32,
-    /// The call stopped at its `max_tokens` ceiling.
+    /// The call stopped at its `max_tokens` ceiling, or an errand search call was cut when
+    /// it asked for a search past its allowance (unsigned, with no tokens).
     pub cut: bool,
 }
 
@@ -49,7 +50,7 @@ pub struct HireEntry {
     pub fee: U128,
 }
 
-/// One thought of a debit batch: one receipt, one or two calls, one price. A worker's answer
+/// One thought of a debit batch: one receipt, one to four calls, one price. A worker's answer
 /// carries the worker's token id, and, when the hire is recorded, its `hire` entry.
 #[near(serializers = [json])]
 #[derive(Clone, Debug)]

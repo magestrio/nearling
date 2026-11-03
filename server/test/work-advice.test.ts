@@ -189,6 +189,8 @@ describe('Advice flow', () => {
       reply: 'Plant radishes.',
       price: 1000n,
       skilled: false,
+      data: null,
+      labels: [],
       call: {
         answer: { reqBytes: new Uint8Array([1]), resBytes: new Uint8Array([2]), reqSha: 'a'.repeat(64), resSha: 'b'.repeat(64), id: 'c', tokensIn: 10, tokensOut: 5, tokensReasoning: 0, finishReason: 'stop' },
         signed: { signature: '0xsig-x', sigKind: 'provider_tee', signer: '0xsigner' },
@@ -254,6 +256,7 @@ describe('Advice flow facts', () => {
       last: null,
       price: { yocto: FEE.toString(), cents: hireCents(FEE, Number(env.NEAR_USD_RATE)) },
       skilled: false,
+      labels: [],
       workerAsleep: false,
       resting: null,
       payer: { tokenId: PAYER, name: 'Pixel', state: 'ok', until: null },

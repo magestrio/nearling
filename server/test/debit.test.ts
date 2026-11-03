@@ -1,6 +1,7 @@
 import { env } from 'cloudflare:workers';
 import { describe, expect, it, vi } from 'vitest';
 import { tick } from '../src/cron';
+import { MAX_LOG_BYTES_PER_DEBIT, receiptBytes, gasFor } from '../src/debit';
 import { DAILY_CAP_YOCTO, gasShareYocto, minCallPrice } from '../src/pricing';
 import { run } from '../src/spend';
 import { api, harness } from './helpers/api';
@@ -24,6 +25,38 @@ const spend = async () => (await env.DB.prepare('SELECT kind, usd_micros FROM pr
 const later = (ms = 11 * MIN) => Date.now() + ms;
 
 describe('Session debit contract', () => {
+  // spec: add-pet-errands › Errand debit contract › errand recorded
+  it('splits eleven two-call hires with longest receipt fields before their receipt and hire logs can exceed the bound', async () => {
+    h.net().contract.addPet('5', OWNER, { project_food: BIG_FOOD });
+    const stamp = Date.now();
+    const session = 'long-hire-session';
+    await env.DB.prepare("INSERT INTO debit_sessions (id, token_id, day, opened_at, last_at, status) VALUES (?, ?, ?, ?, ?, 'open')")
+      .bind(session, '5', Math.floor(stamp / 86_400_000), stamp, stamp).run();
+    for (let i = 0; i < 11; i += 1) {
+      const id = `long-hire-${i}`;
+      const worker = String(i + 6).padStart(32, '0');
+      h.net().contract.addPet(worker, NEAR_ACCOUNT(2));
+      await env.DB.prepare("INSERT INTO thoughts (id, token_id, created_at, kind, model, price_yocto, price_usd_micros, payer, session_id, status, worker_id, worker_name, skilled) VALUES (?, '5', ?, 'advice', ?, ?, 0, 'pet', ?, 'unbilled', ?, 'Worker', 1)")
+        .bind(id, stamp + i, 'm'.repeat(64), '100000000000000000000', session, worker).run();
+      for (let n = 0; n < 2; n += 1) {
+        await env.DB.prepare('INSERT INTO thought_calls (thought_id, n, req_bytes, res_bytes, req_sha256, res_sha256, signature, sig_kind, signer, completion_id, tokens_in, tokens_out, tokens_reasoning, cut) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)')
+          .bind(id, n, new Uint8Array(0), new Uint8Array(0), 'a'.repeat(64), 'b'.repeat(64), `0x${'c'.repeat(130)}`, 'provider_tee', 'd'.repeat(64), `call-${i}-${n}`, 1_000_000_000, 1_000_000_000, 1_000_000_000).run();
+      }
+      await env.DB.prepare("INSERT INTO hires (id, hirer_id, worker_id, worker_name, kind, skilled, fee_yocto, fee_usd_micros, answer_thought_id, session_id, status, created_at) VALUES (?, '5', ?, 'Worker', 'player', 1, ?, 0, ?, ?, 'unbilled', ?)")
+        .bind(`hire-${i}`, worker, '1000000000000000000000', id, session, stamp + i).run();
+    }
+    expect(receiptBytes(2, true, true) * 9).toBeGreaterThan(MAX_LOG_BYTES_PER_DEBIT);
+    await tick(env, later());
+    expect(h.net().contract.debits.map((d) => d.thoughts.length)).toEqual([8, 3]);
+    expect(await statuses()).toEqual([{ status: 'billed', n: 11 }]);
+  });
+
+  // Measured in design.md › Контракт › Gas and logs: 1.47 Tgas per four-call thought, ×1.5 = 2.25.
+  // spec: add-pet-errands › Errand debit contract › errand recorded
+  it('budgets 2.25 Tgas per three-to-four-call thought with the five Tgas floor', () => {
+    expect(gasFor(7, 0, 7)).toBe('16000000000000');
+  });
+
   // spec: add-pet › Session debit contract › больше 12 мыслей в пачке × сессия длиннее 12 мыслей закрылась
   it('splits a session of 25 thoughts into batches of 12, 12 and 1, in the order of debit_id, one after the other', async () => {
     const pet = h.net().contract.addPet('5', OWNER, { project_food: BIG_FOOD, last_debit_id: 6 });

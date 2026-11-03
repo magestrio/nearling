@@ -5,11 +5,26 @@ import { onClearOutcome } from '../../account/clearMemory';
 import { utcDayNow } from '../../diary/useDiary';
 import { hostOf, watchFlight } from '../../feeding/feedFlight';
 import { onFed } from '../../feeding/feedRequest';
+import { clearedReportLine, emptyErrandLine, failureLine, nothingFoundLine, reportMeta, unclearLine } from '../../errands/lines';
 import { useLocation } from '../../route';
 import { useAuth } from '../../seams/auth';
 import { takeReturnText } from '../../signin/returnPlace';
-import { WorkerError, waitLineMs, workerApi, type ConversationLine, type HireMode, type HireOffer, type JobKind, type Me, type PetState, type PetView, type Thought } from '../../seams/worker';
-import { askedMeta, hireClearedLine, hireEmptyLine, hireFailedLine, offerLine, toLine } from '../../work/lines';
+import {
+  WorkerError,
+  waitLineMs,
+  workerApi,
+  type ConversationLine,
+  type ErrandForm,
+  type ErrandState,
+  type HireMode,
+  type HireOffer,
+  type JobKind,
+  type Me,
+  type PetState,
+  type PetView,
+  type Thought,
+} from '../../seams/worker';
+import { askedMeta, hireClearedLine, hireDataFailedLine, hireDataFailedPaidLine, hireEmptyLine, hireFailedLine, offerLine, toLine } from '../../work/lines';
 import { peekPendingAction, runAction, takePendingAction } from './parts';
 
 // The Pet screen's state (add-pet › Pet screen, Connection rule): what the page shows is chosen from the answer of
@@ -30,12 +45,39 @@ export type PetPage =
 /** the connection line over the last known pet */
 export type Banner = 'offline' | 'busy' | null;
 
+/** The report of an errand as the log draws it (`Errand flow` › «report»): the find card under the pet's name. */
+export interface ReportLine {
+  form: ErrandForm;
+  /** «True» / «False» as the stamp at the top; none for «Find out» and for «Unclear», whose line leads the card */
+  verdict: 'True' | 'False' | null;
+  /** the card's first line: «Unclear — …», or «… looked but found nothing solid on this.» */
+  top: string | null;
+  sources: Array<{ label: string; href: string | null }>;
+  /** the exact price: «Read · 0.14¢», «3 searches · 1.42¢» */
+  meta: string;
+  /** the data sources that did not answer, and the skill's code when it did not, each a line under the words */
+  missed: Array<string | { code: true }>;
+  /** the claim of an «Is it true?» report, for the card the browser draws; null for the other forms */
+  card: { claim: string; verdict: 'True' | 'False' | 'Unclear'; sources: number } | null;
+}
+
 export interface Line {
   id: string;
-  who: 'player' | 'pet' | 'event' | 'worker';
+  who: 'player' | 'pet' | 'event' | 'worker' | 'error';
   text: string;
   /** arrived while the screen is open: it rises in */
   fresh?: boolean;
+  /** an errand's line made by this tab (the job of an errand that is away, the line of one that came back with nothing): a new
+   *  read of the conversation leaves it in place */
+  keep?: boolean;
+  /** the errand's form above the job under «You» */
+  kicker?: ErrandForm;
+  /** a `pet` line that is an errand's report */
+  report?: ReportLine;
+  /** an `error` line that is an errand's: «Try again» opens Errand sheet with this form and job */
+  retry?: { form: ErrandForm; job: string };
+  /** an `error` line of a paid errand that came back with no report: what it cost, so the words follow the errand's end */
+  paidCents?: number;
   /** the small line under a reply: «Thought hard · {price}», or «{name} asked {worker} · {price}» under a hire's answer */
   meta?: string;
   /** the note under a reply that stopped at one thought's limit — the reply is still the newest thing the pet said */
@@ -45,13 +87,18 @@ export interface Line {
   /** `worker`: whose words, and whether a private skill shaped them */
   worker?: { tokenId: string; name: string };
   skilled?: boolean;
+  /** `worker`: the data sources its answer read (`Adapter call rule` › «hired answer line») */
+  dataLabels?: string[];
 }
 
 /** One line of the server's conversation as lines of the screen (`Pet hire flow`: the pet's question to a worker, the worker's own
  *  words, the game's line of a hire that did not happen, the price under the answer). `fresh`: it rises in. */
-export function lineOf(l: ConversationLine, name: string, fresh: boolean): Line[] {
+export function lineOf(l: ConversationLine, name: string, fresh: boolean, before?: ConversationLine): Line[] {
   const text = l.text ?? '';
   switch (l.who) {
+    case 'error':
+      // a paid errand that came back with no report; «Try again» stands only under the one the owner's state still keeps (`loadLines`)
+      return [{ id: l.id, who: 'error', text: emptyErrandLine(name, before?.kicker ?? 'find', l.priceCents ?? 0), fresh: fresh || undefined, paidCents: l.priceCents ?? 0 }];
     case 'worker':
       return [
         {
@@ -61,23 +108,57 @@ export function lineOf(l: ConversationLine, name: string, fresh: boolean): Line[
           fresh,
           worker: { tokenId: l.worker?.tokenId ?? '', name: l.worker?.name ?? '' },
           skilled: l.skilled === true,
+          ...(l.dataLabels && l.dataLabels.length > 0 ? { dataLabels: l.dataLabels } : {}),
           meta: l.hire ? askedMeta(name, l.hire) : undefined,
         },
       ];
     case 'event': {
       if (!l.code) return [{ id: l.id, who: 'event', text, fresh: fresh || undefined }];
       const worker = l.worker?.name ?? '';
-      return [{ id: l.id, who: 'event', text: l.code === 'hire_empty' ? hireEmptyLine(name, worker) : hireFailedLine(name, worker), fresh: fresh || undefined }];
+      const words =
+        l.code === 'hire_empty'
+          ? hireEmptyLine(name, worker)
+          : l.code === 'hire_data_failed'
+            ? hireDataFailedLine(name, worker)
+            : l.code === 'hire_data_failed_paid'
+              ? hireDataFailedPaidLine(name, worker)
+              : hireFailedLine(name, worker);
+      return [{ id: l.id, who: 'event', text: words, fresh: fresh || undefined }];
     }
     case 'pet': {
+      if (l.report) return [reportLineOf(l, name, fresh, before)];
       const lines = replyLines({ id: l.id, text: l.hireTo !== undefined ? toLine(l.hireTo, text) : text, cut: l.cut ?? null, priceCents: l.priceCents }, name, fresh);
       if (l.hireTo !== undefined) lines[0]!.question = true;
       if (l.hire) lines[0]!.meta = askedMeta(name, l.hire);
       return lines;
     }
     default:
-      return [{ id: l.id, who: 'player', text }];
+      return [{ id: l.id, who: 'player', text, ...(l.kicker ? { kicker: l.kicker } : {}) }];
   }
+}
+
+/** An errand's report: the words, what it cites as links in new tabs, the verdict, the exact price. */
+function reportLineOf(l: ConversationLine, name: string, fresh: boolean, before?: ConversationLine): Line {
+  const r = l.report!;
+  const stamp = r.verdict === 'true' ? 'True' : r.verdict === 'false' ? 'False' : null;
+  // «Is it true?» without a verdict is «Unclear»: its line leads the card; a «Find out» that cites nothing says it found nothing solid
+  const unclear = r.form === 'check' && stamp === null;
+  const nothing = r.form === 'find' && r.sources.length === 0;
+  return {
+    id: l.id,
+    who: 'pet',
+    text: l.text ?? '',
+    fresh: fresh || undefined,
+    report: {
+      form: r.form,
+      verdict: stamp,
+      top: unclear ? unclearLine(name) : nothing ? nothingFoundLine(name) : null,
+      sources: r.sources.map((s) => ({ label: s.label, href: s.url ?? null })),
+      meta: reportMeta(r.form, r.searches, r.priceCents),
+      missed: r.missed,
+      card: r.form === 'check' ? { claim: before?.text ?? '', verdict: stamp ?? 'Unclear', sources: r.sources.length } : null,
+    },
+  };
 }
 
 /** A thought that did not come: the player's line stays in the conversation under the line and «Try again»
@@ -167,6 +248,9 @@ export function usePetScreen(tokenId: string, from: string | null, diary = false
   const [friend, setFriend] = useState<{ tokenId: string; name: string } | null>(null);
   // a line the screen says once, with a Toast: the pet was given away under a clear (`Memory deletion flow` › «уже не владелец»)
   const [notice, setNotice] = useState<string | null>(null);
+  // An errand that came back with a block (`Errand flow` › «blocked after Send»): Errand sheet opens with this form and job. `n` so the
+  // same words can come twice.
+  const [reopen, setReopen] = useState<{ form: ErrandForm; job: string; n: number } | null>(null);
   // the answer to the question of the day: on its way or landed, until the Diary holds the exchange (`Daily ritual flow`)
   const [asked, setAsked] = useState<Asked | null>(null);
   // an answer to the question the thought refused: back in the Diary's field, with a count so the same words can come twice
@@ -218,6 +302,20 @@ export function usePetScreen(tokenId: string, from: string | null, diary = false
   const hiresSeen = useRef(0);
   // the offer standing at the last look: when it is gone its words stay as an answered one
   const offerSeen = useRef<HireOffer | null>(null);
+  // The errand (add-pet-errands): the job of the one this tab sent (its outcome carries «memory cleared on the way»), the line this tab
+  // drew for its job, the errand as the last look saw it (a change from `away` is its end), the failed one whose lines this page
+  // drew or whose sheet it opened (a poll that sees it again does nothing), and the failed one a paid line's words follow.
+  const errandJob = useRef<string | null>(null);
+  const errandLine = useRef<string | null>(null);
+  const errandSeen = useRef<ErrandState | null | undefined>(undefined);
+  const errandShown = useRef<string | null>(null);
+  const errandFailed = useRef<Extract<ErrandState, { state: 'failed' }> | null>(null);
+  // the job and the line this page drew for a failed errand no thought holds (nothing was spent): gone with the failed errand
+  const errandLocal = useRef<string[]>([]);
+  // the line of an errand whose report a clear took on the way is drawn (from the state or from the job's outcome, whichever came
+  // first): the other says it no second time
+  const errandCleared = useRef(false);
+  const awayRef = useRef(false);
 
   const setDraft = useCallback((text: string) => {
     draftRef.current = text;
@@ -398,13 +496,25 @@ export function usePetScreen(tokenId: string, from: string | null, diary = false
       // The end of a hire turn reads it again, and everything the turn wrote that the page did not hold rises in.
       const known = new Set((linesRef.current ?? []).map((l) => l.id));
       const reread = linesRef.current !== null && linesRef.current.length > 0;
-      const past = history.lines.flatMap((l): Line[] =>
-        lineOf(l, name, l.who !== 'player' && !known.has(l.id) && ((reread && l.who === 'event') || (opts?.fresh === true && reread))),
+      const past = history.lines.flatMap((l, i): Line[] =>
+        lineOf(l, name, l.who !== 'player' && !known.has(l.id) && ((reread && l.who === 'event') || (opts?.fresh === true && reread)), history.lines[i - 1]),
       );
+      // the newest paid errand that came back with nothing is the one the owner's state keeps for «Try again» (`Errand flow` › «failed
+      // errand after a reload»): it says what it came to (a search that could not be reached and was paid for, a read the pet paid
+      // for), not the generic words of the conversation's line, and it alone has «Try again» — an older one is history
+      const failed = errandFailed.current;
+      if (failed !== null && failed.priceCents !== undefined) {
+        for (let i = past.length - 1; i >= 0; i -= 1) {
+          if (past[i]!.paidCents === undefined) continue;
+          const job = failed.job ?? (past[i - 1]?.who === 'player' ? past[i - 1]!.text : null);
+          past[i] = { ...past[i]!, text: failureLine(name, { form: failed.form, reason: failed.reason, cents: failed.priceCents }), ...(job !== null ? { retry: { form: failed.form, job } } : {}) };
+          break;
+        }
+      }
       const held = new Set(past.map((l) => l.id));
       setLines((now) => {
         // what happened in this tab while the history was on its way stays after it
-        const mine = (now ?? []).filter((l) => !held.has(l.id) && (l.who === 'player' ? unconfirmed.current.has(l.id) : l.fresh));
+        const mine = (now ?? []).filter((l) => !held.has(l.id) && (l.who === 'player' ? unconfirmed.current.has(l.id) : l.fresh || l.keep));
         return [...past, ...mine];
       });
       return history.lines;
@@ -423,7 +533,15 @@ export function usePetScreen(tokenId: string, from: string | null, diary = false
       changeJob(null);
       setFailure(null);
       sent.current = null;
-      // the owner's hire (the offers answered, the reply lost, the worker asked) goes with the owner's page
+      // the owner's hire (the offers answered, the reply lost, the worker asked) goes with the owner's page, and so does the errand
+      errandJob.current = null;
+      errandLine.current = null;
+      errandSeen.current = undefined;
+      errandShown.current = null;
+      errandFailed.current = null;
+      errandLocal.current = [];
+      errandCleared.current = false;
+      setReopen(null);
       hireJob.current = null;
       offerSeen.current = null;
       setAnsweredOffers([]);
@@ -496,6 +614,11 @@ export function usePetScreen(tokenId: string, from: string | null, diary = false
     sent.current = null;
     hireJob.current = null;
     unconfirmed.current.clear();
+    // the job line of an errand that is away went with the conversation; the errand itself still ends or times out, and a failed
+    // one kept for «Try again» is erased with the memory (`Errand flow` › «failed errand after a reload»)
+    errandLine.current = null;
+    errandFailed.current = null;
+    errandLocal.current = [];
     setFailure(null);
     setAsked(null);
     setAnsweredOffers([]);
@@ -528,12 +651,176 @@ export function usePetScreen(tokenId: string, from: string | null, diary = false
     return { id: `event-${(localLine.current += 1)}`, who: 'event', text: hireClearedLine(shown), fresh: true };
   }, []);
 
+  /** Takes the job line this tab drew for an errand out of the log: the conversation holds the job now, or the errand did not happen. */
+  const dropErrandLine = useCallback(() => {
+    const id = errandLine.current;
+    errandLine.current = null;
+    if (id === null) return;
+    unconfirmed.current.delete(id);
+    setLines((now) => (now ?? []).filter((l) => l.id !== id));
+  }, []);
+
+  /** The failed errand is gone (the next errand, «Try again» sent, in this tab or another): the job and the line this page drew for
+   *  it go, and no line of the conversation has «Try again» any more (`Errand flow` › «failed errand after a reload»). */
+  const dropFailedErrand = useCallback(() => {
+    const local = errandLocal.current;
+    errandLocal.current = [];
+    for (const id of local) unconfirmed.current.delete(id);
+    setLines((now) => {
+      if (now === null || (local.length === 0 && !now.some((l) => l.retry))) return now;
+      return now.filter((l) => !local.includes(l.id)).map((l) => (l.retry ? { ...l, retry: undefined } : l));
+    });
+  }, []);
+
+  /** The job under «You» and the line a failed errand came back with, drawn by this page: nothing was spent, so no thought holds
+   *  them (`Errand flow` › «not back in 3 minutes», «blocked after Send», `Read this flow`, `Find out flow`). */
+  const drawFailedErrand = useCallback(
+    (failed: Extract<ErrandState, { state: 'failed' }>, fresh: boolean) => {
+      const job = failed.job;
+      if (job === null) {
+        dropErrandLine();
+        return;
+      }
+      const shown = pageRef.current.kind === 'pet' ? pageRef.current.pet.name : '';
+      let jobId = errandLine.current;
+      if (jobId === null) {
+        jobId = `errand-job-${(localLine.current += 1)}`;
+        unconfirmed.current.add(jobId);
+      }
+      errandLine.current = null;
+      const line: Line = {
+        id: `errand-failed-${(localLine.current += 1)}`,
+        who: 'error',
+        text: failureLine(shown, { form: failed.form, reason: failed.reason }),
+        keep: true,
+        fresh: fresh || undefined,
+        retry: { form: failed.form, job },
+      };
+      errandLocal.current = [jobId, line.id];
+      const jobLine: Line = { id: jobId, who: 'player', text: job, kicker: failed.form, keep: true };
+      setLines((now) => {
+        const list = now ?? [];
+        return [...(list.some((l) => l.id === jobId) ? list : [...list, jobLine]), line];
+      });
+    },
+    [dropErrandLine],
+  );
+
+  /** «Send» went (`Errand flow` › «sent»): the job under «You» with its form, and the pet is away until the state says otherwise. */
+  const errandSent = useCallback(
+    (sent: { form: ErrandForm; job: string; id: string }) => {
+      const away: ErrandState = { state: 'away', form: sent.form, job: sent.job, sentAt: Date.now() };
+      errandJob.current = sent.id;
+      errandShown.current = null;
+      errandFailed.current = null;
+      errandCleared.current = false;
+      errandSeen.current = away;
+      awayRef.current = true;
+      setPage((p) => (p.kind === 'pet' && p.pet.viewer === 'owner' ? { kind: 'pet', pet: { ...p.pet, errand: away } } : p));
+      dropErrandLine();
+      dropFailedErrand();
+      const id = `errand-job-${(localLine.current += 1)}`;
+      unconfirmed.current.add(id);
+      errandLine.current = id;
+      setLines((now) => [...(now ?? []), { id, who: 'player', text: sent.job, kicker: sent.form, fresh: true, keep: true }]);
+      setSpoke(true);
+    },
+    [dropErrandLine, dropFailedErrand],
+  );
+
+  /** Errand sheet closed. An errand that came back with a block opened it by itself; closed without a new «Send», the errand stays
+   *  in the conversation like any other that came back without a report: its job and «Try again» (`Errand flow` › «blocked after
+   *  Send», «failed errand after a reload»). */
+  const errandSheetClosed = useCallback(() => {
+    const failed = errandFailed.current;
+    if (failed?.reason !== 'blocked' || errandLocal.current.length > 0) return;
+    drawFailedErrand(failed, true);
+  }, [drawFailedErrand]);
+
+  /** «{name}'s memory was cleared while it was out…» in place of the report (`Errand flow` › «memory cleared on the way»). */
+  const drawClearedReport = useCallback(
+    (cents: number, fresh: boolean) => {
+      dropErrandLine();
+      const shown = pageRef.current.kind === 'pet' ? pageRef.current.pet.name : '';
+      const id = `event-${(localLine.current += 1)}`;
+      setLines((now) => [...(now ?? []), { id, who: 'event', text: clearedReportLine(shown, cents), fresh: fresh || undefined, keep: true }]);
+    },
+    [dropErrandLine],
+  );
+
+  /** What the errand came to, from the owner's state (`Errand flow`): the end of one that was away, one kept for «Try again», one a
+   *  reload found away. */
+  const settleErrand = useCallback(
+    async (next: ErrandState | null) => {
+      const before = errandSeen.current;
+      errandSeen.current = next;
+      errandFailed.current = next?.state === 'failed' ? next : null;
+      awayRef.current = next?.state === 'away';
+      // the failed errand this page drew is gone: the next errand, or «Try again» sent, in another tab
+      if (next?.state !== 'failed' && before?.state === 'failed') dropFailedErrand();
+      if (next?.state === 'done') {
+        // a clear took the report on the way: the state says it to the first read that doesn't ask for the job (a reload's first look,
+        // another tab's), and to every read that does until then; the job's own outcome says it too — the page says it once
+        if (!errandCleared.current) {
+          errandCleared.current = true;
+          drawClearedReport(next.priceCents, before?.state === 'away');
+        }
+        return;
+      }
+      // a new errand (sent in another tab, or found by a first look): its end is still to come
+      if (next?.state === 'away' && before?.state !== 'away') errandCleared.current = false;
+      if (next?.state === 'failed') {
+        const key = `${next.form}|${next.reason}|${next.job ?? ''}|${next.priceCents ?? ''}`;
+        if (errandShown.current === key) return;
+        errandShown.current = key;
+        // another failed errand than the one drawn (sent and failed in another tab between two looks): the old one's lines go
+        dropFailedErrand();
+        if (next.reason === 'blocked' && before?.state === 'away') {
+          // this page saw it go and nothing happened: Errand sheet opens with the form, the job and the first block (`blocked after
+          // Send`); closed without a new «Send», the errand stays in the conversation (`errandSheetClosed`)
+          dropErrandLine();
+          const job = next.job;
+          if (job !== null) setReopen((r) => ({ form: next.form, job, n: (r?.n ?? 0) + 1 }));
+          return;
+        }
+        if (next.priceCents !== undefined) {
+          // the pet paid: the conversation holds the job and its line
+          dropErrandLine();
+          await loadLines({ fresh: true });
+          return;
+        }
+        // nothing was spent, so no thought holds the lines: this page draws the job and the line it came back with, a block found
+        // on a first look too (a reload never opens the sheet by itself)
+        drawFailedErrand(next, before?.state === 'away');
+        return;
+      }
+      if (next?.state === 'away') {
+        // a reload (or another tab) found the pet away: the job under «You» comes back from the state
+        if (errandLine.current === null && next.job !== null && before === undefined) {
+          const id = `errand-job-${(localLine.current += 1)}`;
+          unconfirmed.current.add(id);
+          errandLine.current = id;
+          const text = next.job;
+          setLines((now) => [...(now ?? []), { id, who: 'player', text, kicker: next.form, keep: true }]);
+          setSpoke(true);
+        }
+        return;
+      }
+      if (before?.state === 'away') {
+        // the pet is back with its report: the conversation holds the job and the report
+        dropErrandLine();
+        await loadLines({ fresh: true });
+      }
+    },
+    [dropErrandLine, dropFailedErrand, drawFailedErrand, drawClearedReport, loadLines],
+  );
+
   const poll = useCallback(async () => {
     if (polling.current) return;
     polling.current = true;
     try {
       const token = await tokenOf();
-      const asked = jobRef.current;
+      const asked = jobRef.current ?? errandJob.current;
       const s: PetState = await workerApi.petState(token, tokenId, asked ?? undefined, wakes.current);
       const shown = pageRef.current.kind === 'pet' ? pageRef.current.pet.fullness.state : null;
       wakes.current = s.wakes;
@@ -567,6 +854,7 @@ export function usePetScreen(tokenId: string, from: string | null, diary = false
                 pendingProgress: s.pendingProgress,
                 hiresSeen: s.hiresSeen,
                 skill: s.skill,
+                errand: s.errand ?? null,
               },
             }
           : p,
@@ -578,6 +866,8 @@ export function usePetScreen(tokenId: string, from: string | null, diary = false
         const hired = forgetConversation();
         setLines(hired ? [hireClearedLineOf()] : []);
         void loadLines();
+        // the errand's end the clear took comes once, and may come in this same answer: the cleared conversation says it
+        if (s.errand?.state === 'done') await settleErrand(s.errand);
         return;
       }
       if (!historyRead.current) void loadLines();
@@ -586,6 +876,19 @@ export function usePetScreen(tokenId: string, from: string | null, diary = false
         hiresSeen.current = s.hiresSeen;
         if (historyRead.current) void loadLines();
       }
+      // The errand's job ended: its outcome is a report, or why none came. What the errand came to is read from the state; a clear
+      // that landed while the pet was out (`Errand flow` › «memory cleared on the way») is the state's `done` too, once, to the first
+      // read — the job's outcome says it only when that read was another tab's, never a second time on this page.
+      if (errandJob.current !== null && asked === errandJob.current && (s.code !== undefined || s.thought !== undefined)) {
+        finished.current.add(asked);
+        errandJob.current = null;
+        const price = s.price;
+        if (s.code === 'memory_cleared' && price && s.errand?.state !== 'done' && !errandCleared.current) {
+          errandCleared.current = true;
+          drawClearedReport(price.cents, true);
+        }
+      }
+      await settleErrand(s.errand ?? null);
       // the outcome belongs to the job this request asked about; a job that ended meanwhile is not read twice
       const mine = asked !== null && jobRef.current === asked;
       // the turn asked a worker (it says so while it asks, and a tap on a hire is one): the conversation holds its question and the
@@ -682,7 +985,10 @@ export function usePetScreen(tokenId: string, from: string | null, diary = false
       adopt(s);
       if (s.lastThought && jobRef.current === null && historyRead.current && !linesRef.current?.some((l) => l.id === s.lastThought)) void loadLines();
     } catch (e) {
-      if (e instanceof WorkerError && e.code === 'no_job') void jobGone();
+      if (e instanceof WorkerError && e.code === 'no_job' && errandJob.current !== null && jobRef.current === null) {
+        // the errand's job row is gone: the state says how it ended
+        errandJob.current = null;
+      } else if (e instanceof WorkerError && e.code === 'no_job') void jobGone();
       else fail(e, () => void poll());
     } finally {
       polling.current = false;
@@ -691,7 +997,7 @@ export function usePetScreen(tokenId: string, from: string | null, diary = false
         void poll();
       }
     }
-  }, [tokenOf, tokenId, loadLines, fail, giveBack, adopt, jobGone, changeJob, forgetConversation, endHire, hireClearedLineOf]);
+  }, [tokenOf, tokenId, loadLines, fail, giveBack, adopt, jobGone, changeJob, forgetConversation, endHire, hireClearedLineOf, settleErrand]);
 
   /** A read the screen asks for because the pet's own view moved (an item worn): a poll in flight does not stand in for it. */
   const lookNow = useCallback(async () => {
@@ -706,11 +1012,20 @@ export function usePetScreen(tokenId: string, from: string | null, diary = false
   // fetched; a hidden tab asks nothing, a tab that comes back asks at once.
   // An ended session stops the polls: no new data loads, and the page stands as it was (`Session expiry flow`).
   const ended = auth.sessionEnded;
+  // the pet is off on an errand: the page looks as often as for a thought on its way (`Errand flow`)
+  const away = page.kind === 'pet' && page.pet.viewer === 'owner' && page.pet.errand?.state === 'away';
+  // The errand is not in the pet's own view, only in the state: the first look comes at once, so a reload finds the pet away (or back
+  // with the line it came back with) without waiting for the poll.
+  const pollNow = useRef(poll);
+  pollNow.current = poll;
+  useEffect(() => {
+    if (viewer === 'owner' && !ended) void pollNow.current();
+  }, [viewer, ended]);
   useEffect(() => {
     if (viewer !== 'owner' || ended) return undefined;
     const timer = setInterval(() => {
       if (!document.hidden) void poll();
-    }, job ? POLL_JOB_MS : POLL_IDLE_MS);
+    }, job || away ? POLL_JOB_MS : POLL_IDLE_MS);
     const onVisible = () => {
       if (!document.hidden) void poll();
     };
@@ -719,7 +1034,7 @@ export function usePetScreen(tokenId: string, from: string | null, diary = false
       clearInterval(timer);
       document.removeEventListener('visibilitychange', onVisible);
     };
-  }, [viewer, ended, job, poll]);
+  }, [viewer, ended, job, away, poll]);
 
   // A guest's or a visitor's page looks at the pet again — the face of the day, the stage, the fullness — in the same
   // places: not in a hidden tab, at once on return, not after the session ended. A pet that is now this player's own
@@ -764,7 +1079,8 @@ export function usePetScreen(tokenId: string, from: string | null, diary = false
   const send = useCallback(
     async (raw: string, mode: 'chat' | 'deep' = 'chat', question?: number) => {
       const text = raw;
-      if (!hasVisible(text) || jobRef.current !== null || sendingRef.current || pageRef.current.kind !== 'pet') return;
+      // nothing is sent while the pet is away on an errand: the Composer is busy, and a stale tab's line stops here (`Errand flow` › «sent»)
+      if (!hasVisible(text) || jobRef.current !== null || sendingRef.current || awayRef.current || pageRef.current.kind !== 'pet') return;
       // a session that ended: the line, nothing sent, the text stays in the field
       if (!authRef.current.needSession()) return;
       const id = `you-${(localLine.current += 1)}`;
@@ -1064,7 +1380,14 @@ export function usePetScreen(tokenId: string, from: string | null, diary = false
     waiting,
     failure,
     friend,
-    busy: job !== null || sending,
+    busy: job !== null || sending || away,
+    /** the pet is off on an errand: the stage is empty, the thinking line says so, the rail's errand item is off */
+    away,
+    errandSent,
+    errandSheetClosed,
+    /** an errand came back with a block: Errand sheet opens with this form and job */
+    reopen,
+    clearReopen: useCallback(() => setReopen(null), []),
     spoke,
     me,
     /** the advice column's seams with this page: a token, the connection line, `me` read again, the text a sign-in brought back */

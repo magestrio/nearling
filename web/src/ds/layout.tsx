@@ -87,6 +87,11 @@ export function Split({ ratio, fill, start, end }: { ratio?: 'even' | 'start' | 
   );
 }
 
+/** A hairline between two parts of a column. Not a control. */
+export function Divider() {
+  return <hr className="ds-divider" />;
+}
+
 /** A raised area — never inside another one. tone: `raised-2` for the lighter step. */
 export function Surface({ as: Tag = 'div', tone, children }: { as?: ElementType; tone?: 'raised-2'; children?: ReactNode }) {
   return <Tag className={cx('ds-surface', tone === 'raised-2' && 'ds-surface--raised-2')}>{children}</Tag>;

@@ -5,6 +5,7 @@
 // (after an eviction) never takes a job twice.
 import { DurableObject } from 'cloudflare:workers';
 import { utcDay } from '../http';
+import { runErrand, type ErrandJob } from '../errands/run';
 import { run, type JobResult } from '../spend';
 import type { ThoughtJob } from '../prompt';
 import { runAdvice, type AdviceJob } from '../work/advice';
@@ -32,7 +33,7 @@ interface Claimed extends Row {
 
 /** What a desk runs: a thought of the pet, the advice it pays a friend's pet for (`work/advice.ts`), or the owner's
  * answer to a Manual offer and «Try again» of a lost own reply (`work/offer.ts`). */
-export type DeskJob = ThoughtJob | AdviceJob | OfferJob;
+export type DeskJob = ThoughtJob | AdviceJob | OfferJob | ErrandJob;
 
 export function jobOf(row: Row): DeskJob {
   const data = row.payload === null ? {} : (JSON.parse(row.payload) as Record<string, unknown>);
@@ -43,6 +44,8 @@ export function jobOf(row: Row): DeskJob {
       return data.line === true ? { kind: 'decline', line: true } : { kind: 'decline' };
     case 'finish':
       return { kind: 'finish' };
+    case 'errand':
+      return { kind: 'errand' };
     case 'advice':
       return { kind: 'advice', worker: String(data.worker ?? ''), text: String(data.text ?? ''), shown: String(data.shown ?? '0') };
     case 'reply':
@@ -192,6 +195,9 @@ export class PetDesk extends DurableObject<Env> {
             break;
           case 'finish':
             result = await runFinish(this.env, tokenId, row.epoch);
+            break;
+          case 'errand':
+            result = await runErrand(this.env, tokenId, row.epoch);
             break;
           default:
             result = await run(this.env, tokenId, job, row.epoch, { jobId: row.id });

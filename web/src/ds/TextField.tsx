@@ -25,6 +25,8 @@ export function TextField({
   aside,
   count,
   action,
+  mono,
+  grow,
 }: {
   label?: string;
   placeholder?: string;
@@ -43,6 +45,10 @@ export function TextField({
   /** «n / limit» from limit − 10 (short fields) or − 100 (long ones), as the chat input's: the limit is shown before it is hit */
   count?: boolean;
   action?: ReactNode;
+  /** an address or code: mono, no ligatures */
+  mono?: boolean;
+  /** a multiline field that grows with its text and never scrolls by itself (the sheet's body is the one scroll) */
+  grow?: boolean;
 }) {
   const id = useId();
   const [own, setOwn] = useState(value ?? '');
@@ -52,7 +58,7 @@ export function TextField({
   const described = [error ? errorId : null, hint ? hintId : null].filter(Boolean).join(' ') || undefined;
   const common = {
     id,
-    className: cx('ds-field__input', multiline && 'ds-field__input--multiline', 'type-body'),
+    className: cx('ds-field__input', multiline && 'ds-field__input--multiline', grow && 'ds-field__input--grow', 'type-body', mono && 'ds-field__input--mono'),
     value: text,
     placeholder,
     maxLength,

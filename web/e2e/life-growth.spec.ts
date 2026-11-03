@@ -65,7 +65,7 @@ test('переход записан позже ответа × the open page, a 
   await openWith(page, '/pet/9', { auth: SIGNED_IN, worker: worker(false) });
   await expect(page.getByRole('log')).toContainText('Start with the chart, then.');
   await field(page).fill('Hello');
-  await page.getByRole('button', { name: 'Send' }).click();
+  await page.getByRole('button', { name: 'Send', exact: true }).click();
   await expect(page.getByText('Pixel is thinking…')).toBeVisible();
   // the transition is written while the reply is still on its way: the page holds the line back
   await setWorker(page, { ...worker(true), petState: { pending: true } });

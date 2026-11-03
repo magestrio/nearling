@@ -11,12 +11,16 @@ import { SignInLines, useSignInLines } from '../signin/SignInOutcome';
 import {
   adviceButton,
   adviceClearedLine,
+  adviceDataFailedLine,
+  adviceDataFailedPaidLine,
   adviceEmptyLine,
   adviceLabel,
+  adviceSourcesLine,
   advicePlaceholder,
   cantPayLine,
   couldntHelpLine,
   feedMine,
+  lookedUpLine,
   myPetTiredLine,
   paysLine,
   priceDropsLine,
@@ -44,8 +48,10 @@ function EntryMessage({ entry, worker, myPet }: { entry: Entry; worker: { tokenI
         </Message>
       );
     case 'answer': {
-      // under the answer: where it is kept, then — when a private skill shaped it — what a check can't show (`Worker rule`)
-      const meta = entry.skilled ? [savedLine(myPet), SKILLED_LINE] : savedLine(myPet);
+      // under the answer: where it is kept, then — when a private skill shaped it — what a check can't show (`Worker rule`), then who saw
+      // what was looked up (`Adapter call rule` › «hired answer line»)
+      const notes = [savedLine(myPet), ...(entry.skilled ? [SKILLED_LINE] : []), ...(entry.dataLabels && entry.dataLabels.length > 0 ? [lookedUpLine(worker.name, entry.dataLabels)] : [])];
+      const meta = notes.length === 1 ? notes[0] : notes;
       return (
         <Message
           from="worker"
@@ -73,7 +79,7 @@ function EntryMessage({ entry, worker, myPet }: { entry: Entry; worker: { tokenI
         </Message>
       ) : (
         <Message from="error" fresh={entry.fresh}>
-          {adviceEmptyLine(worker.name, myPet)}
+          {entry.code === 'data_failed' ? adviceDataFailedLine(worker.name) : entry.code === 'data_failed_paid' ? adviceDataFailedPaidLine(worker.name, myPet) : adviceEmptyLine(worker.name, myPet)}
         </Message>
       );
   }
@@ -126,6 +132,11 @@ function Column({ tokenId, name, asleep, advice }: SlotProps & { advice: NonNull
       {read?.skilled ? (
         <Text variant="small" tone="secondary">
           {skillShapesLine(name)}
+        </Text>
+      ) : null}
+      {read?.labels && read.labels.length > 0 ? (
+        <Text variant="small" tone="secondary">
+          {adviceSourcesLine(name, read.labels)}
         </Text>
       ) : null}
     </Stack>

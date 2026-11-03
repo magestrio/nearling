@@ -6,6 +6,8 @@ import { Hono } from 'hono';
 import { ChainUnreachable, petView, stageOf, type PetRecord } from '../chain';
 import { requireSession, TOKEN_ID, type AppContext, type AppEnv } from '../http';
 import { hasVisible } from '../name/clean';
+import { settleLate } from '../errands/late';
+import { errandView, readErrand, awayErrand } from '../errands/store';
 import { desk, enqueueJob, jobOf } from '../pet/desk';
 import { memoryEpoch } from '../pet/forget';
 import { settleRitual } from '../pet/ritual';
@@ -20,6 +22,9 @@ export const thoughtRoutes = new Hono<AppEnv>();
 /** A player's line: up to 500 code points, with at least one visible character. */
 const MAX_LINE_CODE_POINTS = 500;
 const CONVERSATION_PAGE = 50;
+/** The event line of a hire that did not happen, by what its row says (`work/hire.ts`): the data lines are
+ * `Adapter call rule` › «data failed in a hire» and «…, past three». */
+const HIRE_EVENT_CODES: Record<string, string> = { empty: 'hire_empty', data_failed: 'hire_data_failed', data_failed_paid: 'hire_data_failed_paid' };
 
 /** The owner's pet, or the response to send instead. */
 export async function ownedPet(c: AppContext): Promise<{ pet: PetRecord; id: string } | Response> {
@@ -69,6 +74,8 @@ thoughtRoutes.post('/api/pets/:id/thoughts', async (c) => {
   if (owned instanceof Response) return owned;
   // On a pause the line is not taken: nothing queued, reserved or spent.
   if (await isPaused(c.env.DB, 'thought')) return c.json({ code: 'paused' }, 409);
+  // While the pet is off on an errand nothing is sent to it (`Errand flow` › «sent»); a stale tab's line stops here.
+  if ((await awayErrand(c.env.DB, owned.id)) !== null) return c.json({ code: 'away' }, 409);
 
   // A Manual offer still standing is declined first, in the queue before the line: the pet answers its old line itself
   // and the new one goes next (`Pet hire flow` › «отказ в Manual»). An offer whose hirer is asleep goes at this read.
@@ -151,8 +158,14 @@ thoughtRoutes.get('/api/pets/:id/state', async (c) => {
   const waiting = await c.env.DB.prepare("SELECT 1 AS found FROM jobs WHERE token_id = ? AND status IN ('queued', 'running') LIMIT 1").bind(id).first();
   if (waiting !== null) c.executionCtx.waitUntil(desk(c.env, id).process(id));
 
+  // An errand not back 3 minutes after «Send» is settled by whoever looks first, the poll or the cron: the page
+  // sees it at 3:00, not a minute later (`Errand flow` › «not back in 3 minutes»).
+  await settleLate(c.env, id, Date.now(), pet);
   const fields = await ownerFields(c.env, id, pet, (await pauseReason(c.env.DB)) !== null);
-  const out: Record<string, unknown> = { tokenId: id, name: pet.name, stage: stageOf(pet), ...fields, events, ...(friend !== undefined ? { friend } : {}) };
+  // The errand the pet is off on, or the one that came back without a report (a failed errand of an earlier owner is
+  // erased by this read).
+  const errand = await errandView(c.env.DB, await readErrand(c.env.DB, id, pet.owner_id), c.req.query('job') === undefined);
+  const out: Record<string, unknown> = { tokenId: id, name: pet.name, stage: stageOf(pet), ...fields, errand, events, ...(friend !== undefined ? { friend } : {}) };
   const jobId = c.req.query('job');
   if (jobId !== undefined && jobId !== '') {
     const job = await c.env.DB.prepare('SELECT status, kind, result FROM jobs WHERE id = ? AND token_id = ?').bind(jobId, id).first<{ status: string; kind: string; result: string | null }>();
@@ -161,16 +174,18 @@ thoughtRoutes.get('/api/pets/:id/state', async (c) => {
     if (job.status === 'queued' || job.status === 'running' || job.result === null) {
       out.pending = true;
     } else {
-      const result = JSON.parse(job.result) as { code?: string; thoughtId?: string; cut?: string | null; price?: string; reasked?: boolean; events?: string[]; turn?: string };
+      const result = JSON.parse(job.result) as { code?: string; thoughtId?: string; cut?: string | null; price?: string; reasked?: boolean; events?: string[]; turn?: string; paid?: boolean };
       events.push(...(result.events ?? []));
       if (result.code !== undefined) out.code = result.code;
+      // An advice whose worker's data failed (`Adapter call rule` › «data failed in advice»): whether the paying pet's food paid for it.
+      if (result.code === 'data_failed') out.paid = result.paid === true;
       // The tab's own job lost the pet's own reply after the worker's answer: the turn «Try again» finishes. Only the
       // job's outcome carries it, so a reload shows the lost reply by the conversation and no button (`§8 › Показанный питомец`).
       if (result.code === 'own_lost' && result.turn !== undefined) out.ownLost = { turn: result.turn };
       // An advice whose price rose (`Advice flow` › «price rose»): the price now, as the page shows it.
-      if (result.code === 'price_rose' && result.price !== undefined) out.price = priceView(c.env, BigInt(result.price));
+      if ((result.code === 'price_rose' || result.code === 'memory_cleared') && result.price !== undefined) out.price = priceView(c.env, BigInt(result.price));
       if (result.thoughtId !== undefined) {
-        const thought = await c.env.DB.prepare("SELECT id, kind, reply_text, erased_at, cut, reasked, price_yocto, price_usd_micros, worker_id, worker_name, skilled FROM thoughts WHERE id = ?").bind(result.thoughtId).first<{
+        const thought = await c.env.DB.prepare("SELECT id, kind, reply_text, erased_at, cut, reasked, price_yocto, price_usd_micros, worker_id, worker_name, skilled, data_labels FROM thoughts WHERE id = ?").bind(result.thoughtId).first<{
           id: string;
           kind: string;
           reply_text: string | null;
@@ -182,6 +197,7 @@ thoughtRoutes.get('/api/pets/:id/state', async (c) => {
           worker_id: string | null;
           worker_name: string | null;
           skilled: number;
+          data_labels: string | null;
         }>();
         if (thought !== null && thought.reply_text === null && thought.erased_at !== null) {
           // The answer came after the owner cleared the memory: it is not shown (`Memory deletion data` › «ответ в пути»).
@@ -197,6 +213,7 @@ thoughtRoutes.get('/api/pets/:id/state', async (c) => {
             cut: null,
             worker: { tokenId: thought.worker_id, name: thought.worker_name },
             skilled: thought.skilled === 1,
+            ...(thought.data_labels === null ? {} : { dataLabels: JSON.parse(thought.data_labels) as string[] }),
             ...(hire !== null ? { price: hire.fee_yocto, priceCents: Number((hire.fee_usd_micros / 10_000).toPrecision(2)) } : {}),
           };
         } else if (thought !== null) {
@@ -219,12 +236,13 @@ thoughtRoutes.get('/api/pets/:id/state', async (c) => {
 thoughtRoutes.get('/api/pets/:id/conversation', async (c) => {
   const owned = await ownedPet(c);
   if (owned instanceof Response) return owned;
+  await readErrand(c.env.DB, owned.id, owned.pet.owner_id);
   const before = Number(c.req.query('before') ?? Number.MAX_SAFE_INTEGER);
   // A hire turn (`Pet hire flow`): the owner's line is the decision thought's, and the pet's own reply stores it again,
   // so the own reply (and the reply of a declined offer) shows no line of its own when its turn has a question to a
   // worker. `has_own` says the turn's own reply has words: the price under a hire goes under it, else under the worker's.
   const rows = await c.env.DB.prepare(
-    `SELECT t.id, t.created_at, t.kind, t.player_text, t.reply_text, t.cut, t.reasked, t.price_yocto, t.price_usd_micros, t.worker_id, t.worker_name, t.skilled, t.turn_id,
+    `SELECT t.id, t.created_at, t.kind, t.player_text, t.reply_text, t.cut, t.reasked, t.price_yocto, t.price_usd_micros, t.worker_id, t.worker_name, t.skilled, t.turn_id, t.form, t.sources, t.verdict, t.searches, t.data_missed, t.data_labels,
        EXISTS (SELECT 1 FROM thoughts q WHERE q.token_id = t.token_id AND q.turn_id = t.turn_id AND q.kind = 'hire_question') AS has_question,
        EXISTS (SELECT 1 FROM thoughts r WHERE r.token_id = t.token_id AND r.turn_id = t.turn_id AND r.kind IN ('reply', 'question') AND r.reply_text IS NOT NULL) AS has_own,
        h.fee_yocto, h.fee_usd_micros, h.status AS hire_status, h.worker_name AS hire_worker
@@ -246,6 +264,12 @@ thoughtRoutes.get('/api/pets/:id/conversation', async (c) => {
       worker_name: string | null;
       skilled: number;
       turn_id: string | null;
+      form: string | null;
+      sources: string | null;
+      verdict: string | null;
+      searches: number | null;
+      data_missed: string | null;
+      data_labels: string | null;
       has_question: number;
       has_own: number;
       fee_yocto: string | null;
@@ -264,6 +288,25 @@ thoughtRoutes.get('/api/pets/:id/conversation', async (c) => {
           ? { hire: { worker: t.hire_worker ?? '', noFee: true } }
           : { hire: { worker: t.hire_worker ?? '', price: t.fee_yocto, priceCents: Number((t.fee_usd_micros / 10_000).toPrecision(2)) } };
     const worker = { tokenId: t.worker_id, name: t.worker_name };
+    // The data sources a worker's answer read: the line «{worker} looked this up through {labels}…» is drawn from them.
+    const dataLabels = t.data_labels === null ? {} : { dataLabels: JSON.parse(t.data_labels) as string[] };
+    // An errand is two lines: the job under «You» with its form, and the pet's report with what it cites and what it
+    // cost; a paid errand with no report is the job and a line that says so (`Errand flow` › «came back empty»).
+    if (t.kind === 'errand') {
+      const job = t.player_text === null ? [] : [{ id: `${t.id}:you`, who: 'player', kicker: t.form, text: t.player_text, at: t.created_at }];
+      const priceCents = Number((t.price_usd_micros / 10_000).toPrecision(2));
+      if (t.reply_text === null) return [...job, { id: t.id, who: 'error', code: 'errand_empty', priceCents, at: t.created_at }];
+      return [
+        ...job,
+        {
+          id: t.id,
+          who: 'pet',
+          text: t.reply_text,
+          at: t.created_at,
+          report: { form: t.form, sources: JSON.parse(t.sources ?? '[]'), verdict: t.verdict, searches: t.searches ?? 0, priceCents, missed: JSON.parse(t.data_missed ?? '[]') },
+        },
+      ];
+    }
     const ownReply = (t.kind === 'reply' || t.kind === 'question') && t.has_question === 1;
     const player = t.player_text !== null && !ownReply ? [{ id: `${t.id}:you`, who: 'player', text: t.player_text, at: t.created_at }] : [];
     if (t.reply_text === null) return player;
@@ -274,14 +317,14 @@ thoughtRoutes.get('/api/pets/:id/conversation', async (c) => {
       // The friend's pet's words, with its receipt at the worker's token id (`Receipt index data`). No price under it:
       // a saved advice shows none, and a dropped record changes the food quietly (`Advice flow`, `Hire price rule`).
       case 'advice':
-        return [...player, { id: t.id, who: 'worker', text: t.reply_text, at: t.created_at, worker, skilled: t.skilled === 1 }];
+        return [...player, { id: t.id, who: 'worker', text: t.reply_text, at: t.created_at, worker, skilled: t.skilled === 1, ...dataLabels }];
       case 'hire_answer':
-        return [...player, { id: t.id, who: 'worker', text: t.reply_text, at: t.created_at, worker, skilled: t.skilled === 1, ...(t.has_own === 1 ? {} : hire()) }];
+        return [...player, { id: t.id, who: 'worker', text: t.reply_text, at: t.created_at, worker, skilled: t.skilled === 1, ...dataLabels, ...(t.has_own === 1 ? {} : hire()) }];
       // What the pet wrote to the worker, its own thought (the client says «To {worker}: …»).
       case 'hire_question':
         return [...player, { id: t.id, who: 'pet', text: t.reply_text, at: t.created_at, cut: null, hireTo: t.worker_name ?? '' }];
       case 'hire_event':
-        return [{ id: t.id, who: 'event', code: t.reply_text === 'empty' ? 'hire_empty' : 'hire_failed', at: t.created_at, worker }];
+        return [{ id: t.id, who: 'event', code: HIRE_EVENT_CODES[t.reply_text] ?? 'hire_failed', at: t.created_at, worker }];
       default:
         return [
           ...player,

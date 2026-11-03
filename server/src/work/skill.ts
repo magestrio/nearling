@@ -37,26 +37,34 @@ async function keyOf(env: Pick<Env, 'SKILL_KEY'>): Promise<CryptoKey> {
   return crypto.subtle.importKey('raw', raw, 'AES-GCM', false, ['encrypt', 'decrypt']);
 }
 
-const aadOf = (tokenId: string): Uint8Array => new TextEncoder().encode(tokenId);
+const aadOf = (aad: string): Uint8Array => new TextEncoder().encode(aad);
 
-/** The instruction sealed for `tokenId`, with an IV made for this write alone. */
-export async function sealSkill(env: Pick<Env, 'SKILL_KEY'>, tokenId: string, instruction: string): Promise<{ ct: Uint8Array; iv: Uint8Array }> {
+/** A text sealed under the skills key with `aad` as additional data and an IV made for this write alone. The skill's
+ * instruction (`aad` = the token id), a data source's address (the token id and the row id) and the skill's code (the
+ * token id and «code») all go through here (ADR-023, ADR-024, ADR-025): a row moved to another pet or table does not open. */
+export async function sealText(env: Pick<Env, 'SKILL_KEY'>, aad: string, text: string): Promise<{ ct: Uint8Array; iv: Uint8Array }> {
   const key = await keyOf(env);
   const iv = crypto.getRandomValues(new Uint8Array(IV_BYTES));
-  const ct = await crypto.subtle.encrypt({ name: 'AES-GCM', iv, additionalData: aadOf(tokenId) }, key, new TextEncoder().encode(instruction));
+  const ct = await crypto.subtle.encrypt({ name: 'AES-GCM', iv, additionalData: aadOf(aad) }, key, new TextEncoder().encode(text));
   return { ct: new Uint8Array(ct), iv };
 }
 
-/** The instruction of a row, in memory. A wrong key, another token id or a changed byte fails the tag. */
-export async function openSkill(env: Pick<Env, 'SKILL_KEY'>, tokenId: string, row: Pick<SkillRow, 'ct' | 'iv'>): Promise<string> {
+/** A sealed text, in memory. A wrong key, another `aad` or a changed byte fails the tag. */
+export async function openText(env: Pick<Env, 'SKILL_KEY'>, aad: string, row: Pick<SkillRow, 'ct' | 'iv'>): Promise<string> {
   const key = await keyOf(env);
   try {
-    const plain = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: bytesOf(row.iv), additionalData: aadOf(tokenId) }, key, bytesOf(row.ct));
+    const plain = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: bytesOf(row.iv), additionalData: aadOf(aad) }, key, bytesOf(row.ct));
     return new TextDecoder().decode(plain);
   } catch {
-    throw new SkillUnreadable('the skill does not open');
+    throw new SkillUnreadable('the sealed text does not open');
   }
 }
+
+/** The instruction sealed for `tokenId`. */
+export const sealSkill = (env: Pick<Env, 'SKILL_KEY'>, tokenId: string, instruction: string) => sealText(env, tokenId, instruction);
+
+/** The instruction of a row, in memory. */
+export const openSkill = (env: Pick<Env, 'SKILL_KEY'>, tokenId: string, row: Pick<SkillRow, 'ct' | 'iv'>) => openText(env, tokenId, row);
 
 /** The label for any viewer: one row, no instruction, no ciphertext. */
 export async function skillLabel(db: D1Database, tokenId: string): Promise<{ label: string } | null> {
@@ -81,6 +89,13 @@ export async function writeSkill(env: Pick<Env, 'DB' | 'SKILL_KEY'>, tokenId: st
     .run();
 }
 
+/** The skill goes with its data sources, its code and the pet's entries in the catalog, in one batch (`Skill writing
+ * flow` › «skill forgotten», `Data source data` › «memory cleared»). Copies of an entry in other pets' skills stay. */
 export async function deleteSkill(db: D1Database, tokenId: string): Promise<void> {
-  await db.prepare('DELETE FROM skills WHERE token_id = ?').bind(tokenId).run();
+  await db.batch([
+    db.prepare('DELETE FROM skills WHERE token_id = ?').bind(tokenId),
+    db.prepare('DELETE FROM data_sources WHERE token_id = ?').bind(tokenId),
+    db.prepare('DELETE FROM catalog_entries WHERE token_id = ?').bind(tokenId),
+    db.prepare('DELETE FROM skill_code WHERE token_id = ?').bind(tokenId),
+  ]);
 }

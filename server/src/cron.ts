@@ -4,6 +4,7 @@
 // that throws logs its code and the others still run.
 import { accountBalance, ChainUnreachable, petView, txStatus } from './chain';
 import { closeAndDebit } from './debit';
+import { settleLateErrands } from './errands/late';
 import { utcDay } from './http';
 import { keyIsValid } from './nearai';
 import { askNetwork } from './feeding/inflight';
@@ -54,6 +55,7 @@ export async function tick(env: Env, nowMs: number = Date.now()): Promise<void> 
     ['ritual', () => ritual(env, nowMs)],
     ['growth', () => growth(env, nowMs)],
     ['feedings', () => settleStaleFeedings(env, nowMs)],
+    ['errands', () => settleLateErrands(env, nowMs)],
     ['clean', () => clean(env, nowMs)],
   ];
   for (const [name, part] of parts) {
@@ -230,6 +232,12 @@ export async function settleBuys(env: Env, nowMs: number): Promise<void> {
   }
 }
 
+/** The UTC day number of the first day of the month before `nowMs`'s. */
+const firstOfPreviousMonth = (nowMs: number): number => {
+  const now = new Date(nowMs);
+  return Math.floor(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 1, 1) / 86_400_000);
+};
+
 export async function clean(env: Env, nowMs: number): Promise<void> {
   await env.DB.batch([
     env.DB.prepare("DELETE FROM jobs WHERE created_at < ? AND status IN ('done', 'failed')").bind(nowMs - 86_400_000),
@@ -249,6 +257,12 @@ export async function clean(env: Env, nowMs: number): Promise<void> {
     env.DB.prepare('DELETE FROM riddles WHERE revealed_at IS NOT NULL AND day < ?').bind(utcDay(nowMs) - 1),
     // The purchases that are over, a day on (their outcome is shown for minutes).
     env.DB.prepare("DELETE FROM outfit_buys WHERE status IN ('bought', 'failed') AND settled_at < ?").bind(nowMs - 86_400_000),
+    // Finished rows hold no words; failed rows keep the form, job and reason until the next errand, clear or gift.
+    env.DB.prepare("DELETE FROM errands WHERE state = 'done' AND sent_at < ?").bind(nowMs - 30 * 86_400_000),
+    // The test runs of days before yesterday, and the code versions counted before the first of the previous month
+    // (`Skill code data`): the bill of a month is read back from them.
+    env.DB.prepare('DELETE FROM code_tests WHERE day < ?').bind(utcDay(nowMs) - 1),
+    env.DB.prepare('DELETE FROM code_versions WHERE day < ?').bind(firstOfPreviousMonth(nowMs)),
   ]);
   // The places of a worker's calls a dead desk left, and the worker's answers of days before yesterday.
   await cleanQuotes(env, nowMs, utcDay(nowMs));

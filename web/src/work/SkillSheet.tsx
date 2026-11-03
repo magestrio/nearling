@@ -1,4 +1,7 @@
-import { Button, Cluster, Note, Sheet, SkillBadge, Stack, Text, TextField } from '../ds';
+import { useEffect, useId } from 'react';
+import { Button, Cluster, Divider, Note, Sheet, SkillBadge, Socket, Sockets, Stack, Text, TextField } from '../ds';
+import { codeSocket, FOURTH_SOURCE, goneNote, NO_SKILL_YET, SOCKET_CODE, SOCKET_DATA } from '../adapters/lines';
+import type { SourceView } from '../seams/worker-types';
 import { resetTime } from '../lib/time';
 import { useSignInLines } from '../signin/SignInOutcome';
 import {
@@ -17,16 +20,47 @@ import {
 } from './lines';
 import type { useSkill } from './useSkill';
 
-// Skill sheet (`Skill sheet screen`, `Skill writing flow`), drawn from design/bundle/screens/skill.js: the pet's ability card over the
-// owner's conversation column (a bottom sheet on the phone). Top to bottom: the outcome line, the label field with the badge it makes
-// beside its label, the private instruction with its lock, the two lines of «what the sheet says», «Forget this skill» (quiet, left)
-// and «Save skill» (right). The sockets of the frames' lower part belong to `add-pet-errands` and are not drawn here (design.md ›
-// `### Отклонения от кадров`).
+// Skill sheet (`Skill sheet screen`, `Skill writing flow`, and the sockets of `Adapter connect flow`), drawn from design/bundle/screens/skill.js:
+// the pet's ability card over the owner's conversation column (a bottom sheet on the phone). Top to bottom: the outcome line, the card's
+// head — the badge the label makes and the four sockets in one row (three for data sources, one for code; off, with their line, until
+// a skill is saved) —, a hairline, the label field, the private instruction with its lock, the two lines of «what the sheet says»,
+// «Forget this skill» (quiet, left) and «Save skill» (right).
 
-export function SkillSheet({ name, skill, hasLabel, onClose }: { name: string; skill: ReturnType<typeof useSkill>; hasLabel: boolean; onClose: () => void }) {
+export interface SkillSockets {
+  /** the Adapter sheet of a new source («Connect data») */
+  onConnect: () => void;
+  /** the Adapter sheet of a connected source */
+  onSource: (source: SourceView) => void;
+  /** the Skill code sheet («Add code», «{name}'s code») */
+  onCode: () => void;
+}
+
+export function SkillSheet({
+  name,
+  skill,
+  hasLabel,
+  onClose,
+  sockets,
+  hidden,
+}: {
+  name: string;
+  skill: ReturnType<typeof useSkill>;
+  hasLabel: boolean;
+  onClose: () => void;
+  sockets?: SkillSockets;
+  /** a step of the sheet (Adapter sheet, Skill code sheet) stands in its place: its state stays */
+  hidden?: boolean;
+}) {
   const { phase, label, instruction, written, top, labelError, busy } = skill;
   // a session that ended meets the line of `Session expiry flow`: «Sign in» brings the sheet back with both fields as typed
   const [session] = useSignInLines({ text: JSON.stringify({ label, instruction }), action: 'skill' });
+  // A step's outcome — a source or code saved or removed — lands on the sheet's outcome line at the body's top (DS › Sheet › Focus)
+  const lineId = useId();
+  useEffect(() => {
+    if (top?.kind === 'line' && !hidden) document.getElementById(lineId)?.focus();
+    // a new line, not the sheet coming back from a step's «Back» with the old one
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [top]);
   if (phase === 'closed' || phase === 'loading') return null;
 
   if (phase === 'error') {
@@ -53,6 +87,16 @@ export function SkillSheet({ name, skill, hasLabel, onClose }: { name: string; s
     if (top.kind === 'forgotten') {
       const line = skillForgottenLine(name);
       return { line, node: <Note tone="plain" icon="check" silent>{line}</Note> };
+    }
+    if (top.kind === 'line') {
+      return {
+        line: top.text,
+        node: (
+          <Note tone="plain" icon="check" silent id={lineId} tabIndex={-1}>
+            {top.text}
+          </Note>
+        ),
+      };
     }
     if (top.kind === 'failed') {
       return {
@@ -96,11 +140,37 @@ export function SkillSheet({ name, skill, hasLabel, onClose }: { name: string; s
   ) : (
     <SkillBadge name={name} label={shown} preview />
   );
+  // the sockets: three for data, one for code; off until a skill is saved, with their line (all three filled: the fourth source's line)
+  const saved = skill.written;
+  const sources = skill.sources;
+  const socketNote = !saved ? NO_SKILL_YET : sources.length >= 3 ? FOURTH_SOURCE : undefined;
+  const dataSockets = [0, 1, 2].map((i) => {
+    const source = sources[i];
+    return (
+      <Socket
+        key={`d${i}`}
+        kind="data"
+        label={source?.label}
+        note={source?.catalogGone ? goneNote(name) : undefined}
+        empty={SOCKET_DATA}
+        disabled={!saved}
+        onClick={source ? () => sockets?.onSource(source) : () => sockets?.onConnect()}
+      />
+    );
+  });
 
-  return (
+  const sheet = (
     <Sheet title={title} column status={status} busy={busy} onClose={onClose}>
       <Stack gap={5}>
         {outcome?.node ?? null}
+        <Stack gap={4}>
+          {badge ? <div>{badge}</div> : null}
+          <Sockets note={socketNote}>
+            {dataSockets}
+            <Socket kind="code" label={skill.hasCode ? codeSocket(name) : undefined} empty={SOCKET_CODE} disabled={!saved} onClick={() => sockets?.onCode()} />
+          </Sockets>
+        </Stack>
+        <Divider />
         <TextField
           label={skillLabelField(name)}
           value={label}
@@ -109,7 +179,6 @@ export function SkillSheet({ name, skill, hasLabel, onClose }: { name: string; s
           count
           hint={SKILL_LABEL_HINT}
           error={labelError ? SKILL_LABEL_REJECTED : undefined}
-          aside={badge}
         />
         <TextField
           label={skillInstructionField(name)}
@@ -142,4 +211,6 @@ export function SkillSheet({ name, skill, hasLabel, onClose }: { name: string; s
       </Stack>
     </Sheet>
   );
+  // hidden, not gone, while a step stands: the step's opener (a socket) stays in the page, so «Back» returns the focus to it
+  return <div hidden={hidden || undefined}>{sheet}</div>;
 }

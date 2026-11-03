@@ -26,7 +26,7 @@ const lineOnOwnerPage = async (page: Page, auth: typeof START_FAILS | typeof SIG
   await openWith(page, '/pet/9', { auth, worker: OWNER });
   await field(page).fill(TYPED);
   await endSession(page);
-  await page.getByRole('button', { name: 'Send' }).click();
+  await page.getByRole('button', { name: 'Send', exact: true }).click();
   await expect(page.getByText(LINE).first()).toBeVisible();
 };
 /** The session ends under the open page; the next look of the page finds it. */
@@ -61,7 +61,7 @@ test('session ended, no tap yet × опрос видит 401: nothing on the pag
   await expect(page.getByRole('log')).toContainText('Start with the chart, then.');
   await expect(field(page)).toHaveValue(TYPED);
   await expect(field(page)).not.toHaveAttribute('aria-disabled', 'true');
-  await expect(page.getByRole('button', { name: 'Send' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Send', exact: true })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Account' })).toBeVisible();
   // the polls stopped: another look asks nothing more
   const after = await petStateCalls(page);
@@ -90,7 +90,7 @@ test('session ended, no tap yet × вторая вкладка после вых
   await page.waitForTimeout(600);
   expect(await petStateCalls(page)).toBe(before);
   // a tap then shows the line
-  await page.getByRole('button', { name: 'Send' }).click();
+  await page.getByRole('button', { name: 'Send', exact: true }).click();
   await expect(page.getByText(LINE).first()).toBeVisible();
 });
 
@@ -126,13 +126,13 @@ test('сессия кончилась при открытом экране: «Se
   await openWith(page, '/pet/9', { auth: SIGNED_IN, worker: OWNER });
   await field(page).fill(TYPED);
   await endSession(page);
-  await page.getByRole('button', { name: 'Send' }).click();
+  await page.getByRole('button', { name: 'Send', exact: true }).click();
   await expect(page.getByText(LINE).first()).toBeVisible();
   await expect(page.getByRole('alert').filter({ hasText: LINE })).toHaveCount(1);
   await expect(field(page)).toHaveValue(TYPED);
   await expect(field(page)).toHaveAttribute('aria-disabled', 'true');
   await expect(page.getByRole('button', { name: 'Sign in' })).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Send' })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Send', exact: true })).toHaveCount(0);
   expect((await calls(page)).filter((c) => c.startsWith('worker:say'))).toEqual([]);
   // the conversation shows no line of the player's that was not sent
   await expect(page.getByRole('log').getByText(TYPED)).toHaveCount(0);
@@ -144,7 +144,7 @@ test('сессия кончилась при открытом экране: the 
   await field(page).fill(TYPED);
   // the session ended and no look has found it yet: «Send» asks the server and is refused
   await setWorker(page, { sessionExpired: true });
-  await page.getByRole('button', { name: 'Send' }).click();
+  await page.getByRole('button', { name: 'Send', exact: true }).click();
   await expect(page.getByText(LINE).first()).toBeVisible();
   await expect(field(page)).toHaveValue(TYPED);
   await expect(page.getByRole('button', { name: 'Sign in' })).toBeVisible();
@@ -467,7 +467,7 @@ test('typed text after sign-in: the text is back in the field, unsent, and erase
   await openWith(page, '/pet/9', { auth: SIGNED_IN, worker: OWNER });
   await field(page).fill(TYPED);
   await endSession(page);
-  await page.getByRole('button', { name: 'Send' }).click();
+  await page.getByRole('button', { name: 'Send', exact: true }).click();
   await expect(page.getByText(LINE).first()).toBeVisible();
   await setWorker(page, { sessionExpired: false });
   await page.getByRole('button', { name: 'Sign in' }).click();
@@ -484,7 +484,7 @@ test('typed text after sign-in × нет такого поля на экране
   await openWith(page, '/pet/9', { auth: SIGNED_IN, worker: OWNER });
   await field(page).fill(TYPED);
   await endSession(page);
-  await page.getByRole('button', { name: 'Send' }).click();
+  await page.getByRole('button', { name: 'Send', exact: true }).click();
   await expect(page.getByText(LINE).first()).toBeVisible();
   await setWorker(page, { sessionExpired: false, owned: [] });
   await page.getByRole('button', { name: 'Sign in' }).click();
@@ -517,7 +517,7 @@ test('typed text after sign-in × место потерялось: the sign-in c
   await openWith(page, '/pet/9', { auth: SIGNED_IN, worker: { ...OWNER, me: ME_PIXEL, owned: ['9'] } });
   await field(page).fill(TYPED);
   await endSession(page);
-  await page.getByRole('button', { name: 'Send' }).click();
+  await page.getByRole('button', { name: 'Send', exact: true }).click();
   await setWorker(page, { sessionExpired: false });
   await page.getByRole('button', { name: 'Sign in' }).click();
   await expect(page).toHaveURL(/\/pet\/9$/);
@@ -532,7 +532,7 @@ test('typed text after sign-in × вход закрыт и Played here before: t
   await openWith(page, '/pet/9', { auth: SIGNED_IN, worker: OWNER });
   await field(page).fill(TYPED);
   await endSession(page);
-  await page.getByRole('button', { name: 'Send' }).click();
+  await page.getByRole('button', { name: 'Send', exact: true }).click();
   await expect(page.getByText(LINE).first()).toBeVisible();
   // sign-in closed for new players in the meantime; the session of the player is live again
   await setWorker(page, { sessionExpired: false, signIn: CLOSED_NEW });

@@ -72,7 +72,7 @@ test('WebGL недоступен: the pet is a flat drawing, it does not move, a
   await expect(page.getByRole('link', { name: 'Today' })).toBeVisible();
   const field = page.getByPlaceholder('Talk to Pixel…');
   await field.fill('Can you hear me?');
-  await page.getByRole('button', { name: 'Send' }).click();
+  await page.getByRole('button', { name: 'Send', exact: true }).click();
   await expect(page.getByRole('log')).toContainText('Can you hear me?');
   expect(await calls(page)).toContain('worker:say');
 });
@@ -99,6 +99,6 @@ test('WebGL недоступен × контекст потерян посред
   await expect(page.getByRole('button', { name: /Pause motion|Play motion/ })).toHaveCount(0);
   // what was typed stays and sends
   await expect(page.getByPlaceholder('Talk to Pixel…')).toHaveValue('still here');
-  await page.getByRole('button', { name: 'Send' }).click();
+  await page.getByRole('button', { name: 'Send', exact: true }).click();
   await expect(page.getByRole('log')).toContainText('still here');
 });

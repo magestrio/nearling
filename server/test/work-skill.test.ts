@@ -133,7 +133,7 @@ describe('Skill data', () => {
     await save('Pottery');
     expect((await api('/api/pets/5')).body.skill).toEqual({ label: 'Pottery' });
     // the label is the only thing the owner's own GET adds the instruction to
-    expect((await get(await owner())).body).toEqual({ skill: { label: 'Pottery', instruction: INSTRUCTION } });
+    expect((await get(await owner())).body).toEqual({ skill: { label: 'Pottery', instruction: INSTRUCTION }, sources: [], code: null });
   });
 
   // spec: add-pet-work › Skill data › forgotten
@@ -148,7 +148,7 @@ describe('Skill data', () => {
     const tk = await owner();
     expect(await del(tk)).toMatchObject({ status: 200, body: { skill: null } });
     expect(await row()).toBeNull();
-    expect((await get(tk)).body).toEqual({ skill: null });
+    expect((await get(tk)).body).toEqual({ skill: null, sources: [], code: null });
     expect((await api('/api/pets/5')).body.skill).toBeNull();
     // fixed again, and the day's three answers still count toward the day's ten
     const fixed = await priceOf(env, '5', day());
@@ -234,7 +234,7 @@ describe('Skill writing flow', () => {
     expect(h.events()).toEqual([{ name: 'skill_saved', props: { kind: 'private' } }]);
     expect(await put({ label: 'Pastry', instruction: 'A new text.' }, tk)).toMatchObject({ status: 200 });
     expect((await env.DB.prepare('SELECT COUNT(*) AS n FROM skills').first<{ n: number }>())!.n).toBe(1);
-    expect((await get(tk)).body).toEqual({ skill: { label: 'Pastry', instruction: 'A new text.' } });
+    expect((await get(tk)).body).toEqual({ skill: { label: 'Pastry', instruction: 'A new text.' }, sources: [], code: null });
     expect(h.logs()).toContain('skill_saved');
     expect(h.logs().join('\n')).not.toMatch(/Baking|Pastry|sourdough|A new text/);
     // no thought, no job, no food, no energy, no transaction

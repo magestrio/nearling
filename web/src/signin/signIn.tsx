@@ -15,7 +15,7 @@ import { OpenInBrowserSheet } from './OpenInBrowserSheet';
 import { clearOutcome } from './outcome';
 import { fromOf, markSignInUnderWay, peekReturnPlace, rememberReturnPlace, signInUnderWay } from './returnPlace';
 
-export type SignInAction = 'signin' | 'feed' | 'skill';
+export type SignInAction = 'signin' | 'feed' | 'skill' | 'errand' | 'adapter' | 'code';
 
 /** Why the gate could not be read at the tap: `Connection rule` › «сервер недоступен», or «слишком много запросов». */
 export type GateReadFailure = 'unreachable' | 'busy';

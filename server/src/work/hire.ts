@@ -10,7 +10,7 @@ import { foodState } from '../pet/view';
 import type { ThoughtJob } from '../prompt';
 import { openSession, randomId, type JobResult, type Turn } from '../spend';
 import { track } from '../track';
-import { answerStatements, workerCall, type WorkerOutcome } from './answer';
+import { answerStatements, dataOnly, workerCall, type WorkerOutcome } from './answer';
 import { checkWorker, type Candidate } from './candidates';
 import { hold, priceOf } from './quote';
 
@@ -66,7 +66,7 @@ export async function continueHire(env: Env, t: HireTurn): Promise<JobResult> {
   };
 
   // No hire after all: an event line of the turn and the pet's own reply, an ordinary thought from its food.
-  const failed = async (code: 'failed' | 'empty'): Promise<JobResult> => {
+  const failed = async (code: 'failed' | 'empty' | 'data_failed' | 'data_failed_paid'): Promise<JobResult> => {
     const eventId = randomId();
     await env.DB.prepare(
       "INSERT INTO thoughts (id, token_id, created_at, kind, player_text, reply_text, model, price_yocto, price_usd_micros, payer, status, worker_id, worker_name, turn_id) VALUES (?, ?, ?, 'hire_event', NULL, ?, '', '0', 0, 'project', 'project', ?, ?, ?)",
@@ -116,14 +116,38 @@ export async function continueHire(env: Env, t: HireTurn): Promise<JobResult> {
     return failed('failed');
   }
 
-  const out: WorkerOutcome = await workerCall(env, { worker: { id: t.candidate.tokenId, pet: worker }, question: t.question, fee: held.fee, payerId: t.tokenId, day, payerEpoch: t.epoch });
+  const out: WorkerOutcome = await workerCall(env, { worker: { id: t.candidate.tokenId, pet: worker }, question: t.question, fee: held.fee, payerId: t.tokenId, day, payerEpoch: t.epoch, job: 'hire' });
   if (out.kind === 'failed') {
     console.log(`hire_failed:${out.code}`);
     return out.code === 'paused' ? { code: 'paused', events: t.events } : failed('failed');
   }
 
   // What the hirer's batch stores: the worker's thought, and for a shown answer the hire (the fee). A cleared answer
-  // has no fee and no hire; an empty one the pet pays by usage; neither is a hire (`Hire food data`).
+  // has no fee and no hire; an empty one the pet pays by usage; neither is a hire (`Hire food data`). A data call that
+  // failed (`Adapter call rule` › «data failed in a hire»): no worker's answer and no fee; the project paid the call among
+  // the paying pet's first three failed calls of the day, from the fourth the pet's food pays it, as a thought with no reply.
+  if (out.kind === 'data_failed') {
+    if (out.paid) {
+      const at = Date.now();
+      const { statements } = answerStatements(env, {
+        kind: 'hire_answer',
+        payerId: t.tokenId,
+        thoughtId: randomId(),
+        sessionId: await openSession(env, t.tokenId, at),
+        stored: at,
+        playerText: null,
+        worker: { id: t.candidate.tokenId, name: worker.name },
+        outcome: dataOnly(out),
+        fee: held.fee,
+        hire: { kind: 'pet', mode: t.mode },
+        turnId: t.turnId,
+        epoch: t.epoch,
+      });
+      await env.DB.batch(statements);
+    }
+    console.log('hire_failed:data_failed');
+    return failed(out.paid ? 'data_failed_paid' : 'data_failed');
+  }
   const stored = Date.now();
   const thoughtId = randomId();
   const { statements, hireAt } = answerStatements(env, {

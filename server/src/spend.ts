@@ -57,11 +57,17 @@ export type RefusalCode =
   | 'offer'
   // a tap on an offer, or on «Try again» of a lost reply, that found nothing to answer (a stale tab: the routes refuse first)
   | 'no_offer'
-  | 'no_hire';
+  | 'no_hire'
+  // an errand ended without a report (`errands/run.ts`): its reason is on the errand row, which the page reads
+  | 'errand_failed'
+  // an advice whose worker's data source or code gave no data (`Adapter call rule`): no answer, no fee, the question is kept
+  | 'data_failed';
 
 export type JobResult =
   // `turn`: the turn of a hire whose own reply was lost, for the page's «Try again» (`own_lost`)
-  | { code: RefusalCode; events?: string[]; turn?: string }
+  // `price`: what an errand whose report was not kept still cost (`Errand flow` › «memory cleared on the way»)
+  // `paid`: for `data_failed`, whether the paying pet paid the data call (past its three failed calls of the day)
+  | { code: RefusalCode; events?: string[]; turn?: string; price?: string; paid?: boolean }
   // the worker's price is above the one shown: nothing held or spent, the price now (`Hire quote data`)
   | { code: 'price_rose'; price: string }
   | { thoughtId: string; cut: 'fuse' | 'food' | 'cap' | null; price: string; reasked: boolean; events: string[] };
@@ -102,13 +108,13 @@ export function callsUsd12(env: Env, answers: Answer[]): bigint {
 }
 
 /** The ceiling of a call and the limit that sets it, for the `cut` flag of an answer that reaches it. */
-interface Plan {
+export interface Plan {
   ceiling: number;
   cutKind: 'fuse' | 'food' | 'cap';
   edge: boolean;
 }
 
-function planOf(env: Env, bound: number, fs: FoodState, fuse: number, setAside: bigint): Plan {
+export function planOf(env: Env, bound: number, fs: FoodState, fuse: number, setAside: bigint): Plan {
   const minCall = minCallPrice(env, bound);
   // From the room, not the food: a purchase that has gone out and has no outcome yet is held.
   if (fs.room < minCall) return { ceiling: EDGE_CEILING, cutKind: 'food', edge: true };
@@ -480,13 +486,13 @@ async function think(env: Env, tokenId: string, pet: PetRecord, job: ThoughtJob,
 
 /** The room the re-ask has: what the food, the cap and the thought's limit leave after the first
  * call's price, at its input, with no gas share of its own. Null when not even 40 tokens fit. */
-function reaskPlan(env: Env, bound: number, fs: FoodState, spent: bigint): Plan | null {
-  const food = ceilingFor(env, bound, fs.room - spent, FUSE_CHAT, false);
-  const cap = ceilingFor(env, bound, fs.capLeft - spent, FUSE_CHAT, false);
-  const thought = ceilingFor(env, bound, MAX_THOUGHT_PRICE_YOCTO - spent, FUSE_CHAT, false);
-  const ceiling = Math.min(FUSE_CHAT, food, cap, thought);
+export function reaskPlan(env: Env, bound: number, fs: FoodState, spent: bigint, fuse: number = FUSE_CHAT): Plan | null {
+  const food = ceilingFor(env, bound, fs.room - spent, fuse, false);
+  const cap = ceilingFor(env, bound, fs.capLeft - spent, fuse, false);
+  const thought = ceilingFor(env, bound, MAX_THOUGHT_PRICE_YOCTO - spent, fuse, false);
+  const ceiling = Math.min(fuse, food, cap, thought);
   if (ceiling < 1) return null;
-  const fuseLimit = Math.min(FUSE_CHAT, thought);
+  const fuseLimit = Math.min(fuse, thought);
   const cutKind = ceiling === fuseLimit && fuseLimit <= food && fuseLimit <= cap ? 'fuse' : cap < food ? 'cap' : 'food';
   return { ceiling, cutKind, edge: false };
 }

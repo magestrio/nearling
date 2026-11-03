@@ -41,7 +41,7 @@ const MANUAL_OWNER = { hireMode: 'manual' as const, offer: OFFER };
 const OFFER_WORDS = 'Pixel wants to ask Nori about this. It costs 0.38¢.';
 const ROSE_WORDS = "Nori is busier now — it's 0.52¢. Nothing was spent.";
 const status = (page: Page, text: string) => page.getByRole('status').filter({ hasText: text });
-const sendButton = (page: Page) => page.getByRole('button', { name: 'Send' });
+const sendButton = (page: Page) => page.getByRole('button', { name: 'Send', exact: true });
 
 // spec: add-pet-work › Pet hire flow › спрашивает
 test('спрашивает: «Pixel is thinking…» turns into «Pixel is asking Nori…», the question stands once, no new line until the answer, the long-answer line joins', async ({ page }) => {

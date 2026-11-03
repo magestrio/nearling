@@ -47,6 +47,8 @@ export type Route =
   | { name: 'diary'; tokenId: string }
   /** Wardrobe screen: the pet's outfits, inside the Pet screen's own state (`add-wardrobe` › `Wardrobe screen`) */
   | { name: 'wardrobe'; tokenId: string }
+  /** Adapter catalog screen: `/adapters`, or `/adapters?pet=<token_id>` from the skill of that pet (`add-pet-errands`) */
+  | { name: 'adapters'; pet: string | null }
   /** `/pet` or `/pet/<x>` with no token_id in it: a cut or mangled link */
   | { name: 'pet-broken' }
   | { name: 'day1' }
@@ -64,6 +66,10 @@ export function parseRoute(location: string): Route {
   if (path === '/') return { name: 'home' };
   if (path === '/hatch') return { name: 'hatch', from: friend };
   if (path === '/__day1') return { name: 'day1' };
+  if (path === '/adapters') {
+    const pet = url.searchParams.get('pet');
+    return { name: 'adapters', pet: pet !== null && TOKEN_ID.test(pet) ? pet : null };
+  }
   const pet = /^\/pet\/(\d{1,20})$/.exec(path);
   if (pet) return { name: 'pet', tokenId: pet[1]!, from: friend };
   const diary = /^\/pet\/(\d{1,20})\/diary$/.exec(path);
@@ -77,4 +83,5 @@ export function parseRoute(location: string): Route {
 export const petPath = (tokenId: string, from?: string | null) => `/pet/${tokenId}${from ? `?from=${from}` : ''}`;
 export const diaryPath = (tokenId: string) => `/pet/${tokenId}/diary`;
 export const wardrobePath = (tokenId: string) => `/pet/${tokenId}/wardrobe`;
-export const hatchPath = (from?: string | null) => `/hatch${from ? `?from=${from}` : ''}`;
+export const adaptersPath = (pet?: string | null) => `/adapters${pet ? `?pet=${pet}` : ''}`;
+export const hatchPath =(from?: string | null) => `/hatch${from ? `?from=${from}` : ''}`;

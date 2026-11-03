@@ -43,6 +43,8 @@ const OWNER_VIEW: Record<keyof OwnerView, 'always' | 'sometimes'> = {
   offer: 'always',
   pendingProgress: 'always',
   hiresSeen: 'always',
+  // only `GET …/state` carries the errand (`Errand flow`): the pet's own page does not
+  errand: 'sometimes',
 };
 const STATE: Record<keyof PetState, 'always' | 'sometimes'> = {
   tokenId: 'always',
@@ -77,6 +79,8 @@ const STATE: Record<keyof PetState, 'always' | 'sometimes'> = {
   offer: 'always',
   pendingProgress: 'always',
   hiresSeen: 'always',
+  // the errand away or kept after a failure, or null (`add-pet-errands` › `Errand flow`)
+  errand: 'always',
   events: 'always',
   pending: 'sometimes',
   jobKind: 'sometimes',
@@ -84,6 +88,8 @@ const STATE: Record<keyof PetState, 'always' | 'sometimes'> = {
   code: 'sometimes',
   // the outcome of the tab's own job only (`own_lost`, `price_rose`), never of `ownerFields`
   ownLost: 'sometimes',
+  // with `data_failed` of an advice: whether the paying pet's food paid for the data call
+  paid: 'sometimes',
   price: 'sometimes',
   friend: 'sometimes',
 };

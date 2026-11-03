@@ -78,6 +78,9 @@
   --size-pet-md: 14rem;
   --size-item-picture: 6rem;
   --size-pet-sm: 3rem;
+  --size-meadow-pet: 10rem;
+  --size-meadow-pet-compact: 7rem;
+  --size-meadow-pet-share: 42cqh;
   --size-cell-width: 1.125rem;
   --size-cell-height: 0.5rem;
   --size-energy-width: 0.375rem;
@@ -102,6 +105,9 @@
   --opacity-dim: 0.65;
   --opacity-nest: 0.32;
   --opacity-nest-busy: 0.6;
+  --brightness-asleep: 0.62;
+  --saturate-asleep: 0.55;
+  --shift-zz: 2.5rem;
   --opacity-dot-low: 0.3;
   --scale-press: 0.96;
   --shift-enter: 0.5rem;
@@ -115,6 +121,7 @@
   --duration-dots: 1200ms;
   --duration-shimmer: 1600ms;
   --duration-breathe: 1600ms;
+  --duration-zz: 3200ms;
   --easing-standard: cubic-bezier(0.2, 0, 0, 1);
   --easing-enter: cubic-bezier(0, 0, 0.2, 1);
   --easing-press: cubic-bezier(0.34, 1.56, 0.64, 1);

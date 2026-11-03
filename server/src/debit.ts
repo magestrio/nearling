@@ -20,6 +20,18 @@ import { track } from './track';
 
 const SESSION_QUIET_MS = 10 * 60_000;
 export const MAX_THOUGHTS_PER_DEBIT = 12;
+/** The log bytes a batch may add up to, of the contract's 16,384 for one call (`Session debit contract`, stage 1 of
+ * `add-pet-errands`: a four-call receipt at the longest field lengths is 2,265 bytes, the plain two-call one ≈ 1,250,
+ * 12 plain ones 15,192). A batch of errands would fail whole at the limit, so it closes here with margin. */
+export const MAX_LOG_BYTES_PER_DEBIT = 14_000;
+/** A receipt's log at its longest: fixed and per-call bytes, plus the worker field and the separate hire event.
+ * The first two terms cover the stage-1 receipt measure; the latter terms keep a hire batch below the log cap. */
+const RECEIPT_BASE_BYTES = 250;
+const RECEIPT_CALL_BYTES = 510;
+const WORKER_BYTES = 60;
+const HIRE_EVENT_BYTES = 300;
+export const receiptBytes = (calls: number, worker = false, hire = false): number =>
+  RECEIPT_BASE_BYTES + RECEIPT_CALL_BYTES * calls + (worker ? WORKER_BYTES : 0) + (hire ? HIRE_EVENT_BYTES : 0);
 /** A claim older than this belongs to a tick that died; a live tick renews it at every batch. */
 const CLAIM_STALE_MS = 5 * 60_000;
 const TGAS = 1_000_000_000_000n;
@@ -34,6 +46,8 @@ interface Session {
 
 interface ThoughtRow {
   id: string;
+  /** How many calls the receipt holds: the batch is cut by the size of its logs, not by the thoughts alone. */
+  calls: number;
   model: string;
   price_yocto: string;
   /** The pet whose answer this thought is (advice, a hire's answer), also an answer with no words: it travels
@@ -44,6 +58,8 @@ interface ThoughtRow {
   hire_kind: 'player' | 'pet' | null;
   hire_mode: 'auto' | 'manual' | null;
   hire_skilled: number | null;
+  /** 1 when the answer read a data source (`pet_hired { adapter }`). */
+  hire_adapter: number | null;
   hire_fee: string | null;
 }
 
@@ -67,8 +83,9 @@ function micros(env: Env, yocto: bigint): number {
 
 /** The gas to attach: a plain thought 1.25 Tgas (the sandbox measured 9.78 for 12, with a margin of 1.5), a thought
  * with a hire 1.9 (12 hires over new pairs burn 15.3 Tgas, ×1.5 is 23 for the batch), never under 5. */
-export function gasFor(thoughts: number, hires = 0): string {
-  const tgas = Math.max(5, Math.ceil((thoughts - hires) * 1.25 + hires * 1.9));
+export function gasFor(thoughts: number, hires = 0, manyCalls = 0): string {
+  // A thought of 3–4 calls (an errand) burns 1.47 Tgas in the sandbox: ×1.5 is 2.25 (`add-pet-errands` design.md › Контракт).
+  const tgas = Math.max(5, Math.ceil((thoughts - hires - manyCalls) * 1.25 + hires * 1.9 + manyCalls * 2.25));
   return (BigInt(tgas) * TGAS).toString();
 }
 
@@ -133,16 +150,27 @@ export async function closeAndDebit(env: Env, nowMs: number): Promise<void> {
 /** The next thoughts to debit. A worker's answer (kind `advice` or `hire_answer`, a hire question is the paying pet's
  * own thought) carries its worker whatever came of it; an unsettled hire of it rides along. */
 async function nextBatch(env: Env, sessionId: string): Promise<ThoughtRow[]> {
-  return (
+  const rows = (
     await env.DB.prepare(
       `SELECT t.id, t.model, t.price_yocto, CASE WHEN t.kind IN ('advice', 'hire_answer') THEN t.worker_id END AS worker,
-              h.id AS hire_id, h.kind AS hire_kind, h.mode AS hire_mode, h.skilled AS hire_skilled, h.fee_yocto AS hire_fee
+              (SELECT COUNT(*) FROM thought_calls c WHERE c.thought_id = t.id) AS calls,
+              h.id AS hire_id, h.kind AS hire_kind, h.mode AS hire_mode, h.skilled AS hire_skilled, h.fee_yocto AS hire_fee, (t.data_labels IS NOT NULL) AS hire_adapter
        FROM thoughts t LEFT JOIN hires h ON h.answer_thought_id = t.id AND h.status = 'unbilled'
        WHERE t.session_id = ? AND t.status = 'unbilled' ORDER BY t.created_at, t.rowid LIMIT ?`,
     )
       .bind(sessionId, MAX_THOUGHTS_PER_DEBIT)
       .all<ThoughtRow>()
   ).results;
+  // The batch closes at 12 thoughts or at the size of the logs it would write, whichever comes first; one thought
+  // always goes (its own receipt is far under the limit).
+  let bytes = 0;
+  const batch: ThoughtRow[] = [];
+  for (const row of rows) {
+    bytes += receiptBytes(row.calls, row.worker !== null, row.hire_id !== null);
+    if (batch.length > 0 && bytes > MAX_LOG_BYTES_PER_DEBIT) break;
+    batch.push(row);
+  }
+  return batch;
 }
 
 /** Writes a batch's outcome and clears the batch in flight, in one write. Returns how many thoughts
@@ -190,7 +218,7 @@ async function settle(env: Env, session: Pick<Session, 'id' | 'token_id'>, debit
  * with the next poll otherwise. */
 async function afterRecord(env: Env, hires: ThoughtRow[]): Promise<void> {
   for (const hire of hires) {
-    track('pet_hired', { by: hire.hire_kind ?? 'player', ...(hire.hire_kind === 'pet' && hire.hire_mode !== null ? { mode: hire.hire_mode } : {}), skill: hire.hire_skilled === 1 });
+    track('pet_hired', { by: hire.hire_kind ?? 'player', ...(hire.hire_kind === 'pet' && hire.hire_mode !== null ? { mode: hire.hire_mode } : {}), skill: hire.hire_skilled === 1, adapter: hire.hire_adapter === 1 });
   }
   for (const worker of new Set(hires.map((t) => t.worker))) {
     if (worker === null) continue;
@@ -303,7 +331,7 @@ async function debitSession(env: Env, session: Session, held: Claim, accepted: M
     const answer = await env.SERVER_KEY.get(env.SERVER_KEY.idFromName('server')).send({
       methodName: 'debit_session',
       args: { token_id: session.token_id, debit_id: debitId, thoughts },
-      gas: gasFor(batch.length, thoughts.filter((t) => 'hire' in t).length),
+      gas: gasFor(batch.length, thoughts.filter((t) => 'hire' in t).length, batch.filter((t, i) => t.calls > 2 && !('hire' in thoughts[i]!)).length),
     });
     if (answer.status === 'unreachable') return false;
     if (answer.status === 'ok') {

@@ -2,7 +2,7 @@ import type { ReactNode } from 'react';
 import { Button, Cluster, Message, type Accent } from '../ds';
 import { makePet } from '../pet/proto/generator.js';
 import type { Line } from '../screens/pet/usePetScreen';
-import { askWorker, NO_THANKS, ownLostLine, SKILLED_LINE } from './lines';
+import { askWorker, lookedUpLine, NO_THANKS, ownLostLine, SKILLED_LINE } from './lines';
 
 // The owner's conversation lines of a hire turn (`Pet hire flow`), drawn the way design/bundle/screens/work.js has them: the
 // worker's answer in its own voice, the Manual offer as a card, the lost own reply. (The pet's question and the game's lines are
@@ -14,7 +14,12 @@ const accentOf = (tokenId: string): Accent => makePet(tokenId).hue as Accent;
  *  then what the hire cost. */
 export function WorkerMessage({ line }: { line: Line }) {
   const worker = line.worker!;
-  const meta: ReactNode[] | string | undefined = line.skilled ? (line.meta ? [SKILLED_LINE, line.meta] : [SKILLED_LINE]) : line.meta;
+  const notes: string[] = [
+    ...(line.skilled ? [SKILLED_LINE] : []),
+    ...(line.dataLabels && line.dataLabels.length > 0 ? [lookedUpLine(worker.name, line.dataLabels)] : []),
+    ...(line.meta ? [line.meta] : []),
+  ];
+  const meta: ReactNode[] | string | undefined = notes.length > 1 ? notes : notes[0];
   return (
     <Message
       from="worker"

@@ -4,7 +4,7 @@ import { BISCUIT, calls, lookAgain, openWith, OWNER, PIXEL, setWorker, SIGNED_IN
 const dialog = (page: Page) => page.getByRole('alertdialog', { name: "Clear Pixel's memory?" });
 const field = (page: Page) => page.getByRole('textbox');
 const FORGETS =
-  'Pixel will forget your chats, its diary, and what it knows about you, the friends who fed it and the pets it helped. Our backup keeps a copy for up to 30 days. NEAR AI may keep what it already received.';
+  'Pixel will forget your chats, its diary, any skill you taught it with its data sources and code, and what it knows about you, the friends who fed it and the pets it helped. Adapters you published leave the catalog. Our backup keeps a copy for up to 30 days. NEAR AI may keep what it already received.';
 const STAYS =
   /Pixel's name, character, growth, streak, outfits and food stay, and what's public about Pixel stays public forever\. An answer to today's riddle is cleared too and won't be checked at \d\d:\d\d\. Old thought receipts can't be fully checked after this\. This can't be undone\./;
 const FAILED = "We couldn't clear Pixel's memory. Nothing was erased — try again.";

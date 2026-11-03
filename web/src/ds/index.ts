@@ -1,6 +1,13 @@
-// The DS components of design/ds/components.js, ported. Not here yet (parts of other changes): the verification parts. `Pet` is web/src/pet/PetFigure.tsx.
+// The DS components of design/ds/components.js (0.29), ported. Not here yet (parts of other changes): the verification parts. `Pet` is web/src/pet/PetFigure.tsx.
 export { ActionRow } from './ActionRow';
+export { Away } from './Away';
 export { Banner, Nest, Skeleton } from './Feedback';
+export { CatalogEntry, CatalogList } from './Catalog';
+export { Console } from './Console';
+export { Missions, type MissionOption } from './Missions';
+export { ShareCard } from './ShareCard';
+export { Socket, Sockets } from './Sockets';
+export { ToolList, ToolRow } from './ToolList';
 export { Block } from './Block';
 export { Button, type ButtonProps } from './Button';
 export { Centerpiece } from './Centerpiece';
@@ -13,7 +20,7 @@ export { Fullness, litCells, type FullnessState } from './Fullness';
 export { Icon, type IconName } from './Icon';
 export { IconButton } from './IconButton';
 export { ItemGrid, ItemNote, ItemTile } from './ItemGrid';
-export { Actions, Center, Cluster, Dock, Header, Inert, Only, Page, Shell, Split, Stack, Surface, type Accent } from './layout';
+export { Actions, Center, Cluster, Divider, Dock, Header, Inert, Only, Page, Shell, Split, Stack, Surface, type Accent } from './layout';
 export { Live } from './Live';
 export { Menu, MenuItem } from './Menu';
 export { MotionToggle } from './MotionToggle';

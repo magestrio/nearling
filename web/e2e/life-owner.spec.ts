@@ -17,7 +17,7 @@ const OUT = { energy: 0, until: MIDNIGHT };
 
 const field = (page: Page) => page.getByPlaceholder('Talk to Pixel…');
 const think = (page: Page) => page.getByRole('button', { name: /Think hard/ });
-const send = (page: Page) => page.getByRole('button', { name: 'Send' });
+const send = (page: Page) => page.getByRole('button', { name: 'Send', exact: true });
 const meter = (page: Page) => page.getByRole('meter', { name: 'Energy' });
 const seen = (page: Page, text: string | RegExp) => page.getByText(text).filter({ visible: true });
 const said = async (page: Page, call: string) => (await calls(page)).filter((c) => c === call).length;

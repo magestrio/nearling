@@ -68,6 +68,8 @@ const deferred = <T,>() => {
 beforeEach(() => {
   for (const m of Object.values(mocks)) m.mockReset();
   mocks.pet.mockResolvedValue(OWNER);
+  // the owner's page looks at the state once on load: the errand is in the state only (`Errand flow` › «tab closed while away»)
+  mocks.petState.mockResolvedValue(stateWith('thinking-cap'));
   mocks.conversation.mockResolvedValue({ lines: [], more: false, before: null });
   window.history.replaceState(null, '', '/pet/9');
 });
@@ -88,6 +90,8 @@ describe('look: a read the screen asks for', () => {
       );
     });
     await vi.waitFor(() => expect(worn()).toBe('thinking-cap'));
+    await vi.waitFor(() => expect(mocks.petState).toHaveBeenCalledTimes(1));
+    mocks.petState.mockClear();
     const first = deferred<PetState>();
     const second = deferred<PetState>();
     mocks.petState.mockReturnValueOnce(first.promise).mockReturnValueOnce(second.promise);
@@ -116,6 +120,8 @@ describe('look: a read the screen asks for', () => {
       );
     });
     await vi.waitFor(() => expect(worn()).toBe('thinking-cap'));
+    await vi.waitFor(() => expect(mocks.petState).toHaveBeenCalledTimes(1));
+    mocks.petState.mockClear();
     mocks.petState.mockResolvedValue(stateWith('daisy-crown'));
     await act(async () => void screen.look());
     await vi.waitFor(() => expect(worn()).toBe('daisy-crown'));

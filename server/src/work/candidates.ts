@@ -62,7 +62,9 @@ export function hirerMayHire(hirer: Hirer): boolean {
   return fullness(hirer.food.eff).state === 'full';
 }
 
-export type WorkerCheck = { ok: true; price: bigint; skilled: boolean; label: string | null } | { ok: false; why: 'gone' | 'same_owner' | 'asleep' | 'no_energy' | 'full_day' | 'over_limit' | 'no_given_food' | 'not_full' | 'over_cap' };
+export type WorkerCheck =
+  | { ok: true; price: bigint; skilled: boolean; label: string | null }
+  | { ok: false; why: 'gone' | 'same_owner' | 'asleep' | 'no_energy' | 'full_day' | 'over_limit' | 'no_given_food' | 'not_full' | 'over_cap' | 'data_failed' };
 
 /** A worker's fit for a hire by `hirer` at `now`. `mode` says whether the Auto limit applies. */
 export async function checkWorker(env: Env, hirer: Hirer, workerId: string, worker: PetRecord | null, mode: HireMode, now: number): Promise<WorkerCheck> {
@@ -75,6 +77,11 @@ export async function checkWorker(env: Env, hirer: Hirer, workerId: string, work
   if (!quote.open) return { ok: false, why: 'full_day' };
   const price = quote.yocto;
   if (mode === 'auto' && price > HIRE_AUTO_LIMIT_YOCTO) return { ok: false, why: 'over_limit' };
+  // A worker whose data failed in a job today is out of Auto until 00:00 UTC; a Manual offer ignores the mark
+  // (`Data source call data` › «a failed worker in Auto»).
+  if (mode === 'auto' && (await env.DB.prepare('SELECT 1 AS found FROM worker_answers WHERE token_id = ? AND day = ? AND data_failed = 1').bind(workerId, today).first()) !== null) {
+    return { ok: false, why: 'data_failed' };
+  }
   if (price > (await givenRoom(env.DB, hirer.tokenId, hirer.pet, hirer.food.held))) return { ok: false, why: 'no_given_food' };
   // After the fee the pet is still full by all its food, with the purchases held counted out.
   if (fullness(hirer.food.room > price ? hirer.food.room - price : 0n).state !== 'full') return { ok: false, why: 'not_full' };

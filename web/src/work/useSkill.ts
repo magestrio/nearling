@@ -1,7 +1,7 @@
 import { useCallback, useRef, useState } from 'react';
 import { useAuth } from '../seams/auth';
 import { WorkerError, workerApi } from '../seams/worker';
-import type { Token } from '../seams/worker-types';
+import type { SkillRead, SourceView, Token } from '../seams/worker-types';
 
 // The state machine of Skill sheet (`Skill sheet screen`, `Skill writing flow`). All of it is the tab's memory but the skill the server
 // keeps: the two fields as typed, the outcome line at the body's top, what an unsaved close throws away. Writing a skill costs nothing
@@ -15,7 +15,12 @@ export interface SkillHost {
 }
 
 /** The line at the body's top: what the last «Save skill» or «Forget this skill» came to. */
-export type SkillTop = { kind: 'forgotten' } | { kind: 'failed'; again: 'save' | 'forget' } | { kind: 'session' };
+export type SkillTop =
+  | { kind: 'forgotten' }
+  | { kind: 'failed'; again: 'save' | 'forget' }
+  | { kind: 'session' }
+  /** what a step of the sheet left behind: «Connected. …», «{label} removed. …», «Saved. {name} can run its code …» */
+  | { kind: 'line'; text: string };
 
 export type SkillPhase = 'closed' | 'loading' | 'error' | 'open';
 
@@ -38,6 +43,9 @@ export function useSkill(tokenId: string, host: SkillHost, onSaved: (label: stri
   // it was when the sheet opened: the title says «{name}'s skill» until the sheet closes, a forgotten skill too
   const [openedWritten, setOpenedWritten] = useState(false);
   const [top, setTop] = useState<SkillTop | null>(null);
+  // the skill's outside parts as the server keeps them: its data sources and whether it has code (`Skill sheet` sockets)
+  const [sources, setSources] = useState<SourceView[]>([]);
+  const [hasCode, setHasCode] = useState(false);
   const [labelError, setLabelError] = useState(false);
   const [busy, setBusy] = useState(false);
   const live = useRef(0);
@@ -63,7 +71,7 @@ export function useSkill(tokenId: string, host: SkillHost, onSaved: (label: stri
 
   /** Opens the sheet: the skill is read first (the instruction is decrypted for this answer only); a read that fails is the sheet's
    *  `error`. `typed` — both fields as a sign-in brought them back: open again, unsaved. */
-  const open = useCallback(async (typed?: { label: string; instruction: string }) => {
+  const open = useCallback(async (typed?: { label: string; instruction: string }): Promise<SkillRead | null> => {
     const gen = (live.current += 1);
     setTop(null);
     setLabelError(false);
@@ -72,25 +80,64 @@ export function useSkill(tokenId: string, host: SkillHost, onSaved: (label: stri
       const token = await hostRef.current.tokenOf();
       if (token === null) {
         if (gen === live.current) setPhase('error');
-        return;
+        return null;
       }
       const answer = await workerApi.skill(token, tokenId);
-      if (gen !== live.current) return;
+      if (gen !== live.current) return null;
+      setSources(answer.sources ?? []);
+      setHasCode(answer.code != null);
       setSavedLabel(answer.skill?.label ?? null);
       setOpenedWritten(answer.skill !== null);
       setLabelState(typed?.label ?? answer.skill?.label ?? '');
       setInstructionState(typed?.instruction ?? answer.skill?.instruction ?? '');
       setPhase('open');
+      return answer;
     } catch (e) {
-      if (gen !== live.current) return;
+      if (gen !== live.current) return null;
       if (statusOf(e) === 401 || (statusOf(e) === 403 && codeOf(e) === 'not_owner')) {
         close();
         hostRef.current.refused(e);
-        return;
+        return null;
       }
       setPhase('error');
+      return null;
     }
   }, [tokenId, close]);
+
+  /** The sockets again, from the server's read, after a step of the sheet (a source saved or removed, code saved or removed); the
+   *  fields the player typed stay as they are. A skill that is gone (forgotten in another tab) turns the sockets off. */
+  const refresh = useCallback(
+    async (line?: string) => {
+      const gen = live.current;
+      try {
+        const token = await hostRef.current.tokenOf();
+        const answer = await workerApi.skill(token, tokenId);
+        if (gen !== live.current) return;
+        setSources(answer.sources ?? []);
+        setHasCode(answer.code != null);
+        if (answer.skill === null) setSavedLabel(null);
+      } catch (e) {
+        if (gen !== live.current) return;
+        if (statusOf(e) === 403 && codeOf(e) === 'not_owner') {
+          close();
+          hostRef.current.refused(e);
+        } else if (statusOf(e) === 401) {
+          // the session ended under a step of the sheet (Adapter sheet, Skill code sheet): the sheet and both fields stay, with the
+          // line of `Session expiry flow` — unless the step's own outcome line came with it (that one is true, and the next tap says
+          // the session ended)
+          authRef.current.endSession(true, true);
+          if (line === undefined) setTop({ kind: 'session' });
+        }
+        // any other failure leaves the sockets as the sheet last drew them
+      } finally {
+        if (gen === live.current && line !== undefined) setTop({ kind: 'line', text: line });
+      }
+    },
+    [tokenId, close],
+  );
+
+  /** A line at the body's top, in the sheet's own outcome place. */
+  const note = useCallback((text: string) => setTop({ kind: 'line', text }), []);
 
   const fail = useCallback(
     (e: unknown, again: 'save' | 'forget') => {
@@ -153,6 +200,8 @@ export function useSkill(tokenId: string, host: SkillHost, onSaved: (label: stri
       await workerApi.forgetSkill(token, tokenId);
       if (gen !== live.current) return;
       setSavedLabel(null);
+      setSources([]);
+      setHasCode(false);
       setTop({ kind: 'forgotten' });
       onSaved(null, false);
     } catch (e) {
@@ -170,5 +219,5 @@ export function useSkill(tokenId: string, host: SkillHost, onSaved: (label: stri
     if (top?.kind === 'failed') void (top.again === 'save' ? save() : forget());
   }, [top, save, forget]);
 
-  return { phase, label, setLabel, instruction, setInstruction, written, savedLabel, openedWritten, top, labelError, busy, open, close, save, forget, again, fields };
+  return { phase, label, setLabel, instruction, setInstruction, sources, hasCode, refresh, note, written, savedLabel, openedWritten, top, labelError, busy, open, close, save, forget, again, fields };
 }

@@ -174,7 +174,7 @@ export const TYPICAL_DEEP_OUT = 300;
 const MARKUP_NUM = 12n;
 const MARKUP_DEN = 10n;
 /** The share of gas in the price of a thought: $0.0006, fixed in USD (§4). */
-const GAS_SHARE_USD12 = 600_000_000n;
+export const GAS_SHARE_USD12 = 600_000_000n;
 
 export interface PriceEnv {
   PRICE_IN_USD_PER_MTOK: string;
@@ -195,7 +195,7 @@ function tokensUsd12(env: PriceEnv, tokensIn: number, tokensOut: number): bigint
 const ceilDiv = (a: bigint, b: bigint) => (a + b - 1n) / b;
 
 /** The price of one call in usd12 with the markup, without the gas share. */
-function marked(env: PriceEnv, tokensIn: number, tokensOut: number): bigint {
+export function marked(env: PriceEnv, tokensIn: number, tokensOut: number): bigint {
   return ceilDiv(tokensUsd12(env, tokensIn, tokensOut) * MARKUP_NUM, MARKUP_DEN);
 }
 
@@ -205,6 +205,11 @@ export function usd12ToYocto(env: PriceEnv, usd12: bigint): bigint {
   if (rate === null) throw new Error('rate_missing');
   const rate6 = BigInt(Math.round(rate * 1_000_000));
   return ceilDiv(usd12 * 10n ** 18n, rate6);
+}
+
+/** What tokens cost the project before the markup and the gas share, in usd12 (the `cost_usd` of an event). */
+export function costUsd12(env: PriceEnv, tokensIn: number, tokensOut: number): bigint {
+  return tokensUsd12(env, tokensIn, tokensOut);
 }
 
 /** The price of a thought of `calls` calls (usage of each), with the gas share once. */

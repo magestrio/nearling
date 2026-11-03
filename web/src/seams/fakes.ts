@@ -2,9 +2,13 @@
 // only in the e2e mode (VITE_FAKES); no dev or prod build contains this file's users.
 import type {
   AdviceRead,
+  CatalogEntryView,
   ClosedReason,
+  CodeRead,
+  CodeTestResult,
   Conversation,
   DiaryView,
+  ErrandQuote,
   FeedOutcome,
   FeedSheetData,
   HatchStatus,
@@ -17,7 +21,9 @@ import type {
   RiddleStatus,
   SessionResult,
   SignInGate,
-  SkillText,
+  SkillRead,
+  SourceView,
+  ToolView,
   WalletInfo,
   WardrobeView,
 } from './worker-types';
@@ -123,12 +129,38 @@ export interface FakeWorkerState {
   advice?: Partial<AdviceRead> | FakeFail;
   /** `POST …/advice`; default `{ job: 'job-advice' }` */
   askAdvice?: { job: string } | FakeFail;
-  /** `GET …/skill`; default no skill */
-  skill?: { skill: SkillText | null } | FakeFail;
+  /** `GET …/skill`: fields laid over `{ skill: null, sources: [], code: null }` */
+  skill?: Partial<SkillRead> | FakeFail;
   /** `PUT …/skill`; default the label asked, which the pet then shows and the owner's read then holds */
   saveSkill?: { skill: { label: string } } | FakeFail;
   /** `DELETE …/skill`; default `{ skill: null }` */
   forgetSkill?: { skill: null } | FakeFail;
+  /** `GET …/errand`: fields laid over the quote the fake builds (a typical read at 0.15¢, a search form up to 2¢, no block), or a refusal */
+  errand?: Partial<ErrandQuote> | FakeFail;
+  /** `POST …/errand`; default `{ job: 'job-errand' }`. What the real route leaves behind: the pet is away (`petState.errand`) */
+  sendErrand?: { job: string } | FakeFail;
+  /** `GET /api/adapters`; default three entries */
+  adapters?: { entries: CatalogEntryView[] } | FakeFail;
+  adaptersDelayMs?: number;
+  /** `POST …/sources/check`; default the sample tools of Daybook */
+  checkSource?: { tools: ToolView[] } | FakeFail;
+  /** `POST …/sources`; default the source as asked, which the skill's read then holds */
+  saveSource?: { source: SourceView } | FakeFail;
+  /** `PUT …/sources/:sid`; default the source edited */
+  editSource?: { source: SourceView } | FakeFail;
+  /** `DELETE …/sources/:sid`; default `{ removed: true }` */
+  removeSource?: { removed: true } | FakeFail;
+  /** `POST …/sources/:sid/publish` and `DELETE …`; default the source published / taken out */
+  publishSource?: { source: SourceView } | FakeFail;
+  unpublishSource?: { source: SourceView } | FakeFail;
+  /** `GET …/code`: fields laid over `{ code: null, functions: [], testsLeft: 20 }` */
+  code?: Partial<CodeRead> | FakeFail;
+  /** `POST …/code/test`; default a passed run with the sample function */
+  testCode?: CodeTestResult | FakeFail;
+  /** `PUT …/code`; default the code saved with its functions as ticked */
+  saveCode?: { code: { functions: ToolView[] } } | FakeFail;
+  /** `DELETE …/code`; default `{ removed: true }` */
+  removeCode?: { removed: true } | FakeFail;
 }
 
 export interface FakeState {

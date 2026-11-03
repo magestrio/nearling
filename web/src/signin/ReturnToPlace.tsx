@@ -6,6 +6,7 @@ import { setOutcome } from './outcome';
 import {
   clearReturnPlace,
   eraseLeftBehind,
+  holdReturnSheet,
   holdReturnSkill,
   holdReturnText,
   markSignInUnderWay,
@@ -92,8 +93,12 @@ export function ReturnToPlace() {
       if (!place) return;
       if (auth.authenticated) {
         // «Feed {name}» tapped before the sign-in: the pet's screen runs it once it is back
-        queueAction(place.action === 'feed' || place.action === 'skill' ? place.action : undefined);
-        if (place.text) (place.action === 'skill' ? holdReturnSkill : holdReturnText)(place.path, place.text);
+        queueAction(place.action && place.action !== 'signin' ? place.action : undefined);
+        if (place.text) {
+          if (place.action === 'skill') holdReturnSkill(place.path, place.text);
+          else if (place.action === 'errand' || place.action === 'adapter' || place.action === 'code') holdReturnSheet(place.action, place.path, place.text);
+          else holdReturnText(place.path, place.text);
+        }
       }
       navigate(place.path);
     } else if (auth.refusal) {

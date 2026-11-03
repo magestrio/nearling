@@ -26,8 +26,9 @@ pub const STARTER_FOOD: u128 = 2_000_000_000_000_000_000_000;
 /// One debit carries 1–12 thoughts (ADR-004 › Batches of at most 12).
 pub const MAX_THOUGHTS_PER_DEBIT: usize = 12;
 
-/// A thought has one call, or two when the first was re-asked.
-pub const MAX_CALLS_PER_THOUGHT: usize = 2;
+/// A thought has one call, two when the first was re-asked, and up to four for an errand: its search
+/// (`gateway`), a data call, the report and the re-ask (`Errand debit contract`).
+pub const MAX_CALLS_PER_THOUGHT: usize = 4;
 
 /// Bytes of the owner-list entry a future owner of the pet will need, paid by the pool at birth
 /// (ADR-014): the first token of a new owner with a 64-byte account id and a 20-digit token id.

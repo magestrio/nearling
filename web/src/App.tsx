@@ -5,6 +5,7 @@ import './account/register';
 import { ClearMemoryLayer } from './account/ClearMemoryLayer';
 import './feeding/register';
 import './life/register';
+import { CatalogPage } from './adapters/CatalogPage';
 import { useAuth } from './seams/auth';
 import { HatchScreen } from './screens/hatch/HatchScreen';
 import { HomeScreen } from './screens/home/HomeScreen';
@@ -76,6 +77,7 @@ export function App() {
           />
         ) : null}
         {!unreachable && route.name === 'pet-broken' ? <PetNotFound /> : null}
+        {!unreachable && route.name === 'adapters' ? <CatalogPage key={route.pet ?? ''} pet={route.pet} /> : null}
         {Day1Page && route.name === 'day1' ? (
           <Suspense fallback={null}>
             <Day1Page />

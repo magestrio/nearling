@@ -106,18 +106,20 @@ export function runAction(name: ActionName, context: ActionContext): boolean {
 
 // «Feed {name}» tapped without a session: the place and the action wait in the tab through the sign-in, and the
 // screen the player returns to runs the action once (add-pet › Pet screen › «signed-out»).
-// The line of Skill sheet's ended session does the same with `skill`: the owner's page opens the sheet again.
-let pendingAction: 'feed' | 'skill' | null = null;
+// The line of an ended session on Skill sheet, Errand sheet, Adapter sheet or Skill code sheet does the same with `skill`, `errand`,
+// `adapter` or `code`: the owner's page (or the catalog page for `adapter`) opens that sheet again.
+export type PendingAction = 'feed' | 'skill' | 'errand' | 'adapter' | 'code';
+let pendingAction: PendingAction | null = null;
 
-export function queueAction(action: 'feed' | 'skill' | undefined): void {
+export function queueAction(action: PendingAction | undefined): void {
   pendingAction = action ?? null;
 }
 
-export function peekPendingAction(): 'feed' | 'skill' | null {
+export function peekPendingAction(): PendingAction | null {
   return pendingAction;
 }
 
-export function takePendingAction(): 'feed' | 'skill' | null {
+export function takePendingAction(): PendingAction | null {
   const action = pendingAction;
   pendingAction = null;
   return action;

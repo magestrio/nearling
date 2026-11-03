@@ -1,4 +1,5 @@
 import { formatCents } from '../lib/price';
+import { joinLabels } from '../errands/lines';
 import type { HireMeta, HireMode } from '../seams/worker-types';
 
 // Every word of add-pet-work that the Pet screen draws, verbatim from the Scenarios of `Hire mode rule` and `Pet hire flow`
@@ -33,6 +34,14 @@ export const hireFailedLine = (name: string, worker: string) => `${worker} could
 export const hireEmptyLine = (name: string, worker: string) =>
   `${worker} came up empty, so ${name} answered on its own. No fee was paid — the try used a little of ${name}'s food.`;
 
+/** `Adapter call rule` › data failed in a hire / …, past three: the game's line before the pet's own answer. */
+export const hireDataFailedLine = (name: string, worker: string) => `${worker}'s skill couldn't get its data just now, so ${name} answered on its own. No fee was paid.`;
+export const hireDataFailedPaidLine = (name: string, worker: string) =>
+  `${worker}'s skill couldn't get its data just now, so ${name} answered on its own. No fee was paid — the try used a little of ${name}'s food.`;
+/** `Adapter call rule` › hired answer line: under a worker's answer that used a data source. */
+export const lookedUpLine = (worker: string, labels: string[]) =>
+  `${worker} looked this up through ${joinLabels(labels)}. Whoever runs them saw what was looked up — never the question or the answer.`;
+
 /** `Pet hire flow` › предложение в Manual / price rose on an offer. */
 export const offerLine = (name: string, worker: string, cents: number) => `${name} wants to ask ${worker} about this. It costs ${formatCents(cents)}.`;
 export const offerRoseLine = (worker: string, cents: number) => `${worker} is busier now — it's ${formatCents(cents)}. Nothing was spent.`;
@@ -57,6 +66,12 @@ export const adviceLabel = (name: string) => `Advice from ${name}`;
 export const paysLine = (myPet: string, name: string) => `Your ${myPet} pays from its food. ${name}'s owner won't see your question or the answer.`;
 /** `Advice flow` › advice from a pet with a skill: also under the pays line. */
 export const skillShapesLine = (name: string) => `${name} has a private skill that shapes its answers. Checking the thought can't show that part.`;
+/** `Adapter call rule` › advice line: also under the pays line, on a pet whose skill has data sources. */
+export const adviceSourcesLine = (name: string, labels: string[]) => `Whoever runs ${joinLabels(labels)} sees what ${name} looks up there — never your question or the answer.`;
+/** `Adapter call rule` › data failed in advice / …, past three: the question stays in the field. */
+export const adviceDataFailedLine = (name: string) => `${name}'s skill couldn't get its data just now. Nothing was spent — your question is kept.`;
+export const adviceDataFailedPaidLine = (name: string, myPet: string) =>
+  `${name}'s skill couldn't get its data just now. No fee was paid, but the try used a little of your ${myPet}'s food. Your question is kept — try again.`;
 /** `Advice flow` › price rose. */
 export const priceRoseLine = (name: string, cents: number) => `${name} is busier now — it's ${formatCents(cents)}. Your question is still here, and nothing was spent.`;
 /** `Advice flow` › ответ: under the answer. */

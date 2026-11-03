@@ -29,6 +29,15 @@ const ICONS = {
   play: ['M8 5.5v13l10.5-6.5z'],
   skill: ['M12 14.5a5.5 5.5 0 1 0 0-11 5.5 5.5 0 0 0 0 11z', 'M12 11.5a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5z', 'M8.6 13.4 7.5 20.5l4.5-2.6 4.5 2.6-1.1-7.1'],
   lock: ['M8 11V8a4 4 0 0 1 8 0v3', 'M5.5 11h13v9.5h-13z', 'M12 15v2.5'],
+  // skills and errands: the errand — a pack for the road; an empty socket — a plus; the skill's code — braces
+  pack: ['M8.5 7V5.5a3.5 3.5 0 0 1 7 0V7', 'M5 10.5A3.5 3.5 0 0 1 8.5 7h7a3.5 3.5 0 0 1 3.5 3.5v8a2.5 2.5 0 0 1-2.5 2.5h-9A2.5 2.5 0 0 1 5 18.5z', 'M8.5 14h7v3.5h-7z'],
+  plus: ['M12 5v14', 'M5 12h14'],
+  code: ['M8.5 7 4 12l4.5 5', 'M15.5 7 20 12l-4.5 5'],
+  // the errand's three missions: read a page, find out, check a claim; the card's image saved
+  page: ['M7 3.5h7l4 4V19a1.5 1.5 0 0 1-1.5 1.5h-9A1.5 1.5 0 0 1 6 19V5A1.5 1.5 0 0 1 7.5 3.5z', 'M14 3.5V8h4', 'M9 12h6', 'M9 15.5h6'],
+  compass: ['M12 20.5a8.5 8.5 0 1 0 0-17 8.5 8.5 0 0 0 0 17z', 'M15.5 8.5 13.4 13.4 8.5 15.5l2.1-4.9z'],
+  scales: ['M12 4v16', 'M8 20h8', 'M5 7h14', 'M5 7l-2.5 6a2.5 2.5 0 0 0 5 0z', 'M19 7l-2.5 6a2.5 2.5 0 0 0 5 0z'],
+  download: ['M12 4v11', 'M7.5 10.5 12 15l4.5-4.5', 'M5 19.5h14'],
 } as const;
 
 export type IconName = keyof typeof ICONS;

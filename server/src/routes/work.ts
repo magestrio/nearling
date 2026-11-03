@@ -11,10 +11,11 @@ import { hasInsult } from '../name/insult';
 import { desk, enqueueAdvice, enqueueJob } from '../pet/desk';
 import { foodState } from '../pet/view';
 import { isPaused } from '../servicePause';
-import { adviceFacts, lastExchange } from '../work/advice';
+import { adviceFacts, lastExchange, readableSourceLabels } from '../work/advice';
 import { hireModeOf } from '../work/mode';
 import { lostTurn, offerJobOnItsWay, standingOffer } from '../work/offer';
 import { priceView } from '../work/quote';
+import { sourceViews } from '../sources/store';
 import { deleteSkill, readSkill, SkillUnreadable, writeSkill } from '../work/skill';
 import { ownedPet, run as runDesk } from './thoughts';
 
@@ -98,7 +99,12 @@ workRoutes.get('/api/pets/:id/skill', async (c) => {
   const owned = await ownedPet(c);
   if (owned instanceof Response) return owned;
   try {
-    return c.json({ skill: await readSkill(c.env, owned.id) });
+    const skill = await readSkill(c.env, owned.id);
+    // The sources by name and tools, never an address (`Data source data` › «the address after save»); the code only as
+    // the functions it declares: its text has its own route.
+    const sources = await sourceViews(c.env.DB, owned.id, session.accountId);
+    const code = await c.env.DB.prepare('SELECT functions FROM skill_code WHERE token_id = ?').bind(owned.id).first<{ functions: string }>();
+    return c.json({ skill, sources, code: code === null ? null : { functions: JSON.parse(code.functions) as unknown } });
   } catch (e) {
     if (e instanceof SkillUnreadable) return c.json(unreadable(), 500);
     throw e;
@@ -193,10 +199,13 @@ workRoutes.get('/api/pets/:id/advice', async (c) => {
             question: lastAsked.question,
             text: lastAsked.answer,
             skilled: lastAsked.skilled,
+            ...(lastAsked.dataLabels.length > 0 ? { dataLabels: lastAsked.dataLabels } : {}),
             ...(lastHire !== null ? { price: lastHire.fee_yocto, priceCents: Number((lastHire.fee_usd_micros / 10_000).toPrecision(2)) } : {}),
           },
     price: priceView(c.env, facts.quote.yocto),
     skilled: facts.skilled,
+    // The worker's data sources, named once: «Whoever runs {labels} sees what {name} looks up there…» is drawn from them.
+    labels: await readableSourceLabels(c.env.DB, pair.workerId),
     workerAsleep: facts.workerAsleep,
     resting: facts.resting ? { until: nextMidnight(now) } : null,
     payer: { tokenId: payerId, name: pair.payer.name, state: facts.payer, until: facts.payer === 'tired' ? nextMidnight(now) : null },

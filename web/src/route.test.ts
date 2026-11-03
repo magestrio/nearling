@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { diaryPath, hatchPath, parseRoute, petPath, wardrobePath } from './route';
+import { adaptersPath, diaryPath, hatchPath, parseRoute, petPath, wardrobePath } from './route';
 
 describe('parseRoute', () => {
   it('reads the Pet screen and the Hatch screen with the friend in the address', () => {
@@ -42,6 +42,17 @@ describe('parseRoute', () => {
     expect(parseRoute('/pet/abc/wardrobe')).toEqual({ name: 'unknown' });
     expect(parseRoute('/pet/9/wardrobe/extra')).toEqual({ name: 'unknown' });
     expect(wardrobePath('9')).toBe('/pet/9/wardrobe');
+  });
+
+  // spec: add-pet-errands › Adapter catalog screen › success
+  it('reads the Adapter catalog at /adapters, with the pet of the skill it was opened from, and no pet for a mangled one', () => {
+    expect(parseRoute('/adapters')).toEqual({ name: 'adapters', pet: null });
+    expect(parseRoute('/adapters/')).toEqual({ name: 'adapters', pet: null });
+    expect(parseRoute('/adapters?pet=9')).toEqual({ name: 'adapters', pet: '9' });
+    expect(parseRoute('/adapters?pet=nine')).toEqual({ name: 'adapters', pet: null });
+    expect(parseRoute('/adapters/9')).toEqual({ name: 'unknown' });
+    expect(adaptersPath('9')).toBe('/adapters?pet=9');
+    expect(adaptersPath()).toBe('/adapters');
   });
 
   it('builds the paths it reads', () => {

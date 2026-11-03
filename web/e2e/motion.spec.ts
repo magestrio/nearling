@@ -86,7 +86,7 @@ test('the moments of the built flows: thinking, talking, falling asleep, waking'
   await openWith(page, '/pet/9', { auth: SIGNED_IN, worker: { ...OWNER, petState: { pending: true } }, ...PLAY });
   await ready(page);
   await page.getByPlaceholder('Talk to Pixel…').fill('hello');
-  await page.getByRole('button', { name: 'Send' }).click();
+  await page.getByRole('button', { name: 'Send', exact: true }).click();
   await expect(page.getByRole('img', { name: 'Pixel, thinking' })).toBeVisible();
 
   await setWorker(page, { petState: { pending: false, thought: { id: 't1', text: 'Hi there!', cut: null } } });

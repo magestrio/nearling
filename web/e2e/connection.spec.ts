@@ -40,13 +40,13 @@ test('сервер недоступен × черновик в поле: a line 
   // the server stays down for the polls after the tap: the line stays up while the assertions look (a successful poll
   // would clear it, and a slow machine can look late)
   await setWorker(page, { petState: down });
-  await page.getByRole('button', { name: 'Send' }).click();
+  await page.getByRole('button', { name: 'Send', exact: true }).click();
   await expect(page.getByText(OFFLINE).first()).toBeVisible();
   await expect(field).toHaveValue('are you there?');
   await expect(page.getByRole('log')).not.toContainText('are you there?');
   // and it can be sent once the server answers
   await setWorker(page, { say: undefined, petState: {} });
-  await page.getByRole('button', { name: 'Send' }).click();
+  await page.getByRole('button', { name: 'Send', exact: true }).click();
   await expect(page.getByRole('log')).toContainText('are you there?');
   await expect(field).toHaveValue('');
 });
@@ -117,7 +117,7 @@ test('разговор на паузе: the line over the page, the field and th
   await openWith(page, '/pet/9', { auth: SIGNED_IN, worker: withOwner({ paused: true }) });
   await expect(page.getByText(PAUSED_LINE).first()).toBeVisible();
   await expect(field(page)).toHaveAttribute('aria-disabled', 'true');
-  await expect(page.getByRole('button', { name: 'Send' })).toHaveAttribute('aria-disabled', 'true');
+  await expect(page.getByRole('button', { name: 'Send', exact: true })).toHaveAttribute('aria-disabled', 'true');
   await expect(page.getByRole('button', { name: /Think hard/ })).toHaveAttribute('aria-disabled', 'true');
   await field(page).press('Enter');
   expect(await calls(page)).not.toContain('worker:say');
@@ -153,7 +153,7 @@ test('пауза снялась × открытый экран, реплика �
   await lookAgain(page);
   await expect(page.getByText(PAUSED_LINE)).toHaveCount(0);
   await expect(field(page)).not.toHaveAttribute('aria-disabled', 'true');
-  await expect(page.getByRole('button', { name: 'Send' })).not.toHaveAttribute('aria-disabled', 'true');
+  await expect(page.getByRole('button', { name: 'Send', exact: true })).not.toHaveAttribute('aria-disabled', 'true');
   expect(await calls(page)).not.toContain('worker:say');
 });
 
@@ -162,7 +162,7 @@ test('Устал: «Pixel is tired for today. Back at {time}.», the field and t
   await openWith(page, '/pet/9', { auth: SIGNED_IN, worker: withOwner({ tired: true, until: '2026-11-02T00:00:00.000Z' }) });
   await expect(page.getByText(/^Pixel is tired for today\. Back at \d\d:\d\d\.$/).first()).toBeVisible();
   await expect(field(page)).toHaveAttribute('aria-disabled', 'true');
-  await expect(page.getByRole('button', { name: 'Send' })).toHaveAttribute('aria-disabled', 'true');
+  await expect(page.getByRole('button', { name: 'Send', exact: true })).toHaveAttribute('aria-disabled', 'true');
   await expect(page.getByRole('button', { name: /Think hard/ })).toHaveAttribute('aria-disabled', 'true');
   await expect(page.getByRole('button', { name: 'Feed Pixel' }).first()).toBeVisible();
   await expect(page.getByRole('button', { name: 'Feed Pixel' }).first()).not.toHaveAttribute('aria-disabled', 'true');
@@ -177,6 +177,6 @@ test('Устал × 00:00 UTC без перезагрузки: the line goes wit
   await expect(page.getByText(/is tired for today/)).toHaveCount(0);
   await expect(field(page)).not.toHaveAttribute('aria-disabled', 'true');
   await field(page).fill('Good morning');
-  await page.getByRole('button', { name: 'Send' }).click();
+  await page.getByRole('button', { name: 'Send', exact: true }).click();
   await expect(page.getByRole('log')).toContainText('Good morning');
 });

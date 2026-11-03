@@ -20,6 +20,13 @@ export function forgetStatements(db: D1Database, tokenId: string, now: number): 
       .prepare('UPDATE thoughts SET erased_at = CASE WHEN player_text IS NOT NULL OR reply_text IS NOT NULL THEN ?1 ELSE erased_at END, player_text = NULL, reply_text = NULL WHERE token_id = ?2')
       .bind(now, tokenId),
     db.prepare("UPDATE thought_calls SET req_bytes = x'', res_bytes = x'' WHERE thought_id IN (SELECT id FROM thoughts WHERE token_id = ?)").bind(tokenId),
+    // An errand that came back without a report goes, and so does one whose job has not started (nothing was spent,
+    // nothing is on its way); one away keeps its row, without its words, so it still ends or times out
+    // (`Errand flow` › «memory cleared on the way»). Before the queued jobs are failed below, which they read.
+    db
+      .prepare("DELETE FROM errands WHERE token_id = ?1 AND (state <> 'away' OR EXISTS (SELECT 1 FROM jobs WHERE token_id = ?1 AND kind = 'errand' AND status = 'queued'))")
+      .bind(tokenId),
+    db.prepare('UPDATE errands SET job = NULL WHERE token_id = ?').bind(tokenId),
     // A line waiting in the queue and the friend's name of a wake thought: no word stays in a job.
     db.prepare("UPDATE jobs SET status = 'failed', result = ? WHERE token_id = ? AND status = 'queued'").bind(JSON.stringify(MEMORY_CLEARED), tokenId),
     db.prepare('UPDATE jobs SET payload = NULL WHERE token_id = ?').bind(tokenId),
@@ -35,6 +42,13 @@ export function forgetStatements(db: D1Database, tokenId: string, now: number): 
     db.prepare('DELETE FROM skills WHERE token_id = ?').bind(tokenId),
     db.prepare('DELETE FROM hire_offers WHERE token_id = ?').bind(tokenId),
     db.prepare('DELETE FROM work_records WHERE worker_id = ?').bind(tokenId),
+    // A skill's data sources and code go with it, and so do the pet's entries in the catalog
+    // (`Data source data` › «memory cleared»). Copies in other pets' skills keep their own sealed address.
+    // The day's test-run count stays, so clearing memory cannot renew the 20-run allowance;
+    // the game-wide count of loaded versions is no pet's memory.
+    db.prepare('DELETE FROM data_sources WHERE token_id = ?').bind(tokenId),
+    db.prepare('DELETE FROM catalog_entries WHERE token_id = ?').bind(tokenId),
+    db.prepare('DELETE FROM skill_code WHERE token_id = ?').bind(tokenId),
   ];
 }
 

@@ -83,8 +83,26 @@ export async function captureFrame(page: Page, frame: ManifestFrame, viewport: V
     if (elsewhere.has(line)) continue;
     // a line is on the page as text, or as a field's placeholder
     const pattern = copyPattern(line);
-    // the frame may carry the line twice, one copy per viewport (the desktop's foot, the phone's card): one visible is enough
-    await expect(page.getByText(pattern).or(page.getByPlaceholder(pattern)).filter({ visible: true }).first(), `copy «${line}» of ${frame.id}`).toBeVisible();
+    // One occurrence must actually be in the visible part of every scrolling ancestor and the viewport.
+    // Playwright's visible filter alone also accepts text that has scrolled out of an inner sheet body.
+    const candidates = page.getByText(pattern).or(page.getByPlaceholder(pattern)).filter({ visible: true });
+    if (fixture.belowFold?.includes(line)) {
+      await expect(candidates.and(page.locator(':not(.ds-hidden)')).first(), `copy «${line}» of ${frame.id} drawn below the fold`).toBeAttached();
+      continue;
+    }
+    await expect.poll(() => candidates.evaluateAll((elements) => elements.some((el) => {
+      if (el.closest('.ds-hidden, [aria-hidden="true"]')) return false;
+      const rect = el.getBoundingClientRect();
+      if (rect.width <= 0 || rect.height <= 0) return false;
+      let box = { left: 0, top: 0, right: innerWidth, bottom: innerHeight };
+      for (let parent = el.parentElement; parent; parent = parent.parentElement) {
+        const style = getComputedStyle(parent);
+        if (!/(auto|scroll|hidden|clip)/.test(`${style.overflowX} ${style.overflowY}`)) continue;
+        const clip = parent.getBoundingClientRect();
+        box = { left: Math.max(box.left, clip.left), top: Math.max(box.top, clip.top), right: Math.min(box.right, clip.right), bottom: Math.min(box.bottom, clip.bottom) };
+      }
+      return rect.left >= box.left - 1 && rect.top >= box.top - 1 && rect.right <= box.right + 1 && rect.bottom <= box.bottom + 1;
+    })), { message: `copy «${line}» of ${frame.id} inside the visible scroll box` }).toBe(true);
   }
 
   fs.mkdirSync(CMP_DIR, { recursive: true });

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useAuth } from '../seams/auth';
 import { WorkerError, workerApi, type OutfitSlug } from '../seams/worker';
+import { useErrandSurfaceOpen } from '../errands/surfaces';
 import { known } from './catalogue';
 
 // New outfit notice (`New outfit notice screen`): the earned item that has no notice yet comes from the owner's view (`notices`), and
@@ -40,8 +41,10 @@ export function useNotice({
   const openRef = useRef(open);
   openRef.current = open;
 
-  // The next notice that is due: none while one stands.
-  const due = !owner || open !== null ? null : (known(notices).find((s) => !shown.includes(s)) ?? null);
+  // The next notice that is due: none while one stands, and none while Errand sheet, Adapter sheet, Skill code sheet or Verdict card is
+  // open (`add-pet-errands`): it opens when they close.
+  const errandSurface = useErrandSurfaceOpen();
+  const due = !owner || open !== null || errandSurface ? null : (known(notices).find((s) => !shown.includes(s)) ?? null);
 
   useEffect(() => {
     if (!owner) setOpen(null);

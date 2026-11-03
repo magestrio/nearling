@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import {
+  Away,
   Banner,
   Button,
   Center,
@@ -40,7 +41,13 @@ import { NewOutfitNotice } from '../../wardrobe/NewOutfitNotice';
 import { useNotice } from '../../wardrobe/useNotice';
 import { useWardrobe } from '../../wardrobe/useWardrobe';
 import { WardrobePage } from '../../wardrobe/WardrobePage';
-import { closeFeed, useAddNearRequest, useFeedRequest } from '../../feeding/feedRequest';
+import { ErrandSheet } from '../../errands/ErrandSheet';
+import { FORM_WORD, sentLine } from '../../errands/lines';
+import { ReportMessage } from '../../errands/reportLines';
+import { useErrand } from '../../errands/useErrand';
+import { VerdictCard } from '../../errands/VerdictCard';
+import { closeVerdict, useVerdictRequest } from '../../errands/verdictRequest';
+import { closeFeed, openFeed, useAddNearRequest, useFeedRequest } from '../../feeding/feedRequest';
 import { FeedLayer } from '../../feeding/FeedLayer';
 import { useFeedLinkOpened } from '../../feeding/useFeedLinkOpened';
 import { energyLine } from '../../life/lines';
@@ -48,6 +55,12 @@ import { OfferMessage, OwnLostMessage, WorkerMessage } from '../../work/hireLine
 import { askingLine, offerLine, offerRoseLine, skillSavedLine } from '../../work/lines';
 import { SkillSheet } from '../../work/SkillSheet';
 import { useSkill } from '../../work/useSkill';
+import { AdapterSheet } from '../../adapters/AdapterSheet';
+import { takeSkillArrival } from '../../adapters/arrival';
+import { CodeSheet } from '../../adapters/CodeSheet';
+import { codeRemovedLine, codeSavedLine, connectedLine, removedLine } from '../../adapters/lines';
+import { useCode } from '../../adapters/useCode';
+import { useAdapter } from '../../adapters/useAdapter';
 import { formatCents } from '../../lib/price';
 import { resetTime } from '../../lib/time';
 import { hatchPath, navigate, petPath, useLocation } from '../../route';
@@ -59,12 +72,12 @@ import { PetFigure } from '../../pet/PetFigure';
 import { MS, talkMs } from '../../pet/proto/motion.js';
 import { usePetMotion } from '../../pet/proto/useMotion.js';
 import { useAuth } from '../../seams/auth';
-import { toastHeld, type PetView } from '../../seams/worker';
+import { toastHeld, type ErrandForm, type PetView } from '../../seams/worker';
 import { SignInLines, SignInOutcome, useSignInLines } from '../../signin/SignInOutcome';
 import { useSignIn } from '../../signin/signIn';
-import { emptyPaidLine, lostLine, pausedLine, WAIT_LINE } from './lines';
+import { emptyPaidLine, lostLine, offlineLine, pausedLine, WAIT_LINE } from './lines';
 import { hasSlot, peekPendingAction, runAction, Slot, takePendingAction, type ActionName, type Viewer } from './parts';
-import { takeReturnSkill } from '../../signin/returnPlace';
+import { takeReturnSheet, takeReturnSkill } from '../../signin/returnPlace';
 import { usePetScreen, type Banner as BannerKind, type OwnerView } from './usePetScreen';
 import { useWaking } from './useWaking';
 
@@ -75,7 +88,6 @@ import { useWaking } from './useWaking';
 // change registers them. The words are the Scenarios' and the frames' `copy`, verbatim.
 const UNREACHABLE = "We can't reach the game right now. Try again in a moment.";
 const BUSY = 'Lots of visitors right now. Try again in a minute.';
-const offlineLine = (name: string) => `Can't reach ${name} right now. Nothing's lost — try again in a moment.`;
 const NOT_FOUND = "We couldn't find this pet. The link may be broken.";
 const FINDING = 'Finding this pet…';
 
@@ -99,8 +111,9 @@ function useFigure() {
   const hub = usePetMotion();
   const flat = lost || !canUseWebGL();
   // the flat drawing doesn't move, so it has no «Pause motion»; the stage is rebuilt around the figure when it
-  // goes, so the screen keeps the lost context for it
-  return { lost, onLost: () => setLost(true), hub, motion: flat ? null : <MotionToggle paused={paused} onToggle={toggle} /> };
+  // goes, so the screen keeps the lost context for it. `toggle` — what moves without the figure (the errand's walker) has one.
+  const toggleNode = <MotionToggle paused={paused} onToggle={toggle} />;
+  return { lost, paused, onLost: () => setLost(true), hub, motion: flat ? null : toggleNode, toggle: toggleNode };
 }
 
 function CheckLink({ tokenId, name }: { tokenId: string; name: string }) {
@@ -224,9 +237,118 @@ function OwnerPage({ pet, s }: { pet: OwnerView; s: ReturnType<typeof usePetScre
     setSkillSaved(saved);
   });
   const skillShown = skill.phase === 'open' || skill.phase === 'error';
+  // Adapter sheet (`Adapter sheet screen`): a step of Skill sheet, which keeps its fields and its place while the step stands. A source
+  // saved or removed brings Skill sheet back with the line; on a pet that fell asleep meanwhile a saved one closes the sheet and the
+  // page says the line in a toast (`Adapter connect flow` › «saved»).
+  const [adapterLine, setAdapterLine] = useState<string | null>(null);
+  const asleepNow = useRef(false);
+  asleepNow.current = pet.fullness.state === 'asleep';
+  const adapter = useAdapter(tokenId, {
+    tokenOf: s.tokenOf,
+    refused: (e) => {
+      skill.close();
+      s.report(e, () => undefined);
+    },
+    done: ({ kind, label: source }) => {
+      if (kind === 'saved' && asleepNow.current) {
+        skill.close();
+        setAdapterLine(connectedLine(name, source));
+        return;
+      }
+      void skill.refresh(kind === 'saved' ? connectedLine(name, source) : removedLine(name, source));
+    },
+    back: () => void skill.refresh(),
+  });
+
+  // Skill code sheet (`Skill code sheet screen`): the other step of Skill sheet, which keeps its fields and its place while it stands. Code
+  // saved or removed brings Skill sheet back with the line (`Skill code flow` › «code saved», «code removed»).
+  const code = useCode(tokenId, {
+    tokenOf: s.tokenOf,
+    refused: (e) => {
+      skill.close();
+      s.report(e, () => undefined);
+    },
+    done: ({ kind }) => void skill.refresh(kind === 'saved' ? codeSavedLine(name) : codeRemovedLine(name)),
+  });
+
+  // Errand sheet (`Errand sheet screen`): the rail's «Send {name} on an errand» opens it over the conversation column. Feed sheet
+  // opens over it (its «Feed {name}»), and the form and the text stay.
+  const errand = useErrand({
+    tokenId,
+    tokenOf: s.tokenOf,
+    refused: (e) => s.report(e, () => undefined),
+    failed: (e, retry) => s.report(e, retry),
+    sent: s.errandSent,
+    away: () => void s.look(),
+    watch: `${pet.fullness.state}|${pet.energy}|${pet.tired}|${pet.paused}|${pet.until ?? ''}`,
+  });
   // the sheets cover the page the same way: the one that is open takes the column
-  const cover = { ...feedCover, open: feedCover.open || skillShown };
+  const cover = { ...feedCover, open: feedCover.open || skillShown || errand.open };
   const here = useLocation();
+  // Back from the sign-in of Errand sheet's ended-session line: the sheet opens again with the form and the text as typed
+  useEffect(() => {
+    if (peekPendingAction() !== 'errand') return;
+    takePendingAction();
+    errand.openSheet(takeReturnSheet('errand', here) ?? undefined);
+    // once, when the owner's page is first drawn
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  // An errand that came back with a block (`Errand flow` › «blocked after Send»): the sheet opens with its form, its job and the block
+  const reopen = s.reopen;
+  useEffect(() => {
+    if (!reopen) return;
+    s.clearReopen();
+    closeFeed();
+    skill.close();
+    adapter.close();
+    code.close();
+    errand.openSheet({ form: reopen.form, job: reopen.job });
+    // the sheet opens once per block
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [reopen]);
+  // the sheet closed: an errand that came back with a block and is still kept stays in the conversation with «Try again»
+  const errandWasOpen = useRef(false);
+  useEffect(() => {
+    if (errandWasOpen.current && !errand.open) s.errandSheetClosed();
+    errandWasOpen.current = errand.open;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [errand.open]);
+  const openErrand = () => {
+    if (!auth.needSession()) return;
+    closeFeed();
+    skill.close();
+    adapter.close();
+    code.close();
+    errand.openSheet();
+  };
+  // Back from the sign-in of Adapter sheet's ended-session line: Skill sheet opens, and over it the sheet with the name and the typed
+  // address (unchecked), or the connected source it was on
+  useEffect(() => {
+    if (peekPendingAction() !== 'adapter') return;
+    takePendingAction();
+    const typed = takeReturnSheet('adapter', here);
+    void skill.open().then((answer) => {
+      if (!typed || !answer) return;
+      const connected = typed.sid ? answer.sources.find((x) => x.id === typed.sid) : undefined;
+      if (connected) adapter.openSource(connected, { label: typed.label });
+      else adapter.openNew({ label: typed.label, address: typed.address });
+    });
+    // once, when the owner's page is first drawn
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  // Back from the sign-in of Skill code sheet's ended-session line: Skill sheet opens, and over it the code sheet with the code, the
+  // function and the sample values as typed (no test outcome)
+  useEffect(() => {
+    if (peekPendingAction() !== 'code') return;
+    takePendingAction();
+    const typed = takeReturnSheet('code', here);
+    void skill.open().then((answer) => {
+      if (!answer || !typed) return;
+      code.openSheet(typed);
+    });
+    // once, when the owner's page is first drawn
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   // Back from the sign-in of Skill sheet's ended-session line: the sheet opens again with both fields as typed, unsaved
   useEffect(() => {
     if (peekPendingAction() !== 'skill') return;
@@ -235,9 +357,28 @@ function OwnerPage({ pet, s }: { pet: OwnerView; s: ReturnType<typeof usePetScre
     // once, when the owner's page is first drawn
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+  // Led here from the catalog («Back to {name}», or a saved connect): Skill sheet opens, with the line a connect left. A pet that fell
+  // asleep meanwhile has no Skill sheet; the line of a saved connect is said in a toast then (`Adapter catalog screen`).
+  useEffect(() => {
+    const arrival = takeSkillArrival(tokenId);
+    if (!arrival) return;
+    if (asleepNow.current) {
+      if (arrival.line) setAdapterLine(arrival.line);
+      return;
+    }
+    const line = arrival.line;
+    void skill.open().then((answer) => {
+      if (answer && line) skill.note(line);
+    });
+    // once, when the owner's page is first drawn
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   const openSkill = () => {
     if (!auth.needSession()) return;
     closeFeed();
+    errand.close();
+    adapter.close();
+    code.close();
     void skill.open();
   };
 
@@ -308,6 +449,13 @@ function OwnerPage({ pet, s }: { pet: OwnerView; s: ReturnType<typeof usePetScre
         ]
       : []),
   ];
+  // «Try again» under an errand that came back with nothing: Errand sheet with that form and job and a fresh price (`Errand flow` › «try again»)
+  const openAgain = (again: { form: ErrandForm; job: string }) => {
+    if (!auth.needSession()) return;
+    closeFeed();
+    skill.close();
+    errand.openSheet(again);
+  };
   const history = [
     ...all.flatMap((line, i): ReactNode[] => [
       line.who === 'event' ? (
@@ -315,11 +463,29 @@ function OwnerPage({ pet, s }: { pet: OwnerView; s: ReturnType<typeof usePetScre
           {line.text}
         </Message>
       ) : line.who === 'player' ? (
-        <Message key={line.id} from="player" speaker="You" fresh={line.fresh}>
+        <Message key={line.id} from="player" speaker="You" fresh={line.fresh} kicker={line.kicker ? FORM_WORD[line.kicker] : undefined}>
+          {line.text}
+        </Message>
+      ) : line.who === 'error' ? (
+        // an errand that came back with nothing: the line where the card would be, and «Try again» with its form and job
+        <Message
+          key={line.id}
+          from="error"
+          fresh={line.fresh}
+          actions={
+            line.retry ? (
+              <Button variant="secondary" size="compact" onClick={() => openAgain(line.retry!)}>
+                Try again
+              </Button>
+            ) : undefined
+          }
+        >
           {line.text}
         </Message>
       ) : line.who === 'worker' ? (
         <WorkerMessage key={line.id} line={line} />
+      ) : line.report ? (
+        <ReportMessage key={line.id} line={line} name={name} tokenId={tokenId} reveal={Boolean(line.fresh) && i === all.length - 1} />
       ) : (
         <Message
           key={line.id}
@@ -453,13 +619,31 @@ function OwnerPage({ pet, s }: { pet: OwnerView; s: ReturnType<typeof usePetScre
               <PetStage
                 compact
                 owner
-                pet={<PetFigure tokenId={tokenId} name={name} state={state} stage={pet.stage} mood={asleep ? null : pet.mood} size="hero" lost={figure.lost} onLost={figure.onLost} hub={hub} birth={birth} {...wearProps(pet.worn)} />}
-                motion={figure.motion}
+                pet={
+                  s.away ? (
+                    // the pet is off on an errand: the stage empties but for its light pool and the path (`Errand flow` › «sent»)
+                    <Away paused={figure.paused} />
+                  ) : (
+                    <PetFigure tokenId={tokenId} name={name} state={state} stage={pet.stage} mood={asleep ? null : pet.mood} size="hero" lost={figure.lost} onLost={figure.onLost} hub={hub} birth={birth} {...wearProps(pet.worn)} />
+                  )
+                }
+                // the walker of the errand moves on a flat page too (no WebGL, the context lost): «Pause motion» stops it (DS › Away)
+                motion={s.away ? figure.toggle : figure.motion}
                 rail={
                   asleep ? null : (
                     <Rail>
                       <RailItem icon="today" label="Today" href={`/pet/${tokenId}/diary`} role="food" />
                       <RailItem icon="hanger" label="Wardrobe" href={`/pet/${tokenId}/wardrobe`} />
+                      <RailItem
+                        icon="pack"
+                        label={`Send ${name} on an errand`}
+                        role="mind"
+                        haspopup="dialog"
+                        expanded={errand.open || undefined}
+                        off={s.away}
+                        describedBy={s.away ? 'errand-away' : undefined}
+                        onClick={openErrand}
+                      />
                       <RailItem icon="gift" label={`Give ${name} away`} haspopup="dialog" onClick={() => act('gift')} />
                     </Rail>
                   )
@@ -508,8 +692,8 @@ function OwnerPage({ pet, s }: { pet: OwnerView; s: ReturnType<typeof usePetScre
                   ) : null}
                   {s.ownLost && !s.busy ? <OwnLostMessage key="own-lost" name={name} worker={lastWorker} onTryAgain={s.finishHire} /> : null}
                   {s.busy ? (
-                    <Thinking key="thinking" wait={s.waiting ? WAIT_LINE : undefined}>
-                      {s.asking ? askingLine(name, s.asking) : `${name} is thinking${s.jobMode === 'deep' ? ' hard' : ''}…`}
+                    <Thinking key="thinking" id={s.away ? 'errand-away' : undefined} wait={s.waiting ? WAIT_LINE : undefined}>
+                      {s.away ? sentLine(name) : s.asking ? askingLine(name, s.asking) : `${name} is thinking${s.jobMode === 'deep' ? ' hard' : ''}…`}
                     </Thinking>
                   ) : null}
                 </Conversation>
@@ -519,8 +703,36 @@ function OwnerPage({ pet, s }: { pet: OwnerView; s: ReturnType<typeof usePetScre
                   <Live alert>{signedOut ? signInLines.map((l) => l.text).join(' ') : ''}</Live>
                 </Dock>
               </Inert>
+              {/* Feed sheet stands over this one: the errand's sheet is out of reach while it is open, and keeps its form and text */}
+              <Inert on={feedCover.open}>
+                <ErrandSheet name={name} errand={errand} onFeed={() => openFeed({ tokenId, name, label: name, elsewhere: false })} />
+              </Inert>
               <FeedLayer column pageFullness={pet.fullness} />
-              <SkillSheet name={name} skill={skill} hasLabel={label !== null} onClose={skill.close} />
+              <SkillSheet
+                name={name}
+                skill={skill}
+                hasLabel={label !== null}
+                onClose={skill.close}
+                hidden={adapter.open || code.open}
+                sockets={{ onConnect: () => adapter.openNew(), onSource: (source) => adapter.openSource(source), onCode: () => code.openSheet() }}
+              />
+              <AdapterSheet
+                name={name}
+                adapter={adapter}
+                tokenId={tokenId}
+                onClose={() => {
+                  adapter.close();
+                  skill.close();
+                }}
+              />
+              <CodeSheet
+                name={name}
+                sheet={code}
+                onClose={() => {
+                  code.close();
+                  skill.close();
+                }}
+              />
             </Stack>
           }
         />
@@ -529,6 +741,12 @@ function OwnerPage({ pet, s }: { pet: OwnerView; s: ReturnType<typeof usePetScre
       {skillSaved ? (
         <Toast icon="check" silent onDone={toastHeld() ? undefined : () => setSkillSaved(false)}>
           {skillSavedLine(name)}
+        </Toast>
+      ) : null}
+      <Live>{adapterLine ?? ''}</Live>
+      {adapterLine ? (
+        <Toast icon="check" silent onDone={toastHeld() ? undefined : () => setAdapterLine(null)}>
+          {adapterLine}
         </Toast>
       ) : null}
     </Shell>
@@ -874,12 +1092,28 @@ export function PetScreen({ tokenId, from, diary = false, wardrobe = false }: { 
   // out of reach while the notice stands. The dialog is beside the Shell, which is where the DS sets the text colour and the font and
   // the pet's accent: they are given here.
   const noticeSlug = owner !== null ? notice.open : null;
+  // Verdict card (`Verdict card screen`): the tab's memory of one «Share card» tap. It goes with the pet's owner, the screen and the
+  // page: a pet that is someone else's now, or another pet's page, has no card of this one.
+  const verdict = useVerdictRequest();
+  const cardShown = owner !== null && verdict !== null;
+  useEffect(() => {
+    if (owner === null) closeVerdict();
+  }, [owner === null]);
+  useEffect(() => closeVerdict, [tokenId]);
   return (
     <>
       <Live>{outcomeLine(s.page, s.notice)}</Live>
-      <Inert on={noticeSlug !== null}>
+      <Inert on={noticeSlug !== null || cardShown}>
         <PetView s={s} d={d} w={w} diary={standing} wardrobe={standingWardrobe} />
       </Inert>
+      {owner !== null && verdict !== null ? (
+        <div className="ds-only" data-accent={accentOf(tokenId)} style={{ color: 'var(--color-text-primary)', fontFamily: 'var(--font-sans)' }}>
+          <VerdictCard
+            request={verdict}
+            pet={{ tokenId, name: owner.name, stage: owner.stage, state: owner.fullness.state, worn: owner.worn }}
+          />
+        </div>
+      ) : null}
       {owner !== null && noticeSlug !== null ? (
         <div className="ds-only" data-accent={accentOf(tokenId)} style={{ color: 'var(--color-text-primary)', fontFamily: 'var(--font-sans)' }}>
           <NewOutfitNotice pet={owner} slug={noticeSlug} wearing={notice.wearing} failed={notice.failed} onWear={() => void notice.wear()} onLater={notice.later} />

@@ -105,6 +105,9 @@ export type PetView =
       pendingProgress: { asking: string } | null;
       /** how many of the pet's hires the batch settled (recorded or dropped): a change makes the page read the conversation again */
       hiresSeen: number;
+      /** the errand the pet is off on, or the one that came back without a report and is kept for «Try again»; null with none
+       *  (`Errand flow`). Only `GET …/state` carries it: the page reads the state once on load and keeps it from the polls. */
+      errand?: ErrandState | null;
     } & PetBase &
       MyFeed);
 
@@ -162,7 +165,12 @@ export type ThoughtCode =
   | 'worker_asleep'
   | 'worker_resting'
   /** advice only: the paying pet or the friend's pet is not there any more, or they now share an owner */
-  | 'no_pet';
+  | 'no_pet'
+  /** a worker's data source or code did not answer (`Adapter call rule`); on an advice `paid` says whether the paying pet's food paid */
+  | 'data_failed'
+  /** an errand's job: it ended with no report (the page reads `PetState.errand`), or after the 3 minutes */
+  | 'errand_failed'
+  | 'late';
 export type PetEvent = 'fell_asleep' | 'daily_cap_reached' | 'woke';
 export interface Thought {
   id: string;
@@ -177,6 +185,8 @@ export interface Thought {
   kind?: 'advice';
   worker?: WorkerRef;
   skilled?: boolean;
+  /** an advice that read the worker's data sources: their names, once each (`Adapter call rule` › «advice line») */
+  dataLabels?: string[];
 }
 /** The pet whose answer a worker line is: its token id (the receipt is `/pet/<token_id>/verify/<id>`) and its name. */
 export interface WorkerRef {
@@ -184,6 +194,14 @@ export interface WorkerRef {
   name: string;
 }
 /** `GET /api/pets/:id/state` — the owner's view plus the outcome of the job asked for. */
+export type ErrandForm = 'read' | 'find' | 'check';
+export type ErrandFailure = 'unreadable' | 'too_long' | 'search_down' | 'empty' | 'timeout' | 'blocked';
+/** `PetState.errand` (`GET /api/pets/:id/state`): the owner's only. `job` is null once the memory was cleared. `done` comes once,
+ *  to the first read after an errand whose report a clear took on the way (`Errand flow` › «memory cleared on the way»). */
+export type ErrandState =
+  | { state: 'away'; form: ErrandForm; job: string | null; sentAt: number }
+  | { state: 'done'; cleared: true; priceCents: number }
+  | { state: 'failed'; form: ErrandForm; job: string | null; reason: ErrandFailure; cause?: 'unreachable' | 'no_search'; priceCents?: number };
 export type PetState = Omit<Extract<PetView, { viewer: 'owner' }>, 'viewer' | 'ownedCount' | 'myFeed'> & {
   /** the poll's answer carries it only when the tab has a flight to learn of */
   myFeed?: MyFeed['myFeed'];
@@ -194,6 +212,8 @@ export type PetState = Omit<Extract<PetView, { viewer: 'owner' }>, 'viewer' | 'o
   code?: ThoughtCode;
   /** with `own_lost`, the outcome of the tab's own job only: the turn «Try again» finishes. A reload does not carry it. */
   ownLost?: { turn: string };
+  /** with `data_failed` of an advice: whether the paying pet's food paid for the data call (past three) */
+  paid?: boolean;
   /** with `price_rose`: the worker's price now */
   price?: Price;
   events: PetEvent[];
@@ -204,13 +224,30 @@ export type PetState = Omit<Extract<PetView, { viewer: 'owner' }>, 'viewer' | 'o
 /** What a hire cost, under the line it belongs to: the fee in yocto and in cents at the rate it was made, or `noFee` when the
  *  contract did not take the hire's record (`Pet hire flow` › «найм не записан в сети»). `worker` is the worker's name. */
 export type HireMeta = { worker: string; price: string; priceCents: number } | { worker: string; noFee: true };
+/** What an errand's report holds (`GET …/conversation`, a `pet` line with a `report`): `sources` are the results it cites, at most 5,
+ *  `{ label: host, url }` (a read of pasted text: `{ label: 'Your text' }`); `verdict` only for «Is it true?»; `missed` — the data
+ *  sources that did not answer, and `{ code: true }` for the skill's code that did not (`Adapter call rule` › «data failed in an errand, code»). */
+export interface ErrandReport {
+  form: ErrandForm;
+  sources: Array<{ label: string; url?: string }>;
+  verdict: 'true' | 'false' | 'unclear' | null;
+  searches: number;
+  priceCents: number;
+  missed: Array<string | { code: true }>;
+}
 export interface ConversationLine {
   id: string;
   /** `event`: the line of a stage change (`Growth flow`) or a hire that did not happen (`code`), the game's, not the pet's.
-   *  `worker`: the words of another pet, in its voice. */
-  who: 'player' | 'pet' | 'event' | 'worker';
+   *  `worker`: the words of another pet, in its voice. `error`: an errand that came back with nothing (`code` `errand_empty`). */
+  who: 'player' | 'pet' | 'event' | 'worker' | 'error';
   /** absent from an event that carries a `code` */
   text?: string;
+  /** the errand's form above the job under «You» */
+  kicker?: ErrandForm;
+  /** a `pet` line that is an errand's report */
+  report?: ErrandReport;
+  /** the data sources a worker's answer read, once each */
+  dataLabels?: string[];
   at: number;
   cut?: Thought['cut'];
   price?: string;
@@ -220,8 +257,9 @@ export interface ConversationLine {
   /** `worker`, and an event with a `code`: whose answer, or which hire */
   worker?: { tokenId: string | null; name: string | null };
   skilled?: boolean;
-  /** `event`: `hire_failed` — {worker} couldn't help just now; `hire_empty` — {worker} came up empty */
-  code?: 'hire_failed' | 'hire_empty';
+  /** `event`: `hire_failed` — {worker} couldn't help just now; `hire_empty` — {worker} came up empty; `hire_data_failed` — its data
+   *  didn't answer (`…_paid`: and the pet's food paid for the try). `error`: `errand_empty` (`priceCents` is what the errand cost) */
+  code?: 'hire_failed' | 'hire_empty' | 'hire_data_failed' | 'hire_data_failed_paid' | 'errand_empty';
   hire?: HireMeta;
 }
 export interface Conversation {
@@ -398,15 +436,105 @@ export interface AdviceRead {
   /** a skilled worker above its starting price: when the price falls back, ISO */
   dropsAt: string | null;
   pending: { job: string; question: string } | null;
-  last: { id: string; question: string; text: string; skilled: boolean; price?: string; priceCents?: number } | null;
+  last: { id: string; question: string; text: string; skilled: boolean; price?: string; priceCents?: number; dataLabels?: string[] } | null;
   /** the services are on a pause: «several at once» draws its line first, and the page reads again until it lifts */
   paused: boolean;
+  /** the names of the worker's data sources with a tool ticked: «Whoever runs {labels} sees what {name} looks up there…» */
+  labels?: string[];
 }
 
 /** `GET /api/pets/:id/skill` (the owner's only): the skill as written, decrypted in memory for this answer. */
 export interface SkillText {
   label: string;
   instruction: string;
+}
+
+/** A parameter of a tool as the sheet words it («Takes: month (number), day (number).»). */
+export interface ToolParam {
+  name: string;
+  type: 'number' | 'integer' | 'boolean' | 'pick' | 'text';
+  /** a `pick`: the values the tool accepts */
+  options?: string[];
+  /** a `text`: the longest value the tool takes, when its schema says */
+  maxLength?: number;
+  required: boolean;
+}
+
+/** A tool of a data source, or a function of the skill's code, as tested. `tickable: false` takes free text — never called. */
+export interface ToolView {
+  name: string;
+  description: string;
+  params: ToolParam[];
+  tickable: boolean;
+  reason?: 'free_text';
+  ticked?: boolean;
+}
+
+/** A data source of the skill as the owner sees it: never its address (`publicAddress` only for a copy from the catalog). */
+export interface SourceView {
+  id: string;
+  label: string;
+  tools: ToolView[];
+  publicAddress?: string;
+  /** its entry stands in the catalog */
+  published: boolean;
+  /** a copy whose entry has left the catalog */
+  catalogGone: boolean;
+  /** it came with a gift: the new owner cannot publish it */
+  gift: boolean;
+}
+
+/** `GET /api/pets/:id/skill`: the skill, its data sources and the functions its code declares. */
+export interface SkillRead {
+  skill: SkillText | null;
+  sources: SourceView[];
+  code: { functions: ToolView[] } | null;
+}
+
+/** `GET /api/adapters`: one entry of the catalog, newest first. */
+export interface CatalogEntryView {
+  id: string;
+  name: string;
+  address: string;
+  tools: Array<{ name: string; description: string; params: ToolParam[]; tickable: boolean; reason?: 'free_text' }>;
+  petId: string;
+  petName: string;
+  publishedAt: number;
+}
+
+/** `GET /api/pets/:id/code` (the owner's only): the code, the functions it declares, the test runs left today. */
+export interface CodeRead {
+  code: string | null;
+  functions: ToolView[];
+  testsLeft: number;
+}
+
+/** `POST /api/pets/:id/code/test`: `undeclared` — the function is not one the code declares (no run was used). */
+export type CodeTestResult =
+  | { outcome: 'ok'; output: string; functions: ToolView[] }
+  | { outcome: 'limit' }
+  | { outcome: 'error'; error: string }
+  | { outcome: 'undeclared'; fn: string };
+
+/** What stops an errand at «Send» (`Errand flow`): the first that holds, in the order of «several blocks at once». */
+export interface ErrandBlock {
+  reason: 'paused' | 'food' | 'asleep' | 'energy' | 'cap';
+  /** the price a start needs (`food`, `asleep`): «This errand needs up to {price} of food» */
+  need?: Price;
+  /** the next 00:00 UTC, ISO (`energy`, `cap`) */
+  until?: string;
+}
+
+/** `GET /api/pets/:id/errand?form=`: what Errand sheet shows before «Send». `read.base` and `read.perToken` are yocto: the client
+ *  prices a pasted text with no request per keystroke. */
+export interface ErrandQuote {
+  form: ErrandForm;
+  paused: boolean;
+  read: { typical: Price; base: string; perToken: string };
+  search: { upTo: Price; full: boolean; short: boolean; searches: 1 | 2 | 3; allowance: 1 | 2 | 3 };
+  block: ErrandBlock | null;
+  /** the names of the skill's data sources */
+  labels: string[];
 }
 
 export interface WorkerApi {
@@ -480,10 +608,37 @@ export interface WorkerApi {
   /** The question, at the price the button showed (yocto, a ceiling): the payer's job. Refusals: `409 paused | pending | same_owner`,
    *  `403 not_payer`, `400 bad_request`. */
   askAdvice(token: Token, tokenId: string, body: { payer: string; text: string; price: string }): Promise<{ job: string }>;
-  /** The owner's skill, as written; `skill: null` with none. Refusals: `403 not_owner`, `500 skill_unreadable`, `503 chain_unreachable`. */
-  skill(token: Token, tokenId: string): Promise<{ skill: SkillText | null }>;
+  /** The owner's skill, as written; `skill: null` with none, with its data sources and the functions of its code. Refusals: `403
+   *  not_owner`, `500 skill_unreadable`, `503 chain_unreachable`. */
+  skill(token: Token, tokenId: string): Promise<SkillRead>;
   /** Saves it (the label cleaned). Refusals: `400 bad_label | bad_request`, `500 skill_unreadable`, `403 not_owner`, `503`. */
   saveSkill(token: Token, tokenId: string, body: SkillText): Promise<{ skill: { label: string } }>;
   /** «Forget this skill». */
   forgetSkill(token: Token, tokenId: string): Promise<{ skill: null }>;
+
+  // — add-pet-errands —
+  /** The quote of Errand sheet for `form`. Refusals: `403 not_owner`, `404 no_pet`, `400 bad_request`, `401`, `503 chain_unreachable`. */
+  errand(token: Token, tokenId: string, form: ErrandForm): Promise<ErrandQuote>;
+  /** «Send»: the desk's job (`202`). Refusals: `409 blocked` (the body's `block`), `409 away`, `400 bad_request`. */
+  sendErrand(token: Token, tokenId: string, body: { form: ErrandForm; job: string }): Promise<{ job: string }>;
+  /** The catalog of adapters, anyone's. */
+  adapters(token: Token): Promise<{ entries: CatalogEntryView[] }>;
+  /** «Check address»: the test call, nothing stored. Refusals: `422 address_failed`, `400 bad_request`. */
+  checkSource(token: Token, tokenId: string, address: string): Promise<{ tools: ToolView[] }>;
+  /** Connect: an own `address` or a catalog `entry`, the ticks. Refusals: `422 address_failed`, `409 no_skill | full`, `404 no_entry`,
+   *  `400 bad_label | bad_request`. */
+  saveSource(token: Token, tokenId: string, body: { label: string; address?: string; entry?: string; ticks: string[] }): Promise<{ source: SourceView }>;
+  /** Edit a connected source: its name and ticks. Refusals: `422 address_failed`, `404 no_source`, `400 bad_label | bad_request`. */
+  editSource(token: Token, tokenId: string, sid: string, body: { label: string; ticks: string[] }): Promise<{ source: SourceView }>;
+  removeSource(token: Token, tokenId: string, sid: string): Promise<{ removed: true }>;
+  /** Publish to the catalog. Refusals: `409 copy | gift | insult`, `404 no_source`. */
+  publishSource(token: Token, tokenId: string, sid: string): Promise<{ source: SourceView }>;
+  unpublishSource(token: Token, tokenId: string, sid: string): Promise<{ source: SourceView }>;
+  /** The skill's code, as written. Refusals: `403 not_owner`, `500 skill_unreadable`. */
+  code(token: Token, tokenId: string): Promise<CodeRead>;
+  /** «Test run». Refusals: `429 tests_used_up | game_capped`, `409 no_skill`, `400 bad_request`. */
+  testCode(token: Token, tokenId: string, body: { code: string; fn: string; values: string }): Promise<CodeTestResult>;
+  /** «Save code»: only the code that passed a test run today. Refusals: `409 not_tested | no_skill`, `400 bad_request`. */
+  saveCode(token: Token, tokenId: string, body: { code: string; ticks: string[] }): Promise<{ code: { functions: ToolView[] } }>;
+  removeCode(token: Token, tokenId: string): Promise<{ removed: true }>;
 }

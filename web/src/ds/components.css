@@ -333,6 +333,9 @@
 .ds-pet--md .ds-pet__img { max-width: min(var(--size-pet-md), 100%); max-height: var(--size-pet-md); }
 .ds-pet--sm { width: var(--size-pet-sm); height: var(--size-pet-sm); }
 .ds-pet--sm .ds-pet__img { width: 100%; height: 100%; object-fit: contain; }
+/* fill — as tall as its box (Meadow), as wide as its still */
+.ds-pet--fill { height: 100%; }
+.ds-pet--fill .ds-pet__img { height: 100%; width: auto; max-width: none; }
 
 /* ── Fullness: cells of the pet's light — bright when full, dim when hungry, one ember asleep ──────────── */
 .ds-fullness { display: inline-flex; align-items: center; gap: var(--space-3); }
@@ -1337,6 +1340,62 @@
   .ds-menu { border-color: CanvasText; }
 }
 
+/* ── Meadow: Home's sample pets on one ground under the hook ───────────────────────────────────────────── */
+/* the full width of the page, the room left under the hook — it gives way first, down to nothing, so a pinned action
+   below it stays on screen; a pet's x puts it from flush left (0) to flush right (1), its depth from the back (0, small,
+   high) to the front (1, large, low); a pet stands on its baseline and is never taller than its share of the ground */
+.ds-meadow { display: flex; flex: 1 1 auto; flex-direction: column; min-height: var(--space-0); }
+.ds-meadow__ground { position: relative; flex: 1 1 auto; min-height: var(--space-0); overflow: hidden; isolation: isolate; container-type: size; }
+.ds-meadow__ground::before {
+  content: "";
+  position: absolute;
+  inset: 18% 2% -12% 2%;
+  background: radial-gradient(ellipse 50% 55% at 50% 55%, var(--color-bg-raised), transparent);
+}
+.ds-meadow__pet {
+  --ds-meadow-stage: 1;
+  --ds-meadow-pet: var(--size-meadow-pet-compact);
+  --ds-meadow-near: calc(0.62 + 0.38 * var(--depth));
+  position: absolute;
+  left: calc(var(--x) * 100%);
+  top: calc((0.3 + 0.66 * var(--depth)) * 100%);
+  height: calc(min(var(--ds-meadow-pet), var(--size-meadow-pet-share)) * var(--ds-meadow-stage) * var(--ds-meadow-near));
+  transform: translate(calc(var(--x) * -100%), -100%);
+}
+.ds-meadow__pet--teen { --ds-meadow-stage: 0.85; }
+.ds-meadow__pet--baby { --ds-meadow-stage: 0.7; }
+.ds-meadow__pet--flip .ds-pet { transform: scaleX(-1); }
+.ds-meadow__pet--wide { display: none; }
+/* asleep: the still's ember, dimmed further so a sleeper reads at a glance among the awake */
+.ds-meadow__pet--asleep .ds-pet { filter: brightness(var(--brightness-asleep)) saturate(var(--saturate-asleep)); }
+/* two «z» rising from the sleeper's head in turn */
+.ds-meadow__zz { position: absolute; left: 58%; top: var(--space-0); color: var(--color-text-secondary); }
+.ds-meadow__zz .ds-icon { position: absolute; left: var(--space-0); top: var(--space-0); opacity: 0; animation: ds-meadow-zz var(--duration-zz) var(--easing-enter) infinite; }
+.ds-meadow__zz .ds-icon:first-child { animation-delay: calc(var(--duration-zz) * -0.3); }
+.ds-meadow__zz .ds-icon:last-child { animation-delay: calc(var(--duration-zz) * -0.8); }
+@keyframes ds-meadow-zz {
+  0% { opacity: 0; transform: translate(var(--space-0), var(--space-0)); }
+  20% { opacity: 1; }
+  100% { opacity: 0; transform: translate(calc(var(--shift-zz) * 0.4), calc(var(--shift-zz) * -1)); }
+}
+/* the toggle's own row under the ground, at the right: nothing stands under it */
+.ds-meadow__motion { display: flex; flex: none; justify-content: flex-end; padding-block: var(--space-2); }
+@media (min-width: 768px) {
+  .ds-meadow__pet { --ds-meadow-pet: var(--size-meadow-pet); }
+  .ds-meadow__pet--wide { display: block; }
+  .ds-meadow__motion { padding-block: var(--space-3) var(--space-5); }
+}
+/* paused («Pause motion») and reduced motion: the «z» stand still, both shown */
+.ds-meadow--paused .ds-meadow__zz .ds-icon { animation: none; opacity: 1; }
+.ds-meadow--paused .ds-meadow__zz .ds-icon:last-child { transform: translate(calc(var(--shift-zz) * 0.3), calc(var(--shift-zz) * -0.5)); }
+@media (prefers-reduced-motion: reduce) {
+  .ds-meadow__zz .ds-icon { animation: none; opacity: 1; }
+  .ds-meadow__zz .ds-icon:last-child { transform: translate(calc(var(--shift-zz) * 0.3), calc(var(--shift-zz) * -0.5)); }
+}
+@media (forced-colors: active) {
+  .ds-meadow__ground::before { display: none; }
+}
+
 /* ── Actions: one moment's actions — stacked full width on the phone, side by side on the desktop ─────────── */
 .ds-actions { display: flex; flex-direction: column; gap: var(--space-2); }
 
@@ -1451,7 +1510,9 @@
 .ds-toast {
   /* in the header's band, centred, as wide as its words up to the narrow column: it never touches a panel or the pet */
   position: fixed;
-  inset-block-start: calc((var(--size-header) - var(--size-target)) / 2);
+  /* phone: under the header's band, never over its controls (they span the width there); desktop: in the band,
+     between them */
+  inset-block-start: calc(var(--size-header) + var(--space-2));
   inset-inline: var(--space-gutter-phone);
   z-index: var(--layer-toast);
   box-sizing: border-box;

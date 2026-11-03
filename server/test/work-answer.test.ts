@@ -20,7 +20,7 @@ const HIGH = 10n ** 30n;
 async function call(question = 'What should I plant?', payerId = PAYER): Promise<WorkerOutcome> {
   const held = await hold(env, WORKER, day(), HIGH, Date.now());
   if (!held.ok) throw new Error('no place');
-  return workerCall(env, { worker: { id: WORKER, pet: await workerRecord() }, question, fee: held.fee, payerId, day: day() });
+  return workerCall(env, { worker: { id: WORKER, pet: await workerRecord() }, question, fee: held.fee, payerId, day: day(), job: 'advice' });
 }
 const spend = async () => (await env.DB.prepare('SELECT kind, usd_micros FROM project_spend ORDER BY rowid').all<{ kind: string; usd_micros: number }>()).results;
 const places = async () => env.DB.prepare('SELECT n, held FROM worker_answers WHERE token_id = ? AND day = ?').bind(WORKER, day()).first<{ n: number; held: number }>();

@@ -10,12 +10,20 @@ import { sampleDiary } from './diary.sample';
 import { fakeState, recordCall, type FakeFail, type FakeWorkerState } from './fakes';
 import {
   WorkerError,
+  type CatalogEntryView,
+  type CodeRead,
+  type CodeTestResult,
+  type ErrandForm,
+  type ErrandQuote,
   type FeedOutcome,
   type FeedSheetData,
   type PetView,
   type PortionNear,
   type SessionResult,
   type SignInGate,
+  type SkillRead,
+  type SourceView,
+  type ToolView,
   type WalletInfo,
   type WorkerApi,
 } from './worker-types';
@@ -64,6 +72,34 @@ const OWNER_DEFAULTS = {
   pendingProgress: null,
   hiresSeen: 0,
 };
+
+const EMPTY_SKILL: SkillRead = { skill: null, sources: [], code: null };
+const EMPTY_CODE: CodeRead = { code: null, functions: [], testsLeft: 20 };
+
+/** Daybook's tools (the frames' sample data source, design/bundle/screens/adapter.js): one tickable, one that takes free text. */
+const SAMPLE_TOOLS: ToolView[] = [
+  { name: 'events_on', description: 'Notable events on a date.', params: [{ name: 'month', type: 'number', required: true }, { name: 'day', type: 'number', required: true }], tickable: true },
+  { name: 'search_events', description: 'Searches events by any words.', params: [], tickable: false, reason: 'free_text' },
+];
+const SAMPLE_FUNCTIONS: ToolView[] = [
+  { name: 'openerFor', description: 'An opening line for a date.', params: [{ name: 'month', type: 'number', required: true }, { name: 'day', type: 'number', required: true }], tickable: true, ticked: true },
+];
+const sampleSource = (id: string): SourceView => ({ id, label: 'Daybook', tools: SAMPLE_TOOLS.map((t) => ({ ...t, ticked: t.tickable })), published: false, catalogGone: false, gift: false });
+const SAMPLE_ENTRIES: CatalogEntryView[] = [
+  { id: 'c1d2e3f4a5b60718293a4b5c', name: 'Open-Meteo', address: 'https://mcp.example.com/open-meteo', tools: SAMPLE_TOOLS.slice(0, 1), petId: '5', petName: 'Sage', publishedAt: 1_700_000_000_000 },
+];
+
+/** The quote the real route builds for a pet that can pay: a typical read ≈ 0.15¢, a search form up to ≈ 2¢, no block. */
+function defaultQuote(form: ErrandForm): ErrandQuote {
+  return {
+    form,
+    paused: false,
+    read: { typical: { yocto: '325000000000000000000', cents: 0.15 }, base: '200000000000000000000', perToken: '42000000000000000' },
+    search: { upTo: { yocto: '4330000000000000000000', cents: 2 }, full: true, short: false, searches: 3, allowance: 3 },
+    block: null,
+    labels: [],
+  };
+}
 
 function petsOf(): NonNullable<FakeWorkerState['pets']> {
   return state().pets ?? { '9': PIXEL, '2': BISCUIT };
@@ -456,7 +492,9 @@ export const fakeWorkerApi: WorkerApi = {
   skill: async (token) => {
     if (token === null) throw new WorkerError(401, 'signed_out');
     needSession(token);
-    return answer('skill', state().skill, { skill: null });
+    const configured = state().skill;
+    if (isFail(configured)) return answer('skill', configured, EMPTY_SKILL);
+    return answer('skill', { ...EMPTY_SKILL, ...configured }, EMPTY_SKILL);
   },
 
   saveSkill: async (token, tokenId, body) => {
@@ -467,7 +505,7 @@ export const fakeWorkerApi: WorkerApi = {
     const held = fakeState().worker;
     const pet = petsOf()[tokenId];
     if (held && pet) {
-      held.skill = { skill: { label: result.skill.label, instruction: body.instruction } };
+      held.skill = { ...(isFail(held.skill) ? {} : held.skill), skill: { label: result.skill.label, instruction: body.instruction } };
       held.pets = { ...petsOf(), [tokenId]: { ...pet, skill: result.skill } };
     }
     return result;
@@ -480,9 +518,144 @@ export const fakeWorkerApi: WorkerApi = {
     const held = fakeState().worker;
     const pet = petsOf()[tokenId];
     if (held && pet) {
-      held.skill = { skill: null };
+      // what the real route leaves behind: no skill, and its data sources and code go with it
+      held.skill = { skill: null, sources: [], code: null };
       held.pets = { ...petsOf(), [tokenId]: { ...pet, skill: null } };
     }
+    return result;
+  },
+
+  errand: async (token, tokenId, form) => {
+    recordCall(`worker:errand:${form}`);
+    if (token === null) throw new WorkerError(401, 'signed_out');
+    needSession(token);
+    const ms = state().delayMs ?? 0;
+    if (ms > 0) await wait(ms);
+    if (!petsOf()[tokenId]) throw new WorkerError(404, 'no_pet');
+    if (!(state().owned ?? []).includes(tokenId)) throw new WorkerError(403, 'not_owner');
+    const configured = state().errand;
+    if (isFail(configured)) throw new WorkerError(configured.fail.status, configured.fail.code, configured.fail.body ?? null);
+    return { ...defaultQuote(form), ...configured, form };
+  },
+
+  sendErrand: async (token, tokenId, body) => {
+    recordCall(`worker:sendErrand:${body.form}`);
+    if (token === null) throw new WorkerError(401, 'signed_out');
+    needSession(token);
+    const held = fakeState().worker;
+    // a second errand while the pet is away (a stale tab, another tab): the one-at-a-time rule
+    if (held?.petState && !isFail(held.petState) && held.petState.errand?.state === 'away') throw new WorkerError(409, 'away');
+    const result = await answer('sendErrand', state().sendErrand, { job: 'job-errand' });
+    // what the real route leaves behind: the pet is away, with the form and the job, for every look that follows
+    if (held) held.petState = { ...(isFail(held.petState) ? {} : held.petState), errand: { state: 'away', form: body.form, job: body.job, sentAt: Date.now() } };
+    return result;
+  },
+
+  adapters: async () => answer('adapters', state().adapters, { entries: SAMPLE_ENTRIES }, state().adaptersDelayMs),
+
+  checkSource: async (token) => {
+    if (token === null) throw new WorkerError(401, 'signed_out');
+    needSession(token);
+    return answer('checkSource', state().checkSource, { tools: SAMPLE_TOOLS });
+  },
+
+  saveSource: async (token, tokenId, body) => {
+    recordCall(`worker:saveSource:${body.label}`);
+    if (token === null) throw new WorkerError(401, 'signed_out');
+    needSession(token);
+    const source: SourceView = {
+      id: 'a1b2c3d4e5f60718293a4b5c',
+      label: body.label,
+      tools: SAMPLE_TOOLS.map((t) => ({ ...t, ticked: t.tickable && body.ticks.includes(t.name) })),
+      ...(body.entry ? { publicAddress: 'https://mcp.example.com/open-meteo' } : {}),
+      published: false,
+      catalogGone: false,
+      gift: false,
+    };
+    const result = await answer('saveSource', state().saveSource, { source });
+    const held = fakeState().worker;
+    if (held && !isFail(held.saveSource)) held.skill = { ...EMPTY_SKILL, ...(isFail(held.skill) ? {} : held.skill), sources: [...((isFail(held.skill) ? null : held.skill?.sources) ?? []), result.source] };
+    return result;
+  },
+
+  editSource: async (token, _tokenId, sid, body) => {
+    recordCall(`worker:editSource:${body.label}`);
+    if (token === null) throw new WorkerError(401, 'signed_out');
+    needSession(token);
+    const held = fakeState().worker;
+    const mine = ((isFail(held?.skill) ? null : held?.skill?.sources) ?? []).find((s) => s.id === sid);
+    const source: SourceView = {
+      ...(mine ?? { id: sid, published: false, catalogGone: false, gift: false }),
+      label: body.label,
+      tools: (mine?.tools ?? SAMPLE_TOOLS).map((t) => ({ ...t, ticked: t.tickable && body.ticks.includes(t.name) })),
+    };
+    const result = await answer('editSource', state().editSource, { source });
+    if (held && !isFail(held.skill)) held.skill = { ...held.skill, sources: (held.skill?.sources ?? []).map((s) => (s.id === sid ? result.source : s)) };
+    return result;
+  },
+
+  removeSource: async (token, _tokenId, sid) => {
+    if (token === null) throw new WorkerError(401, 'signed_out');
+    needSession(token);
+    const result = await answer('removeSource', state().removeSource, { removed: true as const });
+    const held = fakeState().worker;
+    if (held && !isFail(held.skill)) held.skill = { ...held.skill, sources: (held.skill?.sources ?? []).filter((s) => s.id !== sid) };
+    return result;
+  },
+
+  publishSource: async (token, _tokenId, sid) => {
+    if (token === null) throw new WorkerError(401, 'signed_out');
+    needSession(token);
+    const held = fakeState().worker;
+    const mine = ((isFail(held?.skill) ? null : held?.skill?.sources) ?? []).find((s) => s.id === sid);
+    const result = await answer('publishSource', state().publishSource, { source: { ...(mine ?? sampleSource(sid)), published: true } });
+    if (held && !isFail(held.skill)) held.skill = { ...held.skill, sources: (held.skill?.sources ?? []).map((s) => (s.id === sid ? result.source : s)) };
+    return result;
+  },
+
+  unpublishSource: async (token, _tokenId, sid) => {
+    if (token === null) throw new WorkerError(401, 'signed_out');
+    needSession(token);
+    const held = fakeState().worker;
+    const mine = ((isFail(held?.skill) ? null : held?.skill?.sources) ?? []).find((s) => s.id === sid);
+    const result = await answer('unpublishSource', state().unpublishSource, { source: { ...(mine ?? sampleSource(sid)), published: false } });
+    if (held && !isFail(held.skill)) held.skill = { ...held.skill, sources: (held.skill?.sources ?? []).map((s) => (s.id === sid ? result.source : s)) };
+    return result;
+  },
+
+  code: async (token) => {
+    if (token === null) throw new WorkerError(401, 'signed_out');
+    needSession(token);
+    const configured = state().code;
+    if (isFail(configured)) return answer('code', configured, EMPTY_CODE);
+    return answer('code', { ...EMPTY_CODE, ...configured }, EMPTY_CODE);
+  },
+
+  testCode: async (token, _tokenId, body) => {
+    recordCall(`worker:testCode:${body.fn}`);
+    if (token === null) throw new WorkerError(401, 'signed_out');
+    needSession(token);
+    return answer<CodeTestResult>('testCode', state().testCode, { outcome: 'ok', output: '"ok"', functions: SAMPLE_FUNCTIONS });
+  },
+
+  saveCode: async (token, _tokenId, body) => {
+    if (token === null) throw new WorkerError(401, 'signed_out');
+    needSession(token);
+    const functions = SAMPLE_FUNCTIONS.map((f) => ({ ...f, ticked: body.ticks.includes(f.name) }));
+    const result = await answer('saveCode', state().saveCode, { code: { functions } });
+    const held = fakeState().worker;
+    if (held && !isFail(held.skill)) held.skill = { ...held.skill, code: { functions: result.code.functions } };
+    if (held && !isFail(held.code)) held.code = { ...EMPTY_CODE, ...held.code, code: body.code, functions: result.code.functions };
+    return result;
+  },
+
+  removeCode: async (token) => {
+    if (token === null) throw new WorkerError(401, 'signed_out');
+    needSession(token);
+    const result = await answer('removeCode', state().removeCode, { removed: true as const });
+    const held = fakeState().worker;
+    if (held && !isFail(held.skill)) held.skill = { ...held.skill, code: null };
+    if (held && !isFail(held.code)) held.code = { ...EMPTY_CODE, ...held.code, code: null, functions: [] };
     return result;
   },
 
@@ -496,6 +669,10 @@ export const fakeWorkerApi: WorkerApi = {
     if (held) {
       held.conversation = { lines: [], more: false, before: null };
       held.greeting = { job: null };
+      // the failed errand (and a done one) and the words of one away go with the memory; the errand itself still ends or times out
+      if (held.petState && !isFail(held.petState) && held.petState.errand) {
+        held.petState = { ...held.petState, errand: held.petState.errand.state === 'away' ? { ...held.petState.errand, job: null } : null };
+      }
       if (pet) held.pets = { ...petsOf(), [tokenId]: { ...pet, owner: { ...pet.owner, memoryEpoch: (pet.owner?.memoryEpoch ?? 0) + 1 } } };
     }
     return result;

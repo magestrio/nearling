@@ -16,6 +16,7 @@ import { baseDecode, baseEncode, decodeSignedTransaction, encodeTransaction, Key
 import { SignJWT, exportJWK, generateKeyPair } from 'jose';
 import { vi } from 'vitest';
 import { riddleHash } from '../../src/riddle/hash';
+import { isPrivateAddress } from '../../src/errands/reader';
 
 export const NEAR_ACCOUNT = (n: number) => n.toString(16).padStart(64, '0');
 
@@ -685,12 +686,43 @@ export interface AiBehavior {
   /** The first N signature requests are a 404 (the signature is not ready yet). */
   signatureLate?: number;
   /** How the signature endpoint answers: the right `provider_tee`, a `gateway`, or a wrong `text`. */
-  signature?: 'ok' | 'gateway' | 'mismatch' | 'never';
+  signature?: 'ok' | 'gateway' | 'mismatch' | 'never' | 'tee';
   /** The answer takes this long (ms) to come: a second request can arrive while it is in flight. */
   delay?: number;
   /** Runs while the call is in flight, before it answers: what the world does while the pet thinks
    * (the clock reaching 00:00 UTC, the owner's page, another desk). */
   during?: () => void | Promise<void>;
+  /** The model asks for these functions (`tools` in the request): `tool_calls` as NEAR AI answers them, `content: null`
+   * (recorded 2026-11-03, `.claude/handoff/recordings/README.md` › tools-*). `arguments` is the raw JSON text. */
+  toolCalls?: { name: string; arguments: string }[];
+  /** The call is a streamed search call (`stream: true`, the errand's): what the stream carries. `tokensIn` and
+   * `tokensOut` are the closing `usage` of the whole call. */
+  stream?: StreamBehavior;
+}
+
+/** A streamed answer of NEAR AI Cloud with its server-side web search (recorded 2026-11-03,
+ * `.claude/handoff/recordings/README.md`): a tool call (its id, then the query), its result, and so on for each search,
+ * then the answer, a last chunk with `usage` and `[DONE]`. */
+export interface StreamBehavior {
+  /** How many searches the model runs; 0 answers without searching. Default 1. */
+  searches?: number;
+  /** Results in each search's output. Default 3. */
+  results?: number;
+  /** The raw output of each search, instead of the made-up results. */
+  outputs?: string[];
+  /** The closing `usage` chunk is left out. */
+  noUsage?: boolean;
+  /** The model starts this many searches at once, before any result (parallel tool calls). */
+  parallel?: number;
+  /** The stream breaks after this many events (the connection drops). */
+  breakAfter?: number;
+}
+
+/** What became of a streamed call: how many events the Worker took from it, and whether it hung up. */
+export interface StreamRecord {
+  total: number;
+  delivered: number;
+  cancelled: boolean;
 }
 
 export interface AiCall {
@@ -698,7 +730,17 @@ export interface AiCall {
   headers: Record<string, string>;
   reqBytes: Uint8Array;
   /** `nonce`: the random field of a skilled worker's request (`Skilled answer data`), outside `messages`. */
-  body: { model: string; messages: { role: string; content: string }[]; max_tokens: number; stream: boolean; chat_template_kwargs: { enable_thinking: boolean }; nonce?: string };
+  body: {
+    model: string;
+    messages: { role: string; content: string }[];
+    max_tokens: number;
+    stream: boolean;
+    chat_template_kwargs: { enable_thinking: boolean };
+    nonce?: string;
+    tools?: unknown;
+    tool_choice?: unknown;
+    stream_options?: unknown;
+  };
 }
 
 const sha = async (bytes: Uint8Array) => [...new Uint8Array(await crypto.subtle.digest('SHA-256', bytes))].map((b) => b.toString(16).padStart(2, '0')).join('');
@@ -718,6 +760,8 @@ export class FakeNearAi {
   script: AiBehavior[] = [];
   /** The answers leave this field out. */
   broken: { usage?: boolean } = {};
+  /** One record for each streamed call. */
+  streams: StreamRecord[] = [];
   private seen = new Map<string, { req: string; res: string; behavior: AiBehavior; asked: number }>();
   private n = 0;
 
@@ -725,7 +769,7 @@ export class FakeNearAi {
     this.script.push(...behaviors);
   }
 
-  async chat(url: string, headers: Record<string, string>, reqBytes: Uint8Array): Promise<Response> {
+  async chat(url: string, headers: Record<string, string>, reqBytes: Uint8Array, signal?: AbortSignal | null): Promise<Response> {
     const body = JSON.parse(new TextDecoder().decode(reqBytes)) as AiCall['body'];
     this.calls.push({ url, headers, reqBytes, body });
     const b = this.script.shift() ?? {};
@@ -734,7 +778,7 @@ export class FakeNearAi {
     try {
       if (b.delay) await new Promise((resolve) => setTimeout(resolve, b.delay));
       await b.during?.();
-      return await this.answer(b, body, reqBytes);
+      return body.stream === true ? await this.streamAnswer(b, body, reqBytes, signal ?? undefined) : await this.answer(b, body, reqBytes);
     } finally {
       this.active -= 1;
     }
@@ -748,13 +792,21 @@ export class FakeNearAi {
     this.n += 1;
     const id = `chatcmpl-test-${this.n}`;
     const tokensIn = b.tokensIn ?? Math.ceil(reqBytes.length / 4);
-    const finish = b.finish ?? 'stop';
+    const asked = b.toolCalls !== undefined && b.toolCalls.length > 0;
+    const finish = asked ? 'tool_calls' : (b.finish ?? 'stop');
     const tokensOut = b.tokensOut ?? (finish === 'length' ? body.max_tokens : 30);
+    const message = asked
+      ? {
+          role: 'assistant',
+          content: null,
+          tool_calls: b.toolCalls!.map((call, i) => ({ id: `call_${this.n}_${i}`, type: 'function', function: { name: call.name, arguments: call.arguments } })),
+        }
+      : { role: 'assistant', content: b.content === undefined ? 'Hello there, friend.' : b.content };
     const answer = {
       id,
       object: 'chat.completion',
       model: body.model,
-      choices: [{ index: 0, message: { role: 'assistant', content: b.content === undefined ? 'Hello there, friend.' : b.content }, finish_reason: finish }],
+      choices: [{ index: 0, message, finish_reason: finish }],
       ...(this.broken.usage ? {} : { usage: { prompt_tokens: tokensIn, completion_tokens: tokensOut, completion_tokens_details: { reasoning_tokens: b.reasoning ?? 0 } } }),
     };
     // Indented with a trailing newline: not what JSON.stringify(JSON.parse(x)) gives back.
@@ -763,14 +815,86 @@ export class FakeNearAi {
     return new Response(resBytes, { status: 200, headers: { 'content-type': 'application/json' } });
   }
 
+  /** The streamed answer of the search call, event by event; the Worker may hang up on it (`reader.cancel()`). */
+  private async streamAnswer(b: AiBehavior, body: AiCall['body'], reqBytes: Uint8Array, signal?: AbortSignal): Promise<Response> {
+    if (b.hang) throw new DOMException('The operation was aborted', 'AbortError');
+    if (b.status !== undefined && b.status !== 200) {
+      return Response.json({ error: { message: 'refused', type: 'x', param: null, code: null } }, { status: b.status });
+    }
+    this.n += 1;
+    const id = `chatcmpl-test-${this.n}`;
+    const sb = b.stream ?? {};
+    const searches = sb.searches ?? 1;
+    const chunk = (delta: object, extra: object = {}) => `data: ${JSON.stringify({ id, object: 'chat.completion.chunk', created: 1, model: body.model, choices: [{ index: 0, delta, ...extra }], usage: null })}\n\n`;
+    const events: string[] = [chunk({ role: 'assistant', content: '' })];
+    if (sb.parallel !== undefined) {
+      // every id shows first, the results only after them
+      for (let i = 0; i < sb.parallel; i += 1) {
+        events.push(chunk({ tool_calls: [{ id: `call_${this.n}_p${i}`, type: 'function', index: i, function: { name: 'web_context_search', arguments: '' } }] }));
+      }
+      events.push(chunk({}, { finish_reason: 'tool_calls' }));
+      for (let i = 0; i < sb.parallel; i += 1) {
+        events.push(chunk({ nearai_tool_result: { tool_call_id: `call_${this.n}_p${i}`, name: 'web_context_search', status: 'ok', output: `[1] Parallel ${i}\nhttps://p${i}.example.com/x\nText` } }));
+      }
+    }
+    for (let i = 0; i < (sb.parallel !== undefined ? 0 : searches); i += 1) {
+      const call = `call_${this.n}_${i}`;
+      const output =
+        sb.outputs?.[i] ??
+        Array.from({ length: sb.results ?? 3 }, (_, k) => `[${k + 1}] Title ${i + 1}.${k + 1}\nhttps://www.site${i + 1}${k + 1}.example.com/page\nBody of result ${i + 1}.${k + 1}. ${'text '.repeat(40)}`).join('\n\n');
+      events.push(
+        chunk({ tool_calls: [{ id: call, type: 'function', index: 0, function: { name: 'web_context_search', arguments: '' } }] }),
+        chunk({ tool_calls: [{ type: 'function', index: 0, function: { arguments: `{"query": "query ${i + 1}"}` } }] }),
+        chunk({}, { finish_reason: 'tool_calls' }),
+        chunk({ nearai_tool_result: { tool_call_id: call, name: 'web_context_search', status: 'ok', output } }),
+      );
+    }
+    events.push(chunk({ role: 'assistant', content: '' }), chunk({ content: 'An answer.' }), chunk({}, { finish_reason: 'stop' }));
+    if (!sb.noUsage) {
+      events.push(
+        `data: ${JSON.stringify({ id, object: 'chat.completion.chunk', created: 1, model: body.model, choices: [], usage: { prompt_tokens: b.tokensIn ?? 5_000 * searches + 1_000, completion_tokens: b.tokensOut ?? 45, total_tokens: 0, completion_tokens_details: { reasoning_tokens: b.reasoning ?? 0 } } })}\n\n`,
+      );
+    }
+    events.push('data: [DONE]\n\n');
+    const bytes = events.map((e) => new TextEncoder().encode(e));
+    const all = new Uint8Array(bytes.reduce((n, e) => n + e.length, 0));
+    let at = 0;
+    for (const e of bytes) {
+      all.set(e, at);
+      at += e.length;
+    }
+    const record: StreamRecord = { total: bytes.length, delivered: 0, cancelled: false };
+    this.streams.push(record);
+    this.seen.set(id, { req: await sha(reqBytes), res: await sha(all), behavior: b, asked: 0 });
+    let next = 0;
+    const body$ = new ReadableStream<Uint8Array>({
+      async pull(controller) {
+        await Promise.resolve();
+        if (signal?.aborted) return controller.error(new DOMException('The operation was aborted', 'AbortError'));
+        if (sb.breakAfter !== undefined && next >= sb.breakAfter) return controller.error(new TypeError('network connection lost'));
+        if (next >= bytes.length) return controller.close();
+        controller.enqueue(bytes[next]!);
+        next += 1;
+        record.delivered = next;
+      },
+      cancel() {
+        record.cancelled = true;
+      },
+    });
+    return new Response(body$, { status: 200, headers: { 'content-type': 'text/event-stream' } });
+  }
+
   signature(id: string): Response {
     this.signatureRequests.push(id);
     const known = this.seen.get(id);
     if (!known || known.behavior.signature === 'never') return Response.json({ error: { message: 'not found' } }, { status: 404 });
     known.asked += 1;
     if (known.asked <= (known.behavior.signatureLate ?? 0)) return Response.json({ error: { message: 'not found' } }, { status: 404 });
-    const kind = known.behavior.signature === 'gateway' ? 'gateway' : 'provider_tee';
-    const text = known.behavior.signature === 'mismatch' ? `Qwen/Qwen3.8-27B:${known.req}:${'0'.repeat(64)}` : `Qwen/Qwen3.8-27B:${known.req}:${known.res}`;
+    // A streamed call is signed by the gateway over `<req>:<res>`, with no model in the text (recorded 2026-11-03).
+    const streamed = known.behavior.stream !== undefined;
+    const kind = streamed ? (known.behavior.signature === 'tee' ? 'provider_tee' : 'gateway') : known.behavior.signature === 'gateway' ? 'gateway' : 'provider_tee';
+    const res = known.behavior.signature === 'mismatch' ? '0'.repeat(64) : known.res;
+    const text = streamed ? `${known.req}:${res}` : `Qwen/Qwen3.8-27B:${known.req}:${res}`;
     return Response.json({ text, signature: `0xsig-${id}`, signing_address: '0xsigner', signing_algo: 'ecdsa', signature_kind: kind });
   }
 
@@ -778,6 +902,54 @@ export class FakeNearAi {
   hashes(id: string): { req: string; res: string } | undefined {
     const k = this.seen.get(id);
     return k && { req: k.req, res: k.res };
+  }
+}
+
+/** A page of the fake web: what a link of «Read this» leads to. */
+export interface FakePage {
+  status?: number;
+  headers?: Record<string, string>;
+  body?: string | Uint8Array;
+  /** The page never answers: `fetch` fails the way an aborted request does. */
+  hang?: boolean;
+}
+
+/** The web as the Worker meets it: pages by normalized URL. The DNS map models the address Cloudflare's egress
+ * resolves for a fetch, including a private address it cannot reach. No separate DNS request is made by the Worker. */
+export class FakeWeb {
+  pages = new Map<string, FakePage>();
+  dns = new Map<string, { a?: string[]; aaaa?: string[]; fail?: boolean }>();
+  /** Every page request the Worker made: its URL and the headers it sent. */
+  requests: { url: string; headers: Record<string, string> }[] = [];
+
+  page(url: string, page: FakePage = {}): void {
+    this.pages.set(new URL(url).href, page);
+  }
+
+  redirect(from: string, to: string, status = 302): void {
+    this.page(from, { status, headers: { location: to }, body: '' });
+  }
+
+  /** Servers that answer a request of any method at a URL (an MCP server answers POSTs): the request as it came. */
+  handlers = new Map<string, (req: { method: string; url: string; headers: Record<string, string>; body: string }) => Response | Promise<Response>>();
+
+  async handle(url: string, init?: RequestInit): Promise<Response | null> {
+    const handler = this.handlers.get(url);
+    if (handler === undefined) return null;
+    const headers: Record<string, string> = {};
+    new Headers(init?.headers).forEach((value, key) => (headers[key] = value));
+    return handler({ method: init?.method ?? 'GET', url, headers, body: typeof init?.body === 'string' ? init.body : '' });
+  }
+
+  serve(url: string, init?: RequestInit): Response | null {
+    const page = this.pages.get(url);
+    if (page === undefined) return null;
+    const headers: Record<string, string> = {};
+    new Headers(init?.headers).forEach((value, key) => (headers[key] = value));
+    this.requests.push({ url, headers });
+    if (page.hang) throw new DOMException('The operation was aborted', 'AbortError');
+    const status = page.status ?? 200;
+    return new Response(status >= 300 && status < 400 ? null : (page.body ?? ''), { status, headers: { 'content-type': 'text/html; charset=utf-8', ...page.headers } });
   }
 }
 
@@ -827,6 +999,7 @@ export async function token(sub: string, accountId: string, opts: TokenOptions =
 export interface Network {
   contract: FakeContract;
   ai: FakeNearAi;
+  web: FakeWeb;
   /** Every URL fetched, for "nothing left the Worker" assertions. */
   fetched: string[];
   /** Privy's key set answers with this status (0: the fetch itself fails). */
@@ -838,6 +1011,7 @@ export interface Network {
 export function installNetwork(): Network {
   const contract = new FakeContract();
   const ai = new FakeNearAi();
+  const web = new FakeWeb();
   const fetched: string[] = [];
   const jwks = { status: 200 };
   const spy = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
@@ -856,16 +1030,25 @@ export function installNetwork(): Network {
     if (url.startsWith('https://cloud-api.near.ai/v1/')) {
       const headers: Record<string, string> = {};
       new Headers(init?.headers).forEach((value, key) => (headers[key] = value));
-      if (url.endsWith('/chat/completions')) return ai.chat(url, headers, init?.body as Uint8Array);
+      if (url.endsWith('/chat/completions')) return ai.chat(url, headers, init?.body as Uint8Array, init?.signal);
       if (url.includes('/signature/')) return ai.signature(decodeURIComponent(url.split('/signature/')[1]!.split('?')[0]!));
       if (url.endsWith('/check_api_key')) {
         ai.probes += 1;
         return ai.probeStatus === 200 ? Response.json({ valid: true }) : Response.json({ error: { message: 'x', type: 'x', param: null, code: null } }, { status: ai.probeStatus });
       }
     }
+    const host = new URL(url).hostname;
+    const resolved = web.dns.get(host);
+    if (resolved?.fail || (resolved !== undefined && [...(resolved.a ?? []), ...(resolved.aaaa ?? [])].some(isPrivateAddress))) {
+      throw new TypeError('Cloudflare egress cannot reach this address');
+    }
+    const handled = await web.handle(url, init);
+    if (handled !== null) return handled;
+    const page = web.serve(url, init);
+    if (page !== null) return page;
     throw new Error(`a test must not reach the network: ${url}`);
   });
-  return { contract, ai, fetched, jwks, restore: () => spy.mockRestore() };
+  return { contract, ai, web, fetched, jwks, restore: () => spy.mockRestore() };
 }
 
 /** A player whose game wallet has a real key: the account id is the 64 hex characters of the public

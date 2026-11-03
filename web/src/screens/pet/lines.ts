@@ -8,4 +8,6 @@ export const thinkingLine = (name: string, deep = false) => `${name} is thinking
 export const lostLine = (name: string) => `${name} lost that thought. Nothing was spent — try again.`;
 export const emptyPaidLine = (name: string) => `${name} lost that thought, but it still used a little food. Your message is kept — try again.`;
 export const pausedLine = (name: string) => `Chatting is paused on our side while we top up. Your message is kept — ${name} will be back soon.`;
-export const tiredLine = (name: string, until: string | undefined) => `${name} is tired for today. Back at ${resetTime(until)}.`;
+/** `Connection rule` › «сервер недоступен» over the pet's page; Errand sheet's status says it too while the sheet covers the page */
+export const offlineLine = (name: string) => `Can't reach ${name} right now. Nothing's lost — try again in a moment.`;
+export const tiredLine =(name: string, until: string | undefined) => `${name} is tired for today. Back at ${resetTime(until)}.`;

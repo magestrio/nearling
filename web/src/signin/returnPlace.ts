@@ -5,12 +5,15 @@
 // for it. The record lives in one tab only, for the time of a sign-in.
 const KEY = 'nearling.returnPlace';
 
+export type ReturnAction = 'signin' | 'feed' | 'skill' | 'errand' | 'adapter' | 'code';
+const ACTIONS: readonly string[] = ['signin', 'feed', 'skill', 'errand', 'adapter', 'code'];
+
 export interface ReturnPlace {
   /** the path with its query, e.g. `/hatch?from=2` */
   path: string;
-  /** what the player tapped: «Sign in», «Feed {name}» (passed to the feeding slot), or the line of Skill sheet's ended session
-   *  (the sheet opens again, `Skill writing flow` › «sheet after sign-in») */
-  action?: 'signin' | 'feed' | 'skill';
+  /** what the player tapped: «Sign in», «Feed {name}» (passed to the feeding slot), or the line of an ended session on Skill sheet,
+   *  Errand sheet, Adapter sheet or Skill code sheet (that sheet opens again with its fields, `Sign-in return data`) */
+  action?: ReturnAction;
   /** the text that was in the field when the session ended, for the time of the sign-in */
   text?: string;
   /** the record a cancel (or a failed sign-in) rewrote: the place and the action stay, the text is gone. It is what survives
@@ -28,7 +31,7 @@ function parse(raw: string | null): ReturnPlace | null {
   try {
     const value: unknown = JSON.parse(raw);
     if (typeof value !== 'object' || value === null || !('path' in value) || typeof value.path !== 'string' || !value.path.startsWith('/')) return null;
-    const action = 'action' in value && (value.action === 'signin' || value.action === 'feed' || value.action === 'skill') ? value.action : undefined;
+    const action = 'action' in value && typeof value.action === 'string' && ACTIONS.includes(value.action) ? (value.action as ReturnAction) : undefined;
     const text = 'text' in value && typeof value.text === 'string' && value.text !== '' ? value.text : undefined;
     const cancelled = 'cancelled' in value && value.cancelled === true;
     return { path: value.path, ...(action ? { action } : {}), ...(text !== undefined ? { text } : {}), ...(cancelled ? { cancelled } : {}) };
@@ -73,6 +76,7 @@ export function rememberReturnPlace(place: ReturnPlace | string): void {
   const value: ReturnPlace = typeof place === 'string' ? { path: place } : place;
   held = null;
   heldSkill = null;
+  heldSheets = {};
   try {
     sessionStorage.setItem(KEY, JSON.stringify(value));
   } catch {
@@ -97,6 +101,7 @@ export function clearReturnPlace(): void {
   erase();
   held = null;
   heldSkill = null;
+  heldSheets = {};
 }
 
 /** A sign-in that never came back (the player typed another address at Google) leaves its record in the tab. The next start
@@ -133,6 +138,58 @@ export function takeReturnSkill(path: string): { label: string; instruction: str
   const { fields } = heldSkill;
   heldSkill = null;
   return fields;
+}
+
+/** The fields of the sheets of `add-pet-errands`, as typed, for the sheet that opens again (`Sign-in return data`): Errand sheet's
+ *  form and job, Adapter sheet's name and typed address (and the source's id when it is a connected one), Skill code sheet's code,
+ *  function and sample values. A record whose text is not these fields brings nothing back. */
+export interface ErrandFields {
+  form: 'read' | 'find' | 'check';
+  job: string;
+}
+export interface AdapterFields {
+  label: string;
+  address: string;
+  sid?: string;
+}
+export interface CodeFields {
+  code: string;
+  fn: string;
+  values: string;
+}
+interface SheetFields {
+  errand: ErrandFields;
+  adapter: AdapterFields;
+  code: CodeFields;
+}
+let heldSheets: { [K in keyof SheetFields]?: { path: string; fields: SheetFields[K] } } = {};
+
+const isText = (v: unknown): v is string => typeof v === 'string';
+
+function fieldsOf(action: keyof SheetFields, value: unknown): SheetFields[keyof SheetFields] | null {
+  if (typeof value !== 'object' || value === null) return null;
+  const v = value as Record<string, unknown>;
+  if (action === 'errand') return (v.form === 'read' || v.form === 'find' || v.form === 'check') && isText(v.job) ? { form: v.form, job: v.job } : null;
+  if (action === 'adapter') return isText(v.label) && isText(v.address) ? { label: v.label, address: v.address, ...(isText(v.sid) ? { sid: v.sid } : {}) } : null;
+  return isText(v.code) && isText(v.fn) && isText(v.values) ? { code: v.code, fn: v.fn, values: v.values } : null;
+}
+
+/** `ReturnToPlace` hands the record's text to the sheet it belongs to. */
+export function holdReturnSheet(action: 'errand' | 'adapter' | 'code', path: string, text: string): void {
+  try {
+    const fields = fieldsOf(action, JSON.parse(text));
+    if (fields) (heldSheets as Record<string, unknown>)[action] = { path, fields };
+  } catch {
+    // a record that is not the sheet's fields brings nothing back
+  }
+}
+
+/** The fields a return handed back to the sheet at `path`, once. */
+export function takeReturnSheet<A extends keyof SheetFields>(action: A, path: string): SheetFields[A] | null {
+  const held = heldSheets[action];
+  if (!held || held.path !== path) return null;
+  delete heldSheets[action];
+  return held.fields;
 }
 
 /** The screen at `path` calls it once its view is decided. A screen with the field gives the text back, unsent; one without

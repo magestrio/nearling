@@ -1,0 +1,191 @@
+data: {"id":"6ae689dec52d4002a7a4438d12d04a40","object":"chat.completion.chunk","created":1793712766,"model":"Qwen/Qwen3.8-27B","choices":[{"index":0,"delta":{"role":"assistant","content":""}}],"usage":null}
+
+
+data: {"id":"6ae689dec52d4002a7a4438d12d04a40","object":"chat.completion.chunk","created":1793712766,"model":"Qwen/Qwen3.8-27B","choices":[{"index":0,"delta":{"tool_calls":[{"id":"call_651def9fb35b4aeabe52f08b","type":"function","index":0,"function":{"name":"web_context_search","arguments":""}}]}}],"usage":null}
+
+
+data: {"id":"6ae689dec52d4002a7a4438d12d04a40","object":"chat.completion.chunk","created":1793712766,"model":"Qwen/Qwen3.8-27B","choices":[{"index":0,"delta":{"tool_calls":[{"type":"function","index":0,"function":{"arguments":"{"}}]}}],"usage":null}
+
+
+data: {"id":"6ae689dec52d4002a7a4438d12d04a40","object":"chat.completion.chunk","created":1793712766,"model":"Qwen/Qwen3.8-27B","choices":[{"index":0,"delta":{"tool_calls":[{"type":"function","index":0,"function":{"arguments":"\"query\": \"NEAR Protocol token price USD today\""}}]}}],"usage":null}
+
+
+data: {"id":"6ae689dec52d4002a7a4438d12d04a40","object":"chat.completion.chunk","created":1793712766,"model":"Qwen/Qwen3.8-27B","choices":[{"index":0,"delta":{"tool_calls":[{"type":"function","index":0,"function":{"arguments":"}"}}]}}],"usage":null}
+
+
+data: {"id":"6ae689dec52d4002a7a4438d12d04a40","object":"chat.completion.chunk","created":1793712766,"model":"Qwen/Qwen3.8-27B","choices":[{"index":0,"delta":{},"finish_reason":"tool_calls"}],"usage":null}
+
+
+
+data: {"id":"6ae689dec52d4002a7a4438d12d04a40","object":"chat.completion.chunk","created":1793712766,"model":"Qwen/Qwen3.8-27B","choices":[{"index":0,"delta":{"nearai_tool_result":{"tool_call_id":"call_651def9fb35b4aeabe52f08b","name":"web_context_search","status":"ok","output":"[1] NEAR Protocol Price: NEAR/USD Live Price Chart, Market Cap & News Today\nhttps://www.coingecko.com/en/coins/near\nPrice of NEAR Protocol (NEAR) today is $3.83 with a 24-hour trading volume of $608,080,612.\n\nNEAR $3.83\n\n11.3%\n\n# NEAR Protocol NEAR Price\n$3.83\n\n$3.82 24h Range $4.32\n\n## NEAR Protocol Markets\nAffiliate disclosures\n\n| # | Exchange |  | Pair | Price | Spread | +2% Depth | -2% Depth | 24h Volume | Volume % | Last Updated |\n| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |\n| 1 | Binance Binance | CEX | NEAR/USDT | CA$3.83 | 0.03% | CA$823,995 | CA$2,117,490 | CA$95,216,354 | 14.54% | Recently |\n| 2 | KuCoin KuCoin | CEX | NEAR/USDT | CA$3.83 | 0.01% | CA$336,775 | CA$358,335 | CA$33,362,170 | 5.1% | Recently |\n| 3 | Coinbase Exchange Coinbase Exchange | CEX | NEAR/USD | CA$3.83 | 0.03% | CA$1,350,396 | CA$1,850,371 | CA$33,187,445 | 5.07% | Recently |\n| 4 | Gate Gate | CEX | NEAR/USDT | CA$3.83 | 0.03% | CA$738,278 | CA$1,641,174 | CA$43,042,998 | 6.57% | Recently |\n| 5 | WEEX WEEX | CEX | NEAR/USDT | CA$3.83 | 0.03% | CA$977,451 | CA$1,424,271 | CA$24,266,276 | 3.71% | Recently |\n| 6 | Kraken Kraken | CEX | NEAR/USD | CA$3.83 | 0.04% | CA$1,531,783 | CA$2,299,565 | CA$17,231,682 | 2.63% | Recently |\n| 7 | Toobit Toobit | CEX | NEAR/USDT | CA$3.83 | 0.03% | CA$801,468 | CA$1,391,516 | CA$19,097,708 | 2.92% | Recently |\n| 8 | OKX OKX | CEX | NEAR/USDT | CA$3.83 | 0.05% | CA$772,995 | CA$613,010 | CA$24,266,246 | 3.71% | Recently |\n| 9 | Bitget Bitget | CEX | NEAR/USDT | CA$3.83 | 0.03% | CA$727,723 | CA$1,180,957 | CA$5,394,111 | 0.82% | Recently |\n| 10 | Bybit Bybit | CEX | NEAR/USDT | CA$3.83 | 0.03% | CA$377,807 | CA$1,126,123 | CA$23,836,984 | 3.64% | Recently |\n\n## NEAR Protocol (NEAR) price has declined today.\nThe price of NEAR Protocol (NEAR) is $3.83 today with a 24-hour trading volume of $608,080,612.09. This represents a -11.30% price decline in the last 24 hours and a -14.00% price decline in the past 7 days.\n\n{\"name\":\"NEAR Protocol\",\"currentExchangeRate\":{\"price\":3.829899821859899,\"priceCurrency\":\"USD\"}}\n\n{\"name\":\"NEAR Protocol\",\"offers\":{\"priceCurrency\":\"USD\",\"price\":\"3.829899821859899\"}}\n\n[2] NEAR Protocol Price, NEAR Price, Live Charts, and Marketcap: near protocol, near coin, near protocol price\nhttps://www.coinbase.com/price/near-protocol\nNEAR Protocol (NEAR) Price USD Today is $3.86.\n\n## Price history\n| Time  | Price  | Change  |\n| --- | --- | --- |\n| Today  | $3.86  | 󰌲 -9.53%  |\n\n## Recent trends\nThe latest NEAR price is $3.86.\n\n## FAQ\n### NEAR Protocol calculator\n1 NEAR Protocol (NEAR) to United States Dollar (USD)\n\n$3.86\n\n{\"currentExchangeRate\":{\"price\":\"3.8596\",\"priceCurrency\":\"USD\"}}\n\n{\"name\":\"NEAR Protocol\",\"description\":\"November 2, 2026 - The all time high price of NEAR Protocol is $20.37 per (NEAR / USD). Get the latest on NEAR Protocol & discover other new cryptocurrencies from Coinbase today.\",\"offers\":{\"priceCurrency\":\"USD\",\"price\":\"3.8596\"}}\n\n{\"name\":\"NEAR Protocol\",\"description\":\"November 2, 2026 - The all time high price of NEAR Protocol is $20.37 per (NEAR / USD). Get the latest on NEAR Protocol & discover other new cryptocurrencies from Coinbase today.\",\"offers\":{\"price\":\"3.8596\",\"priceCurrency\":\"USD\"}}\n\n[3] NEARUSD Charts and Quotes — TradingView\nhttps://www.tradingview.com/symbols/NEARUSD/\n# NEAR Protocol\n## Ideas\nNEAR: $5.45 Is the Next Target if Rally Continues NEAR has accelerated sharply from the August lows, reaching $4.6585 on the supplied daily chart.\n\n## Frequently asked questions\nWhat is NEAR Protocol price today?\n\nThe current price of NEAR Protocol (NEAR) is 4.2966 USD — it has fallen −0.16% in the past 24 hours.\n\n{\"name\":\"NEAR Protocol / US Dollar\",\"offers\":{\"price\":\"4.4168\",\"priceCurrency\":\"USD\"}}\n\n[4] Near Protocol Price\nhttps://cryptorank.io/price/near-protocol\nCurrent Near Protocol (NEAR) token data: Price $ 4.25, Trading Volume $ 215.90M, Market Cap $ 5.57B, Circ.\n\n# Near Protocol NEAR Price\nNEAR Price\n\n4.25\n\n## Near Protocol Price Today\nNear Protocol's current price is $ 4.25, it has dropped -3.9% over the past 24 hours.\n\nNear Protocol's All Time High (ATH) of $ 20.49 was reached on Jan 16, 2022, and is currently -79.2% down.\n\n{\"name\":\"Near Protocol\",\"offers\":{\"price\":\"4.253175358756\",\"priceCurrency\":\"USD\"}}\n\n[5] NEAR Protocol price today - NEAR price chart & live trends\nhttps://www.kraken.com/prices/near-protocol\nThe NEAR Protocol price is $3.94. Find NEAR trends, real-time charts & price history. Chart the path to financial freedom today.\n\n$3.94\n\npast\n\nNEAR Protocol price\n\n$3.94\n\npast\n\n# NEAR Protocol price\n$3.94\n\n## NEAR Protocol price today\nNEAR Protocol price today is **$3.94**. In the last 24 hours NEAR Protocol's price moved -8.22%. The current NEAR to USD conversion rate is $3.94 per NEAR. The circulating supply of NEAR Protocol is 1,310,905,349 NEAR and the current NEAR Protocol market cap is **$5,164,967,076**.\n\n## NEAR Protocol price history\nCurrent\n\n$3.94\n\n# NEAR Protocol Price\n## NEAR Protocol price history\n| Time | Price | Change |\n| --- | --- | --- |\n| Today | $3.94 | -8.22% |\n\n{\"name\":\"NEAR Protocol price history\",\"hasPart\":[{\"name\":\"Today\",\"variableMeasured\":[{\"name\":\"Time\",\"value\":\"Today\"},{\"name\":\"Price\",\"value\":\"$3.94\"}]}]}\n\n[6] NEAR Protocol price faces token issuance vote deadline\nhttps://ad-hoc-news.de/boerse/news/marktberichte/near-protocol-price-faces-token-issuance-vote-deadline/70445576\n# NEAR Protocol price faces token issuance vote deadline\n## Issuance vote meets market weakness\n- Investing.com displayed NEAR at 4.6034 USD, while the tokenized-asset expansion with Ondo Finance adds a separate ecosystem catalyst.\n\nInvesting.com displayed NEAR at 4.6034 USD on its live market page, with a quoted 24-hour change of 2.00%. The page showed a 24-hour volume of 610.47 million USD, a market capitalization of 5.98 billion USD and a rank of 16. As a separate daily reference, Kinzan lists the November 1 UTC daily close at 4.423 USD.\n\n[7] NEAR Protocol (NEAR) Price Today: NEAR Live Price, Charts, News - Crypto.com US\nhttps://crypto.com/us/price/near-protocol\nNEAR Protocol (NEAR) price today is $4.44. See NEAR live price charts, market cap, latest news, trading volume and more key market metrics.\n\nNEAR Protocol\n\nUSD\n\nNEAR\n\nNEAR\n\n≈\n\n2.251\n\nNEAR\n\n## NEAR Protocol Price History\n| Time | Price | Change |\n| --- | --- | --- |\n| Today | $4.44 | 0.00% |\n| 1 day | $4.69 | -$0.25 (7.82%)  |\n\n# NEAR Protocol\n$4.4424\n\n## About NEAR Protocol\n### NEAR Protocol Price Summaries\nNEAR Protocol's price today is $4.44, with a 24-hour trading volume of $723.36M. NEAR is -7.82% in the last 24 hours.\n\n[8] NEAR Protocol Price: Live NEAR/USD Rate, Market Cap & NEAR Price Chart\nhttps://coincodex.com/crypto/near-protocol/\nNEAR Protocol price today is $ 4.14 with a trading volume of $ 1.01B and market cap of $ 5.42B. NEAR price decreased -13.06% in the last 24 hours.\n\n$ 4.14\n\n-15.32%\n\n# NEAR Protocol Price\n- **NEAR Protocol Price**: $ 4.14\n- **Market Cap**: $ 5.42B\n- **Diluted Market Cap**: $ 5.42B\n- **24H Volume**: $ 1.01B\n- **Vol. / M. Cap Ratio**: 0.1858\n- **Dominance**: 0.21%\n- **ATH**: $ 20.42(-80%)\n- **ATH Date**: Jan 16, 2022\n\nNEAR Protocol price today is $ 4.14 with a 24-hour trading volume of $ 1.01B market cap of $ 5.42B, and market dominance of 0.21%. NEAR price decreased -13.07% in the last 24 hours.\n\n## NEAR Exchanges\n| Exchange | Price | Volume | Price/Volume | Price/Volume | Action |\n| --- | --- | --- | --- | --- | --- |\n| Binance Binance | $ 4.12$ 225.01M |  | $ 4.12 | $ 225.01M | Trade Now |\n| KuCoin KuCoin | $ 4.12$ 32.48M |  | $ 4.12 | $ 32.48M | Trade Now |\n| Kraken Kraken | $ 4.12$ 30.47M |  | $ 4.12 | $ 30.47M | Trade Now |\n| Bybit Bybit | $ 4.12$ 23.94M |  | $ 4.12 | $ 23.94M | Trade Now |\n| OKX OKX | $ 4.12$ 36.64M |  | $ 4.12 | $ 36.64M | Trade Now |\n| Gate Gate | $ 4.12$ 44.59M |  | $ 4.12 | $ 44.59M | Trade Now |\n| MEXC MEXC | $ 4.11$ 110,022 |  | $ 4.11 | $ 110,022 | Trade Now |\n| PrimeXBT PrimeXBT | $ 4.12$ 0.00 |  | $ 4.12 | $ 0.00 | Trade Now |\n| Coinbase Coinbase | $ 4.12$ 47.87M |  | $ 4.12 | $ 47.87M | Trade Now |\n| Deribit Deribit | $ 4.20$ 45.14M |  | $ 4.20 | $ 45.14M | Trade Now |\n\n## FAQ\n### What is the current price of NEAR tokens?\n\nOn Oct 29, 2026, the price of one NEAR token is $ 4.14.\n\n[9] NEAR Protocol (NEAR) live coin price, charts, markets & liquidity\nhttps://www.livecoinwatch.com/price/NEARProtocol-NEAR\n# NEAR Price\n## All About NEAR\n- **Price in USD**: $2.0266\n- **All-time high**: $20.47\n- **Market Cap**: $0.0\n- **24h Volume**: $178.9 Million\n- **Contract Address**: wrap.near\n- **ETH Address**: 0x85f17cf997934a597031b2e18a9ab6ebd4b9f6a4\n\n## NEAR Protocol\n$2.0266\n\n## NEAR Markets\nReport a missing market\n\n| Market | Exchange | Price | Volume 24h | Liquidity ±2% | Market Depth |  |\n| --- | --- | --- | --- | --- | --- | --- |\n| NEAR/ USDT | Hotcoin Global | $2.032.03 | $3.12 M 1.74% | $8.04 M 13.57% | $3.529 M$4.511 M | trade now |\n| NEAR/ USDT | Binance | $2.032.03 | $25.06 M 14.01% | $3.78 M 6.39% | $2.847 M$942.096 K | trade now |\n| NEAR/ USDT | Toobit | $2.032.02 | $6.32 M 3.53% | $3.47 M 5.86% | $1.787 M$1.684 M | trade now |\n| NEAR/ USDT | XGo Exchange | $2.032.03 | $446.25 K 0.25% | $3.28 M 5.54% | $1.716 M$1.564 M | trade now |\n| NEAR/ USDT | HitBTC | $2.032.03 | $446.49 K 0.25% | $3.27 M 5.53% | $1.714 M$1.562 M | trade now |\n\n[10] NEAR Protocol Price: NEAR/USD Live Price Chart, Market Cap & News Today\nhttps://coingecko.com/en/coins/near?amp=&amp=\nPrice of NEAR Protocol (NEAR) today is $5.24 with a 24-hour trading volume of $1,431,822,538.\n\nNEAR $5.24\n\n12.2%\n\n# NEAR Protocol NEAR Price\n$5.24\n\n$4.67 24h Range $5.27\n\n## NEAR Protocol Markets\nAffiliate disclosures\n\nSpot\n\nPerpetuals Futures\n\n| # | Exchange |  | Pair | Price | Spread | +2% Depth | -2% Depth | 24h Volume | Volume % | Last Updated |\n| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |\n| 1 | Coinbase Exchange Coinbase Exchange | CEX | NEAR/USD | $5.26 | 0.01% | $1,324,033 | $2,334,363 | $70,359,187 | 4.54% | Recently |\n\n## NEAR Protocol (NEAR) price has increased today.\nThe price of NEAR Protocol (NEAR) is $5.24 today with a 24-hour trading volume of $1,431,822,537.62. This represents a 12.20% price increase in the last 24 hours and a 2.50% price increase in the past 7 days.\n\n{\"name\":\"NEAR Protocol\",\"currentExchangeRate\":{\"price\":5.236211568198708,\"priceCurrency\":\"USD\"}}\n\n{\"name\":\"NEAR Protocol\",\"offers\":{\"priceCurrency\":\"USD\",\"price\":\"5.236211568198708\"}}\n\n[11] NEAR/USD\nhttps://www.tipranks.com/cryptocurrency/near-usd\n# NEAR Protocol Price (NEAR-USD)\n## NEAR Protocol Price Chart\n$1.6505\n\n$0.0340(2.10%)\n\nReal Time\n\n$1.65\n\n$0.03(2.10%)\n\nCurrent Price\n\n$1.65\n\nPrice Change (24h)$0.03 (2.10%)\n\n### NEAR Protocol to USD Converter\nNEAR to USD: 1 NEAR Protocol converts to 1.65 USD as of Aug 12, 2026, 10:55 AM\n\n### NEAR Protocol FAQ\nWhat is the price of one NEAR Protocol?\n\nThe live price of NEAR Protocol (NEAR-USD) is $1.65.\n\nIf NEAR Protocol is currently $1.65, then $100 would buy you 60.587701 NEAR.\n\n[12] NEAR Protocol Price Today: Live NEAR Chart, Market Cap & News\nhttps://coincheckup.com/coins/near-protocol\nNEAR Protocol price today is $4.70, with a -3.55% change in 24 hours.\n\n$4.70\n\n-3.55%\n\n# NEAR Protocol Price Chart\n## Analyze NEAR Protocol's price, market capitalization, and historical performance with our interactive NEAR chart.\n$4.65$5.05\n\n$0.8633$5.92\n\n### Price And Performance\n#### How has the price of NEAR Protocol changed in the last 24 hours?\n###### 0.00%\n\nIn the last 24 hours, the price of **NEAR** has changed by **-3.55%** and is currently trending **downward**, with a price of **$4.70**.\n\n[13] NEAR Protocol Price (NEAR) in USD - Live Updates\nhttps://coinranking.com/coin/DCrsaMv68+nearprotocol-near\n# NEAR Protocol Price\n$1.838\n\n-5.21%\n\n## Exchange Listings\n| Exchanges | NEAR price | 24h trading volume | Fee Discount | Fee Discount |\n| --- | --- | --- | --- | --- |\n| Binance logo Binance | $1.84 | $56.35 million | 20% | Trade |\n| KuCoin logo KuCoin | $1.84 | $40.49 million | 20% | Trade |\n| BTCC logo BTCC | $1.83 | $22.90 million | 0% | Trade |\n| CoinW logo CoinW | $1.84 | $18.43 million | 15% | Trade |\n| Toobit logo Toobit | $1.84 | $18.16 million | 20% | Trade |\n\n## Spot Markets\n| Exchanges | NEAR price | Volume | Fee Discount |  |\n| --- | --- | --- | --- | --- |\n| NEAR / USDT Binance | $1.84 | $45.81 million | 20% | Trade |\n| NEAR / USDT KuCoin | $1.84 | $40.34 million | 20% | Trade |\n| NEAR / USDT BTCC | $1.83 | $22.90 million | 0% | Trade |\n| NEAR / USDT Toobit | $1.84 | $18.16 million | 20% | Trade |\n| NEAR / USDT CoinW | $1.84 | $16.05 million | 15% | Trade |\n\n## Futures Markets\n| # | Markets | Close Price | Open Interest | Funding Rate |\n| --- | --- | --- | --- | --- |\n| 1 | NEAR / USDT Bybit | $1.84 | $79.25 million | 0.010% |\n| 2 | NEAR / USD Hyperliquid | $2.00 | $73.98 million | 0.0010% |\n| 3 | NEAR / USDT Binance | $1.84 | $72.81 million | 0.010% |\n| 4 | NEAR / USDT KuCoin | $1.84 | $30.61 million | 0.010% |\n| 5 | NEAR / USDT Bitget | $1.84 | $30.15 million | 0.010% |\n\n## Historical Data\nMinutes Hours Days Weeks Months Years\n\n| Date | Close | Change | Market Cap | Trading Volume |\n| --- | --- | --- | --- | --- |\n| Today | $1.84 | +0.03% | $2.39 billion | $277.62 million |\n\n[14] NEAR Protocol Price Today\nhttps://www.coinbird.com/cryptocurrencies/near-protocol/overview\n1 NEAR Protocol currently costs $3.9095. Over the past 24 hours, the price is down 8.1%, with a trading volume of $580.03M.\n\n# NEAR Protocol price\nToday’s NEAR Protocol price, chart, and market data\n\n$3.9095 · Current price\n$5.12B · Market cap Market cap Market capitalization is the total value of all coins of a cryptocurrency currently in circulation. It is calculated by multiplying the number of coins in circulation by the current price of a single coin.\n\\-8.1% · 24h change\n\\+84.1% · 1y change\n\n## NEAR Protocol market overview\n### Price data\n$3.9095 · Current price\n$20.44 -80.9% · All-Time High (Jan 16, 2022) All-Time High (Jan 16, 2022) The all-time high refers to the highest price a cryptocurrency has ever reached. It marks the point at which the cryptocurrency’s value hit its previous peak, based on available historical data.\n\n## Frequently asked questions about NEAR Protocol\n### What is the current price of NEAR Protocol?\nThe current price of NEAR Protocol is $3.9095.  NEAR Protocol is the 21st largest cryptocurrency by market cap, currently at $5.12B.\n\n## NEAR Protocol price comparison\nNEAR Protocol\n\n(NEAR)\n\n$3.9095\n\nNEAR Protocol\n\n(NEAR)\n\n$3.9095\n\n$91.76\n\n$3.9095\n\n$3.9095\n\n{\"name\":\"NEAR Protocol\",\"offers\":{\"price\":\"3.91\",\"priceCurrency\":\"USD\"}}\n\n[15] NEAR Protocol Price Today\nhttps://www.kucoin.com/price/NEAR\n# NEAR Protocol Price\n## $4.39\nThe live price of NEAR Protocol is $4.39, with a total trading volume of $ 21.24M in the last 24 hours. The price of NEAR Protocol changed by +1.61% in the past day, and its USD value has increased by +0.34% over the last week. With a circulating supply of 1.31B NEAR, the market cap of NEAR Protocol is currently 5.76B USD, marking a +1.61% increase today.\n\n24h Low$4.29\n\n- NEAR/USDT 5 Spot Margin $4.39+1.61%\n\n[16] NEAR Protocol Price (NEAR/USD) Today\nhttps://www.binance.com/en/price/near-protocol\nLive price of NEAR Protocol is $5.377287 with a market cap of $6.28B USD.\n\n# NEAR Protocol Price (NEAR)\nNEAR\n\n1 NEAR ≈ USD $5.377287\n\nNEAR to USD:\n\n1 NEAR Protocol equals $ 5.377287 USD+7.73%1D\n\n## Price of NEAR today\nThe live price of NEAR Protocol is $ 5.377287 per (NEAR / USD) with a current market cap of $ 6.28B USD. 24-hour trading volume is $ 266.86M USD. NEAR to USD price is updated in real-time. NEAR Protocol is +7.73% in the last 24 hours with a circulating supply of 1.17B.\n\nNEAR Price History USD\n\n| Date Comparison | Amount Change | % Change |\n| --- | --- | --- |\n| Today | $ 0.386061 | +7.73% |\n\n{\"name\":\"NEAR Protocol\",\"offers\":{\"priceCurrency\":\"USD\",\"lowPrice\":5.38,\"price\":5.38}}\n\n[17] NEAR Protocol Price Analysis: Price today, NEAR to USD Live Price Chart, Market Cap, Token Value\nhttps://sosovalue.com/coins/near-protocol\nNEAR Protocol live price is 4.706 USD with a 24-hour trading volume of 1486898287 USD.\n\n# NEAR Protocol\n## NEAR Protocol Price Live Data Report a Data Error\nThe live NEAR Protocol price today is $4.706 USD with a 24-hour trading volume of 1,486,898,287 USD. We update our NEAR Protocol to USD price in real-time. NEAR Protocol is -6.83% in the last 24 hours. The current SoSoValue marketcap ranking is # 22, with a live market cap of $ 6,157,799,583 USD.\n\n## 8)Bullishness index for this token from the perspective of token valuation and future potential from Chatgpt 4\nAs of the latest available data, NEAR Protocol (NEAR) is valued at around $1.85, with a market capitalization of approximately $1.85 billion and a circulating supply of over 1 billion NEAR coins.\n\n[18] NEAR Protocol Price Today\nhttps://digitalcoinprice.com/coins/near-protocol\nNEAR Protocol price today is 3.79 USD. Convert NEAR to USD with real-time data, including market cap, 24h trading volume, live charts, price prediction, and price history.\n\n# NEAR Protocol Price (NEAR)\n$3.79 8.32%\n\n## NEAR Protocol Price Chart Live\n$4.14\n\n$3.74\n\n$4.14\n\n## About NEAR Protocol\n### How Much is a One NEAR Protocol Worth Now?\nThe current price of the NEAR Protocol(NEAR) is **$3.79**, with a current market cap $4,972,770,116.70.\n\n### NEAR Protocol Price Prediction\nThe NEAR Protocol current price is $3.79.\n\n### NEAR Protocol Price Live Data\nNEAR Protocol price today is $3.79 USD, which is Down by -8.32% over the last 24 hours. There has been an hourly Rise by 0.88%. NEAR Protocol's market cap currently sits at $4,972,770,116.70 USD, holding up for a market cap rank at #18.\n\n{\"name\":\"NEAR Protocol NEAR\",\"offers\":{\"price\":\"3.79\",\"priceCurrency\":\"USD\"}}\n\n[19] How low NEAR Protocol price go?\nhttps://fxstreet.com/cryptocurrencies/news/near-protocol-forecast-bearish-move-extends-despite-house-of-stake-issuance-cut-approval-202611030611\n# NEAR Protocol Forecast: Bearish move extends despite House of Stake issuance cut approval\nNEAR Protocol (NEAR) trades below $4 on Tuesday, following a 10% loss the previous day and three consecutive weeks of decline.\n\n## Technical outlook: Will NEAR extend its decline?\nNEAR token trades at $3.8270 at press time on Tuesday, indicating a bearish reversal on the four-hour chart.\n\nFrom a technical perspective, NEAR's decline is capped by a tight band of two parallel trendlines, forming a falling channel pattern on the same chart. The price approaches the lower-boundary trendline near $3.7303, guarding the downside toward the $3.4030 horizontal support set by the September 19 low.\n\n{\"name\":\"How low NEAR Protocol price go?\",\"articleBody\":\"This decision will programmatically lower long-term inflation and supply growth.Retail demand returnsRetail interest in NEAR Protocol shows signs of building after a mild contraction phase. Source: CoinGlassTechnical outlook: Will NEAR extend its decline?NEAR token trades at $3.8270 at press time on Tuesday, indicating a bearish reversal on the four-hour chart. Know more.)\"}\n\n[20] NEAR Protocol price enters issuance reform spotlight\nhttps://ad-hoc-news.de/boerse/news/marktberichte/near-protocol-price-enters-issuance-reform-spotlight/70447172\n# NEAR Protocol price enters issuance reform spotlight\n## What NEAR investors are watching\n- Investing.com displayed NEAR at 4.6034 USD, with a market capitalization of 5.98 billion USD and 24-hour volume of 610.47 million USD when the page was read.\n\n## Quote and project context\nWhen read for this report, the Investing.com market page displayed NEAR at 4.6034 USD at 17:12:12."}}}],"usage":null}
+
+
+data: {"id":"6ae689dec52d4002a7a4438d12d04a40","object":"chat.completion.chunk","created":1793712769,"model":"Qwen/Qwen3.8-27B","choices":[{"index":0,"delta":{"role":"assistant","content":""}}],"usage":null}
+
+
+data: {"id":"6ae689dec52d4002a7a4438d12d04a40","object":"chat.completion.chunk","created":1793712769,"model":"Qwen/Qwen3.8-27B","choices":[{"index":0,"delta":{"content":"As"}}],"usage":null}
+
+
+data: {"id":"6ae689dec52d4002a7a4438d12d04a40","object":"chat.completion.chunk","created":1793712769,"model":"Qwen/Qwen3.8-27B","choices":[{"index":0,"delta":{"content":" of"}}],"usage":null}
+
+
+data: {"id":"6ae689dec52d4002a7a4438d12d04a40","object":"chat.completion.chunk","created":1793712769,"model":"Qwen/Qwen3.8-27B","choices":[{"index":0,"delta":{"content":" now"}}],"usage":null}
+
+
+data: {"id":"6ae689dec52d4002a7a4438d12d04a40","object":"chat.completion.chunk","created":1793712769,"model":"Qwen/Qwen3.8-27B","choices":[{"index":0,"delta":{"content":","}}],"usage":null}
+
+
+data: {"id":"6ae689dec52d4002a7a4438d12d04a40","object":"chat.completion.chunk","created":1793712769,"model":"Qwen/Qwen3.8-27B","choices":[{"index":0,"delta":{"content":" the"}}],"usage":null}
+
+
+data: {"id":"6ae689dec52d4002a7a4438d12d04a40","object":"chat.completion.chunk","created":1793712769,"model":"Qwen/Qwen3.8-27B","choices":[{"index":0,"delta":{"content":" NE"}}],"usage":null}
+
+
+data: {"id":"6ae689dec52d4002a7a4438d12d04a40","object":"chat.completion.chunk","created":1793712769,"model":"Qwen/Qwen3.8-27B","choices":[{"index":0,"delta":{"content":"AR"}}],"usage":null}
+
+
+data: {"id":"6ae689dec52d4002a7a4438d12d04a40","object":"chat.completion.chunk","created":1793712769,"model":"Qwen/Qwen3.8-27B","choices":[{"index":0,"delta":{"content":" Protocol"}}],"usage":null}
+
+
+data: {"id":"6ae689dec52d4002a7a4438d12d04a40","object":"chat.completion.chunk","created":1793712769,"model":"Qwen/Qwen3.8-27B","choices":[{"index":0,"delta":{"content":" token"}}],"usage":null}
+
+
+data: {"id":"6ae689dec52d4002a7a4438d12d04a40","object":"chat.completion.chunk","created":1793712769,"model":"Qwen/Qwen3.8-27B","choices":[{"index":0,"delta":{"content":" is"}}],"usage":null}
+
+
+data: {"id":"6ae689dec52d4002a7a4438d12d04a40","object":"chat.completion.chunk","created":1793712769,"model":"Qwen/Qwen3.8-27B","choices":[{"index":0,"delta":{"content":" trading"}}],"usage":null}
+
+
+data: {"id":"6ae689dec52d4002a7a4438d12d04a40","object":"chat.completion.chunk","created":1793712769,"model":"Qwen/Qwen3.8-27B","choices":[{"index":0,"delta":{"content":" at"}}],"usage":null}
+
+
+data: {"id":"6ae689dec52d4002a7a4438d12d04a40","object":"chat.completion.chunk","created":1793712769,"model":"Qwen/Qwen3.8-27B","choices":[{"index":0,"delta":{"content":" approximately"}}],"usage":null}
+
+
+data: {"id":"6ae689dec52d4002a7a4438d12d04a40","object":"chat.completion.chunk","created":1793712769,"model":"Qwen/Qwen3.8-27B","choices":[{"index":0,"delta":{"content":" $"}}],"usage":null}
+
+
+data: {"id":"6ae689dec52d4002a7a4438d12d04a40","object":"chat.completion.chunk","created":1793712769,"model":"Qwen/Qwen3.8-27B","choices":[{"index":0,"delta":{"content":"3"}}],"usage":null}
+
+
+data: {"id":"6ae689dec52d4002a7a4438d12d04a40","object":"chat.completion.chunk","created":1793712769,"model":"Qwen/Qwen3.8-27B","choices":[{"index":0,"delta":{"content":"."}}],"usage":null}
+
+
+data: {"id":"6ae689dec52d4002a7a4438d12d04a40","object":"chat.completion.chunk","created":1793712769,"model":"Qwen/Qwen3.8-27B","choices":[{"index":0,"delta":{"content":"8"}}],"usage":null}
+
+
+data: {"id":"6ae689dec52d4002a7a4438d12d04a40","object":"chat.completion.chunk","created":1793712769,"model":"Qwen/Qwen3.8-27B","choices":[{"index":0,"delta":{"content":"3"}}],"usage":null}
+
+
+data: {"id":"6ae689dec52d4002a7a4438d12d04a40","object":"chat.completion.chunk","created":1793712769,"model":"Qwen/Qwen3.8-27B","choices":[{"index":0,"delta":{"content":"–"}}],"usage":null}
+
+
+data: {"id":"6ae689dec52d4002a7a4438d12d04a40","object":"chat.completion.chunk","created":1793712769,"model":"Qwen/Qwen3.8-27B","choices":[{"index":0,"delta":{"content":"$"}}],"usage":null}
+
+
+data: {"id":"6ae689dec52d4002a7a4438d12d04a40","object":"chat.completion.chunk","created":1793712769,"model":"Qwen/Qwen3.8-27B","choices":[{"index":0,"delta":{"content":"3"}}],"usage":null}
+
+
+data: {"id":"6ae689dec52d4002a7a4438d12d04a40","object":"chat.completion.chunk","created":1793712769,"model":"Qwen/Qwen3.8-27B","choices":[{"index":0,"delta":{"content":"."}}],"usage":null}
+
+
+data: {"id":"6ae689dec52d4002a7a4438d12d04a40","object":"chat.completion.chunk","created":1793712769,"model":"Qwen/Qwen3.8-27B","choices":[{"index":0,"delta":{"content":"8"}}],"usage":null}
+
+
+data: {"id":"6ae689dec52d4002a7a4438d12d04a40","object":"chat.completion.chunk","created":1793712769,"model":"Qwen/Qwen3.8-27B","choices":[{"index":0,"delta":{"content":"6"}}],"usage":null}
+
+
+data: {"id":"6ae689dec52d4002a7a4438d12d04a40","object":"chat.completion.chunk","created":1793712769,"model":"Qwen/Qwen3.8-27B","choices":[{"index":0,"delta":{"content":" USD"}}],"usage":null}
+
+
+data: {"id":"6ae689dec52d4002a7a4438d12d04a40","object":"chat.completion.chunk","created":1793712769,"model":"Qwen/Qwen3.8-27B","choices":[{"index":0,"delta":{"content":" ("}}],"usage":null}
+
+
+data: {"id":"6ae689dec52d4002a7a4438d12d04a40","object":"chat.completion.chunk","created":1793712769,"model":"Qwen/Qwen3.8-27B","choices":[{"index":0,"delta":{"content":"down"}}],"usage":null}
+
+
+data: {"id":"6ae689dec52d4002a7a4438d12d04a40","object":"chat.completion.chunk","created":1793712769,"model":"Qwen/Qwen3.8-27B","choices":[{"index":0,"delta":{"content":" about"}}],"usage":null}
+
+
+data: {"id":"6ae689dec52d4002a7a4438d12d04a40","object":"chat.completion.chunk","created":1793712769,"model":"Qwen/Qwen3.8-27B","choices":[{"index":0,"delta":{"content":" "}}],"usage":null}
+
+
+data: {"id":"6ae689dec52d4002a7a4438d12d04a40","object":"chat.completion.chunk","created":1793712769,"model":"Qwen/Qwen3.8-27B","choices":[{"index":0,"delta":{"content":"8"}}],"usage":null}
+
+
+data: {"id":"6ae689dec52d4002a7a4438d12d04a40","object":"chat.completion.chunk","created":1793712769,"model":"Qwen/Qwen3.8-27B","choices":[{"index":0,"delta":{"content":"–"}}],"usage":null}
+
+
+data: {"id":"6ae689dec52d4002a7a4438d12d04a40","object":"chat.completion.chunk","created":1793712769,"model":"Qwen/Qwen3.8-27B","choices":[{"index":0,"delta":{"content":"1"}}],"usage":null}
+
+
+data: {"id":"6ae689dec52d4002a7a4438d12d04a40","object":"chat.completion.chunk","created":1793712769,"model":"Qwen/Qwen3.8-27B","choices":[{"index":0,"delta":{"content":"1"}}],"usage":null}
+
+
+data: {"id":"6ae689dec52d4002a7a4438d12d04a40","object":"chat.completion.chunk","created":1793712769,"model":"Qwen/Qwen3.8-27B","choices":[{"index":0,"delta":{"content":"%"}}],"usage":null}
+
+
+data: {"id":"6ae689dec52d4002a7a4438d12d04a40","object":"chat.completion.chunk","created":1793712770,"model":"Qwen/Qwen3.8-27B","choices":[{"index":0,"delta":{"content":" in"}}],"usage":null}
+
+
+data: {"id":"6ae689dec52d4002a7a4438d12d04a40","object":"chat.completion.chunk","created":1793712770,"model":"Qwen/Qwen3.8-27B","choices":[{"index":0,"delta":{"content":" the"}}],"usage":null}
+
+
+data: {"id":"6ae689dec52d4002a7a4438d12d04a40","object":"chat.completion.chunk","created":1793712770,"model":"Qwen/Qwen3.8-27B","choices":[{"index":0,"delta":{"content":" past"}}],"usage":null}
+
+
+data: {"id":"6ae689dec52d4002a7a4438d12d04a40","object":"chat.completion.chunk","created":1793712770,"model":"Qwen/Qwen3.8-27B","choices":[{"index":0,"delta":{"content":" "}}],"usage":null}
+
+
+data: {"id":"6ae689dec52d4002a7a4438d12d04a40","object":"chat.completion.chunk","created":1793712770,"model":"Qwen/Qwen3.8-27B","choices":[{"index":0,"delta":{"content":"2"}}],"usage":null}
+
+
+data: {"id":"6ae689dec52d4002a7a4438d12d04a40","object":"chat.completion.chunk","created":1793712770,"model":"Qwen/Qwen3.8-27B","choices":[{"index":0,"delta":{"content":"4"}}],"usage":null}
+
+
+data: {"id":"6ae689dec52d4002a7a4438d12d04a40","object":"chat.completion.chunk","created":1793712770,"model":"Qwen/Qwen3.8-27B","choices":[{"index":0,"delta":{"content":" hours"}}],"usage":null}
+
+
+data: {"id":"6ae689dec52d4002a7a4438d12d04a40","object":"chat.completion.chunk","created":1793712770,"model":"Qwen/Qwen3.8-27B","choices":[{"index":0,"delta":{"content":"),"}}],"usage":null}
+
+
+data: {"id":"6ae689dec52d4002a7a4438d12d04a40","object":"chat.completion.chunk","created":1793712770,"model":"Qwen/Qwen3.8-27B","choices":[{"index":0,"delta":{"content":" per"}}],"usage":null}
+
+
+data: {"id":"6ae689dec52d4002a7a4438d12d04a40","object":"chat.completion.chunk","created":1793712770,"model":"Qwen/Qwen3.8-27B","choices":[{"index":0,"delta":{"content":" Coinbase"}}],"usage":null}
+
+
+data: {"id":"6ae689dec52d4002a7a4438d12d04a40","object":"chat.completion.chunk","created":1793712770,"model":"Qwen/Qwen3.8-27B","choices":[{"index":0,"delta":{"content":","}}],"usage":null}
+
+
+data: {"id":"6ae689dec52d4002a7a4438d12d04a40","object":"chat.completion.chunk","created":1793712770,"model":"Qwen/Qwen3.8-27B","choices":[{"index":0,"delta":{"content":" Coin"}}],"usage":null}
+
+
+data: {"id":"6ae689dec52d4002a7a4438d12d04a40","object":"chat.completion.chunk","created":1793712770,"model":"Qwen/Qwen3.8-27B","choices":[{"index":0,"delta":{"content":"Ge"}}],"usage":null}
+
+
+data: {"id":"6ae689dec52d4002a7a4438d12d04a40","object":"chat.completion.chunk","created":1793712770,"model":"Qwen/Qwen3.8-27B","choices":[{"index":0,"delta":{"content":"cko"}}],"usage":null}
+
+
+data: {"id":"6ae689dec52d4002a7a4438d12d04a40","object":"chat.completion.chunk","created":1793712770,"model":"Qwen/Qwen3.8-27B","choices":[{"index":0,"delta":{"content":","}}],"usage":null}
+
+
+data: {"id":"6ae689dec52d4002a7a4438d12d04a40","object":"chat.completion.chunk","created":1793712770,"model":"Qwen/Qwen3.8-27B","choices":[{"index":0,"delta":{"content":" and"}}],"usage":null}
+
+
+data: {"id":"6ae689dec52d4002a7a4438d12d04a40","object":"chat.completion.chunk","created":1793712770,"model":"Qwen/Qwen3.8-27B","choices":[{"index":0,"delta":{"content":" Kr"}}],"usage":null}
+
+
+data: {"id":"6ae689dec52d4002a7a4438d12d04a40","object":"chat.completion.chunk","created":1793712770,"model":"Qwen/Qwen3.8-27B","choices":[{"index":0,"delta":{"content":"aken"}}],"usage":null}
+
+
+data: {"id":"6ae689dec52d4002a7a4438d12d04a40","object":"chat.completion.chunk","created":1793712770,"model":"Qwen/Qwen3.8-27B","choices":[{"index":0,"delta":{"content":"."}}],"usage":null}
+
+
+data: {"id":"6ae689dec52d4002a7a4438d12d04a40","object":"chat.completion.chunk","created":1793712770,"model":"Qwen/Qwen3.8-27B","choices":[{"index":0,"delta":{},"finish_reason":"stop"}],"usage":null}
+
+
+
+
+data: [DONE]
+

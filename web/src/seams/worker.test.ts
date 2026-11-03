@@ -379,3 +379,83 @@ describe('the wardrobe routes', () => {
     expect(JSON.parse(init.body as string)).toEqual({ item: 'cozy-scarf' });
   });
 });
+
+describe('the errand routes', () => {
+  const calls = (fetchMock: ReturnType<typeof vi.fn>) => fetchMock.mock.calls.map((c) => c as unknown as [string, RequestInit]);
+
+  // spec: add-pet-errands › Errand sheet screen › success
+  it('reads the quote of a form by GET with the token, and keeps the code and the body of a refusal', async () => {
+    const fetchMock = vi.fn(async () => Response.json({ form: 'find' }));
+    vi.stubGlobal('fetch', fetchMock);
+    await workerApi.errand('t', '9', 'find');
+    expect(calls(fetchMock)[0]).toMatchObject(['/api/pets/9/errand?form=find', { method: 'GET', headers: { 'privy-id-token': 't' } }]);
+    vi.stubGlobal('fetch', vi.fn(async () => Response.json({ code: 'not_owner' }, { status: 403 })));
+    await expect(workerApi.errand('t', '9', 'read')).rejects.toMatchObject({ status: 403, code: 'not_owner' });
+  });
+
+  // spec: add-pet-errands › Errand flow › sent
+  it('sends the form and the job by POST, takes the 202 job, and keeps the block of a 409', async () => {
+    const fetchMock = vi.fn(async () => Response.json({ job: 'j1' }, { status: 202 }));
+    vi.stubGlobal('fetch', fetchMock);
+    expect(await workerApi.sendErrand('t', '9', { form: 'check', job: 'Octopuses have three hearts.' })).toEqual({ job: 'j1' });
+    const [url, init] = calls(fetchMock)[0]!;
+    expect(`${init.method} ${url}`).toBe('POST /api/pets/9/errand');
+    expect(JSON.parse(init.body as string)).toEqual({ form: 'check', job: 'Octopuses have three hearts.' });
+    vi.stubGlobal('fetch', vi.fn(async () => Response.json({ code: 'blocked', block: { reason: 'energy', until: '2026-11-04T00:00:00.000Z' } }, { status: 409 })));
+    await expect(workerApi.sendErrand('t', '9', { form: 'find', job: 'x' })).rejects.toMatchObject({ status: 409, code: 'blocked', body: { block: { reason: 'energy' } } });
+    vi.stubGlobal('fetch', vi.fn(async () => Response.json({ code: 'away' }, { status: 409 })));
+    await expect(workerApi.sendErrand('t', '9', { form: 'find', job: 'x' })).rejects.toMatchObject({ status: 409, code: 'away' });
+  });
+
+  // spec: add-pet-errands › Adapter connect flow › address answered
+  it('checks an address by POST, saves and edits a source, and removes it', async () => {
+    const fetchMock = vi.fn(async () => Response.json({ tools: [], source: {}, removed: true }));
+    vi.stubGlobal('fetch', fetchMock);
+    await workerApi.checkSource('t', '9', 'https://mcp.example.com/daybook');
+    await workerApi.saveSource('t', '9', { label: 'Daybook', address: 'https://mcp.example.com/daybook', ticks: ['events_on'] });
+    await workerApi.editSource('t', '9', 'abc', { label: 'Daybook', ticks: [] });
+    await workerApi.removeSource('t', '9', 'abc');
+    const seen = calls(fetchMock).map(([url, init]) => `${init.method} ${url}${init.body ? ` ${init.body as string}` : ''}`);
+    expect(seen).toEqual([
+      'POST /api/pets/9/sources/check {"address":"https://mcp.example.com/daybook"}',
+      'POST /api/pets/9/sources {"label":"Daybook","address":"https://mcp.example.com/daybook","ticks":["events_on"]}',
+      'PUT /api/pets/9/sources/abc {"label":"Daybook","ticks":[]}',
+      'DELETE /api/pets/9/sources/abc',
+    ]);
+    vi.stubGlobal('fetch', vi.fn(async () => Response.json({ code: 'address_failed' }, { status: 422 })));
+    await expect(workerApi.checkSource('t', '9', 'https://x.example.com/mcp')).rejects.toMatchObject({ status: 422, code: 'address_failed' });
+  });
+
+  // spec: add-pet-errands › Catalog flow › publish
+  it('publishes and takes out on the source\'s publish route, and reads the catalog of anyone', async () => {
+    const fetchMock = vi.fn(async () => Response.json({ source: {}, entries: [] }));
+    vi.stubGlobal('fetch', fetchMock);
+    await workerApi.publishSource('t', '9', 'abc');
+    await workerApi.unpublishSource('t', '9', 'abc');
+    await workerApi.adapters(null);
+    const seen = calls(fetchMock).map(([url, init]) => `${init.method} ${url}`);
+    expect(seen).toEqual(['POST /api/pets/9/sources/abc/publish', 'DELETE /api/pets/9/sources/abc/publish', 'GET /api/adapters']);
+    expect(calls(fetchMock)[2]![1].headers).toEqual({});
+    vi.stubGlobal('fetch', vi.fn(async () => Response.json({ code: 'insult' }, { status: 409 })));
+    await expect(workerApi.publishSource('t', '9', 'abc')).rejects.toMatchObject({ status: 409, code: 'insult' });
+  });
+
+  // spec: add-pet-errands › Skill code flow › test passed
+  it('reads, tests, saves and removes the skill\'s code on its own routes', async () => {
+    const fetchMock = vi.fn(async () => Response.json({ code: null, outcome: 'ok', removed: true }));
+    vi.stubGlobal('fetch', fetchMock);
+    await workerApi.code('t', '9');
+    await workerApi.testCode('t', '9', { code: 'export const x = 1;', fn: 'openerFor', values: '11, 3' });
+    await workerApi.saveCode('t', '9', { code: 'export const x = 1;', ticks: ['openerFor'] });
+    await workerApi.removeCode('t', '9');
+    const seen = calls(fetchMock).map(([url, init]) => `${init.method} ${url}${init.body ? ` ${init.body as string}` : ''}`);
+    expect(seen).toEqual([
+      'GET /api/pets/9/code',
+      'POST /api/pets/9/code/test {"code":"export const x = 1;","fn":"openerFor","values":"11, 3"}',
+      'PUT /api/pets/9/code {"code":"export const x = 1;","ticks":["openerFor"]}',
+      'DELETE /api/pets/9/code',
+    ]);
+    vi.stubGlobal('fetch', vi.fn(async () => Response.json({ code: 'tests_used_up' }, { status: 429 })));
+    await expect(workerApi.testCode('t', '9', { code: 'x', fn: 'f', values: '' })).rejects.toMatchObject({ status: 429, code: 'tests_used_up' });
+  });
+});

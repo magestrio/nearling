@@ -13,14 +13,14 @@ test('empty: «Say hi to Pixel…», the greeting asked for once, «Send» busy 
   });
   await expect(field(page)).toHaveAttribute('placeholder', 'Say hi to Pixel…');
   await expect(page.getByRole('status').filter({ hasText: 'Pixel is thinking…' })).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Send' })).toHaveAttribute('aria-disabled', 'true');
+  await expect(page.getByRole('button', { name: 'Send', exact: true })).toHaveAttribute('aria-disabled', 'true');
   await expect(page.getByRole('button', { name: /Think hard/ })).toHaveAttribute('aria-disabled', 'true');
   expect((await calls(page)).filter((c) => c === 'worker:greeting')).toHaveLength(1);
   // the greeting arrives with the next look at the job
   await setWorker(page, { petState: { thought: { id: 'g1', text: "Hi! I'm Pixel. I hatched a minute ago.", cut: null } } });
   await expect(page.getByText("Hi! I'm Pixel. I hatched a minute ago.")).toBeVisible();
   await expect(page.getByText('Pixel is thinking…')).toHaveCount(0);
-  await expect(page.getByRole('button', { name: 'Send' })).not.toHaveAttribute('aria-disabled', 'true');
+  await expect(page.getByRole('button', { name: 'Send', exact: true })).not.toHaveAttribute('aria-disabled', 'true');
   await expect(page.getByRole('link', { name: 'Check this thought' })).toHaveAttribute('href', '/pet/9/verify/g1');
   // the idle looks that follow do not bring it a second time
   await setWorker(page, { petState: {} });
@@ -34,7 +34,7 @@ test('empty × the owner\'s first line: «Say hi to Pixel…» becomes «Talk to
   await openWith(page, '/pet/9', { auth: SIGNED_IN, worker });
   await expect(field(page)).toHaveAttribute('placeholder', 'Say hi to Pixel…');
   await field(page).fill('Hello Pixel');
-  await page.getByRole('button', { name: 'Send' }).click();
+  await page.getByRole('button', { name: 'Send', exact: true }).click();
   await expect(page.getByText('Hello Pixel')).toBeVisible();
   await expect(field(page)).toHaveAttribute('placeholder', 'Talk to Pixel…');
   // the server still says `hello` until the line is stored: the hint stays
@@ -70,7 +70,7 @@ test('success (владелец): the pet, the name, the fullness, the conversat
   await expect(page.getByText('Full', { exact: true })).toBeVisible();
   await expect(page.getByRole('log')).toContainText('Barely. Big presentation at ten.');
   await expect(field(page)).toHaveAttribute('placeholder', 'Talk to Pixel…');
-  await expect(page.getByRole('button', { name: 'Send' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Send', exact: true })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Think hard · ≈ 0.12¢' })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Feed Pixel' }).first()).toBeVisible();
   await expect(page.getByRole('link', { name: 'Today' })).toHaveAttribute('href', '/pet/9/diary');
@@ -114,7 +114,7 @@ test('asleep (владелец): the field inactive with the typed text, the sle
   // drawn once, and said by the Dock's Live
   await expect(page.getByText('Pixel is asleep. A meal will wake Pixel up.').first()).toBeVisible();
   await expect(page.getByRole('status').filter({ hasText: 'Pixel is asleep. A meal will wake Pixel up.' })).toHaveCount(1);
-  await expect(page.getByRole('button', { name: 'Send' })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Send', exact: true })).toHaveCount(0);
   await expect(page.getByRole('button', { name: 'Feed Pixel' })).toHaveCount(1);
   await expect(page.getByRole('button', { name: /Think hard/ })).toHaveAttribute('aria-disabled', 'true');
   await expect(page.getByRole('link', { name: 'Today' })).toHaveCount(0);
@@ -135,7 +135,7 @@ test('asleep (владелец) × a draft in the field, then feeding: the text 
   const input = page.getByPlaceholder('Talk to Pixel…');
   await expect(input).toHaveAttribute('aria-disabled', 'true');
   await expect(input).toHaveValue('And if they ask why the chart matters?');
-  await expect(page.getByRole('button', { name: 'Send' })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Send', exact: true })).toHaveCount(0);
   // the field going off keeps the focus, and the Live says the sleep line (DS › Composer › Keyboard)
   await expect(input).toBeFocused();
   await expect(page.getByRole('status').filter({ hasText: 'Pixel is asleep. A meal will wake Pixel up.' })).toHaveCount(1);
@@ -144,7 +144,7 @@ test('asleep (владелец) × a draft in the field, then feeding: the text 
   await lookAgain(page);
   await expect(input).not.toHaveAttribute('aria-disabled', 'true');
   await expect(input).toHaveValue('And if they ask why the chart matters?');
-  await page.getByRole('button', { name: 'Send' }).click();
+  await page.getByRole('button', { name: 'Send', exact: true }).click();
   await expect(page.getByRole('log')).toContainText('And if they ask why the chart matters?');
   expect(await calls(page)).toContain('worker:say');
 });

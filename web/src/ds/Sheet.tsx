@@ -26,6 +26,8 @@ export function Sheet({
   centered,
   alert,
   self,
+  foot,
+  wide,
   returnFocusTo,
   children,
 }: {
@@ -40,6 +42,11 @@ export function Sheet({
   centered?: boolean;
   alert?: boolean;
   self?: boolean;
+  /** the sheet's actions under its body, outside its scroll, a hairline above (Errand sheet's «Send · …») */
+  foot?: ReactNode;
+  /** the Skill code sheet: with `centered` a dialog as wide as the content column on the desktop, on the phone the bottom
+   *  sheet at its full height */
+  wide?: boolean;
   returnFocusTo?: () => HTMLElement | null;
   children?: ReactNode;
 }) {
@@ -66,8 +73,9 @@ export function Sheet({
   useEffect(() => {
     const onKey = (e: globalThis.KeyboardEvent) => {
       if (e.key !== 'Escape' || e.defaultPrevented || latest.current.busy) return;
-      // a sheet the page marked `inert` (another sheet opened over it) is out of reach: Esc closes the one on top
-      if (sheet.current?.closest('[inert]')) return;
+      // a sheet the page marked `inert` (another sheet opened over it), or hid while a step of it stands, is out of reach: Esc closes
+      // the one on top
+      if (sheet.current?.closest('[inert], [hidden]')) return;
       e.preventDefault();
       latest.current.onClose();
     };
@@ -91,7 +99,7 @@ export function Sheet({
   };
 
   return (
-    <div className={cx('ds-sheet-layer', column && 'ds-sheet-layer--column', popover && 'ds-sheet-layer--popover', centered && 'ds-sheet-layer--centered')}>
+    <div className={cx('ds-sheet-layer', column && 'ds-sheet-layer--column', popover && 'ds-sheet-layer--popover', centered && 'ds-sheet-layer--centered', wide && 'ds-sheet-layer--wide')}>
       <div className="ds-sheet__scrim" aria-hidden="true" onClick={busy ? undefined : onClose} />
       <section
         ref={sheet}
@@ -114,6 +122,7 @@ export function Sheet({
         </p>
         {head ? <div className="ds-sheet__sub">{head}</div> : null}
         <div className="ds-sheet__body">{children}</div>
+        {foot ? <div className="ds-sheet__foot">{foot}</div> : null}
       </section>
     </div>
   );

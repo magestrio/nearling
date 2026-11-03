@@ -28,7 +28,7 @@ test('долгий ответ: after 10 s «Still working on it…» joins «Pix
   // no new line until the reply: Enter and «Send» do nothing
   await field(page).fill('And another thing');
   await field(page).press('Enter');
-  await expect(page.getByRole('button', { name: 'Send' })).toHaveAttribute('aria-disabled', 'true');
+  await expect(page.getByRole('button', { name: 'Send', exact: true })).toHaveAttribute('aria-disabled', 'true');
   expect((await calls(page)).filter((c) => c === 'worker:say')).toHaveLength(1);
   await setWorker(page, { petState: { thought: { id: 't1', text: 'Once there was a chart nobody understood.', cut: null } } });
   await page.clock.fastForward(2_000);
@@ -84,7 +84,7 @@ test('перезагрузка посреди мысли: the thought is still o
   };
   await openWith(page, '/pet/9', { auth: SIGNED_IN, worker });
   await expect(page.getByRole('status').filter({ hasText: 'Pixel is thinking hard…' })).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Send' })).toHaveAttribute('aria-disabled', 'true');
+  await expect(page.getByRole('button', { name: 'Send', exact: true })).toHaveAttribute('aria-disabled', 'true');
   await setWorker(page, { petState: { thought: { id: 't7', text: 'A deeper answer.', cut: null, price: '1', priceCents: 0.13 } } });
   await expect(page.getByText('A deeper answer.')).toBeVisible();
   await expect(page.getByText('Thought hard · 0.13¢')).toBeVisible();
@@ -98,13 +98,13 @@ test('вторая вкладка шлёт реплику: a tab that finds a th
   await expect(page.getByRole('status').filter({ hasText: 'Pixel is thinking…' })).toBeVisible();
   await field(page).fill('from tab two');
   await field(page).press('Enter');
-  await expect(page.getByRole('button', { name: 'Send' })).toHaveAttribute('aria-disabled', 'true');
+  await expect(page.getByRole('button', { name: 'Send', exact: true })).toHaveAttribute('aria-disabled', 'true');
   expect((await calls(page)).filter((c) => c === 'worker:say')).toHaveLength(0);
   await setWorker(page, { petState: { thought: { id: 't1', text: 'The first tab\'s answer.', cut: null } } });
   await expect(page.getByText("The first tab's answer.")).toBeVisible();
   // the typed line waited in the field and goes now
   await expect(field(page)).toHaveValue('from tab two');
-  await page.getByRole('button', { name: 'Send' }).click();
+  await page.getByRole('button', { name: 'Send', exact: true }).click();
   await expect.poll(async () => (await calls(page)).filter((c) => c === 'worker:say')).toHaveLength(1);
 });
 
@@ -149,7 +149,7 @@ test('ответ оборван: the reply stops where one thought ends, keeps i
   await expect(page.getByText("That's as far as one thought goes. Ask Pixel to keep going.")).toBeVisible();
   await expect(page.getByRole('link', { name: 'Check this thought' }).last()).toHaveAttribute('href', '/pet/9/verify/cut1');
   // the next thought is a new line
-  await expect(page.getByRole('button', { name: 'Send' })).not.toHaveAttribute('aria-disabled', 'true');
+  await expect(page.getByRole('button', { name: 'Send', exact: true })).not.toHaveAttribute('aria-disabled', 'true');
 });
 
 // spec: add-pet › Deep thought flow › отправлено

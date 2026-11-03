@@ -32,8 +32,9 @@ export interface SignInLinesOptions {
   /** the text in the screen's field (the Hatch screen's name, the owner's draft), kept in the tab through a sign-in from the
    *  ended-session line */
   text?: string;
-  /** what the tap on «Sign in» carries back: the action the player was at (Skill sheet's `skill`), `signin` by default */
-  action?: 'signin' | 'skill';
+  /** what the tap on «Sign in» carries back: the action the player was at (the sheet it was on: `skill`, `errand`, `adapter`,
+   *  `code`), `signin` by default */
+  action?: 'signin' | 'skill' | 'errand' | 'adapter' | 'code';
 }
 
 /** What a sign-in, a read of the gate at its tap, or the end of a session left on this screen, in the order they are read. An

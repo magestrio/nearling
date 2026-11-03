@@ -1,6 +1,6 @@
 import type { Page } from '@playwright/test';
 import type { FakeState, FakeWorkerState } from '../../src/seams/fakes';
-import type { AdviceRead, ConversationLine, FeedSheetData, Fullness, HireMeta, OutfitSlug, SheetPortion } from '../../src/seams/worker-types';
+import type { AdviceRead, CatalogEntryView, ConversationLine, ErrandForm, ErrandReport, ErrandState, FeedSheetData, Fullness, HireMeta, OutfitSlug, SheetPortion, SourceView, ToolView } from '../../src/seams/worker-types';
 import { SAMPLE_DAY, sampleDiary } from '../../src/seams/diary.sample';
 import type { DiaryView } from '../../src/seams/worker-types';
 import { CLOSED_ALL, CLOSED_NEW, lookAgain, setWorker, UA } from '../helpers';
@@ -21,6 +21,9 @@ export interface ScreenFixture {
   /** Lines of the frame's `copy` that are behind the spec (design/INBOX.md): the spec's words are drawn and asserted by an e2e
    *  test, and the capture does not assert the frame's older ones. Recorded in design.md › «Отклонения от кадров». */
   staleCopy?: string[];
+  /** Lines of the frame's `copy` that the frame's own PNG holds below its fold (inside a scrolling body, at the frame's scroll):
+   *  the capture asserts them drawn and visible on the page, not inside the visible part of the scroll box. */
+  belowFold?: string[];
 }
 
 /**
@@ -140,7 +143,7 @@ function owner(extra: Record<string, unknown> = {}, fullness: Fullness = PIXEL.f
 
 // add-pet-work, the frames of a pet with a skill (design/bundle/screens/work.js › SAGE): «Sage» (seed 7, lavender), «Good at weather»;
 // its price climbs ≈ 0.18¢ a job of the day from 0.38¢ (Hire price rule): 0.56¢ after one job, 0.74¢ after two. Its data source
-// (the lines of add-pet-errands) is not drawn here.
+// (the lines of add-pet-errands) is drawn on the frames below.
 const BIKE = 'Should I bike to the office tomorrow?';
 const SAGE_REF = { tokenId: '7', name: 'Sage' };
 const SAGE_PET = { tokenId: '7', name: 'Sage', stage: 'adult' as const, fullness: { state: 'full' as const, level: 1 }, mood: 'happy' as const, skill: { label: 'weather' } };
@@ -170,14 +173,18 @@ const sageTurn = (...tail: ConversationLine[]): { lines: ConversationLine[]; mor
   more: false,
   before: null,
 });
-const sageSays = (): ConversationLine => ({ id: 's2', who: 'worker', text: SAGE_SAYS, at: 0, worker: SAGE_REF, skilled: true });
+const SAGE_SOURCE = 'Open-Meteo';
+const sageSays = (): ConversationLine => ({ id: 's2', who: 'worker', text: SAGE_SAYS, at: 0, worker: SAGE_REF, skilled: true, dataLabels: [SAGE_SOURCE] });
+const NO_FORECAST = 'No forecast from Sage this time. Check the sky at seven — if the hills are clear, bike it.';
+/** the game's line of a hire whose worker's data did not answer */
+const sageEvent = (code: 'hire_data_failed' | 'hire_data_failed_paid'): ConversationLine => ({ id: 's2', who: 'event', code, at: 0, worker: SAGE_REF });
 /** Sage's page for Pixel's player; `advice` lays over the column's read */
 function guestSage(advice: Partial<AdviceRead> = {}): FakeWorkerState {
   return {
     owned: ['9'],
     pets: { '9': PIXEL, '2': BISCUIT, '7': SAGE_PET },
     me: { accountId: 'a'.repeat(64), hatched: PIXEL_REF, currentPet: PIXEL_REF, ownedCount: 1 },
-    advice: { price: SAGE_PRICE_NOW, skilled: true, ...advice },
+    advice: { price: SAGE_PRICE_NOW, skilled: true, labels: [SAGE_SOURCE], ...advice },
   };
 }
 
@@ -195,6 +202,65 @@ const openSkillSheet = async (page: Page) => {
   await page.mouse.move(0, 0);
   await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
   await settle(page);
+};
+
+// add-pet-errands, the Adapter sheet frames and the sockets of Skill sheet (design/bundle/screens/adapter.js — the tools' names and
+// descriptions are generated words): Pixel's skill «opening lines» and its own source «Daybook» at daybook.example.com
+const DAYBOOK_ADDRESS = 'https://daybook.example.com/mcp';
+const DATE_PARAMS = [
+  { name: 'month', type: 'number' as const, required: true },
+  { name: 'day', type: 'number' as const, required: true },
+];
+const DAYBOOK_TOOLS: ToolView[] = [
+  { name: 'events_on', description: 'Notable events on a month and day.', params: DATE_PARAMS, tickable: true, ticked: true },
+  { name: 'births_on', description: 'Well-known people born on a month and day.', params: DATE_PARAMS, tickable: true, ticked: true },
+];
+const FREE_TOOL: ToolView = {
+  name: 'search_events',
+  description: 'Finds events by any words.',
+  params: [{ name: 'query', type: 'text', maxLength: 500, required: true }],
+  tickable: false,
+  reason: 'free_text',
+};
+const FREE_ONLY: ToolView[] = [FREE_TOOL, { name: 'ask_archive', description: 'Answers a question about the archive.', params: [{ name: 'question', type: 'text', required: true }], tickable: false, reason: 'free_text' }];
+const dataSource = (label: string, extra: Partial<SourceView> = {}): SourceView => ({ id: `s-${label}`, label, tools: DAYBOOK_TOOLS, published: false, catalogGone: false, gift: false, ...extra });
+/** Pixel with its skill written and `sources` on it, `extra` over the Worker fake */
+const sourcesWorker = (sources: SourceView[], extra: Partial<FakeWorkerState> = {}): FakeWorkerState => {
+  const written = skillWorker(SKILL_LABEL);
+  return { ...written, skill: { skill: { label: SKILL_LABEL, instruction: SKILL_INSTRUCTION }, sources }, ...extra };
+};
+const dialog = (page: Page) => page.getByRole('dialog');
+/** the sheet at rest: the pointer away, the focus off its control, the fonts and the entrance done */
+const atRest = async (page: Page) => {
+  await page.mouse.move(0, 0);
+  await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
+  await settle(page);
+};
+/** Skill sheet open, then «Connect data» tapped: the empty form */
+const openConnect = async (page: Page) => {
+  await openSkillSheet(page);
+  await dialog(page).getByRole('button', { name: 'Connect data' }).first().click();
+  await page.getByRole('dialog', { name: "Connect data to Pixel's skill" }).waitFor();
+  await atRest(page);
+};
+const typeAdapter = async (page: Page, name: string, address: string) => {
+  await dialog(page).getByLabel('Name it').fill(name);
+  await dialog(page).getByLabel('Address').fill(address);
+};
+/** the form filled and «Check address» tapped, the answer in */
+const checkAdapter = async (page: Page, name: string, address: string, until: () => Promise<unknown>) => {
+  await openConnect(page);
+  await typeAdapter(page, name, address);
+  await dialog(page).getByRole('button', { name: 'Check address' }).click();
+  await until();
+  await atRest(page);
+};
+/** Skill sheet open and the source `label`'s socket tapped: its own sheet */
+const openSource = async (page: Page, label = 'Daybook') => {
+  await openSkillSheet(page);
+  await dialog(page).getByRole('button', { name: label, exact: true }).click();
+  await page.getByRole('dialog', { name: `${label} on Pixel's skill` }).waitFor();
+  await atRest(page);
 };
 
 /** The parts of the owner's frames that other changes build: the hiring mode was one (`add-pet-work`), and is built now */
@@ -231,6 +297,22 @@ const askAdvice = async (page: Page, answer: Record<string, unknown>) => {
   await field.press('Enter');
   await page.getByText('Biscuit is thinking…').first().waitFor();
   await setWorker(page, { petState: answer });
+};
+
+/** Sage's page: the question sent and the answer `data_failed`, as the server gives it (`paid`: the paying pet's food paid for the try) */
+const sageDataFailed = async (page: Page, outcome: { paid?: boolean }) => {
+  await page.getByRole('button', { name: /^Ask Sage/ }).waitFor();
+  await setWorker(page, { petState: { pending: true } });
+  const field = page.getByPlaceholder('Ask Sage for advice…');
+  await field.fill(ASK_SAGE);
+  await field.press('Enter');
+  await page.getByText('Sage is thinking…').first().waitFor();
+  await setWorker(page, { petState: { code: 'data_failed', ...outcome } });
+};
+/** the question is back in the field and the button is at rest */
+const settleAdviceField = async (page: Page) => {
+  await page.getByRole('button', { name: /^Ask Sage/ }).and(page.locator(':not([aria-busy])')).waitFor();
+  await page.getByPlaceholder('Ask Sage for advice…').blur();
 };
 
 /** The parts of the frames of a guest with a pet of their own that `add-pet-work` builds: the advice column */
@@ -440,6 +522,224 @@ const tapSmartGlassesBuy = async (page: Page) => {
   await wardrobeReady(page);
   await page.getByRole('button', { name: 'Buy · 0.76¢ Smart glasses' }).click();
   await page.getByRole('button', { name: 'Buying… Smart glasses' }).waitFor();
+};
+
+// add-pet-errands, the errand frames (design/bundle/screens/errand.js — generated words, not spec copy): Pixel sends the jobs of the
+// frames; after a report it is «Hungry» at 10 of 12; the skill «opening lines» with its data source «Daybook»; {time} is 02:00.
+const ERRAND_LOWER: Fullness = { state: 'hungry', level: 10 / 12 };
+const LEONIDS = 'When does the Leonid meteor shower peak this year, and when should I look?';
+const DREAMS = 'https://example.com/dreams';
+const OCTOPUS = 'Octopuses have three hearts.';
+const PASTED =
+  "Our lease says: the tenant gives 60 days' written notice before moving out, and the deposit comes back within 30 days of the keys.";
+const FIND_SAYS =
+  "The Leonids peak on the night of Nov 16 into Nov 17. Look after midnight, toward the east and away from city lights — expect 10 to 15 an hour, and the thin moon won't get in the way.";
+const READ_SAYS =
+  'The piece says most dreams fade within minutes because the brain files few new memories during REM sleep. Its one tip: lie still after you wake and replay the dream before you reach for your phone.';
+const PASTED_SAYS =
+  'Two dates matter: tell the landlord in writing 60 days before you go, and expect the deposit back within 30 days of handing over the keys.';
+const TRUE_SAYS =
+  "Two hearts pump blood through the gills and a third sends it to the rest of the body. That third one stops while the octopus swims — one reason they'd rather crawl.";
+const UNCLEAR_CLAIM = 'The first cat café opened in Taipei in 1998.';
+const UNCLEAR_SAYS = 'Several sites name a café in Taipei, but they give different years, and none links to anything from the time.';
+const TOAST_JOB = 'What happened on Nov 3 that would make a good opening line for a toast?';
+const TOAST_SAYS =
+  'On Nov 3, 1957 a dog named Laika rode Sputnik 2 into orbit. Try: “Tonight we toast to whoever goes first, before anyone knows it can be done.”';
+const ERRAND_MIDNIGHT = '2026-11-04T00:00:00.000Z';
+const ERRAND_FOOD = { reason: 'food' as const, need: { yocto: '2000000000000000000000', cents: 0.93 } };
+const src = (host: string) => ({ label: host, url: `https://${host}/a` });
+/** An errand's two lines in the conversation: the job under «You» with its form, and what came back */
+const errandJob = (form: ErrandForm, text: string): ConversationLine => ({ id: 'e1:you', who: 'player', kicker: form, text, at: 1_700_000_000_100 });
+const errandReport = (report: Omit<ErrandReport, 'priceCents' | 'missed'> & Partial<Pick<ErrandReport, 'priceCents' | 'missed'>>, text: string): ConversationLine => ({
+  id: 'e1',
+  who: 'pet',
+  text,
+  at: 1_700_000_000_101,
+  report: { priceCents: 1.42, missed: [], ...report },
+});
+const errandEmpty = (priceCents: number): ConversationLine => ({ id: 'e1', who: 'error', code: 'errand_empty', priceCents, at: 1_700_000_000_101 });
+/** the paid errand of `errandEmpty` as the owner's state keeps it for «Try again» until the next errand */
+const EMPTY_KEPT: ErrandState = { state: 'failed', form: 'find', job: LEONIDS, reason: 'empty', priceCents: 0.62 };
+// the reports that land while the frame's screen stands (errand.js › FIND, TRUE)
+const REPORT_TAIL = [
+  errandJob('find', LEONIDS),
+  errandReport({ form: 'find', sources: [src('in-the-sky.org'), src('timeanddate.com'), src('science.nasa.gov')], verdict: null, searches: 3, priceCents: 1.4 }, FIND_SAYS),
+];
+const VERDICT_TAIL = [
+  errandJob('check', OCTOPUS),
+  errandReport({ form: 'check', sources: [src('si.edu'), src('nationalgeographic.com')], verdict: 'true', searches: 2, priceCents: 1.1 }, TRUE_SAYS),
+];
+const UNCLEAR_TAIL = [
+  errandJob('check', UNCLEAR_CLAIM),
+  errandReport({ form: 'check', sources: [src('taipeitimes.com'), src('atlasobscura.com')], verdict: 'unclear', searches: 3, priceCents: 1.4 }, UNCLEAR_SAYS),
+];
+/** Pixel with the history and an errand's `tail`; `quote` lays over the sheet's quote, `state` over the errand of the owner's state */
+function errandOwner(
+  tail: ConversationLine[] = [],
+  o: { fullness?: Fullness; ownerExtra?: Record<string, unknown>; quote?: FakeWorkerState['errand']; state?: ErrandState | null; skill?: string; extra?: Partial<FakeWorkerState> } = {},
+): FakeWorkerState {
+  const base = o.skill ? { ...skillWorker(o.skill), ...owner(o.ownerExtra, o.fullness ?? PIXEL.fullness) } : owner(o.ownerExtra, o.fullness ?? PIXEL.fullness);
+  return {
+    ...base,
+    pets: o.skill
+      ? { '9': { ...PIXEL, worn: 'thinking-cap', fullness: o.fullness ?? PIXEL.fullness, skill: { label: o.skill }, owner: { ownedCount: 2, outfits: WARDROBE_OWNS, ...o.ownerExtra } }, '2': BISCUIT }
+      : base.pets,
+    conversation: { lines: [...HISTORY, ...tail], more: false, before: null },
+    ...(o.quote ? { errand: o.quote } : {}),
+    ...(o.state !== undefined ? { petState: { errand: o.state } } : {}),
+    ...o.extra,
+  };
+}
+/** the rail's «Send Pixel on an errand» tapped, the sheet open and at rest */
+const openErrandSheet = async (page: Page) => {
+  await page.getByRole('button', { name: 'Send Pixel on an errand' }).click();
+  await page.getByRole('dialog', { name: 'Send Pixel on an errand' }).waitFor();
+  await page.mouse.move(0, 0);
+  await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
+  await settle(page);
+};
+/** a search form picked and its field filled, the sheet at rest */
+const fillErrand = async (page: Page, form: 'Find out' | 'Is it true?', label: string, text: string) => {
+  const dialog = page.getByRole('dialog', { name: 'Send Pixel on an errand' });
+  await dialog.getByRole('radio', { name: form }).check();
+  await dialog.getByLabel(label).fill(text);
+  await page.mouse.move(0, 0);
+  await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
+  await settle(page);
+};
+/** the conversation rests on its newest line after the errand's lines are drawn */
+const errandLines = async (page: Page, text: string | RegExp) => {
+  await page.getByRole('log').getByText(text).first().waitFor();
+  await atNewest(page);
+  await settle(page);
+};
+/** The pet away on the errand of `tail`'s job, as `errand-sent` has it: the report lands while the screen stands. */
+const awayOn = (tail: ConversationLine[], o: { fullness?: Fullness } = {}): FakeWorkerState => {
+  const job = tail[0]!;
+  return errandOwner([], { ...o, state: { state: 'away', form: job.kicker ?? 'find', job: job.text ?? '', sentAt: 1_700_000_000_000 } });
+};
+/** The log shows the landed report from its top at its own top edge (Conversation `reveal`), or rests on its newest line when the
+ *  report fits. Polled on a timer, as `atNewest`. */
+const atReveal = (page: Page) =>
+  page.waitForFunction(
+    () => {
+      const log = document.querySelector('[role="log"]');
+      const report = log?.querySelector('[data-reveal]');
+      if (!log || !report) return false;
+      const edge = log.getBoundingClientRect().top + (parseFloat(getComputedStyle(log).scrollPaddingBlockStart) || 0);
+      const top = report.getBoundingClientRect().top;
+      const atEnd = log.scrollHeight - log.scrollTop - log.clientHeight < 2;
+      return Math.abs(top - edge) < 2 || (atEnd && top >= edge - 2);
+    },
+    undefined,
+    { polling: 100 },
+  );
+/** The report of `tail` lands (`Errand flow` › «report»): the page saw the pet away, the next look finds it back and the conversation
+ *  holds the job and the report — it rises in, and the log shows the card's top (the frames' moment). */
+const landReport = async (page: Page, tail: ConversationLine[], o: { fullness?: Fullness } = {}) => {
+  await page.getByText('Pixel is off on your errand — back soon, usually within a minute.').first().waitFor();
+  await setWorker(page, { petState: { errand: null, ...(o.fullness ? { fullness: o.fullness } : {}) }, conversation: { lines: [...HISTORY, ...tail], more: false, before: null } });
+  await lookAgain(page);
+  await page.getByRole('log').locator('[data-reveal]').waitFor();
+  await atReveal(page);
+  await page.mouse.move(0, 0);
+  await settle(page);
+};
+
+// add-pet-errands, the Adapter catalog frames (design/bundle/screens/catalog.js): the published adapters of Sage (seed 7), Mochi (seed 1)
+// and Biscuit (seed 2), opened for Pixel; addresses on example.com, the descriptions generated words
+const LAT_LON = [
+  { name: 'latitude', type: 'number' as const, required: true },
+  { name: 'longitude', type: 'number' as const, required: true },
+];
+const catalogTool = (name: string, description: string, params: ToolView['params'] = LAT_LON) => ({ name, description, params, tickable: true });
+const CATALOG_ENTRIES: CatalogEntryView[] = [
+  {
+    id: 'e-meteo',
+    name: 'Open-Meteo',
+    address: 'https://mcp.open-meteo.example.com',
+    tools: [catalogTool('forecast', 'Hourly and daily weather for a place by its latitude and longitude, up to 16 days ahead.'), catalogTool('air_quality', 'Air quality and pollen for a place by its latitude and longitude.')],
+    petId: '7',
+    petName: 'Sage',
+    publishedAt: 3,
+  },
+  {
+    id: 'e-moon',
+    name: 'Moon phases',
+    address: 'https://moon.example.com/mcp',
+    tools: [catalogTool('phase_on', "The moon's phase and how much of it is lit on a date.", DATE_PARAMS)],
+    petId: '1',
+    petName: 'Mochi',
+    publishedAt: 2,
+  },
+  {
+    id: 'e-tides',
+    name: 'Tide times',
+    address: 'https://tides.example.com/mcp',
+    tools: [
+      catalogTool('tides_at', 'High and low tide times for a harbour by its name, today and the next 6 days.', [{ name: 'harbour', type: 'text', maxLength: 64, required: true }]),
+      catalogTool('harbours_near', 'Harbours with tide tables near a latitude and longitude.'),
+    ],
+    petId: '2',
+    petName: 'Biscuit',
+    publishedAt: 1,
+  },
+];
+const CATALOG_ME = { accountId: 'a'.repeat(64), hatched: null, currentPet: { tokenId: '9', name: 'Pixel' }, ownedCount: 1 };
+/** Pixel opened for the catalog, with `sources` on its skill and the three entries listed; `extra` over the Worker fake */
+const catalogWorker = (sources: SourceView[] = [], extra: Partial<FakeWorkerState> = {}): FakeWorkerState => sourcesWorker(sources, { me: CATALOG_ME, adapters: { entries: CATALOG_ENTRIES }, ...extra });
+/** the list is on the page and at rest: the pointer away, the fonts and the entrance done */
+const catalogReady = async (page: Page) => {
+  await page.getByRole('heading', { level: 2, name: 'Open-Meteo' }).waitFor();
+  await atRest(page);
+};
+
+// add-pet-errands, the Skill code sheet frames (design/bundle/screens/code.js): Pixel's skill «opening lines», its source «Daybook», the
+// code of `openerFor` and `rawFeed`; the function names and the output are generated words; {time} «02:00» (the capture runs at UTC+2)
+const CODE_TEXT = [
+  '// One event from the Daybook, ready for an opening line',
+  'export async function openerFor(month, day) {',
+  '  const { events } = await sources["Daybook"].events_on({ month, day });',
+  '  const e = events[0];',
+  '  return { year: e.year, event: e.text };',
+  '}',
+  '',
+  'export function rawFeed(query) {',
+  '  return sources["Daybook"].search_events({ query });',
+  '}',
+].join('\n');
+const CODE_EDITED = CODE_TEXT.replace('events[0]', 'events.find((x) => x.year > 1900)');
+const CODE_OUTPUT = '{ "year": 1957, "event": "Sputnik 2 carries Laika, the first animal to orbit the Earth." }';
+const CODE_FUNCTIONS: ToolView[] = [
+  { name: 'openerFor', description: 'One event from the Daybook for a date.', params: DATE_PARAMS, tickable: true, ticked: true },
+  { name: 'rawFeed', description: 'The Daybook searched by any words.', params: [{ name: 'query', type: 'text', required: true }], tickable: false, reason: 'free_text' },
+];
+/** Pixel's skill with the source «Daybook»; `written` — it has saved code; `extra` over the Worker fake */
+const codeWorker = (written: boolean, extra: Partial<FakeWorkerState> = {}): FakeWorkerState => {
+  const base = sourcesWorker([dataSource('Daybook')], extra);
+  const skill = !base.skill || 'fail' in base.skill ? base.skill : { ...base.skill, code: written ? { functions: CODE_FUNCTIONS } : null };
+  return { ...base, skill, code: written ? { code: CODE_TEXT, functions: CODE_FUNCTIONS, testsLeft: 20 } : { code: null, functions: [], testsLeft: 20 }, ...extra };
+};
+const codeDialog = (page: Page) => page.getByRole('dialog', { name: "Pixel's code" });
+/** Skill sheet open and the code socket tapped: the sheet read and at rest */
+const openCode = async (page: Page, socket: string) => {
+  await openSkillSheet(page);
+  await dialog(page).getByRole('button', { name: socket }).click();
+  await codeDialog(page).waitFor();
+  await codeDialog(page).getByLabel('JavaScript, up to 32 KB').and(page.locator(':not([readonly])')).waitFor();
+  await atRest(page);
+};
+/** the code replaced, the function and the sample values typed, the fields left at rest */
+const typeCode = async (page: Page, code: string | null) => {
+  if (code !== null) await codeDialog(page).getByLabel('JavaScript, up to 32 KB').fill(code);
+  await codeDialog(page).getByLabel('Function to test').fill('openerFor');
+  await codeDialog(page).getByLabel('Sample values').fill('11, 3');
+};
+/** «Test run» tapped after `typeCode`; `until` — what the answer draws */
+const testCode = async (page: Page, until: () => Promise<unknown>) => {
+  await codeDialog(page).getByRole('button', { name: 'Test run' }).click();
+  await until();
+  await atRest(page);
 };
 
 export const fixtures: Record<string, ScreenFixture> = {
@@ -1146,7 +1446,7 @@ export const fixtures: Record<string, ScreenFixture> = {
       await typeLine(page, TYPED);
       await setWorker(page, { sessionExpired: true });
       await lookAgain(page);
-      await page.getByRole('button', { name: 'Send' }).click();
+      await page.getByRole('button', { name: 'Send', exact: true }).click();
       await page.getByText(SESSION_LINE).first().waitFor();
       await page.mouse.move(0, 0);
       await settle(page);
@@ -2012,7 +2312,7 @@ export const fixtures: Record<string, ScreenFixture> = {
   // spec: add-pet-work › Advice flow › page opened again
   'advice-reopened': {
     route: '/pet/7',
-    fakes: { auth: SIGNED_IN, worker: guestSage({ price: SAGE_PRICE_ROSE, last: { id: 'a1', question: ASK_SAGE, text: SAGE_ADVICE, skilled: true } }) },
+    fakes: { auth: SIGNED_IN, worker: guestSage({ price: SAGE_PRICE_ROSE, last: { id: 'a1', question: ASK_SAGE, text: SAGE_ADVICE, skilled: true, dataLabels: [SAGE_SOURCE] } }) },
     prepare: async (page) => {
       await page.getByText(SAGE_ADVICE).waitFor();
       await page.mouse.move(0, 0);
@@ -2041,6 +2341,52 @@ export const fixtures: Record<string, ScreenFixture> = {
     prepare: async (page) => {
       await page.getByText('Pixel asked Sage · 0.56¢').waitFor();
       await atNewest(page);
+    },
+  },
+
+  // Sage's data did not answer in a hire: no answer, no fee, the game's line, then Pixel's own answer
+  // spec: add-pet-errands › Adapter call rule › data failed in a hire
+  'work-data-failed': {
+    route: '/pet/9',
+    fakes: { auth: SIGNED_IN, worker: { ...owner(), pets: sagePets(), conversation: sageTurn(sageEvent('hire_data_failed'), pixelSays(NO_FORECAST, null)) } },
+    prepare: async (page) => {
+      await page.getByText("Sage's skill couldn't get its data just now, so Pixel answered on its own. No fee was paid.").waitFor();
+      await atNewest(page);
+    },
+  },
+
+  // past the paying pet's third failed call of the day: the try used a little of Pixel's food
+  // spec: add-pet-errands › Adapter call rule › data failed in a hire, past three
+  'work-data-failed-paid': {
+    route: '/pet/9',
+    fakes: { auth: SIGNED_IN, worker: { ...owner(), pets: sagePets(), conversation: sageTurn(sageEvent('hire_data_failed_paid'), pixelSays(NO_FORECAST, null)) } },
+    prepare: async (page) => {
+      await page.getByText("Sage's skill couldn't get its data just now, so Pixel answered on its own. No fee was paid — the try used a little of Pixel's food.").waitFor();
+      await atNewest(page);
+    },
+  },
+
+  // the question met Sage's missing data: the line, the question back in the field, nothing spent
+  // spec: add-pet-errands › Adapter call rule › data failed in advice
+  'advice-data-failed': {
+    route: '/pet/7',
+    fakes: { auth: SIGNED_IN, worker: guestSage({ price: SAGE_PRICE_NOW }) },
+    prepare: async (page) => {
+      await sageDataFailed(page, {});
+      await page.getByText("Sage's skill couldn't get its data just now. Nothing was spent — your question is kept.").first().waitFor();
+      await settleAdviceField(page);
+    },
+  },
+
+  // past the third failed call of the day: the paying pet's food paid for the try
+  // spec: add-pet-errands › Adapter call rule › data failed in advice, past three
+  'advice-data-failed-paid': {
+    route: '/pet/7',
+    fakes: { auth: SIGNED_IN, worker: guestSage({ price: SAGE_PRICE_NOW }) },
+    prepare: async (page) => {
+      await sageDataFailed(page, { paid: true });
+      await page.getByText("Sage's skill couldn't get its data just now. No fee was paid, but the try used a little of your Pixel's food. Your question is kept — try again.").first().waitFor();
+      await settleAdviceField(page);
     },
   },
 
@@ -2108,7 +2454,8 @@ export const fixtures: Record<string, ScreenFixture> = {
   // spec: add-pet-work › Skill sheet screen › skill already written
   'skill-sheet-written': {
     route: '/pet/9',
-    fakes: { auth: SIGNED_IN, worker: skillWorker(SKILL_LABEL) },
+    // one source connected, as the frame draws it (add-pet-errands › Adapter connect flow sockets)
+    fakes: { auth: SIGNED_IN, worker: sourcesWorker([dataSource('Daybook')]) },
     prepare: openSkillSheet,
   },
 
@@ -2184,6 +2531,608 @@ export const fixtures: Record<string, ScreenFixture> = {
       await page.getByText("We couldn't save that. Nothing's lost — try again.").first().waitFor();
       await page.mouse.move(0, 0);
       await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
+    },
+  },
+
+  // add-pet-errands, Errand sheet (design/bundle/screens/errand.js › SHEET): the rail's «Send Pixel on an errand» opens it over the
+  // conversation column; «Read this» picked on open
+
+  // spec: add-pet-errands › Errand sheet screen › success
+  'errand-sheet': { route: '/pet/9', fakes: { auth: SIGNED_IN, worker: errandOwner() }, prepare: openErrandSheet },
+
+  // spec: add-pet-errands › Errand sheet screen › a search form
+  'errand-sheet-search': {
+    route: '/pet/9',
+    fakes: { auth: SIGNED_IN, worker: errandOwner() },
+    prepare: async (page) => {
+      await openErrandSheet(page);
+      await fillErrand(page, 'Find out', 'What should Pixel find out?', LEONIDS);
+    },
+  },
+
+  // the food covers one search: «Send · up to ≈ 1.2¢» and the line beside it
+  // spec: add-pet-errands › Errand sheet screen › food covers fewer searches
+  'errand-sheet-short': {
+    route: '/pet/9',
+    fakes: { auth: SIGNED_IN, worker: errandOwner([], { quote: { search: { upTo: { yocto: '2690000000000000000000', cents: 1.2 }, full: false, short: true, searches: 1, allowance: 3 } } }) },
+    prepare: async (page) => {
+      await openErrandSheet(page);
+      await fillErrand(page, 'Find out', 'What should Pixel find out?', LEONIDS);
+    },
+  },
+
+  // Pixel's skill «opening lines» reads «Daybook»: the line under the search line
+  // spec: add-pet-errands › Errand sheet screen › a skill with outside data
+  'errand-sheet-data': {
+    route: '/pet/9',
+    fakes: { auth: SIGNED_IN, worker: errandOwner([], { skill: SKILL_LABEL, quote: { labels: ['Daybook'] } }) },
+    prepare: async (page) => {
+      await openErrandSheet(page);
+      await fillErrand(page, 'Find out', 'What should Pixel find out?', 'What happened on this day that would make a good opening line for a toast?');
+    },
+  },
+
+  // no price came: the line and «Try again» at the body's top, the typed text kept, «Send» off with no price
+  // spec: add-pet-errands › Errand sheet screen › error
+  'errand-sheet-error': {
+    route: '/pet/9',
+    fakes: { auth: SIGNED_IN, worker: errandOwner([], { quote: { fail: { status: 0, code: 'unreachable' } } }) },
+    prepare: async (page) => {
+      await openErrandSheet(page);
+      await fillErrand(page, 'Find out', 'What should Pixel find out?', LEONIDS);
+      await page.getByRole('dialog').getByRole('button', { name: 'Try again' }).waitFor();
+      await settle(page);
+    },
+  },
+
+  // the blocks stand in «Send»'s place; the text stays
+  // spec: add-pet-errands › Errand flow › can't pay
+  'errand-cant-pay': {
+    route: '/pet/9',
+    fakes: { auth: SIGNED_IN, worker: errandOwner([], { fullness: { state: 'hungry', level: 0.1 }, quote: { block: ERRAND_FOOD } }) },
+    prepare: async (page) => {
+      await openErrandSheet(page);
+      await fillErrand(page, 'Find out', 'What should Pixel find out?', LEONIDS);
+    },
+  },
+
+  // the sheet reopened by «Try again» under an empty errand after the searches used the last food: the asleep owner's page under it
+  // spec: add-pet-errands › Errand flow › can't pay
+  'errand-cant-pay-asleep': {
+    route: '/pet/9',
+    fakes: {
+      auth: SIGNED_IN,
+      worker: errandOwner([errandJob('find', LEONIDS), errandEmpty(0.62)], { fullness: ASLEEP, state: EMPTY_KEPT, quote: { block: { reason: 'asleep', need: ERRAND_FOOD.need } } }),
+    },
+    prepare: async (page) => {
+      await page.getByRole('log').getByRole('button', { name: 'Try again' }).click();
+      await page.getByRole('dialog', { name: 'Send Pixel on an errand' }).getByText(/This errand needs up to/).first().waitFor();
+      await page.mouse.move(0, 0);
+      await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
+      await settle(page);
+    },
+  },
+
+  // spec: add-pet-errands › Errand flow › out of energy
+  'errand-energy-out': {
+    route: '/pet/9',
+    fakes: { auth: SIGNED_IN, worker: errandOwner([], { ownerExtra: { energy: 0 }, quote: { block: { reason: 'energy', until: ERRAND_MIDNIGHT } } }) },
+    prepare: async (page) => {
+      await openErrandSheet(page);
+      await fillErrand(page, 'Find out', 'What should Pixel find out?', LEONIDS);
+    },
+  },
+
+  // spec: add-pet-errands › Errand flow › tired for today
+  'errand-tired': {
+    route: '/pet/9',
+    fakes: { auth: SIGNED_IN, worker: errandOwner([], { ownerExtra: { tired: true, until: ERRAND_MIDNIGHT }, quote: { block: { reason: 'cap', until: ERRAND_MIDNIGHT } } }) },
+    prepare: async (page) => {
+      await openErrandSheet(page);
+      await fillErrand(page, 'Find out', 'What should Pixel find out?', LEONIDS);
+    },
+  },
+
+  // add-pet-errands, the errand's outing and its report (design/bundle/screens/errand.js › FLOW, READ, FIND, TRUE, CALL)
+
+  // sent: the job under «You», the stage empty, the line with its dots; «Send» busy and the rail's errand item off
+  // spec: add-pet-errands › Errand flow › sent
+  'errand-sent': {
+    route: '/pet/9',
+    fakes: { auth: SIGNED_IN, worker: errandOwner([], { state: { state: 'away', form: 'find', job: LEONIDS, sentAt: 1_700_000_000_000 } }) },
+    prepare: async (page) => {
+      await errandLines(page, LEONIDS);
+      await page.getByText('Pixel is off on your errand — back soon, usually within a minute.').first().waitFor();
+      await atNewest(page);
+      await settle(page);
+    },
+  },
+
+  // spec: add-pet-errands › Errand flow › report
+  'errand-report': {
+    route: '/pet/9',
+    fakes: { auth: SIGNED_IN, worker: awayOn(REPORT_TAIL, { fullness: ERRAND_LOWER }) },
+    prepare: (page) => landReport(page, REPORT_TAIL, { fullness: ERRAND_LOWER }),
+    // the phone frame lands the card from its top: its price line stands at the fold, under the field
+    belowFold: ['{n} searches · {price}'],
+  },
+
+  // spec: add-pet-errands › Errand flow › report
+  'errand-report-read': {
+    route: '/pet/9',
+    fakes: {
+      auth: SIGNED_IN,
+      worker: errandOwner([errandJob('read', DREAMS), errandReport({ form: 'read', sources: [{ label: 'example.com/dreams', url: DREAMS }], verdict: null, searches: 0, priceCents: 0.14 }, READ_SAYS)], {
+        fullness: ERRAND_LOWER,
+      }),
+    },
+    prepare: (page) => errandLines(page, 'Read · 0.14¢'),
+  },
+
+  // spec: add-pet-errands › Errand flow › report
+  'errand-report-text': {
+    route: '/pet/9',
+    fakes: {
+      auth: SIGNED_IN,
+      worker: errandOwner([errandJob('read', PASTED), errandReport({ form: 'read', sources: [{ label: 'Your text' }], verdict: null, searches: 0, priceCents: 0.11 }, PASTED_SAYS)], {
+        fullness: ERRAND_LOWER,
+      }),
+    },
+    prepare: (page) => errandLines(page, 'Read · 0.11¢'),
+  },
+
+  // spec: add-pet-errands › Errand flow › came back empty
+  'errand-empty': {
+    route: '/pet/9',
+    fakes: { auth: SIGNED_IN, worker: errandOwner([errandJob('find', LEONIDS), errandEmpty(0.62)], { fullness: ERRAND_LOWER, state: EMPTY_KEPT }) },
+    prepare: (page) => errandLines(page, /came back empty-handed/),
+  },
+
+  // not back in 3 minutes, no search run: nothing spent, the lines come from the errand kept for «Try again»
+  // spec: add-pet-errands › Errand flow › not back in 3 minutes
+  'errand-not-back': {
+    route: '/pet/9',
+    fakes: { auth: SIGNED_IN, worker: errandOwner([], { state: { state: 'failed', form: 'find', job: LEONIDS, reason: 'timeout' } }) },
+    prepare: (page) => errandLines(page, /didn't make it back with a report/),
+  },
+
+  // the owner cleared the memory while the pet was out: the cleared conversation, then the line in place of the report
+  // spec: add-pet-errands › Errand flow › memory cleared on the way
+  'errand-memory-cleared': {
+    route: '/pet/9',
+    fakes: { auth: SIGNED_IN, worker: errandOwner() },
+    prepare: async (page) => {
+      await ownerReady(page);
+      await openErrandSheet(page);
+      await fillErrand(page, 'Find out', 'What should Pixel find out?', LEONIDS);
+      await page.getByRole('dialog', { name: 'Send Pixel on an errand' }).getByRole('button', { name: /^Send\b/ }).click();
+      await page.getByText('Pixel is off on your errand — back soon, usually within a minute.').first().waitFor();
+      await openClearDialog(page);
+      await page.getByRole('button', { name: 'Clear memory' }).click();
+      await page.getByText("Pixel's memory is clear — same Pixel, fresh start.").first().waitFor();
+      // the errand ends: the report was not kept, it still used food
+      await setWorker(page, { petState: { errand: null, code: 'memory_cleared', price: { yocto: '3000000000000000000000', cents: 1.4 } }, conversation: { lines: [], more: false, before: null } });
+      await page.getByText(/memory was cleared while it was out/).first().waitFor();
+      await atNewest(page);
+      await page.mouse.move(0, 0);
+      await settle(page);
+    },
+  },
+
+  // spec: add-pet-errands › Read this flow › page can't be read
+  'errand-unreadable': {
+    route: '/pet/9',
+    fakes: { auth: SIGNED_IN, worker: errandOwner([], { state: { state: 'failed', form: 'read', job: 'https://example.com/members/weekly-plan', reason: 'unreadable' } }) },
+    prepare: (page) => errandLines(page, /couldn't open that page/),
+  },
+
+  // spec: add-pet-errands › Read this flow › too long
+  'errand-too-long': {
+    route: '/pet/9',
+    fakes: { auth: SIGNED_IN, worker: errandOwner([], { state: { state: 'failed', form: 'read', job: 'https://example.com/books/moby-dick-full-text', reason: 'too_long' } }) },
+    prepare: (page) => errandLines(page, /too long for Pixel to read in one go/),
+  },
+
+  // spec: add-pet-errands › Find out flow › nothing found
+  'errand-nothing-found': {
+    route: '/pet/9',
+    fakes: {
+      auth: SIGNED_IN,
+      worker: errandOwner([
+        errandJob('find', 'Did the bakery on Rua Augusta change its opening hours this week?'),
+        errandReport({ form: 'find', sources: [], verdict: null, searches: 2, priceCents: 0.98 }, 'Nothing recent turned up — no notice and no post. Its listing still says 7 to 7.'),
+      ]),
+    },
+    prepare: (page) => errandLines(page, '2 searches · 0.98¢'),
+  },
+
+  // spec: add-pet-errands › Find out flow › web search down
+  'errand-search-down': {
+    route: '/pet/9',
+    fakes: { auth: SIGNED_IN, worker: errandOwner([], { state: { state: 'failed', form: 'find', job: LEONIDS, reason: 'search_down', cause: 'unreachable' } }) },
+    prepare: (page) => errandLines(page, /couldn't reach web search just now/),
+  },
+
+  // spec: add-pet-errands › Is it true flow › verdict
+  'errand-verdict': {
+    route: '/pet/9',
+    fakes: { auth: SIGNED_IN, worker: awayOn(VERDICT_TAIL) },
+    prepare: (page) => landReport(page, VERDICT_TAIL),
+  },
+
+  // spec: add-pet-errands › Is it true flow › unclear
+  'errand-unclear': {
+    route: '/pet/9',
+    fakes: { auth: SIGNED_IN, worker: awayOn(UNCLEAR_TAIL) },
+    prepare: (page) => landReport(page, UNCLEAR_TAIL),
+  },
+
+  // the report went on without a source that did not answer: its line under the words
+  // spec: add-pet-errands › Adapter call rule › data failed in an errand
+  'errand-data-failed': {
+    route: '/pet/9',
+    fakes: {
+      auth: SIGNED_IN,
+      worker: errandOwner(
+        [
+          errandJob('find', TOAST_JOB),
+          errandReport({ form: 'find', sources: [src('britannica.com'), src('history.nasa.gov')], verdict: null, searches: 2, priceCents: 1.0, missed: ['Daybook'] }, TOAST_SAYS),
+        ],
+        { skill: SKILL_LABEL },
+      ),
+    },
+    prepare: (page) => errandLines(page, /Daybook didn't answer/),
+  },
+
+  // the card the browser draws, over the «Is it true?» report: «Save image», and «Share» where the browser shares files (the capture's
+  // browser is given a share menu, as a phone has)
+  // spec: add-pet-errands › Verdict card screen › success
+  'verdict-card': {
+    route: '/pet/9',
+    fakes: { auth: SIGNED_IN, worker: errandOwner([errandJob('check', OCTOPUS), errandReport({ form: 'check', sources: [src('si.edu'), src('nationalgeographic.com')], verdict: 'true', searches: 2, priceCents: 1.06 }, TRUE_SAYS)]) },
+    beforeLoad: async (page) => {
+      await page.addInitScript(() => {
+        Object.defineProperty(navigator, 'canShare', { value: () => true, configurable: true });
+        Object.defineProperty(navigator, 'share', { value: async () => undefined, configurable: true });
+      });
+    },
+    prepare: async (page) => {
+      await errandLines(page, /2 searches · /);
+      await page.getByRole('button', { name: 'Share card' }).click();
+      await page.getByRole('button', { name: 'Share', exact: true }).waitFor();
+      await page.waitForFunction(() => document.querySelector('[role="dialog"] button[aria-busy="true"]') === null);
+      await page.mouse.move(0, 0);
+      await settle(page);
+    },
+  },
+
+  // the Adapter sheet from «Connect data»: the empty form, a step of Skill sheet
+  // spec: add-pet-errands › Adapter sheet screen › success
+  'adapter-sheet': { route: '/pet/9', fakes: { auth: SIGNED_IN, worker: sourcesWorker([]) }, prepare: openConnect },
+
+  // an own source, not published: its name, its tools, «Remove» and «Save adapter» in the foot, the publish line above its button
+  // spec: add-pet-errands › Adapter sheet screen › a connected source
+  'adapter-sheet-connected': { route: '/pet/9', fakes: { auth: SIGNED_IN, worker: sourcesWorker([dataSource('Daybook')]) }, prepare: (page) => openSource(page) },
+
+  // no answer to «Check address»: the line and «Try again» at the top, the fields keep their text
+  // spec: add-pet-errands › Adapter sheet screen › error
+  'adapter-sheet-error': {
+    route: '/pet/9',
+    fakes: { auth: SIGNED_IN, worker: sourcesWorker([], { checkSource: { fail: { status: 0, code: 'unreachable' } } }) },
+    prepare: (page) => checkAdapter(page, 'Daybook', DAYBOOK_ADDRESS, () => dialog(page).getByRole('button', { name: 'Try again' }).waitFor()),
+  },
+
+  // the test call answered: the tools, the usable ones ticked, «Save adapter»
+  // spec: add-pet-errands › Adapter connect flow › address answered
+  'adapter-answered': {
+    route: '/pet/9',
+    fakes: { auth: SIGNED_IN, worker: sourcesWorker([], { checkSource: { tools: DAYBOOK_TOOLS } }) },
+    prepare: (page) => checkAdapter(page, 'Daybook', DAYBOOK_ADDRESS, () => dialog(page).getByRole('checkbox', { name: 'events_on' }).waitFor()),
+  },
+
+  // an address that is not https: the line under «Address», nothing saved
+  // spec: add-pet-errands › Adapter connect flow › address didn't answer
+  'adapter-no-answer': {
+    route: '/pet/9',
+    fakes: { auth: SIGNED_IN, worker: sourcesWorker([], { checkSource: { fail: { status: 422, code: 'address_failed' } } }) },
+    prepare: (page) => checkAdapter(page, 'Moon phases', 'http://moon.example.com/mcp', () => dialog(page).getByText("That address didn't work.").last().waitFor()),
+  },
+
+  // one tool takes free text: off with its line, the others ticked
+  // spec: add-pet-errands › Adapter connect flow › a tool takes free text
+  'adapter-free-text': {
+    route: '/pet/9',
+    fakes: { auth: SIGNED_IN, worker: sourcesWorker([], { checkSource: { tools: [...DAYBOOK_TOOLS, FREE_TOOL] } }) },
+    prepare: (page) => checkAdapter(page, 'Daybook', DAYBOOK_ADDRESS, () => dialog(page).getByRole('checkbox', { name: 'search_events' }).waitFor()),
+  },
+
+  // every tool takes free text: none can be ticked, «Save adapter» off, the line why
+  // spec: add-pet-errands › Adapter connect flow › a tool takes free text
+  'adapter-none-fit': {
+    route: '/pet/9',
+    fakes: { auth: SIGNED_IN, worker: sourcesWorker([], { checkSource: { tools: FREE_ONLY } }) },
+    prepare: (page) => checkAdapter(page, 'Archive answers', 'https://archive.example.com/mcp', () => dialog(page).getByRole('checkbox', { name: 'ask_archive' }).waitFor()),
+    belowFold: ["None of these tools fit, so {name} can't use this one."],
+  },
+
+  // «Save adapter»: Skill sheet with the source in its socket and the line at the top
+  // spec: add-pet-errands › Adapter connect flow › saved
+  'adapter-saved': {
+    route: '/pet/9',
+    fakes: { auth: SIGNED_IN, worker: sourcesWorker([]) },
+    prepare: async (page) => {
+      await checkAdapter(page, 'Daybook', DAYBOOK_ADDRESS, () => dialog(page).getByRole('checkbox', { name: 'events_on' }).waitFor());
+      await dialog(page).getByRole('button', { name: 'Save adapter' }).click();
+      await dialog(page).getByText('Connected. Pixel can use Daybook from its next job.').last().waitFor();
+      await atRest(page);
+    },
+  },
+
+  // three sources hold every data socket: the line under them
+  // spec: add-pet-errands › Adapter connect flow › a fourth source
+  'adapter-fourth': {
+    route: '/pet/9',
+    fakes: { auth: SIGNED_IN, worker: sourcesWorker([dataSource('Daybook'), dataSource('Open-Meteo'), dataSource('Moon phases')]) },
+    prepare: openSkillSheet,
+  },
+
+  // «Remove»: the socket empty again, the line at the top
+  // spec: add-pet-errands › Adapter connect flow › removed
+  'adapter-removed': {
+    route: '/pet/9',
+    fakes: { auth: SIGNED_IN, worker: sourcesWorker([dataSource('Daybook')]) },
+    prepare: async (page) => {
+      await openSource(page);
+      await dialog(page).getByRole('button', { name: 'Remove' }).click();
+      await dialog(page).getByText('Daybook removed. Pixel stops using it from its next job.').last().waitFor();
+      await atRest(page);
+    },
+  },
+
+  // «Publish to the catalog»: listed — «In the catalog.» and «Take it out» in the button's place
+  // spec: add-pet-errands › Catalog flow › publish
+  'adapter-published': {
+    route: '/pet/9',
+    fakes: { auth: SIGNED_IN, worker: sourcesWorker([dataSource('Daybook')]) },
+    prepare: async (page) => {
+      await openSource(page);
+      await dialog(page).getByRole('button', { name: 'Publish to the catalog' }).click();
+      await dialog(page).getByRole('button', { name: 'Take it out' }).waitFor();
+      await atRest(page);
+    },
+  },
+
+  // an insult in the address or a tool: the line under the button, nothing published. The frame's line is behind the spec's (it says
+  // nothing of the address): the spec's words are drawn and asserted by the e2e test of `publish refused`.
+  // spec: add-pet-errands › Catalog flow › publish refused
+  'adapter-publish-refused': {
+    route: '/pet/9',
+    fakes: { auth: SIGNED_IN, worker: sourcesWorker([dataSource('Daybook')], { publishSource: { fail: { status: 409, code: 'insult' } } }) },
+    staleCopy: ["Some of this adapter's tool names or descriptions can't go in the catalog. It still works for {name}."],
+    prepare: async (page) => {
+      await openSource(page);
+      await dialog(page).getByRole('button', { name: 'Publish to the catalog' }).click();
+      await dialog(page).getByText("Some words in this adapter's address, tool names or descriptions can't go in the catalog.").last().waitFor();
+      await atRest(page);
+    },
+  },
+
+  // a copy whose entry has left the catalog: the line under its socket on Skill sheet
+  // spec: add-pet-errands › Catalog flow › left the catalog
+  'adapter-left-catalog': {
+    route: '/pet/9',
+    fakes: { auth: SIGNED_IN, worker: sourcesWorker([dataSource('Daybook'), dataSource('Open-Meteo', { publicAddress: 'https://mcp.example.com/open-meteo', catalogGone: true })]) },
+    prepare: openSkillSheet,
+  },
+
+  // the canvas gives no image: the line and «Try again» in the card's place, the report as it was
+  // spec: add-pet-errands › Verdict card screen › error
+  'verdict-card-error': {
+    route: '/pet/9',
+    fakes: { auth: SIGNED_IN, worker: awayOn(VERDICT_TAIL) },
+    beforeLoad: async (page) => {
+      await page.addInitScript(() => {
+        HTMLCanvasElement.prototype.toBlob = (cb) => cb(null);
+      });
+    },
+    prepare: async (page) => {
+      // the report behind the dialog as it landed, its top at the log's top: «Share card» is pressed by the pointer where it stands,
+      // with no scroll into view
+      await landReport(page, VERDICT_TAIL);
+      const share = await page.getByRole('button', { name: 'Share card' }).boundingBox();
+      if (!share) throw new Error('«Share card» is not on screen');
+      await page.mouse.click(share.x + share.width / 2, share.y + share.height / 2);
+      await page.getByRole('dialog').getByRole('button', { name: 'Try again' }).waitFor();
+      await page.mouse.move(0, 0);
+      await settle(page);
+    },
+  },
+
+  // the catalog is being read: the Skeleton shapes of two entries and the status line
+  // spec: add-pet-errands › Adapter catalog screen › loading
+  'catalog-loading': {
+    route: '/adapters?pet=9',
+    fakes: { auth: SIGNED_IN, worker: catalogWorker([], { adaptersDelayMs: FOREVER }) },
+    prepare: async (page) => {
+      await page.getByText('Loading the catalog…').first().waitFor();
+      await atRest(page);
+    },
+  },
+
+  // the server gave no catalog: the line and «Try again» in the list's place
+  // spec: add-pet-errands › Adapter catalog screen › error
+  'catalog-error': {
+    route: '/adapters?pet=9',
+    fakes: { auth: SIGNED_IN, worker: catalogWorker([], { adapters: { fail: { status: 503, code: 'unavailable' } } }) },
+    prepare: async (page) => {
+      await page.getByRole('button', { name: 'Try again' }).waitFor();
+      await atRest(page);
+    },
+  },
+
+  // nothing published
+  // spec: add-pet-errands › Adapter catalog screen › empty
+  'catalog-empty': {
+    route: '/adapters?pet=9',
+    fakes: { auth: SIGNED_IN, worker: catalogWorker([], { adapters: { entries: [] } }) },
+    prepare: async (page) => {
+      await page.getByText('No adapters yet.').waitFor();
+      await atRest(page);
+    },
+  },
+
+  // opened for Pixel from Adapter sheet: every entry with «Connect to Pixel's skill»
+  // spec: add-pet-errands › Adapter catalog screen › success
+  catalog: { route: '/adapters?pet=9', fakes: { auth: SIGNED_IN, worker: catalogWorker() }, prepare: catalogReady },
+
+  // three sources on the skill: every «Connect» off, the fourth source's line at the top
+  // spec: add-pet-errands › Adapter catalog screen › success
+  'catalog-full': {
+    route: '/adapters?pet=9',
+    fakes: { auth: SIGNED_IN, worker: catalogWorker([dataSource('Daybook'), dataSource('Open-Meteo'), dataSource('Moon phases')]) },
+    prepare: catalogReady,
+  },
+
+  // a signed-in player by the address: no «Connect», the line at the top
+  // spec: add-pet-errands › Adapter catalog screen › browse only
+  'catalog-browse': { route: '/adapters', fakes: { auth: SIGNED_IN, worker: catalogWorker() }, prepare: catalogReady },
+
+  // a visitor: no «Connect», the line and «Sign in» at the top. The spec adds «Get your own pet» beside «Sign in»; the frame has not.
+  // spec: add-pet-errands › Adapter catalog screen › signed-out
+  'catalog-signed-out': { route: '/adapters', fakes: { worker: catalogWorker() }, prepare: catalogReady },
+
+  // «Connect to Pixel's skill» tapped on Open-Meteo: Adapter sheet over the page, its test call answered
+  // spec: add-pet-errands › Catalog flow › connect from the catalog
+  'catalog-connect': {
+    route: '/adapters?pet=9',
+    fakes: {
+      auth: SIGNED_IN,
+      worker: catalogWorker([], { checkSource: { tools: (CATALOG_ENTRIES[0]?.tools ?? []).map((t) => ({ ...t, ticked: true })) } }),
+    },
+    prepare: async (page) => {
+      await page.getByRole('heading', { level: 2, name: 'Open-Meteo' }).waitFor();
+      await page.getByRole('button', { name: /Connect to Pixel's skill Open-Meteo/ }).click();
+      await page.getByRole('dialog', { name: "Connect data to Pixel's skill" }).getByRole('checkbox', { name: 'forecast' }).waitFor();
+      await atRest(page);
+    },
+  },
+
+  // a skill with no code: the empty field, the two lines, «Test run», «Save code» off
+  // spec: add-pet-errands › Skill code sheet screen › success
+  'code-sheet': { route: '/pet/9', fakes: { auth: SIGNED_IN, worker: codeWorker(false) }, prepare: (page) => openCode(page, 'Add code'), belowFold: ['Test run', 'e.g. BTC, 7'] },
+
+  // saved code: its functions, «Remove code», «Save code» on
+  // spec: add-pet-errands › Skill code sheet screen › code already written
+  'code-sheet-written': {
+    route: '/pet/9',
+    fakes: { auth: SIGNED_IN, worker: codeWorker(true) },
+    prepare: async (page) => {
+      await openCode(page, "Pixel's code");
+      await typeCode(page, null);
+      await atRest(page);
+    },
+  },
+
+  // no answer to «Test run»: the line and «Try again» at the top, the field keeps its text
+  // spec: add-pet-errands › Skill code sheet screen › error
+  'code-sheet-error': {
+    route: '/pet/9',
+    fakes: { auth: SIGNED_IN, worker: codeWorker(true, { testCode: { fail: { status: 0, code: 'unreachable' } } }) },
+    prepare: async (page) => {
+      await openCode(page, "Pixel's code");
+      await typeCode(page, CODE_EDITED);
+      await testCode(page, () => codeDialog(page).getByRole('button', { name: 'Try again' }).waitFor());
+    },
+  },
+
+  // the run returned: its output under the field, the functions it found ticked, «Save code» on
+  // spec: add-pet-errands › Skill code flow › test passed
+  'code-test-passed': {
+    route: '/pet/9',
+    fakes: { auth: SIGNED_IN, worker: codeWorker(true, { testCode: { outcome: 'ok', output: CODE_OUTPUT, functions: CODE_FUNCTIONS } }) },
+    prepare: async (page) => {
+      await openCode(page, "Pixel's code");
+      await typeCode(page, CODE_EDITED);
+      await testCode(page, () => codeDialog(page).getByRole('checkbox', { name: 'openerFor' }).waitFor());
+    },
+  },
+
+  // spec: add-pet-errands › Skill code flow › limit hit
+  'code-limit': {
+    route: '/pet/9',
+    fakes: { auth: SIGNED_IN, worker: codeWorker(true, { testCode: { outcome: 'limit' } }) },
+    prepare: async (page) => {
+      await openCode(page, "Pixel's code");
+      await typeCode(page, CODE_EDITED);
+      await testCode(page, () => codeDialog(page).getByText('Your code ran past its limits.').first().waitFor());
+    },
+  },
+
+  // spec: add-pet-errands › Skill code flow › code error
+  'code-error': {
+    route: '/pet/9',
+    fakes: {
+      auth: SIGNED_IN,
+      worker: codeWorker(true, { testCode: { outcome: 'error', error: "TypeError: Cannot read properties of undefined (reading 'year')\n    at openerFor (code.js:5:24)" } }),
+    },
+    prepare: async (page) => {
+      await openCode(page, "Pixel's code");
+      await typeCode(page, CODE_EDITED);
+      await testCode(page, () => codeDialog(page).getByText('Your code stopped with an error:').first().waitFor());
+    },
+  },
+
+  // the pet's runs of the day are used: «Test run» off, the line in the console; the field keeps its text
+  // spec: add-pet-errands › Skill code flow › cap reached
+  'code-cap': {
+    route: '/pet/9',
+    fakes: { auth: SIGNED_IN, worker: codeWorker(true, { code: { code: CODE_TEXT, functions: CODE_FUNCTIONS, testsLeft: 0 } }) },
+    prepare: async (page) => {
+      await openCode(page, "Pixel's code");
+      await typeCode(page, CODE_EDITED);
+      const cap = codeDialog(page).getByText("That's all the test runs for today.").and(page.locator(':not(.ds-hidden)')).first();
+      await cap.waitFor();
+      await cap.scrollIntoViewIfNeeded();
+      await atRest(page);
+    },
+  },
+
+  // spec: add-pet-errands › Skill code flow › game's code cap reached
+  'code-game-cap': {
+    route: '/pet/9',
+    fakes: { auth: SIGNED_IN, worker: codeWorker(true, { testCode: { fail: { status: 429, code: 'game_capped' } } }) },
+    prepare: async (page) => {
+      await openCode(page, "Pixel's code");
+      await typeCode(page, CODE_EDITED);
+      await testCode(page, () => codeDialog(page).getByText('The game has run all the code it can for today.').first().waitFor());
+    },
+  },
+
+  // «Save code» after a passing run: Skill sheet with «Pixel's code» in its square socket and the line
+  // spec: add-pet-errands › Skill code flow › code saved
+  'code-saved': {
+    route: '/pet/9',
+    fakes: { auth: SIGNED_IN, worker: codeWorker(false, { testCode: { outcome: 'ok', output: CODE_OUTPUT, functions: CODE_FUNCTIONS } }) },
+    prepare: async (page) => {
+      await openCode(page, 'Add code');
+      await typeCode(page, CODE_TEXT);
+      await testCode(page, () => codeDialog(page).getByRole('checkbox', { name: 'openerFor' }).waitFor());
+      await codeDialog(page).getByRole('button', { name: 'Save code' }).click();
+      await dialog(page).getByText('Saved. Pixel can run its code from its next job.').last().waitFor();
+      await atRest(page);
+    },
+  },
+
+  // «Remove code»: the socket «Add code» again, the line at the top
+  // spec: add-pet-errands › Skill code flow › code removed
+  'code-removed': {
+    route: '/pet/9',
+    fakes: { auth: SIGNED_IN, worker: codeWorker(true) },
+    prepare: async (page) => {
+      await openCode(page, "Pixel's code");
+      await codeDialog(page).getByRole('button', { name: 'Remove code' }).click();
+      await dialog(page).getByText('Code removed. Pixel stops running it from its next job.').last().waitFor();
+      await atRest(page);
     },
   },
 };

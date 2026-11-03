@@ -210,7 +210,7 @@ export interface Spent {
 }
 
 /** What the `RETURNING` rows of `spendStep` say. The last step fires `energy_depleted` once. */
-function spentOf(rows: { energy_used: number }[], by: 'deep' | 'work'): Spent {
+function spentOf(rows: { energy_used: number }[], by: 'deep' | 'work' | 'errand'): Spent {
   const used = rows[0]?.energy_used;
   if (used === undefined) return { spent: false, left: 0 };
   if (used >= ENERGY_STEPS) track('energy_depleted', { by });
@@ -253,7 +253,7 @@ export function energyOf(last: { results: unknown[] } | undefined): Spent {
 
 /** The seam of `add-pet-work`: one step for work done for others, `spent: false` at zero (nothing
  * is taken then). */
-export async function spendEnergy(db: D1Database, tokenId: string, by: 'deep' | 'work', now: number): Promise<Spent> {
+export async function spendEnergy(db: D1Database, tokenId: string, by: 'deep' | 'work' | 'errand', now: number): Promise<Spent> {
   const written = await db.batch([ensureLife(db, tokenId), spendStep(db, tokenId, utcDay(now))]);
   return spentOf((written[1]?.results ?? []) as { energy_used: number }[], by);
 }

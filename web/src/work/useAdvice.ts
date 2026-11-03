@@ -13,9 +13,9 @@ import { WorkerError, waitLineMs, workerApi, type AdviceRead, type PetState } fr
  *  game's, written by the component from the code (the names are known there). */
 export type Entry =
   | { id: string; kind: 'asked'; text: string; fresh?: boolean }
-  | { id: string; kind: 'answer'; thoughtId: string; text: string; skilled: boolean; fresh?: boolean }
+  | { id: string; kind: 'answer'; thoughtId: string; text: string; skilled: boolean; dataLabels?: string[]; fresh?: boolean }
   | { id: string; kind: 'event'; code: 'couldnt_help'; fresh?: boolean }
-  | { id: string; kind: 'error'; code: 'empty' | 'cleared'; fresh?: boolean };
+  | { id: string; kind: 'error'; code: 'empty' | 'cleared' | 'data_failed' | 'data_failed_paid'; fresh?: boolean };
 
 /** What stops an ask now, in the order `Advice flow` › several at once shows them: only the first is drawn. */
 export type Blocker = 'paused' | 'worker_asleep' | 'worker_resting' | 'cant_pay' | 'tired';
@@ -96,7 +96,7 @@ export function useAdvice(worker: { tokenId: string; name: string; asleep: boole
             const last = answer.last;
             setEntries([
               { id: `asked-${(counter.current += 1)}`, kind: 'asked', text: last.question },
-              { id: `answer-${last.id}`, kind: 'answer', thoughtId: last.id, text: last.text, skilled: last.skilled },
+              { id: `answer-${last.id}`, kind: 'answer', thoughtId: last.id, text: last.text, skilled: last.skilled, dataLabels: last.dataLabels },
             ]);
           }
         }
@@ -169,7 +169,7 @@ export function useAdvice(worker: { tokenId: string; name: string; asleep: boole
   }, []);
 
   const couldntHelp = useCallback((): Entry => ({ id: `line-${(counter.current += 1)}`, kind: 'event', code: 'couldnt_help', fresh: true }), []);
-  const failed = useCallback((code: 'empty' | 'cleared'): Entry => ({ id: `line-${(counter.current += 1)}`, kind: 'error', code, fresh: true }), []);
+  const failed = useCallback((code: 'empty' | 'cleared' | 'data_failed' | 'data_failed_paid'): Entry => ({ id: `line-${(counter.current += 1)}`, kind: 'error', code, fresh: true }), []);
 
   /** The payer's job is over: the answer, or why there is none. */
   const settle = useCallback(
@@ -181,7 +181,7 @@ export function useAdvice(worker: { tokenId: string; name: string; asleep: boole
       const thought = state.thought;
       if (thought && thought.kind === 'advice' && state.code !== 'memory_cleared') {
         asking.current = null;
-        setEntries((now) => [...now, { id: `answer-${thought.id}`, kind: 'answer', thoughtId: thought.id, text: thought.text, skilled: thought.skilled === true, fresh: true }]);
+        setEntries((now) => [...now, { id: `answer-${thought.id}`, kind: 'answer', thoughtId: thought.id, text: thought.text, skilled: thought.skilled === true, dataLabels: thought.dataLabels, fresh: true }]);
         setRose(false);
         void load();
         return;
@@ -212,6 +212,11 @@ export function useAdvice(worker: { tokenId: string; name: string; asleep: boole
           return;
         case 'empty_paid':
           giveBack(failed('empty'));
+          void load();
+          return;
+        case 'data_failed':
+          // the worker's skill got no data: nothing was spent (or the paying pet's food paid for the try), the question is kept
+          giveBack(failed(state.paid === true ? 'data_failed_paid' : 'data_failed'));
           void load();
           return;
         case 'memory_cleared':

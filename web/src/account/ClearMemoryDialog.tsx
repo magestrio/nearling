@@ -9,7 +9,7 @@ import { useClearMemory } from './useClearMemory';
 const BUSY = 'Lots of visitors right now. Try again in a minute.';
 
 const forgets = (name: string) =>
-  `${name} will forget your chats, its diary, and what it knows about you, the friends who fed it and the pets it helped. Our backup keeps a copy for up to 30 days. NEAR AI may keep what it already received.`;
+  `${name} will forget your chats, its diary, any skill you taught it with its data sources and code, and what it knows about you, the friends who fed it and the pets it helped. Adapters you published leave the catalog. Our backup keeps a copy for up to 30 days. NEAR AI may keep what it already received.`;
 const stays = (name: string, time: string) =>
   `${name}'s name, character, growth, streak, outfits and food stay, and what's public about ${name} stays public forever. An answer to today's riddle is cleared too and won't be checked at ${time}. Old thought receipts can't be fully checked after this. This can't be undone.`;
 const clearing = (name: string) => `Clearing ${name}'s memory…`;

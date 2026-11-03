@@ -221,7 +221,7 @@ export async function ownerFields(env: Env, tokenId: string, pet: PetRecord, pau
   const now = Date.now();
   const food = await foodState(env.DB, tokenId, pet, now);
   // An advice the pet pays for is read on the friend's page, not this one (`Advice flow`): not the owner's «is thinking…».
-  const pending = await env.DB.prepare("SELECT id, kind, mode, payload, progress FROM jobs WHERE token_id = ? AND status IN ('queued', 'running') AND kind NOT IN ('diary', 'advice') ORDER BY created_at, rowid LIMIT 1")
+  const pending = await env.DB.prepare("SELECT id, kind, mode, payload, progress FROM jobs WHERE token_id = ? AND status IN ('queued', 'running') AND kind NOT IN ('diary', 'advice', 'errand') ORDER BY created_at, rowid LIMIT 1")
     .bind(tokenId)
     .first<PendingRow>();
   const last = await env.DB.prepare('SELECT id FROM thoughts WHERE token_id = ? AND reply_text IS NOT NULL ORDER BY created_at DESC, rowid DESC LIMIT 1')

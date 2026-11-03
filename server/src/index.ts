@@ -1,12 +1,16 @@
 import { Hono } from 'hono';
 import { tick } from './cron';
 import { gate, type AppEnv } from './http';
+import { catalogRoutes } from './routes/catalog';
+import { codeRoutes } from './routes/code';
 import { diaryRoutes } from './routes/diary';
+import { errandRoutes } from './routes/errands';
 import { feedingRoutes } from './routes/feeding';
 import { hatchRoutes } from './routes/hatch';
 import { memoryRoutes } from './routes/memory';
 import { petRoutes } from './routes/pets';
 import { exchangeRoutes, sessionRoutes } from './routes/session';
+import { sourceRoutes } from './routes/sources';
 import { thoughtRoutes } from './routes/thoughts';
 import { wardrobeRoutes } from './routes/wardrobe';
 import { workRoutes } from './routes/work';
@@ -36,6 +40,10 @@ app.route('/', hatchRoutes);
 app.route('/', feedingRoutes);
 app.route('/', wardrobeRoutes);
 app.route('/', workRoutes);
+app.route('/', errandRoutes);
+app.route('/', sourceRoutes);
+app.route('/', catalogRoutes);
+app.route('/', codeRoutes);
 
 // The cron (`triggers.crons`, every minute): sessions to debit, the diary, the pause of the services.
 async function scheduled(_controller: ScheduledController, env: Env, ctx: ExecutionContext): Promise<void> {
@@ -47,4 +55,5 @@ export default { fetch: app.fetch, scheduled } satisfies ExportedHandler<Env>;
 export { Limiter } from './do/limiter';
 export { GuestView } from './do/guestView';
 export { ServerKey } from './do/serverKey';
+export { SourceCache } from './do/sourceCache';
 export { PetDesk } from './pet/desk';

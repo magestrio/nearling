@@ -10,7 +10,7 @@ import { gasIsLow, isPaused } from '../servicePause';
 import type { Exchange } from '../prompt';
 import { openSession, randomId, type JobResult } from '../spend';
 import { track } from '../track';
-import { answerStatements, workerCall } from './answer';
+import { answerStatements, dataOnly, workerCall } from './answer';
 import { hold, priceOf, type Quote } from './quote';
 
 /** What the desk keeps of an advice while it is queued: the worker, the question (the only copy, gone with the job),
@@ -85,11 +85,19 @@ export async function runAdvice(env: Env, payerId: string, job: AdviceJob, epoch
   }
 
   const prior = await lastExchange(env.DB, payerId, job.worker);
-  const out = await workerCall(env, { worker: { id: job.worker, pet: worker }, question: job.text, fee: held.fee, payerId, day, payerEpoch: epoch, prior });
+  const out = await workerCall(env, { worker: { id: job.worker, pet: worker }, question: job.text, fee: held.fee, payerId, day, payerEpoch: epoch, prior, job: 'advice' });
   if (out.kind === 'failed') {
     console.log(`advice_refused:${out.code}`);
     return { code: out.code };
   }
+  // A data source or the code gave no data (`Adapter call rule` › «data failed in advice»): no fee and no worker's answer,
+  // the question is kept. Among the paying pet's first three failed calls of the day the project paid the data call; from
+  // the fourth the paying pet pays it by usage as a thought with no reply, below.
+  if (out.kind === 'data_failed' && !out.paid) {
+    console.log('advice_refused:data_failed');
+    return { code: 'data_failed', paid: false };
+  }
+  const outcome = out.kind === 'data_failed' ? dataOnly(out) : out;
 
   // The fee is owed only for an answer shown to a pet whose memory stands: one hire row, unbilled until the batch that
   // debits it records it. Cleared on the way: no fee and no hire, the pet pays the call by usage (`Hire food data`).
@@ -104,7 +112,7 @@ export async function runAdvice(env: Env, payerId: string, job: AdviceJob, epoch
     stored,
     playerText: job.text,
     worker: { id: job.worker, name: worker.name },
-    outcome: out,
+    outcome,
     fee: held.fee,
     hire: { kind: 'player', mode: null },
     turnId: null,
@@ -112,8 +120,8 @@ export async function runAdvice(env: Env, payerId: string, job: AdviceJob, epoch
   });
   const written = await env.DB.batch(statements);
   // A clear that landed between the worker's answer and this batch refused the hire's row by itself.
-  const cleared = out.kind === 'cleared' || (hireAt !== null && (written[hireAt]?.results.length ?? 0) === 0);
-  const answered = out.kind === 'answer' && !cleared;
+  const cleared = outcome.kind === 'cleared' || (hireAt !== null && (written[hireAt]?.results.length ?? 0) === 0);
+  const answered = outcome.kind === 'answer' && !cleared;
 
   // After the advice: asleep when the food (the fee out of it) is below one scale thought; tired when the cap is used.
   const events: string[] = [];
@@ -132,6 +140,7 @@ export async function runAdvice(env: Env, payerId: string, job: AdviceJob, epoch
     console.log('advice_cleared');
     return { code: 'memory_cleared', events };
   }
+  if (out.kind === 'data_failed') return { code: 'data_failed', paid: true, events };
   if (!answered) return { code: 'empty_paid', events };
   console.log('advice_ok');
   track('thought_delivered', { model: 'cheap', for: 'hirer' });
@@ -141,12 +150,21 @@ export async function runAdvice(env: Env, payerId: string, job: AdviceJob, epoch
 /** The paying pet's last exchange with this worker that is still in its conversation: the words went with a clear of
  * its memory otherwise. A skilled worker's answer is here too — it is the asker's own record of what it was told
  * (`recall = 0` keeps it out of the pet's later requests, not out of the follow-up to the worker that said it). */
-export async function lastExchange(db: D1Database, payerId: string, workerId: string): Promise<(Exchange & { id: string; skilled: boolean }) | null> {
+export async function lastExchange(db: D1Database, payerId: string, workerId: string): Promise<(Exchange & { id: string; skilled: boolean; dataLabels: string[] }) | null> {
   const row = await db
     .prepare(
-      "SELECT id, player_text, reply_text, skilled FROM thoughts WHERE token_id = ? AND kind = 'advice' AND worker_id = ? AND player_text IS NOT NULL AND reply_text IS NOT NULL ORDER BY created_at DESC, rowid DESC LIMIT 1",
+      "SELECT id, player_text, reply_text, skilled, data_labels FROM thoughts WHERE token_id = ? AND kind = 'advice' AND worker_id = ? AND player_text IS NOT NULL AND reply_text IS NOT NULL ORDER BY created_at DESC, rowid DESC LIMIT 1",
     )
     .bind(payerId, workerId)
-    .first<{ id: string; player_text: string; reply_text: string; skilled: number }>();
-  return row === null ? null : { id: row.id, question: row.player_text, answer: row.reply_text, skilled: row.skilled === 1 };
+    .first<{ id: string; player_text: string; reply_text: string; skilled: number; data_labels: string | null }>();
+  return row === null
+    ? null
+    : { id: row.id, question: row.player_text, answer: row.reply_text, skilled: row.skilled === 1, dataLabels: row.data_labels === null ? [] : (JSON.parse(row.data_labels) as string[]) };
+}
+
+/** The data sources of the worker's skill that a job may read, by name: what the line under the advice column names
+ * (`Adapter call rule` › «advice line»). A source with no ticked tool is never called, so it is not named. */
+export async function readableSourceLabels(db: D1Database, workerId: string): Promise<string[]> {
+  const rows = await db.prepare('SELECT label, tools FROM data_sources WHERE token_id = ? ORDER BY created_at, rowid').bind(workerId).all<{ label: string; tools: string }>();
+  return rows.results.filter((r) => (JSON.parse(r.tools) as { ticked: boolean }[]).some((t) => t.ticked)).map((r) => r.label);
 }
