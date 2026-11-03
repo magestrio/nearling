@@ -323,6 +323,7 @@ const GUEST_ELSEWHERE = [
 ];
 const ME_PIXEL = { accountId: 'a'.repeat(64), hatched: PIXEL_REF, currentPet: PIXEL_REF, ownedCount: 1 };
 const HOOK = 'This pet pays for its own thoughts. When the money runs out, it falls asleep.';
+const meadowReady = (page: Page) => page.locator('.ds-meadow__ground canvas').first().waitFor();
 const SIGNED_OUT_LINE = "You're signed out. See you soon!";
 const SESSION_LINE = "You've been signed out. Sign in to pick up where you left off.";
 const CLOSED_ALL_WORDS = 'Sign-in is closed for everyone until December 1. You can still look around, and any pet you have is safe.';
@@ -1264,6 +1265,10 @@ export const fixtures: Record<string, ScreenFixture> = {
   'signin-failed': {
     route: '/pet/2',
     fakes: { auth: { outcome: 'failed' } },
+    // on the phone the frame draws the phone's way out under the error too (Sign-in flow › «запасной путь на телефоне»)
+    beforeLoad: async (page) => {
+      if ((page.viewportSize()?.width ?? Infinity) < 768) await asBrowser(UA.android)(page);
+    },
     prepare: async (page) => {
       await tapSignIn(page);
       await page.getByText(FAILED_LINE).first().waitFor();
@@ -1294,42 +1299,43 @@ export const fixtures: Record<string, ScreenFixture> = {
 
   // Home screen: a visitor with sign-in open; the check on its way; the game not reached; closed for new players, for everyone
   // spec: add-account › Home screen › signed-out
-  'home-signed-out': { route: '/', prepare: (page) => page.getByRole('button', { name: 'Sign in' }).waitFor() },
+  'home-signed-out': { route: '/', prepare: async (page) => { await page.getByRole('button', { name: 'Sign in' }).waitFor(); await meadowReady(page); } },
   // spec: add-account › Home screen › loading
   'home-loading': {
     route: '/',
     fakes: { worker: { delayMs: FOREVER } },
-    prepare: (page) => page.getByText('Opening the game…').waitFor(),
+    prepare: async (page) => { await page.getByText('Opening the game…').waitFor(); await meadowReady(page); },
   },
   // spec: add-account › Home screen › error
   'home-error': {
     route: '/',
     fakes: { worker: { signIn: { fail: { status: 0, code: 'unreachable' } } } },
-    prepare: (page) => page.getByRole('button', { name: 'Try again' }).waitFor(),
+    prepare: async (page) => { await page.getByRole('button', { name: 'Try again' }).waitFor(); await meadowReady(page); },
   },
   // spec: add-account › Home screen › signed-out (вход закрыт)
   'home-closed': {
     route: '/',
     fakes: { worker: { signIn: CLOSED_NEW } },
-    prepare: (page) => page.getByRole('button', { name: 'Played here before? Sign in' }).waitFor(),
+    prepare: async (page) => { await page.getByRole('button', { name: 'Played here before? Sign in' }).waitFor(); await meadowReady(page); },
   },
   // spec: add-account › Home screen › signed-out (вход закрыт)
   'home-closed-all': {
     route: '/',
     fakes: { worker: { signIn: CLOSED_ALL } },
-    prepare: (page) => page.getByText(CLOSED_ALL_WORDS).waitFor(),
+    prepare: async (page) => { await page.getByText(CLOSED_ALL_WORDS).waitFor(); await meadowReady(page); },
   },
   // «Sign out» on the owner's page: Home without a session, the Toast, the focus on the h1
   // spec: add-account › Sign-out flow › вышел
   'home-signed-out-after': {
     route: '/pet/9',
-    fakes: { auth: SIGNED_IN, worker: owner() },
+    fakes: { auth: SIGNED_IN, worker: { ...owner(), toastHeld: true } },
     prepare: async (page) => {
       await ownerReady(page);
       await page.getByRole('button', { name: 'Account' }).click();
       await page.getByRole('menuitem', { name: 'Sign out' }).click();
       await page.getByRole('heading', { level: 1, name: HOOK }).waitFor();
       await page.getByText(SIGNED_OUT_LINE).first().waitFor();
+      await meadowReady(page);
       await page.mouse.move(0, 0);
       await settle(page);
     },
@@ -1367,6 +1373,10 @@ export const fixtures: Record<string, ScreenFixture> = {
       await ownerReady(page);
       await openClearDialog(page);
     },
+    // design/INBOX.md line 185: the manifest still has the pre-proposal copy; the dialog keeps the spec's words.
+    staleCopy: [
+      '{name} will forget your chats, its diary, any skill you taught it, and what it knows about you, the friends who fed it and the pets it helped. Our backup keeps a copy for up to 30 days. NEAR AI may keep what it already received.',
+    ],
   },
   // spec: add-account › Clear memory dialog screen › что останется
   'clear-memory-stays': {

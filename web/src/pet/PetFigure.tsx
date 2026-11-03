@@ -21,7 +21,7 @@ import { usePetMotion } from './proto/useMotion.js';
 // to play is `motion.ts`, not the prototype's own `useMotionPaused`.
 
 const FOV = 26;
-const ELEVATION = (9 * Math.PI) / 180;
+export const ELEVATION = (9 * Math.PI) / 180;
 const THREE_QUARTER = Math.PI / 4; // the stills' view
 const FIT = 1.25; // room around the silhouette for the light on the ground
 const POOL_REACH = 2.2; // the pool's light ends at this many radii (materials.js › makePoolMaterial)
@@ -182,6 +182,11 @@ function Moment({ hub, name }: { hub: PetHub; name: 'birth' }) {
 // e2e and screens only (VITE_FAKES): `__nearlingFreeze()` resolves once every pet on the page has drawn a few full
 // frames, so a capture never catches an empty canvas. A capture holds its pets on their stills (`pet.hold`).
 const drawn = new Set<Promise<void>>();
+/** Another shared pet canvas (Home's Meadow) joins the screen capture's wait for the first settled frame. */
+export function registerPetDraw(promise: Promise<void>): () => void {
+  drawn.add(promise);
+  return () => void drawn.delete(promise);
+}
 if (import.meta.env.VITE_FAKES === 'true') {
   (globalThis as { __nearlingFreeze?: () => Promise<void> }).__nearlingFreeze = async () => {
     await Promise.all(drawn);
@@ -190,7 +195,7 @@ if (import.meta.env.VITE_FAKES === 'true') {
 
 /** A scene that throws (no WebGL 2 after all, a broken asset) must not take the page down: the screen goes on without
  *  it. `onFail` is the same way out as a lost context. */
-class FigureBoundary extends Component<{ onFail: () => void; children: ReactNode }, { failed: boolean }> {
+export class FigureBoundary extends Component<{ onFail: () => void; children: ReactNode }, { failed: boolean }> {
   override state = { failed: false };
 
   static getDerivedStateFromError(): { failed: boolean } {
@@ -206,7 +211,7 @@ class FigureBoundary extends Component<{ onFail: () => void; children: ReactNode
   }
 }
 
-function ReadySignal({ onReady }: { onReady: () => void }) {
+export function ReadySignal({ onReady }: { onReady: () => void }) {
   const frames = useRef(0);
   const quiet = useRef<ReturnType<typeof setTimeout>>(undefined);
   const invalidate = useThree((s) => s.invalidate);

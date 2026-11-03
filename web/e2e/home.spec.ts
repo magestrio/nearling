@@ -153,11 +153,11 @@ test('signed-out (вход закрыт) × Played here before: begins the sign-
 });
 
 // spec: add-account › Home screen › signed-out (вход закрыт) × закрыт для всех
-test('signed-out (вход закрыт) × закрыт для всех: the words alone — no button, no entries', async ({ page }) => {
+test('signed-out (вход закрыт) × закрыт для всех: the words alone — no entry button (only the meadow\'s motion control)', async ({ page }) => {
   await openWith(page, '/', { worker: { signIn: CLOSED_ALL } });
   await expect(page.getByText(CLOSED_ALL_WORDS)).toBeVisible();
   await expect(page.getByRole('heading', { level: 1, name: HOOK })).toBeVisible();
-  await expect(page.getByRole('button')).toHaveCount(0);
+  await expect(page.getByRole('button').filter({ hasNotText: /^(Pause|Play) motion$/ })).toHaveCount(0);
   await expect(page.getByRole('link', { name: 'Hatch your pet' })).toHaveCount(0);
 });
 

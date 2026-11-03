@@ -51,14 +51,14 @@ const auth = (over: Partial<AuthApi> = {}): AuthApi => ({
   ...over,
 });
 
-async function mount(over: Partial<AuthApi> = {}) {
+async function mount(over: Partial<AuthApi> = {}, column = false) {
   page = document.createElement('div');
   root = createRoot(page);
   await act(async () => {
     root!.render(
       <AuthContext.Provider value={auth(over)}>
         <SignInLayer>
-          <SignInOutcome />
+          <SignInOutcome column={column} />
         </SignInLayer>
       </AuthContext.Provider>,
     );
@@ -105,5 +105,13 @@ describe('the line of a sign-in', () => {
     setOutcome({ kind: 'cancelled', place: '/pet/2' });
     await mount({ sessionLine: true });
     expect(page.textContent).toContain(SESSION_LINE);
+  });
+
+  // spec: add-account › Sign-in flow › вход не удался
+  it('on the guest\'s page (column) draws the failure with its coral icon and «Try again» as a compact secondary button', async () => {
+    setOutcome({ kind: 'failed', place: '/pet/2' });
+    await mount({}, true);
+    expect(page.querySelector('.ds-note--error')?.textContent).toContain(FAILED);
+    expect(page.querySelector('.ds-button--secondary.ds-button--compact')?.textContent).toBe('Try again');
   });
 });

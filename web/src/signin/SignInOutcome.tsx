@@ -23,6 +23,8 @@ export const LIVE_WAIT_MS = 100;
 
 export interface SignInLine {
   text: string;
+  /** a failure: its line carries the coral icon where the page draws it that way (`column`) */
+  failed?: boolean;
   action?: { label: string; onClick: () => void };
 }
 
@@ -54,7 +56,7 @@ export function useSignInLines({ unreachable = UNREACHABLE, text, action = 'sign
       text: `Looks like you haven't played here this month, so we can't sign you in until ${monthOf(outcome.until ?? '')} 1. You can still look around.`,
     });
   } else if (outcome?.kind === 'failed') {
-    lines.push({ text: FAILED, action: { label: 'Try again', onClick: tap } });
+    lines.push({ text: FAILED, failed: true, action: { label: 'Try again', onClick: tap } });
   } else if (auth.sessionLine) {
     // a tap needed the session that ended while this page was open
     lines.push({ text: SESSION_LINE, action: { label: 'Sign in', onClick: tap } });
@@ -66,18 +68,20 @@ export function useSignInLines({ unreachable = UNREACHABLE, text, action = 'sign
   return lines;
 }
 
-/** The lines as the frames draw them, silent: a Live says them. */
-export function SignInLines({ lines }: { lines: SignInLine[] }) {
+/** The lines as the frames draw them, silent: a Live says them. `column` — the guest's page under its action (design/bundle/
+ *  screens/account.js › outcome): the lines at the start of the column, a failure with its coral icon, the ways on as compact
+ *  secondary buttons. */
+export function SignInLines({ lines, column }: { lines: SignInLine[]; column?: boolean }) {
   if (lines.length === 0) return null;
   return (
-    <Stack gap={2} align="center">
+    <Stack gap={2} align={column ? 'flex-start' : 'center'}>
       {lines.map((line) => (
-        <Stack key={line.text} gap={2} align="center">
-          <Note tone="plain" silent>
+        <Stack key={line.text} gap={2} align={column ? 'flex-start' : 'center'}>
+          <Note tone={column && line.failed ? 'error' : 'plain'} silent>
             {line.text}
           </Note>
           {line.action ? (
-            <Button variant="ghost" size="compact" onClick={line.action.onClick}>
+            <Button variant={column ? 'secondary' : 'ghost'} size="compact" onClick={line.action.onClick}>
               {line.action.label}
             </Button>
           ) : null}
@@ -87,7 +91,7 @@ export function SignInLines({ lines }: { lines: SignInLine[] }) {
   );
 }
 
-export function SignInOutcome(options: SignInLinesOptions) {
+export function SignInOutcome({ column, ...options }: SignInLinesOptions & { column?: boolean }) {
   const lines = useSignInLines(options);
   const said = lines.map((l) => l.text).join(' ');
   // a screen can mount this with its lines (an outcome that was set before the screen under it existed): the Live goes on the
@@ -105,7 +109,7 @@ export function SignInOutcome(options: SignInLinesOptions) {
 
   return (
     <>
-      <SignInLines lines={lines} />
+      <SignInLines lines={lines} column={column} />
       <Live>{heard}</Live>
     </>
   );

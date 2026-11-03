@@ -1,7 +1,7 @@
-/* The game's design system, ported. tokens.css and components.css are copies of
-   design/bundle/ds/tokens.css and design/ds/components.css, byte for byte: a visual change goes to the
-   designer and comes back as a new copy, never an edit here.
-   DS version note (design/ds/README.md): 0.28 · 2026-10-30 — 0.28 (the prototype's P6): Pet's Motion and Reduced
+/* The game's design system, ported. tokens.css matches design/bundle/ds/tokens.css. components.css matches
+   design/ds/components.css except the desktop Toast inset retained by design/INBOX.md line 186.
+   DS version note (design/ds/README.md): 0.39 · 2026-11-03 — Meadow gives way first, Pause motion below its ground,
+   and Toast stays below the header on the phone. 0.28 (the prototype's P6): Pet's Motion and Reduced
    motion lines per moment. 0.27: a notice is always Block `quiet`, a filled role block is for what the player acts
    on or gets. 0.26: ItemNote and ItemGrid
    `dense`, Pet `still`. 0.25: ItemGrid and ItemTile, Button `nameWith`, Pet `wearing`. 0.24: Fullness «Full» is
@@ -13,6 +13,7 @@
 @import './tokens.css';
 @import './components.css';
 @import './pet-figure.css';
+@import './meadow.css';
 
 /* Mona Sans, served by the game itself: no request to a font host (public/fonts, OFL.txt beside the files). The same
    axes the frames load, wdth 75..125 and wght 200..900; a subset comes down only when the page has a character of it. */

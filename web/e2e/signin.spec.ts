@@ -262,7 +262,7 @@ test('signed-out × запись отмены: Home opened by URL after a cancel
   await expect.poll(() => recordOf(page)).toEqual({ path: '/pet/2', action: 'feed', cancelled: true });
   await page.goto('/');
   await expect(page.getByRole('button', { name: 'Sign in' })).toBeVisible();
-  await expect(page.getByText('Hatch your pet')).toBeVisible();
+  await expect(page.getByRole('link', { name: 'Hatch your pet' })).toBeVisible();
   await expect(page).toHaveURL(/127\.0\.0\.1:\d+\/$/);
   expect(await placeOf(page)).toBeNull();
 });
@@ -276,9 +276,9 @@ test('signed-out × запись отмены: a reload of Home the player reach
     history.pushState(null, '', '/');
     window.dispatchEvent(new Event('nearling:navigate'));
   });
-  await expect(page.getByText('Hatch your pet')).toBeVisible();
+  await expect(page.getByRole('link', { name: 'Hatch your pet' })).toBeVisible();
   await page.reload();
-  await expect(page.getByText('Hatch your pet')).toBeVisible();
+  await expect(page.getByRole('link', { name: 'Hatch your pet' })).toBeVisible();
   await expect(page).toHaveURL(/127\.0\.0\.1:\d+\/$/);
   expect(await placeOf(page)).toBeNull();
 });

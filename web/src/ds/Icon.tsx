@@ -27,6 +27,7 @@ const ICONS = {
   cup: ['M4.5 9.5h12V14a5 5 0 0 1-5 5h-2a5 5 0 0 1-5-5z', 'M16.5 11h1.2a2.3 2.3 0 0 1 0 4.6h-1.5', 'M9 6.5c0-1 .8-1.3.8-2.5', 'M12.5 6.5c0-1 .8-1.3.8-2.5'],
   pause: ['M9 5.5v13', 'M15 5.5v13'],
   play: ['M8 5.5v13l10.5-6.5z'],
+  sleep: ['M7 6h9l-9 12h9'],
   skill: ['M12 14.5a5.5 5.5 0 1 0 0-11 5.5 5.5 0 0 0 0 11z', 'M12 11.5a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5z', 'M8.6 13.4 7.5 20.5l4.5-2.6 4.5 2.6-1.1-7.1'],
   lock: ['M8 11V8a4 4 0 0 1 8 0v3', 'M5.5 11h13v9.5h-13z', 'M12 15v2.5'],
   // skills and errands: the errand — a pack for the road; an empty socket — a plus; the skill's code — braces

@@ -808,7 +808,7 @@ function OutsiderPage({ pet, s }: { pet: Exclude<PetView, { viewer: 'owner' }>; 
     <>
       <Live>{bannerLine(s.banner, name)}</Live>
       {s.notice ? (
-        <Toast icon="check" silent onDone={toastHeld() ? undefined : s.clearNotice}>
+        <Toast silent onDone={toastHeld() ? undefined : s.clearNotice}>
           {s.notice}
         </Toast>
       ) : null}
@@ -906,7 +906,7 @@ function OutsiderPage({ pet, s }: { pet: Exclude<PetView, { viewer: 'owner' }>; 
                   </Button>
                 ) : null}
                 {/* the outcome of a sign-in, and a guest's line of an ended session, under the action */}
-                <SignInOutcome unreachable={offlineLine(name)} />
+                <SignInOutcome column unreachable={offlineLine(name)} />
               </Stack>
             }
           >

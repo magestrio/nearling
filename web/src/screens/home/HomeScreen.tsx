@@ -1,13 +1,15 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
-import { Actions, Banner, Button, Centerpiece, Header, Heading, Nest, Note, Page, Shell, Stack, Text, Toast } from '../../ds';
+import { Banner, Button, Dock, Header, Heading, Live, Meadow, Note, Only, Page, Shell, Stack, Text, Toast } from '../../ds';
 import { closedWords } from '../../signin/ClosedSheet';
 import { SignInOutcome } from '../../signin/SignInOutcome';
 import { useSignIn } from '../../signin/signIn';
 import { consumeSignedOutLine, peekSignedOutLine, SIGNED_OUT_LINE } from '../../signin/signOut';
+import { toastHeld } from '../../seams/worker';
 import { useHome } from './useHome';
+import { MEADOW_PETS } from './meadowPets';
 
-// Home screen (add-account › Home screen, Sign-out flow) built from design/bundle/screens/account.js › home: one centred
-// stack — the Nest, the hook, the lead, then «Hatch your pet» and «Sign in», or in their place what the closed sign-in says.
+// Home screen (add-account › Home screen, Sign-out flow) follows design/bundle/screens/account.js › home: the header,
+// hook, action and Meadow in the room below. The samples in Meadow have no account or chain state.
 // A signed-in player never sees it (`useHome` leads them to their pet). The words are the Scenarios' and the frames' `copy`.
 const HOOK = 'This pet pays for its own thoughts. When the money runs out, it falls asleep.';
 const LEAD = 'Hatch a pet that talks with you, remembers you and grows up.';
@@ -37,39 +39,19 @@ export function HomeScreen() {
   if (view.kind === 'leaving') return null;
 
   const off = view.kind === 'loading' || view.kind === 'error';
-  const entries = (
-    <Actions>
-      <Button href={off ? undefined : '/hatch'} disabled={off}>
-        Hatch your pet
-      </Button>
-      <Button variant="secondary" disabled={off} onClick={() => begin('signin')}>
-        Sign in
-      </Button>
-    </Actions>
-  );
-
-  let actions: ReactNode;
+  const entry = (block: boolean) => <Button href={off ? undefined : '/hatch'} disabled={off} block={block}>Hatch your pet</Button>;
+  const returning = (block: boolean) => <Button block={block} onClick={() => begin('signin', { returning: true })}>Played here before? Sign in</Button>;
+  let action: ((block: boolean) => ReactNode) | null = entry;
+  let words: ReactNode = null;
   let status: ReactNode = '';
   let banner: ReactNode = null;
-  let note: ReactNode = null;
   if (view.kind === 'closed') {
-    const words = closedWords(view.all, view.until);
-    actions = view.all ? (
-      <Text align="center">{words}</Text>
-    ) : (
-      <Stack gap={3}>
-        <Text align="center">{words}</Text>
-        <Button block onClick={() => begin('signin', { returning: true })}>
-          Played here before? Sign in
-        </Button>
-      </Stack>
-    );
+    words = <Text align="center" measure>{closedWords(view.all, view.until)}</Text>;
+    action = view.all ? null : returning;
   } else {
-    actions = entries;
+    if (view.kind === 'loading') words = <Note tone="status">{OPENING}</Note>;
   }
-  if (view.kind === 'loading') {
-    note = <Note tone="status">{OPENING}</Note>;
-  } else if (view.kind === 'error') {
+  if (view.kind === 'error') {
     const line = view.busy ? BUSY : UNREACHABLE;
     status = fromSignOut ? `${SIGNED_OUT_LINE} ${line}` : line;
     banner = (
@@ -88,41 +70,36 @@ export function HomeScreen() {
   }
 
   return (
-    // the Toast stands in the header's band, which Home doesn't have: the Banner would lie under it
-    <Shell accent="none" fill header={fromSignOut && view.kind === 'error' ? <Header /> : null}>
-      <Page fill width="narrow">
-        {banner}
-        <Centerpiece
-          actions={
-            <Stack gap={3}>
-              {actions}
-              {/* what a sign-in begun here left when it came back with no session (`Sign-in flow` › «вход не удался», «новый
-                  после Google», the phone's fallback): under the entries, once the page is there to be tapped */}
-              {off ? null : <SignInOutcome />}
-            </Stack>
-          }
-          status={status}
-        >
+    <Shell accent="none" fill header={<Header end={view.kind === 'closed' ? null : <Button variant="secondary" size="compact" disabled={off} onClick={() => begin('signin')}>Sign in</Button>} />}>
+      <Page width="default">
+        <Stack gap={5}>
+          {banner}
           <Stack gap={4} align="center">
-            <Nest />
-            <Heading level={1} align="center" measure id={TITLE_ID} tabIndex={signedOut && shown ? -1 : undefined}>
-              {HOOK}
-            </Heading>
-            <Text variant="lead" align="center">
-              {LEAD}
-            </Text>
-            {note}
+            <Heading level={1} variant="display" wide align="center" id={TITLE_ID} tabIndex={signedOut && shown ? -1 : undefined}>{HOOK}</Heading>
+            <Text variant="lead" align="center">{LEAD}</Text>
+            {words}
+            {action ? <Only on="desktop">{action(false)}</Only> : null}
+            {off ? null : <SignInOutcome />}
           </Stack>
-        </Centerpiece>
+        </Stack>
       </Page>
+      <Page fill>
+        {action ? <Only on="phone"><Dock>{action(true)}</Dock></Only> : null}
+        <Meadow pets={MEADOW_PETS} motion />
+      </Page>
+      <Live>{status}</Live>
       {signedOut && shown && toast ? (
         <Toast
           icon="check"
           silent
-          onDone={() => {
-            setToast(false);
-            setSignedOut(false);
-          }}
+          onDone={
+            toastHeld()
+              ? undefined
+              : () => {
+                  setToast(false);
+                  setSignedOut(false);
+                }
+          }
         >
           {SIGNED_OUT_LINE}
         </Toast>

@@ -189,7 +189,7 @@ export class Animator {
     if (name === 'talk') {
       this.talk = { end: this.t + (opts.ms ?? TALK.min), up: false, next: this.t, left: Math.round(rand(TALK.word)) };
     } else if (name === 'hop') {
-      this.hop(this.t);
+      this.hop(this.t, opts.height);
     } else if (name === 'birth') {
       this.cut();
       const partsEnd = BIRTH.parts + this.a.parts.length * SNAP.gap + SNAP.dur;
@@ -304,8 +304,8 @@ export class Animator {
     this.out.pitch = -g.y.x * GAZE.pitch + this.nod;
   }
 
-  hop(start) {
-    this.hopping = { start, height: HOP.height * this.a.bounds.top };
+  hop(start, height = HOP.height) {
+    this.hopping = { start, height: height * this.a.bounds.top };
   }
 
   stepHop(t) {

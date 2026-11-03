@@ -1,4 +1,4 @@
-// The DS components of design/ds/components.js (0.29), ported. Not here yet (parts of other changes): the verification parts. `Pet` is web/src/pet/PetFigure.tsx.
+// The DS components of design/ds/components.js (0.39), ported. `Pet` is web/src/pet/PetFigure.tsx.
 export { ActionRow } from './ActionRow';
 export { Away } from './Away';
 export { Banner, Nest, Skeleton } from './Feedback';
@@ -24,6 +24,7 @@ export { Actions, Center, Cluster, Divider, Dock, Header, Inert, Only, Page, She
 export { Live } from './Live';
 export { Menu, MenuItem } from './Menu';
 export { MotionToggle } from './MotionToggle';
+export { Meadow } from './Meadow';
 export { Note } from './Note';
 export { Energy, Growth, PetPlate, PetStage, SkillBadge, Trait, type StageName, type TraitName } from './PetParts';
 export { Rail, RailItem } from './Rail';

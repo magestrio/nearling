@@ -1566,6 +1566,7 @@
 
 /* ── Desktop ──────────────────────────────────────────────────────────────────────────────────────────────── */
 @media (min-width: 768px) {
+  .ds-toast:not(.ds-toast--inline) { inset-block-start: calc((var(--size-header) - var(--size-target)) / 2); }
   .ds-convo { --ds-fade: var(--fade-edge); }
   .ds-convo__list { padding-block-end: var(--space-3); }
   .ds-header__inner { padding-inline: var(--space-gutter-desktop); }
