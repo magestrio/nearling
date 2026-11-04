@@ -256,7 +256,7 @@ export function answerStatements(env: Env, a: StoredAnswer): { statements: D1Pre
   const stopped = outcome.kind === 'empty' && outcome.stopped;
   const statements = [
     env.DB.prepare(
-      "INSERT INTO thoughts (id, token_id, created_at, kind, player_text, reply_text, model, price_yocto, price_usd_micros, cut, reasked, payer, session_id, status, worker_id, worker_name, skilled, recall, turn_id, erased_at, data_labels) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, 0, 'pet', ?, 'unbilled', ?, ?, ?, ?, ?, ?, ?)",
+      "INSERT INTO thoughts (id, token_id, created_at, kind, player_text, reply_text, model, price_yocto, price_usd_micros, cut, reasked, payer, session_id, status, worker_id, worker_name, skilled, recall, turn_id, erased_at, data_labels, near_usd_rate) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, 0, 'pet', ?, 'unbilled', ?, ?, ?, ?, ?, ?, ?, ?)",
     ).bind(
       a.thoughtId,
       a.payerId,
@@ -278,6 +278,7 @@ export function answerStatements(env: Env, a: StoredAnswer): { statements: D1Pre
       outcome.kind === 'cleared' ? a.stored : null,
       // The data sources the shown answer read, for the line under it (`Adapter call rule` › «hired answer line»).
       shown && outcome.labels.length > 0 ? JSON.stringify(outcome.labels) : null,
+      env.NEAR_USD_RATE,
     ),
     // The receipt: the worker's data call first (label `data`), then the call that answers (label `report` beside a data
     // call, as an errand's; none otherwise). A data call that failed past three is the whole of its receipt.

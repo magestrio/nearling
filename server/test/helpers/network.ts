@@ -46,6 +46,7 @@ export interface FakePet {
   /** The pets met through work, ascending (`pet_view.work_known`); absent reads as none. */
   work_known?: string[];
   jobs_today?: number;
+  transfer_generation: number;
 }
 
 /** One thought of a `debit_session` batch as the Worker sends it (`ThoughtReceipt`). */
@@ -175,7 +176,7 @@ export class FakeContract {
   lag: number[] = [];
   /** Each runs once, inside the next RPC call of that name and before it answers: what the rest of
    * the world does while the Worker waits on that call. */
-  meanwhile: { view_account?: () => Promise<void>; pet_view?: () => Promise<void>; send_tx?: () => Promise<void> } = {};
+  meanwhile: { view_account?: () => Promise<void>; pet_view?: () => Promise<void>; send_tx?: () => Promise<void>; tx?: () => Promise<void> } = {};
   outcomes = new Map<string, unknown>();
   /** A pet as it stood before each of its accepted debits, the oldest first. */
   private past = new Map<string, FakePet[]>();
@@ -207,6 +208,7 @@ export class FakeContract {
       traits: [],
       last_streak_day: null,
       outfits: [],
+      transfer_generation: 0,
       ...patch,
     };
     this.pets.set(id, pet);
@@ -615,12 +617,31 @@ export class FakeContract {
       } else {
         status = { SuccessValue: '' };
       }
+      const logs: string[] = [];
+      if (call.methodName === 'debit_session' && typeof status === 'object' && status !== null && 'SuccessValue' in status) {
+        for (const thought of args.thoughts as FakeThought[]) {
+          const receipt = { token_id: String(args.token_id), debit_id: Number(args.debit_id),
+            model: (thought as FakeThought & { model: string }).model, price: thought.price,
+            calls: thought.calls, ...(thought.worker === undefined ? {} : { worker: thought.worker }) };
+          logs.push(`EVENT_JSON:${JSON.stringify({ standard: 'nearling', version: '1.0.0', event: 'receipt', data: [receipt] })}`);
+          if (thought.hire !== undefined) {
+            logs.push(`EVENT_JSON:${JSON.stringify({ standard: 'nearling', version: '1.0.0', event: 'hire', data: [{
+              debit_id: Number(args.debit_id), hirer: String(args.token_id), worker: thought.worker,
+              kind: thought.hire.kind, skill: thought.hire.skill, fee: thought.hire.fee,
+              answer_cost: thought.price,
+            }] })}`);
+          }
+        }
+      }
       outcome = {
         final_execution_status: 'EXECUTED_OPTIMISTIC',
         status,
-        transaction: { hash: key, signer_id: tx.signerId },
+        transaction: { hash: key, signer_id: tx.signerId, receiver_id: tx.receiverId,
+          actions: action.functionCall === undefined ? [{ Transfer: { deposit: call.deposit.toString() } }]
+            : [{ FunctionCall: { method_name: call.methodName, args: btoa(String.fromCharCode(...Uint8Array.from(call.args))),
+              gas: call.gas.toString(), deposit: call.deposit.toString() } }] },
         transaction_outcome: { id: key, block_hash: BLOCK_HASH, outcome: { tokens_burnt: this.burnt } },
-        receipts_outcome: [{ block_hash: BLOCK_HASH, outcome: { tokens_burnt: '0' } }],
+        receipts_outcome: [{ block_hash: BLOCK_HASH, outcome: { tokens_burnt: '0', logs } }],
       };
       this.outcomes.set(key, outcome);
     }
@@ -677,6 +698,7 @@ export class FakeContract {
         await this.during('send_tx');
         return await this.deliver(String(params.signed_tx_base64));
       case 'tx': {
+        await this.during('tx');
         const outcome = this.txBlind ? undefined : this.outcomes.get(String(params.tx_hash));
         if (outcome === undefined) {
           if (this.unseenTx === 'timeout') return { error: { name: 'HANDLER_ERROR', cause: { name: 'TIMEOUT_ERROR', info: {} }, code: -32000, message: 'Server error', data: 'Timeout' } };

@@ -176,7 +176,7 @@ async function nextBatch(env: Env, sessionId: string): Promise<ThoughtRow[]> {
 /** Writes a batch's outcome and clears the batch in flight, in one write. Returns how many thoughts
  * changed: a thought that is not `unbilled` any more keeps its status. `debitId` is the batch's own
  * (null: never signed): a late answer never clears the next batch of the tick that took over. */
-async function settle(env: Env, session: Pick<Session, 'id' | 'token_id'>, debitId: number | null, batch: ThoughtRow[], status: 'billed' | 'project', rejected = ''): Promise<number> {
+async function settle(env: Env, session: Pick<Session, 'id' | 'token_id'>, debitId: number | null, batch: ThoughtRow[], status: 'billed' | 'project', rejected = '', txHash: string | null = null): Promise<number> {
   const ids = batch.map((t) => t.id);
   const inIds = `(${ids.map(() => '?').join(',')})`;
   const hires = batch.filter((t) => t.hire_id !== null);
@@ -204,7 +204,7 @@ async function settle(env: Env, session: Pick<Session, 'id' | 'token_id'>, debit
   }
   const at = statements.length;
   statements.push(
-    env.DB.prepare(`UPDATE thoughts SET status = ? WHERE id IN ${inIds} AND status = 'unbilled'`).bind(status, ...ids),
+    env.DB.prepare(`UPDATE thoughts SET status = ?, debit_tx_hash = ? WHERE id IN ${inIds} AND status = 'unbilled'`).bind(status, status === 'billed' ? txHash : null, ...ids),
     env.DB.prepare('UPDATE debit_sessions SET debit_id = NULL, tx_hash = NULL WHERE id = ? AND debit_id IS ?').bind(session.id, debitId),
   );
   const results = await env.DB.batch(statements);
@@ -235,14 +235,14 @@ async function forget(env: Env, sessionId: string, debitId: number, held: Claim)
 /** What became of a batch signed under `debitId`: the transaction's own status when its hash is
  * known, then the contract's `last_debit_id`. A pet's sessions run one at a time, so that id can
  * only be this batch. */
-async function outcomeOf(env: Env, tokenId: string, debitId: number, tx: string | null): Promise<'billed' | 'unknown' | { refused: string }> {
+async function outcomeOf(env: Env, tokenId: string, debitId: number, tx: string | null): Promise<{ billed: string | null } | 'unknown' | { refused: string }> {
   if (tx !== null) {
     const known = await txStatus(env, tx, env.SERVER_ACCOUNT_ID);
-    if (known?.status === 'ok') return 'billed';
+    if (known?.status === 'ok') return { billed: tx };
     if (known?.status === 'failed' && known.code !== 'bad_debit_id') return { refused: known.code };
   }
   const pet = await petView(env, tokenId);
-  return pet !== null && pet.last_debit_id >= debitId ? 'billed' : 'unknown';
+  return pet !== null && pet.last_debit_id >= debitId ? { billed: null } : 'unknown';
 }
 
 /** True when nothing of the session is left to debit; false when the next tick has to go on. */
@@ -264,8 +264,8 @@ async function debitSession(env: Env, session: Session, held: Claim, accepted: M
     if (inFlight !== null) {
       // The network's word first, a second signature only after that.
       const outcome = await outcomeOf(env, session.token_id, inFlight, tx);
-      if (outcome === 'billed') {
-        await settle(env, session, inFlight, batch, 'billed');
+      if (typeof outcome === 'object' && 'billed' in outcome) {
+        await settle(env, session, inFlight, batch, 'billed', '', outcome.billed);
         accepted.set(session.token_id, inFlight);
         inFlight = null;
         tx = null;
@@ -335,7 +335,7 @@ async function debitSession(env: Env, session: Session, held: Claim, accepted: M
     });
     if (answer.status === 'unreachable') return false;
     if (answer.status === 'ok') {
-      await settle(env, session, debitId, batch, 'billed');
+      await settle(env, session, debitId, batch, 'billed', '', answer.txHash);
       accepted.set(session.token_id, debitId);
       inFlight = null;
       await gasOfShortBatch(env, batch.length, answer.burnt);
@@ -369,7 +369,7 @@ async function debitSession(env: Env, session: Session, held: Claim, accepted: M
     // one look now; if the network has not heard of it yet, wait for the next minute
     const look = await txStatus(env, answer.txHash, env.SERVER_ACCOUNT_ID);
     if (look?.status === 'ok') {
-      await settle(env, session, debitId, batch, 'billed');
+      await settle(env, session, debitId, batch, 'billed', '', answer.txHash);
       accepted.set(session.token_id, debitId);
       inFlight = null;
       tx = null;

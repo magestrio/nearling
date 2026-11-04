@@ -1,6 +1,7 @@
 import type { ElementType, ReactNode } from 'react';
 import { Fullness, type FullnessState } from './Fullness';
 import { Icon, type IconName } from './Icon';
+import { Seal } from './Verification';
 import { cx } from './util';
 
 /** Ten steps: each «Think hard» and each job takes one. `label` — the words the spec gives it, shown and used as its
@@ -81,6 +82,7 @@ export function PetPlate({
   align,
   compact,
   badge,
+  seal,
   fullness,
   action,
   children,
@@ -91,6 +93,8 @@ export function PetPlate({
   align?: 'start';
   compact?: boolean;
   badge?: ReactNode;
+  /** The checked on-chain character mark, beside the name. */
+  seal?: string;
   fullness?: { state?: FullnessState; level?: number };
   action?: ReactNode;
   children?: ReactNode;
@@ -98,7 +102,8 @@ export function PetPlate({
   const Tag = (level === 0 ? 'p' : `h${level ?? 1}`) as ElementType;
   return (
     <div className={cx('ds-plate', align === 'start' && 'ds-plate--start', compact && 'ds-plate--compact')}>
-      <Tag className={cx('ds-plate__name', size === 'title' ? 'type-title-2' : 'type-display')}>{name}</Tag>
+      {seal ? <div className="ds-plate__head"><Tag className={cx('ds-plate__name', size === 'title' ? 'type-title-2' : 'type-display')}>{name}</Tag><Seal hash={seal} /></div>
+        : <Tag className={cx('ds-plate__name', size === 'title' ? 'type-title-2' : 'type-display')}>{name}</Tag>}
       {badge ? <div className="ds-plate__badge">{badge}</div> : null}
       <div className="ds-plate__state">
         <Fullness {...(fullness ?? {})} />

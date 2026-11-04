@@ -32,6 +32,8 @@ export interface ButtonProps {
   nameWith?: string;
   expanded?: boolean;
   haspopup?: 'menu' | 'dialog';
+  /** Sheet moves focus here when it opens. */
+  focusOnOpen?: boolean;
   pressed?: boolean;
   children?: ReactNode;
 }
@@ -75,6 +77,7 @@ export function Button(p: ButtonProps) {
   }
   return (
     <button
+      data-autofocus={p.focusOnOpen ? '' : undefined}
       // pending, busy and off keep the focus (aria-disabled) and a repeat tap does nothing
       type={p.type ?? 'button'}
       className={className}

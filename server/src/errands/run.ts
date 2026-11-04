@@ -220,11 +220,11 @@ async function readErrand(env: Env, tokenId: string, epoch: number, row: ErrandR
         .bind(tokenId, row.id, empty ? 'failed' : 'done', empty ? 'empty' : null, thoughtId, price.toString()),
       env.DB
         .prepare(
-          `INSERT INTO thoughts (id, token_id, created_at, kind, player_text, reply_text, model, price_yocto, price_usd_micros, cut, reasked, payer, session_id, status, skilled, recall, form, sources, verdict, searches)
-           SELECT ?1, ?2, ?3, 'errand', ?4, ?5, ?6, ?7, ?8, ?9, ?10, 'pet', ?11, 'unbilled', ?12, 0, 'read', ?13, NULL, 0
+          `INSERT INTO thoughts (id, token_id, created_at, kind, player_text, reply_text, model, price_yocto, price_usd_micros, cut, reasked, payer, session_id, status, skilled, recall, form, sources, verdict, searches, near_usd_rate)
+           SELECT ?1, ?2, ?3, 'errand', ?4, ?5, ?6, ?7, ?8, ?9, ?10, 'pet', ?11, 'unbilled', ?12, 0, 'read', ?13, NULL, 0, ?14
            WHERE EXISTS (SELECT 1 FROM errands WHERE token_id = ?2 AND thought_id = ?1)`,
         )
-        .bind(thoughtId, tokenId, now, job, empty ? null : reply.trim(), env.MODEL_ID, price.toString(), yoctoMicros(env, price), cut, reasked ? 1 : 0, sessionId, skilled ? 1 : 0, sources),
+        .bind(thoughtId, tokenId, now, job, empty ? null : reply.trim(), env.MODEL_ID, price.toString(), yoctoMicros(env, price), cut, reasked ? 1 : 0, sessionId, skilled ? 1 : 0, sources, env.NEAR_USD_RATE),
       ...calls.map(({ answer, signed }, n) =>
         env.DB
           .prepare(

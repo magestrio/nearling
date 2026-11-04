@@ -11,6 +11,7 @@ import { HatchScreen } from './screens/hatch/HatchScreen';
 import { HomeScreen } from './screens/home/HomeScreen';
 import { PetNotFound, PetScreen } from './screens/pet/PetScreen';
 import { GiftPage } from './gift/GiftPage';
+import { VerificationPage } from './verification/VerificationPage';
 import { ReturnToPlace } from './signin/ReturnToPlace';
 import { SignInLayer } from './signin/signIn';
 
@@ -68,6 +69,8 @@ export function App() {
         {route.name === 'home' ? <HomeScreen /> : null}
         {!unreachable && route.name === 'hatch' ? <HatchScreen from={route.from} /> : null}
         {!unreachable && route.name === 'gift' ? <GiftPage key={route.code} code={route.code} /> : null}
+        {!unreachable && route.name === 'verify' ? <VerificationPage key={route.tokenId} tokenId={route.tokenId} thoughtId={route.thoughtId} /> : null}
+        {!unreachable && route.name === 'receipt' ? <VerificationPage key={route.code} code={route.code} /> : null}
         {/* one element for the three: the Diary and the Wardrobe open over the Pet screen's own state (the pet, the poll, the line being typed) */}
         {!unreachable && (route.name === 'pet' || route.name === 'diary' || route.name === 'wardrobe') ? (
           <PetScreen

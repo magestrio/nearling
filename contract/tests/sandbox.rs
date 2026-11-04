@@ -44,6 +44,13 @@ async fn new_and_migrate_refuse_a_foreign_caller() -> anyhow::Result<()> {
         .transact()
         .await?;
     assert_refused(&foreign_migrate, "private");
+    let foreign_reserve = ctx
+        .funder
+        .call(ctx.contract.id(), "migrate_generation_reserve")
+        .args_json(json!({}))
+        .transact()
+        .await?;
+    assert_refused(&foreign_reserve, "private");
     // `new` a second time, even by the contract itself, is refused: already initialized.
     let again = ctx.contract.call("new").args_json(&args).transact().await?;
     assert!(again.is_failure());
@@ -98,12 +105,11 @@ async fn migrate_takes_the_previous_layout_of_a_deployed_contract() -> anyhow::R
         )
         .await?;
 
-    // The state before this change is this one without the two trailing fields: the prefixes of
-    // the work pairs and of the index (each a 4-byte length and one letter).
+    // The state before add-pet-work has none of the three trailing map prefixes.
     let pool_before = ctx.pool().await?;
     let state = ctx.read_state().await?;
-    let tail = state.len() - 10;
-    assert_eq!(&state[tail..], &[1, 0, 0, 0, b'w', 1, 0, 0, 0, b'x']);
+    let tail = state.len() - 15;
+    assert_eq!(&state[tail..], &[1, 0, 0, 0, b'w', 1, 0, 0, 0, b'x', 1, 0, 0, 0, b'g']);
     ctx.worker
         .patch_state(ctx.contract.id(), b"STATE", &state[..tail])
         .await?;

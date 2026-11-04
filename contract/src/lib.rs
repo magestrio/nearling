@@ -39,6 +39,26 @@ pub struct ContractV3 {
     riddle_reserve: u128,
 }
 
+/// The layout deployed before receipt links were bound to direct NFT transfers.
+#[near(serializers = [borsh])]
+pub struct ContractV4 {
+    owner_id: AccountId,
+    server_id: AccountId,
+    treasury_id: AccountId,
+    tokens: NonFungibleToken,
+    pets: LookupMap<TokenId, VersionedPet>,
+    hatched: LookupMap<AccountId, TokenId>,
+    births_day: u64,
+    births_today: u32,
+    next_token_id: u64,
+    pool: u128,
+    known: LookupSet<(TokenId, AccountId), Sha256>,
+    riddle_commits: LookupMap<u64, [u8; 32]>,
+    riddle_reserve: u128,
+    work_pairs: LookupSet<(TokenId, TokenId), Sha256>,
+    work_index: LookupMap<u64, Vec<u64>>,
+}
+
 /// The game's contract. Errors are `env::panic_str` with a code in the text; the Worker tells
 /// the refusals apart by it (design.md › Контракт).
 #[near(contract_state)]
@@ -70,6 +90,8 @@ pub struct Contract {
     /// Each pet's partners (token ids as numbers, ascending): what `pet_view` lists for the
     /// server. The contract's token ids are its own decimal counters, so they fit a `u64`.
     work_index: LookupMap<u64, Vec<u64>>,
+    /// Incremented on every public NFT transfer, including one outside the game UI.
+    transfer_generation: LookupMap<TokenId, u64>,
 }
 
 fn fail(code: &str) -> ! {
@@ -150,6 +172,30 @@ struct PlannedHire {
 }
 
 impl Contract {
+    /// Account for the first generation write of every pet born before this reserve existed.
+    /// The marker makes the current-layout migration one-time without changing state layout.
+    fn reserve_legacy_generations(&mut self) {
+        const MARKER: &[u8] = b"transfer_generation_reserve_v2";
+        if env::storage_has_key(MARKER) {
+            fail("already_migrated");
+        }
+        let before = env::storage_usage();
+        env::storage_write(MARKER, b"1");
+        let marker_bytes = env::storage_usage().saturating_sub(before);
+        let bytes = self
+            .next_token_id
+            .checked_mul(TRANSFER_GENERATION_BYTES)
+            .and_then(|reserve| reserve.checked_add(marker_bytes))
+            .unwrap_or_else(|| fail("overflow"));
+        let cost = u128::from(bytes)
+            .checked_mul(env::storage_byte_cost().as_yoctonear())
+            .unwrap_or_else(|| fail("overflow"));
+        self.pool = self
+            .pool
+            .checked_sub(cost)
+            .unwrap_or_else(|| fail("pool_empty"));
+    }
+
     fn fresh(owner_id: AccountId, server_id: AccountId, treasury_id: AccountId) -> Self {
         let tokens = NonFungibleToken::new(
             b"t".to_vec(),
@@ -174,6 +220,7 @@ impl Contract {
             riddle_reserve: 0,
             work_pairs: LookupSet::with_hasher(b"w".to_vec()),
             work_index: LookupMap::new(b"x".to_vec()),
+            transfer_generation: LookupMap::new(b"g".to_vec()),
         }
     }
 
@@ -296,7 +343,45 @@ impl Contract {
             riddle_reserve: old.riddle_reserve,
             work_pairs: LookupSet::with_hasher(b"w".to_vec()),
             work_index: LookupMap::new(b"x".to_vec()),
+            transfer_generation: LookupMap::new(b"g".to_vec()),
         }
+    }
+
+    /// Upgrade the deployed work-pair layout without resetting pets or their food.
+    #[init(ignore_state)]
+    #[private]
+    pub fn migrate_verification() -> Self {
+        let old: ContractV4 = env::state_read().unwrap_or_else(|| fail("no_state"));
+        let mut contract = Self {
+            owner_id: old.owner_id,
+            server_id: old.server_id,
+            treasury_id: old.treasury_id,
+            tokens: old.tokens,
+            pets: old.pets,
+            hatched: old.hatched,
+            births_day: old.births_day,
+            births_today: old.births_today,
+            next_token_id: old.next_token_id,
+            pool: old.pool,
+            known: old.known,
+            riddle_commits: old.riddle_commits,
+            riddle_reserve: old.riddle_reserve,
+            work_pairs: old.work_pairs,
+            work_index: old.work_index,
+            transfer_generation: LookupMap::new(b"g".to_vec()),
+        };
+        contract.reserve_legacy_generations();
+        contract
+    }
+
+    /// The already deployed transfer-map layout needs the new per-pet reserve exactly once.
+    /// Fund the pool first if its balance cannot cover every existing pet.
+    #[init(ignore_state)]
+    #[private]
+    pub fn migrate_generation_reserve() -> Self {
+        let mut contract: Self = env::state_read().unwrap_or_else(|| fail("no_state"));
+        contract.reserve_legacy_generations();
+        contract
     }
 
     pub fn owner_id(&self) -> AccountId {
@@ -386,9 +471,13 @@ impl Contract {
         self.pets.flush();
         self.hatched.flush();
 
-        // The storage the birth wrote, plus the owner-list entry the pet's next owner will need
-        // (ADR-014), at the byte price, plus the starter food. All of it comes out of the pool.
-        let bytes = env::storage_usage().saturating_sub(storage_before) + OWNER_LIST_ENTRY_BYTES;
+        // The birth, its next owner's list entry and its first transfer-generation entry
+        // are all paid from the pool before a transfer can use the reserve.
+        let bytes = env::storage_usage()
+            .saturating_sub(storage_before)
+            .checked_add(OWNER_LIST_ENTRY_BYTES)
+            .and_then(|bytes| bytes.checked_add(TRANSFER_GENERATION_BYTES))
+            .unwrap_or_else(|| fail("overflow"));
         let cost = u128::from(bytes)
             .checked_mul(env::storage_byte_cost().as_yoctonear())
             .and_then(|storage| storage.checked_add(STARTER_FOOD))
@@ -441,7 +530,11 @@ impl Contract {
             fail("not_owner");
         }
         self.tokens
-            .nft_transfer(receiver_id, token_id, approval_id, None);
+            .nft_transfer(receiver_id, token_id.clone(), approval_id, None);
+        let next = self.transfer_generation.get(&token_id).copied().unwrap_or(0)
+            .checked_add(1).unwrap_or_else(|| fail("overflow"));
+        self.transfer_generation.insert(token_id, next);
+        self.transfer_generation.flush();
     }
 
     /// Server only, no deposit. One call debits a session's batch of 1–12 thoughts, whole or not
@@ -961,12 +1054,14 @@ impl Contract {
             .and_then(|id| self.work_index.get(&id))
             .map(|partners| partners.iter().map(u64::to_string).collect())
             .unwrap_or_default();
-        Some(PetView::new(
+        let mut view = PetView::new(
             owner_id,
             &record.current(),
             day_of(env::block_timestamp()),
             work_known,
-        ))
+        );
+        view.transfer_generation = self.transfer_generation.get(&token_id).copied().unwrap_or(0);
+        Some(view)
     }
 
     /// Whether the pet knows the account: a record `pet_feed` or `pet_snack` wrote. False for a
@@ -1384,6 +1479,15 @@ mod tests {
         assert!(
             OWNER_LIST_ENTRY_BYTES >= list_entry,
             "OWNER_LIST_ENTRY_BYTES {OWNER_LIST_ENTRY_BYTES} < measured {list_entry}"
+        );
+
+        let before_generation = env::storage_usage();
+        contract.transfer_generation.insert("9".repeat(20), 1);
+        contract.transfer_generation.flush();
+        let generation = env::storage_usage() - before_generation;
+        assert!(
+            TRANSFER_GENERATION_BYTES >= generation,
+            "TRANSFER_GENERATION_BYTES {TRANSFER_GENERATION_BYTES} < measured {generation}"
         );
     }
 

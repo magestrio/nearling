@@ -161,7 +161,7 @@ export function AddNearBody({
     <>
       <Text>{SEND}</Text>
       <div ref={box}>
-        <CopyField mono value={view.address} onCopy={() => void copyAddress(view.address)} />
+        <CopyField mono label="NEAR address" value={view.address} onCopy={() => void copyAddress(view.address)} />
       </div>
       {copy === 'by-hand' ? <Note tone="plain" silent>{BY_HAND}</Note> : null}
       {arrived ? (

@@ -56,10 +56,10 @@ async function settleRecorded(env: Env, row: ErrandRow, reason: 'timeout' | 'emp
     // The thought of the searches turns `unbilled` only in the batch that ended the errand.
     env.DB
       .prepare(
-        `UPDATE thoughts SET player_text = ?5, price_yocto = ?6, price_usd_micros = ?7, session_id = ?8, status = 'unbilled'
+        `UPDATE thoughts SET player_text = ?5, price_yocto = ?6, price_usd_micros = ?7, session_id = ?8, status = 'unbilled', near_usd_rate = ?9
          WHERE id = ?3 AND status = 'away' AND EXISTS (SELECT 1 FROM errands WHERE token_id = ?1 AND id = ?2 AND state = 'failed' AND reason = ?4 AND thought_id = ?3)`,
       )
-      .bind(row.token_id, row.id, row.thought_id ?? '', reason, row.job, price === null ? '0' : price.toString(), price === null ? 0 : yoctoMicros(env, price), sessionId),
+      .bind(row.token_id, row.id, row.thought_id ?? '', reason, row.job, price === null ? '0' : price.toString(), price === null ? 0 : yoctoMicros(env, price), sessionId, env.NEAR_USD_RATE),
     env.DB.prepare('DELETE FROM pet_spend WHERE token_id = ? AND reserve_yocto = ?').bind(row.token_id, row.reserve_yocto),
   ]);
   if ((ended[0]?.results.length ?? 0) === 0) return false;

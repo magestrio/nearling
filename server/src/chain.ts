@@ -67,6 +67,8 @@ export interface PetRecord {
   work_known?: string[];
   /** The jobs the pet did in the UTC day of its last one, 0 when that day is not today. */
   jobs_today?: number;
+  /** Incremented by every nft_transfer, even when the owner later receives the pet back. */
+  transfer_generation: number;
 }
 
 /** `riddle_view(day)` of the contract: the commit filed for that day (64 hex characters, `null` when
@@ -154,6 +156,17 @@ function withTimeout<T>(work: Promise<T>, ms: number): Promise<T> {
     timer = setTimeout(() => reject(new Error('timeout')), ms);
   });
   return Promise.race([work, timeout]).finally(() => clearTimeout(timer));
+}
+
+/** A bounded raw transaction read for receipt evidence. Unknown, slow and failed RPC calls fail closed. */
+export async function receiptTransaction(env: Pick<Env, 'NEAR_RPC_URL'>, txHash: string, senderId: string): Promise<unknown> {
+  try {
+    return await withTimeout(rpcProvider(env).viewTransactionStatus({
+      txHash, accountId: senderId, waitUntil: 'EXECUTED_OPTIMISTIC',
+    }), READ_TIMEOUT_MS);
+  } catch {
+    throw new ChainUnreachable();
+  }
 }
 
 async function view<T>(env: Pick<Env, 'NEAR_RPC_URL' | 'CONTRACT_ID'>, method: string, args: Record<string, unknown>): Promise<T> {
@@ -424,7 +437,10 @@ export interface ServerCall {
    * (`pet/itemTx.ts`, design.md › The item's transaction). `buy`: the id of the `outfit_buys` row of a
    * purchase; the hash is kept only while that row is still `sending`, so a send that waited in the key's
    * queue past the cron's 5 minutes signs nothing (`noteItemSend`). */
-  writes?: { tokenId: string; item: string; buy?: string };
+  writes?:
+    | { kind?: 'item'; tokenId: string; item: string; buy?: string }
+    | { kind: 'growth'; tokenId: string; stage: 'teen' | 'adult' }
+    | { kind: 'birth'; receiver: string };
 }
 
 /** Called with the hash of a signed transaction before each broadcast. A throw means the hash could not be

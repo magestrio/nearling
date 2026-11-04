@@ -2,11 +2,34 @@ import { fakeState } from './fakes';
 import type { NearRpc } from './rpc';
 
 export const fakeNearRpc: NearRpc = {
-  async viewFunction<T>() {
+  async viewFunction<T>(_contractId: string, methodName: string, args: Record<string, unknown>) {
+    const configured = fakeState().rpc?.viewResults?.[methodName];
+    if (configured && typeof configured === 'object' && 'fail' in configured) throw new Error(String(configured.fail));
+    if (configured !== undefined) return configured as T;
+    if (methodName === 'pet_view') {
+      const id = String(args.token_id ?? '9');
+      const pet = fakeState().worker?.pets?.[id];
+      return { owner_id: 'a'.repeat(64), name: pet?.name ?? 'Pixel',
+        character: id === '9' ? 'Curious and a little dramatic; counts things when nervous, loves small rituals.'
+          : id === '5' ? 'Calm and precise; answers in short lines and finishes one thought before starting the next.'
+            : `Curious ${pet?.name ?? 'pet'}.`,
+        born_at: 1793034180000000000, stage: pet?.stage === 'baby' ? 'Baby' : pet?.stage === 'teen' ? 'Teen' : 'Adult',
+        traits: [], outfits: [], } as T;
+    }
+    if (methodName === 'contract_source_metadata') return { version: '0.1.0', link: 'https://github.com/magestrio/nearling' } as T;
     return (fakeState().rpc?.viewResult ?? '0.1.0') as T;
   },
   async getBalance() {
     return BigInt(fakeState().rpc?.balanceYocto ?? '100000000000000000000000');
+  },
+  async transaction(hash, _signerId, archive = false) {
+    const rpc = fakeState().rpc;
+    if (rpc?.transactionDelayMs && (!rpc.transactionDelayHash || rpc.transactionDelayHash === hash))
+      await new Promise((resolve) => setTimeout(resolve, rpc.transactionDelayMs));
+    const answer = archive && rpc?.archiveOutcome !== undefined ? rpc.archiveOutcome
+      : rpc?.outcomes?.[hash] ?? rpc?.outcome;
+    if (answer && typeof answer === 'object' && 'fail' in answer) throw new Error(String(answer.fail));
+    return answer ?? null;
   },
   async transfer() {
     const s = fakeState().rpc;

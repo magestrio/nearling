@@ -371,7 +371,7 @@ async function think(env: Env, tokenId: string, pet: PetRecord, job: ThoughtJob,
     : [];
   const statements = [
     env.DB.prepare(
-      "INSERT INTO thoughts (id, token_id, created_at, kind, player_text, reply_text, model, price_yocto, price_usd_micros, cut, reasked, payer, session_id, status, worker_id, worker_name, skilled, recall, turn_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pet', ?, 'unbilled', ?, ?, ?, ?, ?)",
+      "INSERT INTO thoughts (id, token_id, created_at, kind, player_text, reply_text, model, price_yocto, price_usd_micros, cut, reasked, payer, session_id, status, worker_id, worker_name, skilled, recall, turn_id, near_usd_rate) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pet', ?, 'unbilled', ?, ?, ?, ?, ?, ?)",
     ).bind(
       thoughtId,
       tokenId,
@@ -393,6 +393,7 @@ async function think(env: Env, tokenId: string, pet: PetRecord, job: ThoughtJob,
       0,
       asked !== null ? (asked.skilled ? 0 : 1) : (ctx.opts.turn?.recall ?? 1),
       turnId,
+      env.NEAR_USD_RATE,
     ),
     ...calls.map(({ answer, signed }, n) =>
       env.DB.prepare(

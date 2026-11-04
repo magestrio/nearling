@@ -4,6 +4,7 @@ import type { AdviceRead, CatalogEntryView, ConversationLine, ErrandForm, Errand
 import { SAMPLE_DAY, sampleDiary } from '../../src/seams/diary.sample';
 import type { DiaryView } from '../../src/seams/worker-types';
 import { CLOSED_ALL, CLOSED_NEW, lookAgain, setWorker, UA } from '../helpers';
+import { verificationFakes } from '../verification.fixtures';
 
 /** One frame's state in the real client, on the sample values of design/BRIEF.md §1. */
 export interface ScreenFixture {
@@ -349,6 +350,12 @@ const openClearDialog = async (page: Page) => {
 const JUNO_ME = { accountId: 'a'.repeat(64), hatched: { tokenId: '1', name: 'Juno' }, currentPet: { tokenId: '1', name: 'Juno' }, ownedCount: 1 };
 
 const ownerReady = (page: Page) => page.getByText('Start with the chart, then.').waitFor();
+
+const sealOnPet = (variant: 'character-mismatch' | 'unread'): ScreenFixture => {
+  const chain = verificationFakes({ variant });
+  return { route: '/pet/9', fakes: { auth: SIGNED_IN, worker: { ...owner(), verificationIndex: chain.worker!.verificationIndex }, rpc: chain.rpc },
+    prepare: ownerReady, otherChange: OWNER_ELSEWHERE };
+};
 const typeLine = async (page: Page, text: string) => {
   await page.getByPlaceholder('Talk to Pixel…').fill(text);
 };
@@ -874,6 +881,12 @@ export const fixtures: Record<string, ScreenFixture> = {
     prepare: ownerReady,
     otherChange: OWNER_ELSEWHERE,
   },
+
+  // add-verification: the Seal of character rule on the owner's Pet screen; NEAR answers by the verification fixtures
+  // spec: add-verification › Seal of character rule › character mismatch
+  'pet-seal-mismatch': sealOnPet('character-mismatch'),
+  // spec: add-verification › Seal of character rule › check unavailable
+  'pet-seal-unavailable': sealOnPet('unread'),
 
   // the phone, the conversation scrolled back to its start: the card of what is rare
   // spec: add-pet › Pet screen › success (владелец)

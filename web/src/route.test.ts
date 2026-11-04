@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { adaptersPath, diaryPath, hatchPath, parseRoute, petPath, wardrobePath } from './route';
+import { adaptersPath, diaryPath, hatchPath, parseRoute, petPath, wardrobePath, verifyPath } from './route';
 
 describe('parseRoute', () => {
   it('reads the Pet screen and the Hatch screen with the friend in the address', () => {
@@ -61,6 +61,18 @@ describe('parseRoute', () => {
     expect(parseRoute('/adapters/9')).toEqual({ name: 'unknown' });
     expect(adaptersPath('9')).toBe('/adapters?pet=9');
     expect(adaptersPath()).toBe('/adapters');
+  });
+
+  // spec: add-verification › Verification screen › success
+  // spec: add-verification › Receipt link flow › visitor opens link
+  it('reads record, selected thought and one shared receipt addresses', () => {
+    const thought = 'a'.repeat(24);
+    const code = 'b'.repeat(64);
+    expect(parseRoute('/pet/9/verify')).toEqual({ name: 'verify', tokenId: '9', thoughtId: null });
+    expect(parseRoute(`/pet/9/verify/${thought}`)).toEqual({ name: 'verify', tokenId: '9', thoughtId: thought });
+    expect(parseRoute(`/receipt/${code}`)).toEqual({ name: 'receipt', code });
+    expect(parseRoute('/pet/9/verify/short')).toEqual({ name: 'unknown' });
+    expect(verifyPath('9', thought)).toBe(`/pet/9/verify/${thought}`);
   });
 
   it('builds the paths it reads', () => {

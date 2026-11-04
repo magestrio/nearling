@@ -188,6 +188,7 @@ async function mint(env: Env, account: string, name: string, c: AppContext): Pro
     methodName: 'pet_mint',
     args: { receiver: account, name, character },
     gas: (PET_MINT_TGAS * 1_000_000_000_000n).toString(),
+    writes: { kind: 'birth', receiver: account },
   });
   if (answer.status === 'unreachable') return unreachable(c);
 
@@ -197,7 +198,6 @@ async function mint(env: Env, account: string, name: string, c: AppContext): Pro
     tokenId = String(answer.value);
     txHash = answer.txHash;
   } else {
-    txHash = answer.txHash;
     if (answer.status === 'failed') {
       console.log(`mint_failed:${answer.code}`);
       if (answer.code === 'already_hatched') return c.json({ code: 'already' }, 409);
@@ -223,6 +223,12 @@ async function mint(env: Env, account: string, name: string, c: AppContext): Pro
   const statements = [
     env.DB.prepare('INSERT OR IGNORE INTO pets (token_id, hatched_by, born_at, birth_tx) VALUES (?, ?, ?, ?)').bind(tokenId, account, at, txHash),
   ];
+  if (answer.status === 'ok') {
+    statements.push(
+      env.DB.prepare("INSERT OR IGNORE INTO pet_transactions (token_id, kind, ref, tx_hash, at) VALUES (?, 'birth', 'birth', ?, ?)").bind(tokenId, txHash, at),
+      env.DB.prepare("DELETE FROM item_sends WHERE token_id = ? AND kind = 'birth' AND item = 'birth'").bind(account),
+    );
+  }
   // The starter food and the storage of the birth come out of the project's pocket (Траты проекта).
   const rate = nearUsdRate(env.NEAR_USD_RATE);
   if (rate === null) {

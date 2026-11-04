@@ -523,6 +523,8 @@ pub struct PetView {
     pub work_known: Vec<String>,
     /// The jobs the pet did in the current UTC day; 0 when the counter belongs to an earlier day.
     pub jobs_today: u8,
+    /// A monotonic count of ownership transfers; links published in an older generation expire.
+    pub transfer_generation: u64,
 }
 
 impl PetView {
@@ -531,6 +533,7 @@ impl PetView {
         Self {
             work_known,
             jobs_today: pet.jobs_today_now(today),
+            transfer_generation: 0,
             owner_id,
             name: pet.name.clone(),
             character: pet.character.clone(),

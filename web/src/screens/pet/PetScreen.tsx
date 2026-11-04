@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
+import { useSeal, type SealState } from '../../verification/seal';
 import {
   Away,
   Banner,
@@ -120,12 +121,28 @@ function useFigure() {
   return { lost, paused, onLost: () => setLost(true), hub, motion: flat ? null : toggleNode, toggle: toggleNode };
 }
 
-function CheckLink({ tokenId, name }: { tokenId: string; name: string }) {
+function sealLine(name: string, state: SealState): string {
+  return state.kind === 'mismatch' ? `${name}'s character no longer matches the hatch record.`
+    : state.kind === 'unavailable' ? `We can't check ${name}'s character on NEAR just now. Try again.`
+      : state.kind === 'checked' ? `This mark identifies ${name}'s character hash checked on NEAR. The contract can be upgraded later.` : '';
+}
+
+function CheckLink({ tokenId, name, seal }: { tokenId: string; name: string; seal: ReturnType<typeof useSeal> }) {
   return (
-    <TextLink href={`/pet/${tokenId}/verify`} tone="trust" icon="verify">
-      {`Check it's really ${name}`}
-    </TextLink>
+    <Stack gap={1} align="center">
+      <TextLink href={`/pet/${tokenId}/verify`} tone="trust" icon="verify">{`Check it's really ${name}`}</TextLink>
+      {seal.state.kind === 'checked' ? <Text variant="small" tone="secondary" align="center">{sealLine(name, seal.state)}</Text> : null}
+      {seal.state.kind === 'mismatch' ? <Note tone="error" silent>{sealLine(name, seal.state)}</Note> : null}
+      {seal.state.kind === 'unavailable' ? <Cluster gap={3}><Note tone="error" silent>{sealLine(name, seal.state)}</Note><Button variant="secondary" size="compact" onClick={seal.retry}>Try again</Button></Cluster> : null}
+    </Stack>
   );
+}
+
+function SealBanner({ name, seal }: { name: string; seal: ReturnType<typeof useSeal> }) {
+  if (seal.state.kind !== 'mismatch' && seal.state.kind !== 'unavailable') return null;
+  return <Only on="phone"><Banner action={seal.state.kind === 'unavailable' ? <Button variant="secondary" size="compact" onClick={seal.retry}>Try again</Button> : undefined}>
+    {sealLine(name, seal.state)}
+  </Banner></Only>;
 }
 
 function Account({ tokenId, name, viewer, asleep }: { tokenId: string; name: string; viewer: Viewer; asleep: boolean }) {
@@ -206,7 +223,7 @@ function ConnectionBanner({ banner, name, tryAgain }: { banner: BannerKind; name
   );
 }
 
-function OwnerPage({ pet, s }: { pet: OwnerView; s: ReturnType<typeof usePetScreen> }) {
+function OwnerPage({ pet, s, seal }: { pet: OwnerView; s: ReturnType<typeof usePetScreen>; seal: ReturnType<typeof useSeal> }) {
   const { tokenId, name } = pet;
   const auth = useAuth();
   // the ended session's line, or what a tap on its «Sign in» came to: the first stands in the field's note and its action in
@@ -521,7 +538,7 @@ function OwnerPage({ pet, s }: { pet: OwnerView; s: ReturnType<typeof usePetScre
       <Cluster gap={3}>
         <Slot slot="growth" {...slot} />
       </Cluster>
-      <CheckLink tokenId={tokenId} name={name} />
+      <CheckLink tokenId={tokenId} name={name} seal={seal} />
       {asleep ? null : <Slot slot="hiring" {...slot} />}
     </Stack>
   );
@@ -628,6 +645,7 @@ function OwnerPage({ pet, s }: { pet: OwnerView; s: ReturnType<typeof usePetScre
       {myPetsOpen ? <MyPetsSheet tokenId={tokenId} /> : null}
       <Inert on={myPetsOpen ? 'phone' : undefined}><Page fill>
         <ConnectionBanner banner={s.banner} name={name} tryAgain={s.tryAgain} />
+        <SealBanner name={name} seal={seal} />
         {paused && !s.banner ? <Banner tone="info">{pausedLine(name)}</Banner> : null}
         <Split
           fill
@@ -669,6 +687,7 @@ function OwnerPage({ pet, s }: { pet: OwnerView; s: ReturnType<typeof usePetScre
                 plate={
                   <PetPlate
                     name={name}
+                    seal={seal.state.hash ?? undefined}
                     compact={hasSlot('energy')}
                     badge={
                       asleep && !label ? undefined : (
@@ -684,7 +703,7 @@ function OwnerPage({ pet, s }: { pet: OwnerView; s: ReturnType<typeof usePetScre
                     <Slot slot="energy" {...slot} />
                   </PetPlate>
                 }
-                foot={<CheckLink tokenId={tokenId} name={name} />}
+                foot={<CheckLink tokenId={tokenId} name={name} seal={seal} />}
               />
             </Inert>
           }
@@ -774,7 +793,7 @@ function OwnerPage({ pet, s }: { pet: OwnerView; s: ReturnType<typeof usePetScre
 
 /** A signed-in player who isn't the owner, or a visitor with no session: one centred column — the pet, its plate,
  *  «Check it's really {name}», the asleep line, then «Feed {name}» and what the viewer can do next. */
-function OutsiderPage({ pet, s }: { pet: Exclude<PetView, { viewer: 'owner' }>; s: ReturnType<typeof usePetScreen> }) {
+function OutsiderPage({ pet, s, seal }: { pet: Exclude<PetView, { viewer: 'owner' }>; s: ReturnType<typeof usePetScreen>; seal: ReturnType<typeof useSeal> }) {
   const { tokenId, name } = pet;
   const figure = useFigure();
   const { begin } = useSignIn();
@@ -861,7 +880,7 @@ function OutsiderPage({ pet, s }: { pet: Exclude<PetView, { viewer: 'owner' }>; 
       onStatus: onAdviceStatus,
       look: () => void s.look(),
       covered: cover.open,
-      check: <CheckLink tokenId={tokenId} name={name} />,
+      check: <CheckLink tokenId={tokenId} name={name} seal={seal} />,
       offline: offlineLine(name),
       carried: s.carried,
       takeCarried: s.takeCarried,
@@ -870,6 +889,7 @@ function OutsiderPage({ pet, s }: { pet: Exclude<PetView, { viewer: 'owner' }>; 
       <Shell accent={accentOf(tokenId)} fill header={<Inert on={givenHere ? true : covered}>{header}</Inert>}>
         <Page fill>
           <ConnectionBanner banner={s.banner} name={name} tryAgain={s.tryAgain} />
+          <SealBanner name={name} seal={seal} />
           <Split
             fill
             ratio="start"
@@ -880,14 +900,14 @@ function OutsiderPage({ pet, s }: { pet: Exclude<PetView, { viewer: 'owner' }>; 
                   pet={<PetFigure tokenId={tokenId} name={name} state={state} stage={pet.stage} mood={asleep ? null : pet.mood} size="hero" lost={figure.lost} onLost={figure.onLost} hub={figure.hub} {...wearProps(pet.worn)} />}
                   motion={figure.motion}
                   plate={
-                    <PetPlate name={name} compact badge={skillBadge} fullness={{ state: pet.fullness.state, level: pet.fullness.state === 'hungry' ? pet.fullness.level : undefined }}>
+                    <PetPlate name={name} seal={seal.state.hash ?? undefined} compact badge={skillBadge} fullness={{ state: pet.fullness.state, level: pet.fullness.state === 'hungry' ? pet.fullness.level : undefined }}>
                       <Only on="phone">{feedBeside(true)}</Only>
                     </PetPlate>
                   }
                   foot={
                     <Stack gap={2} align="center">
                       {feedBeside(false)}
-                      <CheckLink tokenId={tokenId} name={name} />
+                      <CheckLink tokenId={tokenId} name={name} seal={seal} />
                     </Stack>
                   }
                 />
@@ -911,6 +931,7 @@ function OutsiderPage({ pet, s }: { pet: Exclude<PetView, { viewer: 'owner' }>; 
       <Inert on={givenHere ? true : covered}>
         <Page fill width="narrow">
           <ConnectionBanner banner={s.banner} name={name} tryAgain={s.tryAgain} />
+          <SealBanner name={name} seal={seal} />
           <Centerpiece
             status={asleep ? asleepLine : ''}
             actions={
@@ -935,8 +956,8 @@ function OutsiderPage({ pet, s }: { pet: Exclude<PetView, { viewer: 'owner' }>; 
             <PetStage
               pet={<PetFigure tokenId={tokenId} name={name} state={state} stage={pet.stage} mood={asleep ? null : pet.mood} size="hero" lost={figure.lost} onLost={figure.onLost} hub={figure.hub} {...wearProps(pet.worn)} />}
               motion={figure.motion}
-              plate={<PetPlate name={name} badge={skillBadge} fullness={{ state: pet.fullness.state, level: pet.fullness.state === 'hungry' ? pet.fullness.level : undefined }} />}
-              foot={<CheckLink tokenId={tokenId} name={name} />}
+              plate={<PetPlate name={name} seal={seal.state.hash ?? undefined} badge={skillBadge} fullness={{ state: pet.fullness.state, level: pet.fullness.state === 'hungry' ? pet.fullness.level : undefined }} />}
+              foot={<CheckLink tokenId={tokenId} name={name} seal={seal} />}
             />
           </Centerpiece>
         </Page>
@@ -1007,6 +1028,15 @@ function WardrobeOwner({ pet, w, s }: { pet: OwnerView; w: ReturnType<typeof use
   );
 }
 
+function SealPet({ pet, s }: { pet: PetView; s: ReturnType<typeof usePetScreen> }) {
+  const key = `${pet.viewer}:${pet.stage}:${pet.worn}:${pet.viewer === 'owner' ? pet.memoryEpoch : ''}`;
+  const seal = useSeal(pet.tokenId, key);
+  return <>
+    <Live>{seal.state.kind === 'mismatch' || seal.state.kind === 'unavailable' ? sealLine(pet.name, seal.state) : ''}</Live>
+    {pet.viewer === 'owner' ? <OwnerPage pet={pet} s={s} seal={seal} /> : <OutsiderPage pet={pet} s={s} seal={seal} />}
+  </>;
+}
+
 function PetView({
   s,
   d,
@@ -1033,9 +1063,9 @@ function PetView({
       </Gone>
     );
   }
-  if (page.pet.viewer !== 'owner') return <OutsiderPage pet={page.pet} s={s} />;
+  if (page.pet.viewer !== 'owner') return <SealPet pet={page.pet} s={s} />;
   if (wardrobe) return <WardrobeOwner pet={page.pet} w={w} s={s} />;
-  return diary ? <DiaryOwner pet={page.pet} d={d} s={s} /> : <OwnerPage pet={page.pet} s={s} />;
+  return diary ? <DiaryOwner pet={page.pet} d={d} s={s} /> : <SealPet pet={page.pet} s={s} />;
 }
 
 /** `diary`: the address is the Diary's (`/pet/<token_id>/diary`). Its page is the owner's awake pet's; a guest or a visitor on it gets

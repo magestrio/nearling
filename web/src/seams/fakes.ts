@@ -55,6 +55,8 @@ export interface FakeWorkerState {
   toastHeld?: boolean;
   /** every answer waits this long (ms), unless its own `*DelayMs` says otherwise */
   delayMs?: number;
+  /** only the verification index waits this long (ms): the page draws its loading state with the session in place */
+  verificationDelayMs?: number;
   /** `GET /api/hatch`; default `{ open: true }` */
   hatchStatus?: HatchStatus | FakeFail;
   hatchStatusDelayMs?: number;
@@ -66,6 +68,13 @@ export interface FakeWorkerState {
   myPets?: MyPets | FakeFail;
   /** the pets the fake knows, by token_id */
   pets?: Record<string, Omit<PetBase, 'worn' | 'skill'> & Partial<Pick<PetBase, 'worn' | 'skill'>> & Partial<MyFeed> & { owner?: Partial<Omit<Extract<import('./worker-types').PetView, { viewer: 'owner' }>, keyof PetBase | keyof MyFeed | 'viewer'>> }>;
+  verificationIndex?: import('./worker-types').VerificationIndex | FakeFail;
+  verificationThoughts?: Record<string, import('./worker-types').VerificationThought | FakeFail>;
+  /** The authenticated selected read expires; the same public read still succeeds. */
+  verificationUnauthorized?: boolean;
+  publishReceipt?: { code: string; path: string } | FakeFail;
+  sharedReceipt?: import('./worker-types').SharedReceipt | FakeFail;
+  receiptDownload?: FakeFail;
   /** `GET /api/pets/:id` refused (the server, the network, the rate limit) instead of answering */
   petResult?: FakeFail;
   /** the token_ids the signed-in fake player owns: those answer with the owner's view, the rest with the guest's */
@@ -193,7 +202,10 @@ export interface FakeState {
   };
   /** `hold`: every pet stands on its still, whatever the viewer chose. Software GL can't play pets for every test. */
   pet?: { hold?: boolean };
-  rpc?: { viewResult?: unknown; balanceYocto?: string; txHash?: string; txOk?: boolean };
+  rpc?: { viewResult?: unknown; viewResults?: Record<string, unknown>; balanceYocto?: string; txHash?: string; txOk?: boolean;
+    outcomes?: Record<string, unknown | { fail: string }>;
+    transactionDelayMs?: number; transactionDelayHash?: string;
+    outcome?: unknown | { fail: string }; archiveOutcome?: unknown | { fail: string } };
   worker?: FakeWorkerState;
 }
 

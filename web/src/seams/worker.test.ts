@@ -23,6 +23,18 @@ function blackHole() {
 }
 
 describe('the Worker seam', () => {
+  // spec: add-verification › Verification screen › success
+  it('reads public list and selected thought through their exact paths, keeping words behind the session token', async () => {
+    const fetchMock = vi.fn(async () => Response.json({ id: 'a'.repeat(24) }));
+    vi.stubGlobal('fetch', fetchMock);
+    await workerApi.verificationIndex('9');
+    await workerApi.verificationThought('identity', '9', 'a'.repeat(24));
+    expect(fetchMock.mock.calls.map((call) => (call as unknown as [string])[0])).toEqual([
+      '/api/verification/pets/9', `/api/verification/pets/9/thoughts/${'a'.repeat(24)}`,
+    ]);
+    expect((fetchMock.mock.calls[0] as unknown as [string, RequestInit])[1].headers).not.toHaveProperty('privy-id-token');
+    expect((fetchMock.mock.calls[1] as unknown as [string, RequestInit])[1].headers).toHaveProperty('privy-id-token', 'identity');
+  });
   // spec: add-pet › Connection rule › сервер недоступен
   it('gives up on a request nobody answers: a black hole is «the server does not answer»', async () => {
     const { deadline, timeout } = blackHole();

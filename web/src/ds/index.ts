@@ -1,4 +1,4 @@
-// The DS components of design/ds/components.js (0.39), ported. `Pet` is web/src/pet/PetFigure.tsx.
+// The DS components of design/ds/components.js (0.42), ported. `Pet` is web/src/pet/PetFigure.tsx.
 export { ActionRow } from './ActionRow';
 export { Away } from './Away';
 export { Banner, Nest, Skeleton } from './Feedback';
@@ -36,3 +36,4 @@ export { Heading, Hidden, Text } from './Text';
 export { TextField } from './TextField';
 export { TextLink } from './TextLink';
 export { Toast, TOAST_MS } from './Toast';
+export { Seal, Mono, Mark, Record, RecordItem, Receipt, ReceiptCall, ReceiptList, ReceiptRow } from './Verification';

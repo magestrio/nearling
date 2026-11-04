@@ -200,15 +200,76 @@ async fn transfer_storage_stays_within_the_birth_funded_owner_list_reserve() -> 
             "gift transfer {token}: {delta} storage bytes, {} yocto stake delta",
             delta * byte_cost as i128
         );
-        assert!(delta <= i128::from(nearling_contract::limits::OWNER_LIST_ENTRY_BYTES));
+        assert!(
+            delta
+                <= i128::from(
+                    nearling_contract::limits::OWNER_LIST_ENTRY_BYTES
+                        + nearling_contract::limits::TRANSFER_GENERATION_BYTES
+                )
+        );
         previous = after;
     }
     assert_eq!(ctx.contract_balance().await?, balance_before + 3);
     assert_eq!(ctx.pool().await?, pool_before);
     // The three birth reserves cover even three newly populated owner lists.
     let growth = previous.saturating_sub(initial_storage);
-    assert!(growth <= 3 * nearling_contract::limits::OWNER_LIST_ENTRY_BYTES);
+    assert!(
+        growth
+            <= 3 * (nearling_contract::limits::OWNER_LIST_ENTRY_BYTES
+                + nearling_contract::limits::TRANSFER_GENERATION_BYTES)
+    );
     assert!(ctx.contract_balance().await? >= u128::from(previous) * byte_cost);
+    Ok(())
+}
+
+// spec: add-verification › Pet view contract › запись прочитана × first transfer storage reserve
+#[tokio::test]
+async fn first_transfer_fits_its_birth_reserve_at_the_storage_floor() -> anyhow::Result<()> {
+    let ctx = setup(BIG_POOL).await?;
+    let alice = ctx.account("alice", 20).await?;
+    let token = (u64::MAX - 1).to_string();
+    let receiver = "b".repeat(64);
+    ctx.set_next_token_id(u64::MAX - 1).await?;
+    let before_mint = ctx.storage_usage().await?;
+    let pool_before = ctx.pool().await?;
+    ctx.mint(&alice.id().to_string(), "Pixel", "Curious forever")
+        .await?
+        .into_result()?;
+    let mint_growth = ctx.storage_usage().await? - before_mint;
+    let reserved_bytes = (pool_before - ctx.pool().await? - STARTER_FOOD)
+        / 10_000_000_000_000_000_000u128
+        - u128::from(mint_growth);
+    assert_eq!(
+        reserved_bytes,
+        u128::from(
+            nearling_contract::limits::OWNER_LIST_ENTRY_BYTES
+                + nearling_contract::limits::TRANSFER_GENERATION_BYTES
+        )
+    );
+    let before_transfer = ctx.storage_usage().await?;
+    let floor = (u128::from(before_transfer) + reserved_bytes) * 10_000_000_000_000_000_000u128;
+    let mut account: AccountDetailsPatch = ctx.worker.view_account(ctx.contract.id()).await?.into();
+    account.balance = Some(NearToken::from_yoctonear(floor));
+    ctx.worker
+        .patch(ctx.contract.id())
+        .account(account)
+        .transact()
+        .await?;
+    let result = transfer(&ctx, &alice, &receiver, &token, 1, None).await?;
+    result.into_result()?;
+    let transfer_growth = ctx.storage_usage().await? - before_transfer;
+    eprintln!(
+        "20-digit first transfer into 64-byte owner: {transfer_growth} bytes; reserve {reserved_bytes}"
+    );
+    assert!(
+        u128::from(transfer_growth) <= reserved_bytes,
+        "transfer wrote {transfer_growth} bytes; birth reserved {reserved_bytes}"
+    );
+    assert!(
+        ctx.contract_balance().await?
+            >= u128::from(ctx.storage_usage().await?) * 10_000_000_000_000_000_000u128
+    );
+    assert_eq!(ctx.pet_view(&token).await?["transfer_generation"], 1);
     Ok(())
 }
 

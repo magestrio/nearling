@@ -48,6 +48,8 @@ export type Route =
   | { name: 'diary'; tokenId: string }
   /** Wardrobe screen: the pet's outfits, inside the Pet screen's own state (`add-wardrobe` › `Wardrobe screen`) */
   | { name: 'wardrobe'; tokenId: string }
+  | { name: 'verify'; tokenId: string; thoughtId: string | null }
+  | { name: 'receipt'; code: string }
   /** Adapter catalog screen: `/adapters`, or `/adapters?pet=<token_id>` from the skill of that pet (`add-pet-errands`) */
   | { name: 'adapters'; pet: string | null }
   /** `/pet` or `/pet/<x>` with no token_id in it: a cut or mangled link */
@@ -74,6 +76,10 @@ export function parseRoute(location: string): Route {
     const pet = url.searchParams.get('pet');
     return { name: 'adapters', pet: pet !== null && TOKEN_ID.test(pet) ? pet : null };
   }
+  const receipt = /^\/receipt\/([0-9a-f]{64})$/.exec(path);
+  if (receipt) return { name: 'receipt', code: receipt[1]! };
+  const verify = /^\/pet\/(\d{1,20})\/verify(?:\/([0-9a-f]{24}))?$/.exec(path);
+  if (verify) return { name: 'verify', tokenId: verify[1]!, thoughtId: verify[2] ?? null };
   const pet = /^\/pet\/(\d{1,20})$/.exec(path);
   if (pet) return { name: 'pet', tokenId: pet[1]!, from: friend };
   const diary = /^\/pet\/(\d{1,20})\/diary$/.exec(path);
@@ -87,5 +93,6 @@ export function parseRoute(location: string): Route {
 export const petPath = (tokenId: string, from?: string | null) => `/pet/${tokenId}${from ? `?from=${from}` : ''}`;
 export const diaryPath = (tokenId: string) => `/pet/${tokenId}/diary`;
 export const wardrobePath = (tokenId: string) => `/pet/${tokenId}/wardrobe`;
+export const verifyPath = (tokenId: string, thoughtId?: string | null) => `/pet/${tokenId}/verify${thoughtId ? `/${thoughtId}` : ''}`;
 export const adaptersPath = (pet?: string | null) => `/adapters${pet ? `?pet=${pet}` : ''}`;
 export const hatchPath =(from?: string | null) => `/hatch${from ? `?from=${from}` : ''}`;

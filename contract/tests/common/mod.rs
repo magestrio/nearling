@@ -52,6 +52,7 @@ struct StateMirror {
     riddle_reserve: u128,
     work_pairs: LookupSet<(String, String), Sha256>,
     work_index: LookupMap<u64, Vec<u64>>,
+    transfer_generation: LookupMap<String, u64>,
 }
 
 pub struct Ctx {
@@ -532,6 +533,17 @@ impl Ctx {
         let state = self.read_state().await?;
         let mut mirror: StateMirror = borsh::from_slice(&state)?;
         mirror.riddle_reserve = reserve;
+        self.worker
+            .patch_state(self.contract.id(), b"STATE", &borsh::to_vec(&mirror)?)
+            .await?;
+        Ok(())
+    }
+
+    /// Place the next mint at a supported 20-digit token id for storage-bound tests.
+    pub async fn set_next_token_id(&self, next: u64) -> anyhow::Result<()> {
+        let state = self.read_state().await?;
+        let mut mirror: StateMirror = borsh::from_slice(&state)?;
+        mirror.next_token_id = next;
         self.worker
             .patch_state(self.contract.id(), b"STATE", &borsh::to_vec(&mirror)?)
             .await?;

@@ -7,13 +7,12 @@ import { PET_FEED_FEES_TGAS, PET_FEED_TGAS } from './chain';
  * to the tests, which compare (`test/pricing.test.ts`). */
 export const STARTER_FOOD_YOCTO = 2_000_000_000_000_000_000_000n;
 
-/** The storage a birth locks, in yoctoNEAR, at its upper bound: 1,893 bytes x 1e19, the V6 record of
- * `add-pet-work` (design.md › Контракт, measured by `contract/tests/pet_mint.rs`: 1,463 bytes of the
- * birth plus the owner-list entry of 430). */
-export const BIRTH_STORAGE_YOCTO = 18_930_000_000_000_000_000_000n;
+/** The storage a birth locks, in yoctoNEAR: 1,966 bytes x 1e19, measured by
+ * `contract/tests/pet_mint.rs`: 1,463 birth bytes, 430 next-owner bytes and 73 generation bytes. */
+export const BIRTH_STORAGE_YOCTO = 19_660_000_000_000_000_000_000n;
 
 /** A pre-check of the pool before a birth: `MAX_BIRTH_COST` of `contract/src/limits.rs`. */
-export const MAX_BIRTH_COST_YOCTO = 22_000_000_000_000_000_000_000n;
+export const MAX_BIRTH_COST_YOCTO = 23_000_000_000_000_000_000_000n;
 
 export const YOCTO_PER_NEAR = 1_000_000_000_000_000_000_000_000n;
 

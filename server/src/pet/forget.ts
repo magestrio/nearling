@@ -19,6 +19,7 @@ export function forgetStatements(db: D1Database, tokenId: string, now: number): 
     db
       .prepare('UPDATE thoughts SET erased_at = CASE WHEN player_text IS NOT NULL OR reply_text IS NOT NULL THEN ?1 ELSE erased_at END, player_text = NULL, reply_text = NULL WHERE token_id = ?2')
       .bind(now, tokenId),
+    db.prepare('UPDATE receipt_links SET revoked_at = ?1 WHERE paying_token_id = ?2 AND revoked_at IS NULL').bind(now, tokenId),
     db.prepare("UPDATE thought_calls SET req_bytes = x'', res_bytes = x'' WHERE thought_id IN (SELECT id FROM thoughts WHERE token_id = ?)").bind(tokenId),
     // An errand that came back without a report goes, and so does one whose job has not started (nothing was spent,
     // nothing is on its way); one away keeps its row, without its words, so it still ends or times out

@@ -6,8 +6,9 @@
 // every transaction a writer signs is noted in `item_sends` BEFORE it is broadcast (`noteItemSend`, called
 // by `ServerKey`), a writer with an `ok` keeps the hash at once (`itemTxStatements`), and the cron asks the
 // network about the rows nobody settled (`settleItemSends`).
-import { ChainUnreachable, txStatus } from '../chain';
-import { CLAIM_STALE_MS } from './growth';
+import { ChainUnreachable, hatchView, txStatus, type ServerCall } from '../chain';
+/** A signed send waiting this long may belong to a writer that stopped. */
+const SEND_CLAIM_STALE_MS = 60_000;
 
 /** At most this many hashes are asked after in a tick (an unknown hash makes the RPC wait). */
 const SENDS_PER_TICK = 10;
@@ -25,7 +26,15 @@ const LOST_AFTER_MS = 24 * 3_600_000;
  * row with no hash noted (`settleBuys`), also one that is still waiting in the key's queue; when it did, the
  * insert changes nothing, this throws, and the transaction is not broadcast. The cron's flip
  * in turn changes nothing once a hash is noted, so of the two exactly one wins. */
-export async function noteItemSend(db: D1Database, writes: { tokenId: string; item: string; buy?: string }, txHash: string, now: number): Promise<void> {
+export async function noteItemSend(db: D1Database, writes: NonNullable<ServerCall['writes']>, txHash: string, now: number): Promise<void> {
+  if (writes.kind === 'birth' || writes.kind === 'growth') {
+    const kind = writes.kind;
+    const tokenId = kind === 'birth' ? writes.receiver : writes.tokenId;
+    const ref = kind === 'birth' ? 'birth' : writes.stage;
+    await db.prepare('INSERT OR IGNORE INTO item_sends (tx_hash, token_id, item, sent_at, kind) VALUES (?, ?, ?, ?, ?)')
+      .bind(txHash, tokenId, ref, now, kind).run();
+    return;
+  }
   if (writes.buy === undefined) {
     await db.prepare('INSERT OR IGNORE INTO item_sends (tx_hash, token_id, item, sent_at) VALUES (?, ?, ?, ?)').bind(txHash, writes.tokenId, writes.item, now).run();
     return;
@@ -41,9 +50,13 @@ export async function noteItemSend(db: D1Database, writes: { tokenId: string; it
  * clear of the memory) and ends the pair's `item_sends` rows: whichever send it was, the item is written
  * once, and the others' rows have nothing left to find. */
 export function itemTxStatements(db: D1Database, tokenId: string, item: string, txHash: string, now: number): D1PreparedStatement[] {
+  return recordTxStatements(db, tokenId, 'item', item, txHash, now);
+}
+
+export function recordTxStatements(db: D1Database, tokenId: string, kind: 'item' | 'growth' | 'birth', ref: string, txHash: string, now: number): D1PreparedStatement[] {
   return [
-    db.prepare("INSERT OR IGNORE INTO pet_transactions (token_id, kind, ref, tx_hash, at) VALUES (?, 'item', ?, ?, ?)").bind(tokenId, item, txHash, now),
-    db.prepare('DELETE FROM item_sends WHERE token_id = ? AND item = ?').bind(tokenId, item),
+    db.prepare('INSERT OR IGNORE INTO pet_transactions (token_id, kind, ref, tx_hash, at) VALUES (?, ?, ?, ?, ?)').bind(tokenId, kind, ref, txHash, now),
+    db.prepare('DELETE FROM item_sends WHERE token_id = ? AND kind = ? AND item = ?').bind(tokenId, kind, ref),
   ];
 }
 
@@ -65,6 +78,7 @@ interface SendRow {
   tx_hash: string;
   token_id: string;
   item: string;
+  kind: 'item' | 'growth' | 'birth';
   sent_at: number;
 }
 
@@ -74,9 +88,9 @@ interface SendRow {
  * pair's last and nothing was kept). */
 export async function settleItemSends(env: Env, nowMs: number): Promise<void> {
   const due = await env.DB.prepare(
-    'SELECT tx_hash, token_id, item, sent_at FROM item_sends WHERE sent_at < ?1 AND (checked_at IS NULL OR checked_at <= ?2) ORDER BY checked_at IS NOT NULL, COALESCE(checked_at, sent_at), rowid LIMIT ?3',
+    'SELECT tx_hash, token_id, item, kind, sent_at FROM item_sends WHERE sent_at < ?1 AND (checked_at IS NULL OR checked_at <= ?2) ORDER BY checked_at IS NOT NULL, COALESCE(checked_at, sent_at), rowid LIMIT ?3',
   )
-    .bind(nowMs - CLAIM_STALE_MS, nowMs - RECHECK_MS, SENDS_PER_TICK)
+    .bind(nowMs - SEND_CLAIM_STALE_MS, nowMs - RECHECK_MS, SENDS_PER_TICK)
     .all<SendRow>();
   for (const row of due.results) {
     let seen;
@@ -89,16 +103,27 @@ export async function settleItemSends(env: Env, nowMs: number): Promise<void> {
       continue;
     }
     if (seen?.status === 'ok') {
-      await env.DB.batch(itemTxStatements(env.DB, row.token_id, row.item, row.tx_hash, nowMs));
+      if (row.kind === 'birth') {
+        const tokenId = seen.value ?? (await hatchView(env, row.token_id)).token_id;
+        if (tokenId === null) continue;
+        await env.DB.batch([
+          env.DB.prepare('INSERT OR IGNORE INTO pets (token_id, hatched_by, born_at, birth_tx) VALUES (?, ?, ?, ?)').bind(tokenId, row.token_id, nowMs, row.tx_hash),
+          env.DB.prepare("UPDATE pets SET birth_tx = ? WHERE token_id = ? AND birth_tx = ''").bind(row.tx_hash, tokenId),
+          env.DB.prepare("INSERT OR IGNORE INTO pet_transactions (token_id, kind, ref, tx_hash, at) VALUES (?, 'birth', 'birth', ?, ?)").bind(tokenId, row.tx_hash, nowMs),
+          env.DB.prepare("DELETE FROM item_sends WHERE token_id = ? AND kind = 'birth' AND item = 'birth'").bind(row.token_id),
+        ]);
+      } else {
+        await env.DB.batch(recordTxStatements(env.DB, row.token_id, row.kind, row.item, row.tx_hash, nowMs));
+      }
     } else if (seen?.status === 'failed') {
       await dropItemSend(env.DB, row.tx_hash);
     } else if (nowMs - row.sent_at >= LOST_AFTER_MS) {
       const gone = await env.DB.prepare('DELETE FROM item_sends WHERE tx_hash = ? RETURNING tx_hash').bind(row.tx_hash).first();
       if (gone === null) continue;
       const left = await env.DB.prepare(
-        'SELECT (SELECT COUNT(*) FROM item_sends WHERE token_id = ?1 AND item = ?2) + (SELECT COUNT(*) FROM pet_transactions WHERE token_id = ?1 AND kind = \'item\' AND ref = ?2) AS n',
+        "SELECT (SELECT COUNT(*) FROM item_sends WHERE token_id = ?1 AND kind = ?3 AND item = ?2) + (SELECT COUNT(*) FROM pet_transactions WHERE token_id = ?1 AND kind = ?3 AND ref = ?2) AS n",
       )
-        .bind(row.token_id, row.item)
+        .bind(row.token_id, row.item, row.kind)
         .first<{ n: number }>();
       if (left?.n === 0) console.log('item_tx_lost');
     } else {

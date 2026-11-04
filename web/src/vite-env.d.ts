@@ -5,6 +5,7 @@ interface ImportMetaEnv {
   readonly VITE_NEAR_NETWORK: 'testnet' | 'mainnet';
   readonly VITE_NEAR_RPC_URL: string;
   readonly VITE_CONTRACT_ID: string;
+  readonly VITE_SERVER_ACCOUNT_ID: string;
   readonly VITE_TREASURY_ACCOUNT_ID: string;
   readonly VITE_PRIVY_APP_ID: string;
   readonly VITE_DEV_ROUTE: 'true' | 'false';

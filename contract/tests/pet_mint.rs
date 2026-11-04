@@ -4,6 +4,7 @@ use common::*;
 use near_workspaces::types::Gas;
 use nearling_contract::limits::{
     BIRTHS_PER_DAY, MAX_BIRTH_COST, MAX_CHARACTER_BYTES, MAX_NAME_BYTES, OWNER_LIST_ENTRY_BYTES,
+    TRANSFER_GENERATION_BYTES,
 };
 use serde_json::json;
 
@@ -207,13 +208,14 @@ async fn a_birth_records_the_pet_and_enumerates_it() -> anyhow::Result<()> {
     assert_eq!(pet["outfits"], json!([]));
     assert_eq!(ctx.pet_view("1").await?, serde_json::Value::Null);
 
-    // The pool paid the bytes the chain counted plus the owner-list entry and the starter food.
+    // The pool paid the bytes the chain counted, both future-transfer entries, and starter food.
     let bytes = ctx.storage_usage().await? - before_storage;
     let byte_cost = 10_000_000_000_000_000_000u128;
     let cost = BIG_POOL - ctx.pool().await?;
     assert_eq!(
         cost,
-        (bytes + OWNER_LIST_ENTRY_BYTES) as u128 * byte_cost + STARTER_FOOD
+        (bytes + OWNER_LIST_ENTRY_BYTES + TRANSFER_GENERATION_BYTES) as u128 * byte_cost
+            + STARTER_FOOD
     );
 
     // The events: the standard's mint and the game's birth.
@@ -261,12 +263,15 @@ async fn storage_of_a_birth() -> anyhow::Result<()> {
     let bytes = ctx.storage_usage().await? - before;
     let cost = BIG_POOL - ctx.pool().await?;
     eprintln!(
-        "storage_of_a_birth: {bytes} bytes written, +{OWNER_LIST_ENTRY_BYTES} owner-list bytes, cost {cost} yocto, gas {gas}"
+        "storage_of_a_birth: {bytes} bytes written, +{OWNER_LIST_ENTRY_BYTES} owner-list bytes, +{TRANSFER_GENERATION_BYTES} generation bytes, cost {cost} yocto, gas {gas}"
     );
     // `add-pet-work`: the record is nine bytes longer than `add-wardrobe`'s 1,884 with the job
     // counter (a day and a count); `BIRTH_STORAGE_YOCTO` in `server/src/pricing.ts` is this number
     // at the byte price.
-    assert_eq!(bytes + OWNER_LIST_ENTRY_BYTES, 1_893);
+    assert_eq!(
+        bytes + OWNER_LIST_ENTRY_BYTES + TRANSFER_GENERATION_BYTES,
+        1_966
+    );
     assert!(
         cost <= MAX_BIRTH_COST,
         "cost {cost} > MAX_BIRTH_COST {MAX_BIRTH_COST}"

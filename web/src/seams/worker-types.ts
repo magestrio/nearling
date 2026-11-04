@@ -1,3 +1,5 @@
+import type { ThoughtPointer } from '../verification/types';
+
 // The only module that talks to the game's Worker. Every request with a player carries Privy's identity token in
 // `privy-id-token` (design.md › Worker); without one it goes as a visitor. A failure is a WorkerError: `status` 0
 // means the Worker never answered, any other is its HTTP status with the `code` of its body (`signed_out`,
@@ -6,6 +8,28 @@ export interface Health {
   ok: boolean;
   version: string;
   env: string;
+}
+
+/** Public record pointers; each transaction is read by the browser from NEAR. */
+export interface VerificationIndex {
+  tokenId: string;
+  worn: OutfitSlug | null;
+  transactions: Array<{ kind: string; ref: string; txHash: string; at: number }>;
+  thoughts: Array<{ id: string; tokenId: string; at: number; status: string; erased: boolean; withoutReply: boolean;
+    model: string; priceYocto: string; nearUsdRate: string | null }>;
+}
+
+export type SharedReceipt = { status: 'live'; thought: { id: string; tokenId: string; payingTokenId: string | null;
+  calls: Array<{ n: number; reqSha256: string; resSha256: string; request: string; reply: string }> } }
+  | { code: 'revoked'; tokenId: string; thoughtId: string };
+
+/** GET /api/verification/pets/:id/thoughts/:thought: public pointer, plus words only for the current owner. */
+export interface VerificationThought extends ThoughtPointer {
+  viewer: 'visitor' | 'guest' | 'owner';
+  kind: string;
+  withoutReply: boolean;
+  playerText?: string | null;
+  replyText?: string | null;
 }
 
 export class WorkerError extends Error {
@@ -590,6 +614,11 @@ export interface WorkerApi {
   /** `name` is the raw text as typed; the server cleans it again. Resolves `{ tokenId }`. */
   hatch(token: Token, name: string): Promise<{ tokenId: string }>;
   pet(token: Token, tokenId: string): Promise<PetView>;
+  verificationIndex(tokenId: string): Promise<VerificationIndex>;
+  verificationThought(token: Token, tokenId: string, thoughtId: string): Promise<VerificationThought>;
+  publishReceipt(token: Token, tokenId: string, thoughtId: string, operationId: string): Promise<{ code: string; path: string }>;
+  sharedReceipt(code: string): Promise<SharedReceipt>;
+  receiptBytes(code: string, n: number, part: 'request' | 'reply'): Promise<Uint8Array>;
   /** `wakes`: how many wakes this page knows of; a later one comes back as `woke` and `friend`. */
   petState(token: Token, tokenId: string, job?: string, wakes?: number): Promise<PetState>;
   conversation(token: Token, tokenId: string, before?: number): Promise<Conversation>;

@@ -21,6 +21,9 @@ import {
   type GiftOutcome,
   type PublicGift,
   type PetView,
+  type VerificationIndex,
+  type VerificationThought,
+  type SharedReceipt,
   type PortionNear,
   type SessionResult,
   type SignInGate,
@@ -256,6 +259,47 @@ export const fakeWorkerApi: WorkerApi = {
   async pet(token, tokenId) {
     recordCall('worker:pet');
     return viewOf(token, tokenId);
+  },
+
+  async verificationIndex(tokenId) {
+    return answer<VerificationIndex>('verificationIndex', state().verificationIndex,
+      { tokenId, worn: null, transactions: [], thoughts: [] }, state().verificationDelayMs);
+  },
+
+  async verificationThought(token, tokenId, thoughtId) {
+    if (token && state().verificationUnauthorized) throw new WorkerError(401, 'signed_out');
+    const configured = state().verificationThoughts?.[thoughtId];
+    if (configured === undefined) throw new WorkerError(404, 'no_thought');
+    const row = await answer<VerificationThought>(`verificationThought:${thoughtId}`, configured, configured as VerificationThought);
+    if (!token) return { ...row, viewer: 'visitor', playerText: undefined, replyText: undefined, privateCalls: undefined };
+    return state().owned?.includes(row.payingTokenId ?? tokenId) ? { ...row, viewer: 'owner' } : { ...row, viewer: 'guest', playerText: undefined, replyText: undefined, privateCalls: undefined };
+  },
+
+  async publishReceipt(token, tokenId, thoughtId, operationId) {
+    needSession(token);
+    recordCall(`worker:publishReceipt:${operationId}`);
+    if (!state().owned?.includes(tokenId)) throw new WorkerError(403, 'not_owner');
+    const configured = state().publishReceipt;
+    return answer('publication', configured, { code: '8'.repeat(64), path: `/receipt/${'8'.repeat(64)}` });
+  },
+
+  async sharedReceipt(code) {
+    const configured = state().sharedReceipt;
+    if (configured === undefined) throw new WorkerError(404, 'unknown_link');
+    return answer<SharedReceipt>('sharedReceipt', configured, configured as SharedReceipt);
+  },
+
+  async receiptBytes(code, n, part) {
+    recordCall(`worker:receiptBytes:${n}:${part}`);
+    const failure = state().receiptDownload;
+    if (failure && isFail(failure)) throw new WorkerError(failure.fail.status, failure.fail.code);
+    const link = state().sharedReceipt;
+    if (!link || isFail(link) || 'code' in link) throw new WorkerError(410, 'revoked');
+    const row = state().verificationThoughts?.[link.thought.id];
+    if (!row || isFail(row)) throw new WorkerError(404, 'unknown_call');
+    const raw = row.privateCalls?.find((entry) => entry.n === n)?.[part === 'request' ? 'requestBase64' : 'replyBase64'];
+    if (!raw) throw new WorkerError(404, 'unknown_call');
+    return Uint8Array.from(atob(raw), (char) => char.charCodeAt(0));
   },
 
   async petState(token, tokenId, job, wakes) {

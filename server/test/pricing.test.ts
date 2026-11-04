@@ -107,7 +107,7 @@ describe('the project\'s own costs in dollars', () => {
   // spec: add-pet › Birth flow › вылупился
   it('turns yoctoNEAR into micro-dollars at the rate, rounded up', () => {
     expect(yoctoToUsdMicros(S, 4.59)).toBe(9_180);
-    expect(yoctoToUsdMicros(BIRTH_STORAGE_YOCTO, 4.59)).toBe(86_889);
+    expect(yoctoToUsdMicros(BIRTH_STORAGE_YOCTO, 4.59)).toBe(90_240);
     expect(yoctoToUsdMicros(1n, 4.59)).toBe(1);
     expect(yoctoToUsdMicros(0n, 4.59)).toBe(0);
   });

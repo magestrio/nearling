@@ -23,6 +23,9 @@ import type {
   OutfitSlug,
   PetState,
   PetView,
+  VerificationIndex,
+  SharedReceipt,
+  VerificationThought,
   RiddleStatus,
   SignInGate,
   SkillRead,
@@ -81,6 +84,19 @@ async function call<T>(path: string, token: Token, init?: { method?: string; bod
   return body as T;
 }
 
+async function callReceiptBytes(code: string, n: number, part: 'request' | 'reply'): Promise<Uint8Array> {
+  let response: Response;
+  try {
+    response = await fetch(`/api/verification/receipts/${encodeURIComponent(code)}/calls/${n}/${part}`,
+      { signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) });
+  } catch { throw new WorkerError(0, 'unreachable'); }
+  if (!response.ok) {
+    const body = await response.json().catch(() => null) as { code?: string } | null;
+    throw new WorkerError(response.status, body?.code ?? 'error');
+  }
+  return new Uint8Array(await response.arrayBuffer());
+}
+
 const id = (tokenId: string) => encodeURIComponent(tokenId);
 
 const real: WorkerApi = {
@@ -98,6 +114,14 @@ const real: WorkerApi = {
   hatchStatus: (token, opts) => call<HatchStatus>(opts?.look ? '/api/hatch?look=1' : '/api/hatch', token),
   hatch: (token, name) => call<{ tokenId: string }>('/api/hatch', token, { method: 'POST', body: { name }, timeoutMs: HATCH_TIMEOUT_MS }),
   pet: (token, tokenId) => call<PetView>(`/api/pets/${id(tokenId)}`, token),
+  verificationIndex: (tokenId) => call<VerificationIndex>(`/api/verification/pets/${id(tokenId)}`, null),
+  verificationThought: (token, tokenId, thoughtId) => call<VerificationThought>(
+    `/api/verification/pets/${id(tokenId)}/thoughts/${encodeURIComponent(thoughtId)}`, token),
+  publishReceipt: (token, tokenId, thoughtId, operationId) => call<{ code: string; path: string }>(
+    `/api/verification/pets/${id(tokenId)}/thoughts/${encodeURIComponent(thoughtId)}/links`, token,
+    { method: 'POST', body: { operationId } }),
+  sharedReceipt: (code) => call<SharedReceipt>(`/api/verification/receipts/${encodeURIComponent(code)}`, null),
+  receiptBytes: callReceiptBytes,
   petState: (token, tokenId, job, wakes) => {
     const query = new URLSearchParams();
     if (job) query.set('job', job);

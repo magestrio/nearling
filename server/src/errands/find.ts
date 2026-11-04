@@ -367,11 +367,11 @@ interface ThoughtFields {
 function thoughtInsert(c: Ctx, id: string, sessionId: string, f: ThoughtFields): D1PreparedStatement {
   return c.env.DB
     .prepare(
-      `INSERT INTO thoughts (id, token_id, created_at, kind, player_text, reply_text, model, price_yocto, price_usd_micros, cut, reasked, payer, session_id, status, skilled, recall, form, sources, verdict, searches)
-       SELECT ?1, ?2, ?3, 'errand', ?4, ?5, ?6, ?7, ?8, ?9, ?10, 'pet', ?11, ?12, ?13, 0, ?14, ?15, ?16, ?17
+      `INSERT INTO thoughts (id, token_id, created_at, kind, player_text, reply_text, model, price_yocto, price_usd_micros, cut, reasked, payer, session_id, status, skilled, recall, form, sources, verdict, searches, near_usd_rate)
+       SELECT ?1, ?2, ?3, 'errand', ?4, ?5, ?6, ?7, ?8, ?9, ?10, 'pet', ?11, ?12, ?13, 0, ?14, ?15, ?16, ?17, ?18
        WHERE EXISTS (SELECT 1 FROM errands WHERE token_id = ?2 AND thought_id = ?1)`,
     )
-    .bind(id, c.tokenId, c.now, f.text, f.reply, c.env.MODEL_ID, f.price.toString(), yoctoMicros(c.env, f.price), f.cut, f.reasked ? 1 : 0, sessionId, f.status, c.skill === null ? 0 : 1, c.form, f.sources, f.verdict, f.searches);
+    .bind(id, c.tokenId, c.now, f.text, f.reply, c.env.MODEL_ID, f.price.toString(), yoctoMicros(c.env, f.price), f.cut, f.reasked ? 1 : 0, sessionId, f.status, c.skill === null ? 0 : 1, c.form, f.sources, f.verdict, f.searches, c.env.NEAR_USD_RATE);
 }
 
 /** The search call's row: its bytes are kept (it holds only the job). A cut call is unsigned, has no tokens, and is
@@ -472,7 +472,7 @@ async function land(
       .bind(c.tokenId, c.row.id, a.state, a.reason, a.price.toString()),
     env.DB
       .prepare(
-        `UPDATE thoughts SET player_text = ?5, reply_text = ?6, price_yocto = ?7, price_usd_micros = ?8, cut = ?9, reasked = ?10, session_id = ?11, status = 'unbilled', sources = ?12, verdict = ?13, searches = ?14, data_labels = ?15, data_missed = ?16
+        `UPDATE thoughts SET player_text = ?5, reply_text = ?6, price_yocto = ?7, price_usd_micros = ?8, cut = ?9, reasked = ?10, session_id = ?11, status = 'unbilled', sources = ?12, verdict = ?13, searches = ?14, data_labels = ?15, data_missed = ?16, near_usd_rate = ?17
          WHERE id = ?2 AND status = 'away' AND ${mine}`,
       )
       .bind(
@@ -492,6 +492,7 @@ async function land(
         a.fields.searches,
         labelsJson(sourceLabelsOf(c.reads)),
         labelsJson(c.missed),
+        env.NEAR_USD_RATE,
       ),
     // After the search call (n = 0): the data call, when one was made, then the report and its re-ask.
     ...[

@@ -11,6 +11,7 @@ import { nearUsdRate, yoctoToUsdMicros } from '../pricing';
 import { isPaused } from '../servicePause';
 import { track } from '../track';
 import { growthLine, type GrowthStage } from './life';
+import { recordTxStatements } from './itemTx';
 
 /** A claim older than this belongs to a writer that is gone: 25 s of send and two 8 s reads, with room. */
 export const CLAIM_STALE_MS = 60_000;
@@ -74,10 +75,11 @@ export async function writeDueGrowth(env: Env, tokenId: string): Promise<WriteRe
     methodName: 'pet_grow',
     args: { token_id: tokenId, stage: CONTRACT_STAGE[row.stage], trait: row.trait },
     gas: (PET_GROW_TGAS * 1_000_000_000_000n).toString(),
+    writes: { kind: 'growth', tokenId, stage: row.stage },
   });
   if (answer.status === 'ok') {
     console.log('grow_sent');
-    return finish(env, tokenId, row, pet, { burnt: answer.burnt ?? null });
+    return finish(env, tokenId, row, pet, { burnt: answer.burnt ?? null, txHash: answer.txHash });
   }
   if (answer.status === 'failed' && answer.code === 'stage_today') {
     // The chain's day was not the one read a moment ago: the same wait.
@@ -101,7 +103,7 @@ const waitFor = (db: D1Database, tokenId: string, stage: GrowthStage, day: numbe
  * one batch; the events and the project's gas follow only for the writer that deleted the row. `sent`
  * is null when this writer sent nothing (the chain already had the stage), else the gas its own send
  * burned (null when the answer did not say). */
-async function finish(env: Env, tokenId: string, row: Row, pet: PetRecord, sent: { burnt: string | null } | null): Promise<WriteResult> {
+async function finish(env: Env, tokenId: string, row: Row, pet: PetRecord, sent: { burnt: string | null; txHash: string } | null): Promise<WriteResult> {
   const now = Date.now();
   // The adult step repeats the trait when the teen's is the same (`Trait rule` › «черта уже есть»).
   const repeat = row.stage === 'adult' && pet.traits[0] === row.trait;
@@ -111,8 +113,9 @@ async function finish(env: Env, tokenId: string, row: Row, pet: PetRecord, sent:
       "INSERT INTO thoughts (id, token_id, created_at, kind, player_text, reply_text, model, price_yocto, price_usd_micros, payer, status) SELECT ?1, ?2, ?3, 'growth', NULL, ?4, '', '0', 0, 'project', 'project' WHERE EXISTS (SELECT 1 FROM pending_growth WHERE token_id = ?2 AND stage = ?5)",
     ).bind(crypto.randomUUID().replaceAll('-', '').slice(0, 24), tokenId, now, line, row.stage),
     env.DB.prepare('DELETE FROM pending_growth WHERE token_id = ? AND stage = ? RETURNING stage').bind(tokenId, row.stage),
+    ...(sent === null ? [] : recordTxStatements(env.DB, tokenId, 'growth', row.stage, sent.txHash, now)),
   ]);
-  if (written.at(-1)!.results.length === 0) return 'busy';
+  if (written[1]!.results.length === 0) return 'busy';
   track('pet_grew', { stage: row.stage });
   track('trait_gained', { trait: row.trait });
   if (sent?.burnt != null) {

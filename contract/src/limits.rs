@@ -35,10 +35,15 @@ pub const MAX_CALLS_PER_THOUGHT: usize = 4;
 /// The unit test `owner_list_entry_bytes_covers_the_measurement` measures it.
 pub const OWNER_LIST_ENTRY_BYTES: u64 = 430;
 
+/// One first-transfer generation entry for a supported 20-digit token id: the `g` prefix,
+/// Borsh string length and bytes, u64 value and storage-record overhead.
+pub const TRANSFER_GENERATION_BYTES: u64 = 73;
+
 /// An upper bound of a birth's cost in yoctoNEAR for the server's pre-check: the longest
 /// character, a 32-byte name, a 64-byte receiver and a 20-digit token id, plus the owner-list
-/// entry and the starter food. `storage_of_a_birth` proves the measured cost stays under it.
-pub const MAX_BIRTH_COST: u128 = 22_000_000_000_000_000_000_000;
+/// entry, first-transfer generation entry and the starter food. `storage_of_a_birth` proves
+/// the measured cost stays under it.
+pub const MAX_BIRTH_COST: u128 = 23_000_000_000_000_000_000_000;
 
 /// Nanoseconds in a UTC day.
 pub const DAY_NS: u64 = 86_400_000_000_000;

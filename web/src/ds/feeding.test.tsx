@@ -103,7 +103,8 @@ describe('CopyField', () => {
   it('shows the value whole and calls onCopy from its Copy button', async () => {
     const onCopy = vi.fn();
     await show(<CopyField value="a1b2c3" mono onCopy={onCopy} />);
-    expect(host.querySelector('.ds-copy__value')!.textContent).toBe('a1b2c3');
+    expect(host.querySelector<HTMLTextAreaElement>('.ds-copy__value')!.value).toBe('a1b2c3');
+    expect(host.querySelector<HTMLTextAreaElement>('.ds-copy__value')!.readOnly).toBe(true);
     expect(host.querySelector('.ds-copy__value')!.className).toContain('type-mono');
     const button = host.querySelector('button')!;
     expect(button.textContent).toBe('Copy');

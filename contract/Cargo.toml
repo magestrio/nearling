@@ -5,7 +5,7 @@ version = "0.1.0"
 edition = "2024"
 resolver = "3"
 rust-version = "1.95"
-# `repository` is added at R1: SourceScan and the reproducible build clone the game's public repo from it.
+repository = "https://github.com/magestrio/nearling"
 
 [lib]
 crate-type = ["cdylib", "rlib"]

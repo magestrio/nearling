@@ -6,6 +6,7 @@ export interface BuildEnv {
   VITE_NEAR_NETWORK: 'testnet' | 'mainnet';
   VITE_NEAR_RPC_URL: string;
   VITE_CONTRACT_ID: string;
+  VITE_SERVER_ACCOUNT_ID: string;
   VITE_TREASURY_ACCOUNT_ID: string;
   VITE_PRIVY_APP_ID: string;
   /** The day-1 checks route (/__day1). Absent from the production build. */
@@ -17,8 +18,9 @@ export interface BuildEnv {
 const dev: BuildEnv = {
   VITE_ENV: 'dev',
   VITE_NEAR_NETWORK: 'testnet',
-  VITE_NEAR_RPC_URL: 'https://rpc.testnet.near.org',
+  VITE_NEAR_RPC_URL: 'https://rpc.testnet.fastnear.com',
   VITE_CONTRACT_ID: 'nearling-dev.testnet',
+  VITE_SERVER_ACCOUNT_ID: 'nearling-dev-server.testnet',
   VITE_TREASURY_ACCOUNT_ID: 'nearling-dev-treasury.testnet',
   VITE_PRIVY_APP_ID: 'cmvtjc1q100s30gl22hfxq7ap',
   VITE_DEV_ROUTE: 'true',
@@ -31,6 +33,7 @@ const prod: BuildEnv = {
   VITE_NEAR_NETWORK: 'mainnet',
   VITE_NEAR_RPC_URL: '',
   VITE_CONTRACT_ID: '',
+  VITE_SERVER_ACCOUNT_ID: '',
   VITE_TREASURY_ACCOUNT_ID: '',
   VITE_PRIVY_APP_ID: '',
   VITE_DEV_ROUTE: 'false',
@@ -43,6 +46,7 @@ const e2e: BuildEnv = {
   VITE_NEAR_NETWORK: 'testnet',
   VITE_NEAR_RPC_URL: 'http://127.0.0.1:1/rpc-is-faked',
   VITE_CONTRACT_ID: 'nearling-e2e.testnet',
+  VITE_SERVER_ACCOUNT_ID: 'nearling-e2e-server.testnet',
   VITE_TREASURY_ACCOUNT_ID: 'nearling-e2e-treasury.testnet',
   VITE_PRIVY_APP_ID: 'e2e-app-id',
   VITE_DEV_ROUTE: 'true',
