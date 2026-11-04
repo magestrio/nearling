@@ -10,6 +10,7 @@ import { desk, enqueueJob } from '../pet/desk';
 import { gasIsLow, pauseReason } from '../servicePause';
 import { track } from '../track';
 import { lastGiftedPet } from '../gift/current';
+import { publicPetId } from '../pet/publicIds';
 
 export const hatchRoutes = new Hono<AppEnv>();
 
@@ -145,6 +146,7 @@ hatchRoutes.post('/api/hatch', async (c) => {
     await c.env.DB.prepare('INSERT OR IGNORE INTO pets (token_id, hatched_by, born_at, birth_tx) VALUES (?, ?, ?, ?)')
       .bind(hatch.token_id, session.accountId, Date.now(), '')
       .run();
+    await publicPetId(c.env.DB, hatch.token_id);
     return c.json({ code: 'already' }, 409);
   }
 
@@ -239,6 +241,7 @@ async function mint(env: Env, account: string, name: string, c: AppContext): Pro
     }
   }
   await env.DB.batch(statements);
+  await publicPetId(env.DB, tokenId);
   track('pet_born');
   // The greeting is queued at birth and runs by the desk's alarm, with no request from the client
   // (First thought flow); the empty Pet screen asks again and gets the same job.

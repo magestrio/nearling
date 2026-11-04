@@ -12,6 +12,7 @@ import {
   Dock,
   Header,
   Heading,
+  IconButton,
   Inert,
   Live,
   Message,
@@ -634,7 +635,11 @@ function OwnerPage({ pet, s, seal }: { pet: OwnerView; s: ReturnType<typeof useP
           </Button>
         ) : null
       }
-      end={<Account {...slot} />}
+      end={<Cluster gap={2} nowrap>
+        <Only on="desktop"><Button variant="secondary" size="compact" icon="search" href="/hire">Find a pet to ask</Button></Only>
+        <Only on="phone"><IconButton variant="secondary" icon="search" label="Find a pet to ask" href="/hire" /></Only>
+        <Account {...slot} />
+      </Cluster>}
     />
   );
 

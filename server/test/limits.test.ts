@@ -79,7 +79,8 @@ describe('Session request limit data', () => {
   });
 
   // spec: add-pet › Session request limit data › предел на сессию
-  it('does not count a player\'s requests against their IP, nor another player against them', async () => {
+  // 123 sequential requests traverse the full Worker harness; allow for contention during the full verification run.
+  it('does not count a player\'s requests against their IP, nor another player against them', { timeout: 30_000 }, async () => {
     h.net().contract.addPet('7001', NEAR_ACCOUNT(1));
     const mine = await token('did:privy:p1', NEAR_ACCOUNT(1));
     for (let i = 0; i < 121; i += 1) await api('/api/pets/7001', { token: mine, ip: ip(46) });

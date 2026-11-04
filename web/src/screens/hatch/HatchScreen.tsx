@@ -101,14 +101,12 @@ export function HatchScreen({ from }: { from: string | null }) {
     </Shell>;
   }
 
-  // The way out of a closed screen: «Back to {friend_pet}» when the address names a friend's pet that exists; a signed-in
-  // player with no pet of their own and no friend's pet has no way out (`add-pet` › `no exit`: the line, «Account» and the
-  // name stay); else «Go home». While the friend's name is being read it is not shown.
+  // The way out of a closed screen: a player without a pet or friend link can find a pet to ask.
   const noExit = view.kind === 'closed' && view.noPets;
   const wayOut =
     from && hatch.friend === 'loading' ? null : hatch.friend && hatch.friend !== 'loading' ? (
       <Button block href={petPath(hatch.friend.tokenId)}>{`Back to ${hatch.friend.name}`}</Button>
-    ) : noExit ? null : (
+    ) : noExit ? <Button block variant="secondary" href="/hire">Find a pet to ask</Button> : (
       <Button block href="/">
         Go home
       </Button>

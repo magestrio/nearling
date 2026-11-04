@@ -32,10 +32,10 @@ export const connectedLine = (name: string, label: string) => `Connected. ${name
 export const removedLine = (name: string, label: string) => `${label} removed. ${name} stops using it from its next job.`;
 
 // the sockets of Skill sheet
-export const SOCKET_DATA = 'Connect data';
+export const SOCKET_DATA = 'Add data';
 export const SOCKET_CODE = 'Add code';
 export const codeSocket = (name: string) => `${name}'s code`;
-export const NO_SKILL_YET = 'Save the skill first, then connect data to it.';
+export const NO_SKILL_YET = 'Save the skill first, then add data to it.';
 export const FOURTH_SOURCE = 'A skill holds up to 3 data sources. Remove one to add another.';
 export const goneNote = (name: string) => `No longer in the catalog — still works for ${name}.`;
 export const codeSavedLine = (name: string) => `Saved. ${name} can run its code from its next job.`;
@@ -47,7 +47,7 @@ export const CATALOG_LABEL = 'Adapters';
 export const CATALOG_LOADING = 'Loading the catalog…';
 export const CATALOG_ERROR = "We couldn't load the catalog. Try again in a moment.";
 export const CATALOG_EMPTY = "No adapters yet. Owners can publish theirs from their pet's skill.";
-export const BROWSE_ONLY = "To connect one, open your pet's skill and tap “Connect data”.";
+export const BROWSE_ONLY = "To connect one, open your pet's skill and tap “Add data”.";
 export const NO_PET_LINE = "Every adapter here is free. To connect one, you'll need a pet of your own.";
 export const SIGNED_OUT_LINE = "Sign in to connect one to your pet's skill.";
 export const GET_OWN_PET = 'Get your own pet';

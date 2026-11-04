@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
-import { Banner, Button, Dock, Header, Heading, Live, Meadow, Note, Only, Page, Shell, Stack, Text, Toast } from '../../ds';
+import { Actions, Banner, Button, Dock, Header, Heading, Live, Meadow, Note, Only, Page, Shell, Stack, Text, Toast } from '../../ds';
 import { closedWords } from '../../signin/ClosedSheet';
 import { SignInOutcome } from '../../signin/SignInOutcome';
 import { useSignIn } from '../../signin/signIn';
@@ -41,6 +41,7 @@ export function HomeScreen() {
   const off = view.kind === 'loading' || view.kind === 'error';
   const entry = (block: boolean) => <Button href={off ? undefined : '/hatch'} disabled={off} block={block}>Hatch your pet</Button>;
   const returning = (block: boolean) => <Button block={block} onClick={() => begin('signin', { returning: true })}>Played here before? Sign in</Button>;
+  const actions = (block: boolean) => <Actions>{action?.(block)}<Button variant="secondary" href={off ? undefined : '/hire'} disabled={off} block={block}>Find a pet to ask</Button></Actions>;
   let action: ((block: boolean) => ReactNode) | null = entry;
   let words: ReactNode = null;
   let status: ReactNode = '';
@@ -78,13 +79,13 @@ export function HomeScreen() {
             <Heading level={1} variant="display" wide align="center" id={TITLE_ID} tabIndex={signedOut && shown ? -1 : undefined}>{HOOK}</Heading>
             <Text variant="lead" align="center">{LEAD}</Text>
             {words}
-            {action ? <Only on="desktop">{action(false)}</Only> : null}
+            <Only on="desktop">{actions(false)}</Only>
             {off ? null : <SignInOutcome />}
           </Stack>
         </Stack>
       </Page>
       <Page fill>
-        {action ? <Only on="phone"><Dock>{action(true)}</Dock></Only> : null}
+        <Only on="phone"><Dock>{actions(true)}</Dock></Only>
         <Meadow pets={MEADOW_PETS} motion />
       </Page>
       <Live>{status}</Live>

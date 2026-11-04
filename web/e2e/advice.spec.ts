@@ -64,12 +64,33 @@ test('совет открыт: the field, «Ask Biscuit · 0.38¢» and the line
   await expect(field(page)).toBeVisible();
   await expect(field(page)).toHaveValue('');
   await expect(ask(page)).toBeVisible();
+  // an empty field keeps the button inactive (`Advice flow` › blank question); a question makes it live
+  await expect(ask(page)).toHaveAttribute('aria-disabled', 'true');
+  await field(page).fill(QUESTION);
   await expect(ask(page)).not.toHaveAttribute('aria-disabled', 'true');
+  await field(page).fill('');
   await expect(visible(page, PAYS)).toHaveCount(1);
   await expect(page.getByText(SKILL_NOTE)).toHaveCount(0);
   await expect(page.getByRole('link', { name: 'Go to your Pixel' })).toHaveAttribute('href', '/pet/9');
   await expect(page.getByRole('button', { name: 'Feed Biscuit' }).filter({ visible: true })).toHaveCount(1);
   expect(await reads(page)).toBeGreaterThan(0);
+});
+
+test.describe('on a phone', () => {
+  test.use({ viewport: { width: 390, height: 844 } });
+
+  // spec: add-pet-work › Advice flow › совет открыт
+  test('совет открыт: the visitor\'s pet takes the hero height, rises over the header\'s room and leaves «Go to your Pixel» tappable', async ({ page }) => {
+    await open(page);
+    const pet = page.locator('.ds-stage--compact:not(.ds-stage--owner) .pet-figure--hero');
+    const proportion = await pet.evaluate((el) => el.getBoundingClientRect().height / innerHeight);
+    expect(proportion).toBeGreaterThan(0.3);
+    const reached = await page.getByRole('link', { name: 'Go to your Pixel' }).evaluate((link) => {
+      const r = link.getBoundingClientRect();
+      return link.contains(document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2));
+    });
+    expect(reached).toBe(true);
+  });
 });
 
 // spec: add-pet-work › Advice flow › advice from a pet with a skill
@@ -144,6 +165,7 @@ test('ответ: Biscuit\'s answer under its name with «Check this thought» a
   await expect(log(page).getByText(QUESTION)).toHaveCount(1);
   await expect(status(page, 'Biscuit is thinking…')).toHaveCount(0);
   await expect.poll(() => reads(page)).toBeGreaterThan(before);
+  await field(page).fill('And if it hides?');
   await expect(ask(page)).not.toHaveAttribute('aria-disabled', 'true');
 });
 
@@ -486,4 +508,21 @@ test('свой питомец устал × the tapped button: the job ends tire
   await expect(visible(page, `Your Pixel is tired for today. You can ask again at ${RESETS}.`).first()).toBeVisible();
   await expect(page.getByRole('button', { name: /^Ask Biscuit/ })).toHaveCount(0);
   await expect(field(page)).toBeFocused();
+});
+
+// spec: add-pet-work › Advice flow › blank question
+test('blank question: spaces only keep «Ask» inactive and Enter does nothing; no worker call, no spend, the text stays', async ({ page }) => {
+  await open(page);
+  await field(page).fill('   ');
+  await expect(ask(page)).toBeDisabled();
+  await field(page).press('Enter');
+  await ask(page).click({ force: true });
+  expect(await asks(page)).toEqual([]);
+  await expect(field(page)).toHaveValue('   ');
+  await field(page).fill('  Why?  ');
+  await expect(ask(page)).toBeEnabled();
+  await field(page).fill('   ');
+  await expect(ask(page)).toBeDisabled();
+  expect(await asks(page)).toEqual([]);
+  await expect(field(page)).toHaveValue('   ');
 });

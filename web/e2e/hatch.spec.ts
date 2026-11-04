@@ -266,12 +266,13 @@ test('closed for a player who already hatched: the closed line, not «already ha
 });
 
 // spec: add-pet › Hatch screen › no exit
-test('no exit: a signed-in player with no pet, not from a friend\'s pet — the closed line alone, no button; «Account» and the name stay', async ({ page }) => {
+test('no exit: a signed-in player with no pet and no friend link can find a pet to ask; «Account» and the name stay', async ({ page }) => {
   await openWith(page, '/hatch', { auth: SIGNED_IN, worker: { hatchStatus: { open: false, reason: 'daily', noPets: true } } });
   await nameField(page).fill('Pixel');
   await expect(page.getByText(/^That's all the new pets for today\. Hatching is back at \d\d:\d\d\. You can still feed and visit pets you know\.$/).first()).toBeVisible();
   await expect(page.getByRole('link', { name: 'Go home' })).toHaveCount(0);
   await expect(page.getByRole('link', { name: /^Back to/ })).toHaveCount(0);
+  await expect(page.getByRole('link', { name: 'Find a pet to ask' })).toHaveAttribute('href', '/hire');
   await expect(hatchButton(page)).toHaveCount(0);
   await expect(page.getByRole('button', { name: 'Account' })).toBeVisible();
   await expect(nameField(page)).toHaveValue('Pixel');

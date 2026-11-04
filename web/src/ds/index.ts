@@ -20,7 +20,7 @@ export { Fullness, litCells, type FullnessState } from './Fullness';
 export { Icon, type IconName } from './Icon';
 export { IconButton } from './IconButton';
 export { ItemGrid, ItemNote, ItemTile } from './ItemGrid';
-export { Actions, Center, Cluster, Divider, Dock, Header, Inert, Only, Page, Shell, Split, Stack, Surface, type Accent } from './layout';
+export { Actions, Center, Cluster, Divider, Dock, Grid, Header, Inert, Only, Page, Shell, Split, Stack, Surface, type Accent } from './layout';
 export { Live } from './Live';
 export { Menu, MenuItem } from './Menu';
 export { MotionToggle } from './MotionToggle';

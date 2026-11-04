@@ -37,6 +37,16 @@ test('success: the badge «Teach Pixel a skill» opens the sheet with both field
   await expect(labelField(page)).toHaveValue('');
   await expect(sheet(page).getByText('Anyone can see this — e.g. plot twists')).toBeVisible();
   await expect(sheet(page).getByText('Only you can read this.')).toBeVisible();
+  if ((page.viewportSize()?.width ?? 0) >= 768) {
+    const widths = await page.evaluate(() => {
+      const body = document.querySelector('.ds-sheet__body')!.getBoundingClientRect().width;
+      const label = document.querySelector<HTMLInputElement>('.ds-sheet__body input.ds-field__input')!.getBoundingClientRect().width;
+      const instruction = document.querySelector<HTMLTextAreaElement>('.ds-sheet__body textarea.ds-field__input')!.getBoundingClientRect().width;
+      return { body, label, instruction };
+    });
+    expect(widths.label).toBeGreaterThan(widths.body * 0.8);
+    expect(widths.instruction).toBeGreaterThan(widths.body * 0.8);
+  }
   await expect(save(page)).toBeDisabled();
   await labelField(page).fill(LABEL);
   await expect(save(page)).toBeDisabled();

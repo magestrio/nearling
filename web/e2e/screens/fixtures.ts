@@ -3,6 +3,7 @@ import type { FakeState, FakeWorkerState } from '../../src/seams/fakes';
 import type { AdviceRead, CatalogEntryView, ConversationLine, ErrandForm, ErrandReport, ErrandState, FeedSheetData, Fullness, HireMeta, OutfitSlug, SheetPortion, SourceView, ToolView } from '../../src/seams/worker-types';
 import { SAMPLE_DAY, sampleDiary } from '../../src/seams/diary.sample';
 import type { DiaryView } from '../../src/seams/worker-types';
+import type { HireBoard } from '../../src/seams/worker-types';
 import { CLOSED_ALL, CLOSED_NEW, lookAgain, setWorker, UA } from '../helpers';
 import { verificationFakes } from '../verification.fixtures';
 
@@ -239,10 +240,10 @@ const atRest = async (page: Page) => {
   await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
   await settle(page);
 };
-/** Skill sheet open, then «Connect data» tapped: the empty form */
+/** Skill sheet open, then «Add data» tapped: the empty form */
 const openConnect = async (page: Page) => {
   await openSkillSheet(page);
-  await dialog(page).getByRole('button', { name: 'Connect data' }).first().click();
+  await dialog(page).getByRole('button', { name: 'Add data' }).first().click();
   await page.getByRole('dialog', { name: "Connect data to Pixel's skill" }).waitFor();
   await atRest(page);
 };
@@ -776,7 +777,50 @@ const openGiftSheet = async (page: Page) => { await page.getByRole('button', { n
 const acceptedGiftSheet = async (page: Page) => { await giftDialog(page).waitFor(); await atRest(page); };
 const tapGiftGive = async (page: Page) => { await acceptedGiftSheet(page); await giftDialog(page).getByRole('button', { name: 'Give Pixel to Maya' }).click(); await atRest(page); };
 
+const BOARD_PRICE = { cents: 0.38, yocto: '380000000000000000000' };
+const BOARD_PETS: HireBoard['pets'] = [
+  { tokenId: '5', opaqueId: 'nori', name: 'Nori', label: 'copywriting', price: BOARD_PRICE, status: 'available', yours: false },
+  { tokenId: '2', opaqueId: 'biscuit', name: 'Biscuit', label: 'storytelling', price: BOARD_PRICE, status: 'available', yours: false },
+  { tokenId: '0', opaqueId: 'juno', name: 'Juno', label: 'puzzles', price: BOARD_PRICE, status: 'available', yours: false },
+  { tokenId: '1', opaqueId: 'mochi', name: 'Mochi', label: 'moon phases', price: BOARD_PRICE, status: 'available', yours: false },
+  { tokenId: '9', opaqueId: 'pixel', name: 'Pixel', label: 'plot twists', price: BOARD_PRICE, status: 'available', yours: true },
+];
+function hireBoardSample(kind: 'own' | 'three' | 'asleep' | 'resting' | 'paused' | undefined = undefined): HireBoard {
+  if (kind === 'asleep') return { pets: [{ ...BOARD_PETS[0]!, status: 'asleep' }], visits: [] };
+  if (kind === 'resting') return { pets: [{ ...BOARD_PETS[1]!, status: 'resting', until: MIDNIGHT_UTC }], visits: [] };
+  if (kind === 'paused') return { pets: BOARD_PETS.slice(0, 3).map((pet) => ({ ...pet, status: 'paused' })), visits: [] };
+  return { pets: BOARD_PETS.slice(0, kind === 'own' ? 5 : kind === 'three' ? 3 : 4), visits: [] };
+}
+
 export const fixtures: Record<string, ScreenFixture> = {
+  // Hire board samples from design/bundle/screens/hire.js and design/BRIEF.md §1.
+  // spec: add-pet-work › Hire board screen › empty
+  'hire-empty': { route: '/hire', fakes: { auth: SIGNED_IN, worker: { hireBoard: { pets: [], visits: [
+    { tokenId: '0', name: 'Juniper', stage: 'adult', fullness: 'full', worn: null },
+    { tokenId: '7', name: 'Lumen', stage: 'teen', fullness: 'asleep', worn: null },
+    { tokenId: '12', name: 'Tofu', stage: 'adult', fullness: 'full', worn: null },
+  ] } } }, belowFold: ['Go home'] },
+  // spec: add-pet-work › Hire board screen › empty, nothing to visit
+  'hire-empty-nothing': { route: '/hire', fakes: { auth: SIGNED_IN, worker: { hireBoard: { pets: [], visits: [] } } } },
+  // spec: add-pet-work › Hire board screen › loading
+  'hire-loading': { route: '/hire', fakes: { auth: SIGNED_IN, worker: { hireBoardDelayMs: FOREVER } } },
+  // spec: add-pet-work › Hire board screen › error
+  'hire-error': { route: '/hire', fakes: { auth: SIGNED_IN, worker: { hireBoard: { fail: { status: 503, code: 'chain_unreachable' } } } } },
+  // spec: add-pet-work › Hire board screen › success
+  'hire-success': { route: '/hire', fakes: { auth: SIGNED_IN, worker: { hireBoard: hireBoardSample() } } },
+  // spec: add-pet-work › Hire board screen › own pet listed
+  'hire-own-pet-listed': { route: '/hire', fakes: { auth: SIGNED_IN, worker: { hireBoard: hireBoardSample('own') } }, belowFold: ['Yours'] },
+  // spec: add-pet-work › Hire board screen › no label matches
+  'hire-no-label-matches': { route: '/hire', fakes: { auth: SIGNED_IN, worker: { hireBoard: hireBoardSample() } },
+    prepare: async (page) => { await page.getByRole('textbox', { name: 'Search skills' }).fill('gardening'); await page.getByRole('textbox', { name: 'Search skills' }).blur(); } },
+  // spec: add-pet-work › Hire board screen › signed-out
+  'hire-signed-out': { route: '/hire', fakes: { worker: { hireBoard: hireBoardSample('three') } } },
+  // spec: add-pet-work › Hire board screen › asleep
+  'hire-asleep': { route: '/hire', fakes: { auth: SIGNED_IN, worker: { hireBoard: hireBoardSample('asleep') } } },
+  // spec: add-pet-work › Hire board screen › unavailable today
+  'hire-unavailable-today': { route: '/hire', fakes: { auth: SIGNED_IN, worker: { hireBoard: hireBoardSample('resting') } } },
+  // spec: add-pet-work › Hire board screen › service paused
+  'hire-service-paused': { route: '/hire', fakes: { auth: SIGNED_IN, worker: { hireBoard: hireBoardSample('paused') } } },
   // spec: add-pet › Hatch screen › success
   // spec: add-pet › Hatch screen › уведомление о публичности
   // spec: add-pet › Hatch screen › уведомление об AI-провайдере
@@ -2116,6 +2160,7 @@ export const fixtures: Record<string, ScreenFixture> = {
       await page.getByText('Pixel asked Nori · 0.38¢').waitFor();
       await atNewest(page);
     },
+    belowFold: ['To {worker}: {question}'],
   },
 
   // spec: add-pet-work › Pet hire flow › предложение в Manual
@@ -2127,6 +2172,7 @@ export const fixtures: Record<string, ScreenFixture> = {
       await atNewest(page);
       await page.mouse.move(0, 0);
     },
+    belowFold: ['Ask me first'],
   },
 
   // spec: add-pet-work › Pet hire flow › отказ в Manual
@@ -2147,6 +2193,7 @@ export const fixtures: Record<string, ScreenFixture> = {
       await atNewest(page);
       await page.mouse.move(0, 0);
     },
+    belowFold: ['To {worker}: {question}'],
   },
 
   // the tap on «Ask Nori» ended with no answer: the lost thought's line where the answer would be, no «Try again» — the card's own
@@ -2203,6 +2250,7 @@ export const fixtures: Record<string, ScreenFixture> = {
       await atNewest(page);
       await page.mouse.move(0, 0);
     },
+    belowFold: ['To {worker}: {question}'],
   },
 
   // spec: add-pet-work › Pet hire flow › найм не записан в сети
@@ -2213,6 +2261,7 @@ export const fixtures: Record<string, ScreenFixture> = {
       await page.getByText('Pixel asked Nori · no fee').waitFor();
       await atNewest(page);
     },
+    belowFold: ['To {worker}: {question}'],
   },
 
   // The guest's advice frames (design/bundle/screens/work.js): Pixel's player on Biscuit's page, the column where the owner's
@@ -2264,6 +2313,7 @@ export const fixtures: Record<string, ScreenFixture> = {
       await page.getByText(ADVICE_ANSWER).waitFor();
       await atNewest(page);
     },
+    hiddenCopy: ['You'],
   },
 
   // the answer came back empty past the third today: the line where it would be, the question back in the field
@@ -2498,6 +2548,7 @@ export const fixtures: Record<string, ScreenFixture> = {
     route: '/pet/9',
     fakes: { auth: SIGNED_IN, worker: { ...owner(), skill: { skill: null } } },
     prepare: openSkillSheet,
+    belowFold: ['Save skill'],
   },
 
   // spec: add-pet-work › Skill sheet screen › skill already written
@@ -2506,6 +2557,7 @@ export const fixtures: Record<string, ScreenFixture> = {
     // one source connected, as the frame draws it (add-pet-errands › Adapter connect flow sockets)
     fakes: { auth: SIGNED_IN, worker: sourcesWorker([dataSource('Daybook')]) },
     prepare: openSkillSheet,
+    belowFold: ['Save skill', 'Forget this skill'],
   },
 
   // spec: add-pet-work › Skill sheet screen › error
@@ -2572,7 +2624,7 @@ export const fixtures: Record<string, ScreenFixture> = {
   // spec: add-pet-work › Skill writing flow › save failed
   'skill-save-failed': {
     route: '/pet/9',
-    fakes: { auth: SIGNED_IN, worker: { ...skillWorker(SKILL_LABEL), saveSkill: { fail: { status: 0, code: 'unreachable' } } } },
+    fakes: { auth: SIGNED_IN, worker: sourcesWorker([dataSource('Daybook')], { saveSkill: { fail: { status: 0, code: 'unreachable' } } }) },
     prepare: async (page) => {
       await openSkillSheet(page);
       await page.getByLabel('How should Pixel do it?').fill(`${SKILL_INSTRUCTION} End on a question.`);
@@ -2855,7 +2907,7 @@ export const fixtures: Record<string, ScreenFixture> = {
     },
   },
 
-  // the Adapter sheet from «Connect data»: the empty form, a step of Skill sheet
+  // the Adapter sheet from «Add data»: the empty form, a step of Skill sheet
   // spec: add-pet-errands › Adapter sheet screen › success
   'adapter-sheet': { route: '/pet/9', fakes: { auth: SIGNED_IN, worker: sourcesWorker([]) }, prepare: openConnect },
 

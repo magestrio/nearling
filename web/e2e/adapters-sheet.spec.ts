@@ -41,7 +41,7 @@ const open = async (page: Page, sources: SourceView[] = [], extra: Record<string
   await expect(skillSheet(page)).toBeVisible();
 };
 const connectNew = async (page: Page) => {
-  await socket(page, 'Connect data').first().click();
+  await socket(page, 'Add data').first().click();
   await expect(connectSheet(page)).toBeVisible();
 };
 const typeSource = async (page: Page, label = 'Daybook', address = ADDRESS) => {
@@ -50,7 +50,7 @@ const typeSource = async (page: Page, label = 'Daybook', address = ADDRESS) => {
 };
 
 // spec: add-pet-errands › Adapter sheet screen › success
-test('success: «Connect data» opens the sheet with «Name it», «Address», their hints, «Check address» and «Browse the catalog»; «Back» returns to Skill sheet with its fields', async ({ page }) => {
+test('success: «Add data» opens the sheet with «Name it», «Address», their hints, «Check address» and «Browse the catalog»; «Back» returns to Skill sheet with its fields', async ({ page }) => {
   await open(page);
   await skillSheet(page).getByLabel('What is Pixel good at?').fill('plot twists');
   await connectNew(page);
@@ -166,7 +166,7 @@ test('saved: Skill sheet again with the source under its name in its socket and 
   await expect(skillSheet(page)).toBeVisible();
   await expect(drawn(page, 'Connected. Pixel can use Daybook from its next job.')).toBeVisible();
   await expect(socket(page, 'Daybook')).toBeVisible();
-  await expect(socket(page, 'Connect data')).toHaveCount(2);
+  await expect(socket(page, 'Add data')).toHaveCount(2);
   expect(await calls(page)).toContain('worker:saveSource:Daybook');
   // the focus lands on Skill sheet's outcome line at its top (DS › Sheet › Focus)
   await expect(skillSheet(page).locator('.ds-note[tabindex="-1"]')).toBeFocused();
@@ -179,7 +179,7 @@ test('success × Back and Close: «Back» returns the focus to the socket that o
   await connectNew(page);
   await connectSheet(page).getByRole('button', { name: 'Back' }).click();
   await expect(skillSheet(page)).toBeVisible();
-  await expect(socket(page, 'Connect data').first()).toBeFocused();
+  await expect(socket(page, 'Add data').first()).toBeFocused();
   await connectNew(page);
   await page.keyboard.press('Escape');
   await expect(sheet(page)).toHaveCount(0);
@@ -214,7 +214,7 @@ test('saved × Skill sheet sockets: the source is a socket that opens it; remove
   await connectedSheet(page).getByRole('button', { name: 'Remove' }).click();
   await expect(skillSheet(page)).toBeVisible();
   await expect(drawn(page, 'Daybook removed. Pixel stops using it from its next job.')).toBeVisible();
-  await expect(socket(page, 'Connect data')).toHaveCount(3);
+  await expect(socket(page, 'Add data')).toHaveCount(3);
   await expect(socket(page, 'Daybook')).toHaveCount(0);
 });
 
@@ -281,7 +281,7 @@ test('removed: «Remove» takes the source off the skill: «Daybook removed. Pix
   await socket(page, 'Daybook').click();
   await connectedSheet(page).getByRole('button', { name: 'Remove' }).click();
   await expect(drawn(page, 'Daybook removed. Pixel stops using it from its next job.')).toBeVisible();
-  await expect(socket(page, 'Connect data')).toHaveCount(3);
+  await expect(socket(page, 'Add data')).toHaveCount(3);
   expect(await calls(page)).toContain('worker:removeSource');
   await expect(skillSheet(page).locator('.ds-note[tabindex="-1"]')).toBeFocused();
 });
@@ -289,7 +289,7 @@ test('removed: «Remove» takes the source off the skill: «Daybook removed. Pix
 // spec: add-pet-errands › Adapter connect flow › a fourth source
 test('a fourth source: three sources fill the data sockets and the line says a skill holds up to 3', async ({ page }) => {
   await open(page, [source({ id: 's1' }), source({ id: 's2', label: 'Open-Meteo' }), source({ id: 's3', label: 'Moon phases' })]);
-  await expect(socket(page, 'Connect data')).toHaveCount(0);
+  await expect(socket(page, 'Add data')).toHaveCount(0);
   await expect(drawn(page, 'A skill holds up to 3 data sources. Remove one to add another.')).toBeVisible();
   await expect(socket(page, 'Moon phases')).toBeVisible();
 });
@@ -304,13 +304,13 @@ test('left the catalog: a copy whose entry is gone says so under its socket', as
 });
 
 // spec: add-pet-errands › Adapter connect flow › no skill yet
-test('no skill yet: «Connect data» and «Add code» are inactive, with «Save the skill first, then connect data to it.»', async ({ page }) => {
+test('no skill yet: «Add data» and «Add code» are inactive, with «Save the skill first, then add data to it.»', async ({ page }) => {
   await openWith(page, '/pet/9', { auth: SIGNED_IN, worker: { ...OWNER, pets: { '9': { ...PIXEL, skill: null, owner: {} }, '2': BISCUIT }, skill: { skill: null } } });
   await page.getByRole('button', { name: 'Teach Pixel a skill' }).click();
   const dialog = sheet(page);
-  await expect(drawn(page, 'Save the skill first, then connect data to it.')).toBeVisible();
-  await expect(dialog.getByRole('button', { name: 'Connect data' })).toHaveCount(3);
-  for (const s of await dialog.getByRole('button', { name: 'Connect data' }).all()) await expect(s).toBeDisabled();
+  await expect(drawn(page, 'Save the skill first, then add data to it.')).toBeVisible();
+  await expect(dialog.getByRole('button', { name: 'Add data' })).toHaveCount(3);
+  for (const s of await dialog.getByRole('button', { name: 'Add data' }).all()) await expect(s).toBeDisabled();
   await expect(dialog.getByRole('button', { name: 'Add code' })).toBeDisabled();
 });
 
@@ -399,7 +399,7 @@ test('no skill yet × the skill forgotten in another tab: the refused save retur
   await setWorker(page, { saveSource: { fail: { status: 409, code: 'no_skill' } }, skill: { skill: null, sources: [] } });
   await saveAdapter(page).click();
   await expect(connectSheet(page)).toHaveCount(0);
-  await expect(drawn(page, 'Save the skill first, then connect data to it.')).toBeVisible();
+  await expect(drawn(page, 'Save the skill first, then add data to it.')).toBeVisible();
 });
 
 // spec: add-pet-errands › Adapter connect flow › a fourth source

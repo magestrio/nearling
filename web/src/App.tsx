@@ -11,6 +11,7 @@ import { HatchScreen } from './screens/hatch/HatchScreen';
 import { HomeScreen } from './screens/home/HomeScreen';
 import { PetNotFound, PetScreen } from './screens/pet/PetScreen';
 import { GiftPage } from './gift/GiftPage';
+import { HireBoardPage } from './work/HireBoardPage';
 import { VerificationPage } from './verification/VerificationPage';
 import { ReturnToPlace } from './signin/ReturnToPlace';
 import { SignInLayer } from './signin/signIn';
@@ -67,6 +68,7 @@ export function App() {
         {unreachable ? <ConnectionPage tryAgain={auth.retrySession} /> : null}
         {/* Home draws its own `Connection rule` page (`home-error`), whatever the exchange answered */}
         {route.name === 'home' ? <HomeScreen /> : null}
+        {!unreachable && route.name === 'hire' ? <HireBoardPage /> : null}
         {!unreachable && route.name === 'hatch' ? <HatchScreen from={route.from} /> : null}
         {!unreachable && route.name === 'gift' ? <GiftPage key={route.code} code={route.code} /> : null}
         {!unreachable && route.name === 'verify' ? <VerificationPage key={route.tokenId} tokenId={route.tokenId} thoughtId={route.thoughtId} /> : null}

@@ -1,4 +1,4 @@
-import { useEffect, useId } from 'react';
+import { useEffect, useId, useRef } from 'react';
 import { Button, Cluster, Divider, Note, Sheet, SkillBadge, Socket, Sockets, Stack, Text, TextField } from '../ds';
 import { codeSocket, FOURTH_SOURCE, goneNote, NO_SKILL_YET, SOCKET_CODE, SOCKET_DATA } from '../adapters/lines';
 import type { SourceView } from '../seams/worker-types';
@@ -27,7 +27,7 @@ import type { useSkill } from './useSkill';
 // «Forget this skill» (quiet, left) and «Save skill» (right).
 
 export interface SkillSockets {
-  /** the Adapter sheet of a new source («Connect data») */
+  /** the Adapter sheet of a new source («Add data») */
   onConnect: () => void;
   /** the Adapter sheet of a connected source */
   onSource: (source: SourceView) => void;
@@ -61,6 +61,11 @@ export function SkillSheet({
     // a new line, not the sheet coming back from a step's «Back» with the old one
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [top]);
+  // «Save skill» and «Forget this skill» sit at the body's end, their outcome line at its top: on a phone it would stay out of sight
+  const outcomeRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (top !== null && !hidden) outcomeRef.current?.scrollIntoView?.({ block: 'nearest' });
+  }, [top, hidden]);
   if (phase === 'closed' || phase === 'loading') return null;
 
   if (phase === 'error') {
@@ -162,7 +167,7 @@ export function SkillSheet({
   const sheet = (
     <Sheet title={title} column status={status} busy={busy} onClose={onClose}>
       <Stack gap={5}>
-        {outcome?.node ?? null}
+        {outcome ? <div ref={outcomeRef}>{outcome.node}</div> : null}
         <Stack gap={4}>
           {badge ? <div>{badge}</div> : null}
           <Sockets note={socketNote}>

@@ -49,7 +49,7 @@ const ownerWorker = (sources: SourceView[] = [], extra: Record<string, unknown> 
 const connectButtons = (page: Page) => page.getByRole('button', { name: /^Connect to Pixel's skill/ });
 const connectSheet = (page: Page) => page.getByRole('dialog', { name: "Connect data to Pixel's skill" });
 const skillSheet = (page: Page) => page.getByRole('dialog', { name: "Pixel's skill" });
-const BROWSE_LINE = "To connect one, open your pet's skill and tap “Connect data”.";
+const BROWSE_LINE = "To connect one, open your pet's skill and tap “Add data”.";
 const SESSION_LINE = "You've been signed out. Sign in to pick up where you left off.";
 
 // spec: add-pet-errands › Adapter catalog screen › error
@@ -225,7 +225,7 @@ test('signed-out × sign-in: a player with a pet of their own, by the address, r
 test('success × Browse the catalog: the link opens `/adapters?pet=9`; «Back to Pixel» returns to Skill sheet and the typed fields are gone', async ({ page }) => {
   await openWith(page, '/pet/9', { auth: SIGNED_IN, worker: ownerWorker() });
   await page.getByRole('button', { name: `Pixel's skill: Good at ${LABEL}` }).click();
-  await skillSheet(page).getByRole('button', { name: 'Connect data' }).first().click();
+  await skillSheet(page).getByRole('button', { name: 'Add data' }).first().click();
   await connectSheet(page).getByLabel('Name it').fill('Typed name');
   await connectSheet(page).getByRole('link', { name: 'Browse the catalog' }).click();
   await expect(page).toHaveURL(/\/adapters\?pet=9$/);
@@ -234,7 +234,7 @@ test('success × Browse the catalog: the link opens `/adapters?pet=9`; «Back to
   await expect(page).toHaveURL(/\/pet\/9$/);
   await expect(skillSheet(page)).toBeVisible();
   await expect(connectSheet(page)).toHaveCount(0);
-  await skillSheet(page).getByRole('button', { name: 'Connect data' }).first().click();
+  await skillSheet(page).getByRole('button', { name: 'Add data' }).first().click();
   await expect(connectSheet(page).getByLabel('Name it')).toHaveValue('');
 });
 

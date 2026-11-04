@@ -192,7 +192,7 @@ function Column({ tokenId, name, asleep, advice }: SlotProps & { advice: NonNull
       type="submit"
       price={price}
       busy={a.busy}
-      off={blocker !== null || read === null}
+      off={blocker !== null || read === null || a.draft.trim() === ''}
       onClick={() => void a.ask(a.draft)}
     >
       {adviceButton(name)}

@@ -10,6 +10,16 @@
 .pet-figure--md { width: min(var(--size-pet-md), 100%); height: var(--size-pet-md); }
 .pet-figure--sm { width: var(--size-pet-sm); height: var(--size-pet-sm); }
 .ds-stage--compact .pet-figure--hero { height: var(--size-pet-compact-max-height); }
+/* The visitor's phone: the frames draw the pet as large as the hero cap (the still is cropped to its silhouette); the live
+   pet is framed with a margin, so its box takes the hero cap, while the room it takes in the stage stays the compact cap: the
+   box rises over the empty room above it and the plate and the column lay out as in the frames. */
+@media not all and (min-width: 768px) {
+  .ds-stage--compact:not(.ds-stage--owner) .pet-figure--hero {
+    height: var(--size-pet-hero-max-height);
+    margin-block-start: calc(var(--size-pet-compact-max-height) - var(--size-pet-hero-max-height));
+    pointer-events: none;
+  }
+}
 /* the owner's phone (the stage with `owner`, awake or asleep): the pet a little smaller, as the DS's still (components.css › the same rule) */
 @media not all and (min-width: 768px) {
   .ds-stage--compact.ds-stage--owner .pet-figure--hero { height: var(--size-pet-compact-owner-max-height); }

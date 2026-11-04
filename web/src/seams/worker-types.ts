@@ -10,6 +10,13 @@ export interface Health {
   env: string;
 }
 
+/** Public Hire board snapshot. Search words never leave the browser. */
+export interface HireBoard {
+  pets: Array<{ tokenId: string; opaqueId: string; name: string; label: string; price: Price;
+    status: 'available' | 'asleep' | 'resting' | 'paused'; until?: string; yours: boolean }>;
+  visits: Array<{ tokenId: string; name: string; stage: Stage; fullness: Fullness['state']; worn: OutfitSlug | null }>;
+}
+
 /** Public record pointers; each transaction is read by the browser from NEAR. */
 export interface VerificationIndex {
   tokenId: string;
@@ -598,6 +605,7 @@ export interface ErrandQuote {
 
 export interface WorkerApi {
   health(): Promise<Health>;
+  hireBoard(token: Token): Promise<HireBoard>;
   me(token: Token): Promise<Me>;
   myPets(token: Token): Promise<MyPets>;
   publicGift(token: Token, code: string): Promise<PublicGift>;

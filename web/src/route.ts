@@ -41,6 +41,7 @@ export function go(path: string): void {
 
 export type Route =
   | { name: 'home' }
+  | { name: 'hire' }
   | { name: 'hatch'; from: string | null }
   | { name: 'pet'; tokenId: string; from: string | null }
   | { name: 'gift'; code: string }
@@ -67,6 +68,7 @@ export function parseRoute(location: string): Route {
   const friend = from !== null && TOKEN_ID.test(from) ? from : null;
   const path = url.pathname.replace(/\/+$/, '') || '/';
   if (path === '/') return { name: 'home' };
+  if (path === '/hire') return { name: 'hire' };
   if (path === '/hatch') return { name: 'hatch', from: friend };
   const gift = /^\/gift\/([0-9a-f]{48})$/.exec(path);
   if (gift) return { name: 'gift', code: gift[1]! };

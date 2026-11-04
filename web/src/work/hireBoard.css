@@ -1,0 +1,4 @@
+/* The board's asleep card uses the DS Pet asleep light, as the Meadow does. */
+.hire-board-picture--asleep .ds-pet {
+  filter: brightness(var(--brightness-asleep)) saturate(var(--saturate-asleep));
+}

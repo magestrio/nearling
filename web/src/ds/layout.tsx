@@ -97,6 +97,11 @@ export function Surface({ as: Tag = 'div', tone, children }: { as?: ElementType;
   return <Tag className={cx('ds-surface', tone === 'raised-2' && 'ds-surface--raised-2')}>{children}</Tag>;
 }
 
+/** DS 0.44 Grid: equal cards in a list, matching design/ds/components.js. Cards are list items. */
+export function Grid({ children }: { children?: ReactNode }) {
+  return <ul className="ds-grid">{children}</ul>;
+}
+
 export function Center({ children }: { children?: ReactNode }) {
   return <div className="ds-center">{children}</div>;
 }

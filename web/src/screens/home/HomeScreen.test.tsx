@@ -37,7 +37,7 @@ it('puts sign-in in the header and the hatch action above the meadow on desktop 
 });
 
 // spec: add-account › Home screen › signed-out (вход закрыт)
-it('keeps the meadow while the sign-in closes, with the returning action only for former players', async () => {
+it('keeps the meadow and hire entry while sign-in closes, with the returning action only for former players', async () => {
   mocks.view = { kind: 'closed', all: false, until: '2026-12-01T00:00:00.000Z' };
   await show();
   expect(host.querySelector('.ds-header__end button')).toBeNull();
@@ -47,7 +47,9 @@ it('keeps the meadow while the sign-in closes, with the returning action only fo
   mocks.view = { kind: 'closed', all: true, until: '2026-12-01T00:00:00.000Z' };
   await show();
   expect(host.textContent).toContain('Sign-in is closed for everyone until December 1.');
-  expect(host.querySelector('.ds-dock')).toBeNull();
+  expect(host.querySelector('.ds-dock button')).toBeNull();
+  expect(host.querySelector('.ds-dock a')?.getAttribute('href')).toBe('/hire');
+  expect(host.querySelector('.ds-dock a')?.textContent).toBe('Find a pet to ask');
 });
 
 // spec: add-account › Home screen › loading

@@ -17,6 +17,7 @@ import type {
   PublicGift,
   HatchStatus,
   Health,
+  HireBoard,
   HireMode,
   Me,
   MyPets,
@@ -101,6 +102,7 @@ const id = (tokenId: string) => encodeURIComponent(tokenId);
 
 const real: WorkerApi = {
   health: () => call<Health>('/health', null),
+  hireBoard: (token) => call<HireBoard>('/api/hire', token),
   me: (token) => call<Me>('/api/me', token),
   myPets: (token) => call<MyPets>('/api/me/pets', token),
   publicGift: (token, code) => call<PublicGift>(`/api/gifts/${encodeURIComponent(code)}`, token),

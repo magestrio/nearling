@@ -19,6 +19,7 @@ import {
   type FeedSheetData,
   type GiftLink,
   type GiftOutcome,
+  type HireBoard,
   type PublicGift,
   type PetView,
   type VerificationIndex,
@@ -185,6 +186,10 @@ function confirmGift(tokenId: string) {
 export const fakeWorkerApi: WorkerApi = {
   async health() {
     return { ok: true, version: state().version ?? 'fake-version', env: 'e2e' };
+  },
+  hireBoard: async (token) => {
+    needSession(token);
+    return answer<HireBoard>('hireBoard', state().hireBoard, { pets: [], visits: [] }, state().hireBoardDelayMs);
   },
 
   me: async (token) => {

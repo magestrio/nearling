@@ -15,6 +15,7 @@ import type {
   GiftOutcome,
   PublicGift,
   HatchStatus,
+  HireBoard,
   HireMode,
   Me,
   MyPets,
@@ -39,6 +40,8 @@ export interface FakeFail {
 }
 
 export interface FakeWorkerState {
+  hireBoard?: HireBoard | FakeFail;
+  hireBoardDelayMs?: number;
   publicGift?: PublicGift | FakeFail;
   publicGiftDelayMs?: number;
   acceptGift?: { status: 'accepted'; tokenId: string } | FakeFail;
