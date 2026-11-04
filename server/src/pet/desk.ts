@@ -5,6 +5,7 @@
 // (after an eviction) never takes a job twice.
 import { DurableObject } from 'cloudflare:workers';
 import { utcDay } from '../http';
+import { petView } from '../chain';
 import { runErrand, type ErrandJob } from '../errands/run';
 import { run, type JobResult } from '../spend';
 import type { ThoughtJob } from '../prompt';
@@ -29,6 +30,8 @@ interface Row {
 /** A claimed job with the pet's memory epoch as it stood in the very statement that claimed it. */
 interface Claimed extends Row {
   epoch: number;
+  owner_account: string | null;
+  created_at: number;
 }
 
 /** What a desk runs: a thought of the pet, the advice it pays a friend's pet for (`work/advice.ts`), or the owner's
@@ -65,7 +68,7 @@ export function jobOf(row: Row): DeskJob {
 }
 
 /** Queues a job of a pet; returns its id. The caller then asks the desk to run it. */
-export async function enqueueJob(db: D1Database, tokenId: string, job: DeskJob): Promise<string> {
+export async function enqueueJob(db: D1Database, tokenId: string, job: DeskJob, ownerAccount?: string): Promise<string> {
   const id = crypto.randomUUID().replaceAll('-', '');
   const payload =
     job.kind === 'reply'
@@ -82,8 +85,8 @@ export async function enqueueJob(db: D1Database, tokenId: string, job: DeskJob):
                 ? { line: true }
                 : {};
   await db
-    .prepare("INSERT INTO jobs (id, token_id, kind, mode, payload, status, created_at) VALUES (?, ?, ?, ?, ?, 'queued', ?)")
-    .bind(id, tokenId, job.kind, job.kind === 'reply' ? job.mode : null, JSON.stringify(payload), Date.now())
+    .prepare("INSERT INTO jobs (id, token_id, kind, mode, payload, status, created_at, owner_account) VALUES (?, ?, ?, ?, ?, 'queued', ?, ?)")
+    .bind(id, tokenId, job.kind, job.kind === 'reply' ? job.mode : null, JSON.stringify(payload), Date.now(), ownerAccount ?? null)
     .run();
   return id;
 }
@@ -92,13 +95,13 @@ export async function enqueueJob(db: D1Database, tokenId: string, job: DeskJob):
  * the day's question was answered, or an answer is queued or running (`Daily ritual flow` › «отвечает на
  * вопрос дня»: a stale tab, two sends at once). One statement, so two sends at once cannot both pass. A
  * thought that did not come leaves neither mark, so «Try again» goes through. */
-export async function enqueueQuestion(db: D1Database, tokenId: string, text: string, day: number): Promise<string | null> {
+export async function enqueueQuestion(db: D1Database, tokenId: string, text: string, day: number, ownerAccount?: string): Promise<string | null> {
   const id = crypto.randomUUID().replaceAll('-', '');
   const row = await db
     .prepare(
-      "INSERT INTO jobs (id, token_id, kind, mode, payload, status, created_at) SELECT ?1, ?2, 'reply', 'chat', ?3, 'queued', ?4 WHERE NOT EXISTS (SELECT 1 FROM ritual_days WHERE token_id = ?2 AND day = ?5 AND question_at IS NOT NULL) AND NOT EXISTS (SELECT 1 FROM jobs WHERE token_id = ?2 AND kind = 'reply' AND status IN ('queued', 'running') AND json_extract(payload, '$.question') = ?5) RETURNING id",
+      "INSERT INTO jobs (id, token_id, kind, mode, payload, status, created_at, owner_account) SELECT ?1, ?2, 'reply', 'chat', ?3, 'queued', ?4, ?6 WHERE NOT EXISTS (SELECT 1 FROM ritual_days WHERE token_id = ?2 AND day = ?5 AND question_at IS NOT NULL) AND NOT EXISTS (SELECT 1 FROM jobs WHERE token_id = ?2 AND kind = 'reply' AND status IN ('queued', 'running') AND json_extract(payload, '$.question') = ?5) RETURNING id",
     )
-    .bind(id, tokenId, JSON.stringify({ text, question: day }), Date.now(), day)
+    .bind(id, tokenId, JSON.stringify({ text, question: day }), Date.now(), day, ownerAccount ?? null)
     .first<{ id: string }>();
   return row?.id ?? null;
 }
@@ -106,13 +109,13 @@ export async function enqueueQuestion(db: D1Database, tokenId: string, text: str
 /** Queues the advice of a paying pet, or returns null when one of its advice is already queued or running
  * (`Advice flow` › «вопрос отправлен»: no second question until the answer). One statement, so two sends at once
  * cannot both pass. */
-export async function enqueueAdvice(db: D1Database, tokenId: string, job: AdviceJob): Promise<string | null> {
+export async function enqueueAdvice(db: D1Database, tokenId: string, job: AdviceJob, ownerAccount?: string): Promise<string | null> {
   const id = crypto.randomUUID().replaceAll('-', '');
   const row = await db
     .prepare(
-      "INSERT INTO jobs (id, token_id, kind, mode, payload, status, created_at) SELECT ?1, ?2, 'advice', NULL, ?3, 'queued', ?4 WHERE NOT EXISTS (SELECT 1 FROM jobs WHERE token_id = ?2 AND kind = 'advice' AND status IN ('queued', 'running')) RETURNING id",
+      "INSERT INTO jobs (id, token_id, kind, mode, payload, status, created_at, owner_account) SELECT ?1, ?2, 'advice', NULL, ?3, 'queued', ?4, ?5 WHERE NOT EXISTS (SELECT 1 FROM jobs WHERE token_id = ?2 AND kind = 'advice' AND status IN ('queued', 'running')) RETURNING id",
     )
-    .bind(id, tokenId, JSON.stringify({ worker: job.worker, text: job.text, shown: job.shown }), Date.now())
+    .bind(id, tokenId, JSON.stringify({ worker: job.worker, text: job.text, shown: job.shown }), Date.now(), ownerAccount ?? null)
     .first<{ id: string }>();
   return row?.id ?? null;
 }
@@ -169,7 +172,7 @@ export class PetDesk extends DurableObject<Env> {
       // The epoch comes with the claim, in one statement: a clear that lands before it fails this job
       // (`forgetStatements`), one that lands after it differs from `epoch`, and `think` erases the words.
       const row = await this.env.DB.prepare(
-        "UPDATE jobs SET status = 'running' WHERE id = (SELECT id FROM jobs WHERE token_id = ?1 AND status = 'queued' ORDER BY created_at, rowid LIMIT 1) AND status = 'queued' RETURNING id, kind, mode, payload, COALESCE((SELECT memory_epoch FROM pets WHERE token_id = ?1), 0) AS epoch",
+        "UPDATE jobs SET status = 'running' WHERE id = (SELECT id FROM jobs WHERE token_id = ?1 AND status = 'queued' ORDER BY created_at, rowid LIMIT 1) AND status = 'queued' RETURNING id, kind, mode, payload, owner_account, created_at, COALESCE((SELECT memory_epoch FROM pets WHERE token_id = ?1), 0) AS epoch",
       )
         .bind(tokenId)
         .first<Claimed>();
@@ -183,6 +186,21 @@ export class PetDesk extends DurableObject<Env> {
       let status = 'done';
       try {
         const job = jobOf(row);
+        const gift = await this.env.DB.prepare('SELECT last_gift_block_at FROM pets WHERE token_id = ?')
+          .bind(tokenId).first<{ last_gift_block_at: number | null }>();
+        const staleLegacy = row.owner_account === null && job.kind !== 'errand' &&
+          gift?.last_gift_block_at != null && row.created_at < gift.last_gift_block_at;
+        // A former owner's queued line cannot spend the receiver's food or reach NEAR AI. A
+        // running ordinary errand is handled by its own owner-stamped row and may finish.
+        if (staleLegacy || (row.owner_account !== null && job.kind !== 'errand')) {
+          const pet = await petView(this.env, tokenId);
+          if (staleLegacy || pet?.owner_id !== row.owner_account) {
+            result = { code: 'no_pet' };
+            await this.env.DB.prepare('UPDATE jobs SET status = ?, result = ?, payload = NULL WHERE id = ?')
+              .bind('failed', JSON.stringify(result), row.id).run();
+            continue;
+          }
+        }
         switch (job.kind) {
           case 'advice':
             result = await runAdvice(this.env, tokenId, job, row.epoch);
@@ -200,12 +218,15 @@ export class PetDesk extends DurableObject<Env> {
             result = await runErrand(this.env, tokenId, row.epoch);
             break;
           default:
-            result = await run(this.env, tokenId, job, row.epoch, { jobId: row.id });
+            result = await run(this.env, tokenId, job, row.epoch, { jobId: row.id, ownerAccount: row.owner_account ?? undefined });
         }
       } catch {
         console.log('job_failed');
         result = { code: 'ai_unavailable' };
         status = 'failed';
+      }
+      if ('thoughtId' in result && row.owner_account !== null) {
+        await this.env.DB.prepare('UPDATE thoughts SET origin_owner = ?, origin_sent_at = ? WHERE id = ?').bind(row.owner_account, row.created_at, result.thoughtId).run();
       }
       // A diary that was written, or that the pet could not write today (asleep, tired), is done for the day.
       if (row.kind === 'diary' && ('thoughtId' in result || result.code === 'asleep' || result.code === 'tired' || result.code === 'no_pet')) {

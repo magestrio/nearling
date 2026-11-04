@@ -11,9 +11,13 @@ import type {
   ErrandQuote,
   FeedOutcome,
   FeedSheetData,
+  GiftLink,
+  GiftOutcome,
+  PublicGift,
   HatchStatus,
   HireMode,
   Me,
+  MyPets,
   MyFeed,
   OutfitSlug,
   PetBase,
@@ -35,6 +39,15 @@ export interface FakeFail {
 }
 
 export interface FakeWorkerState {
+  publicGift?: PublicGift | FakeFail;
+  publicGiftDelayMs?: number;
+  acceptGift?: { status: 'accepted'; tokenId: string } | FakeFail;
+  giftLink?: GiftLink | FakeFail;
+  createGift?: GiftLink | FakeFail;
+  cancelGift?: GiftLink | FakeFail;
+  prepareGift?: GiftOutcome | FakeFail;
+  sendGift?: GiftOutcome | FakeFail;
+  giftOutcome?: GiftOutcome | FakeFail;
   version?: string;
   /** the wait before «Still working on it…» (ms), instead of the spec's 10 s */
   waitLineMs?: number;
@@ -50,6 +63,7 @@ export interface FakeWorkerState {
   hatchResult?: { tokenId: string } | FakeFail;
   hatchDelayMs?: number;
   me?: Me | FakeFail;
+  myPets?: MyPets | FakeFail;
   /** the pets the fake knows, by token_id */
   pets?: Record<string, Omit<PetBase, 'worn' | 'skill'> & Partial<Pick<PetBase, 'worn' | 'skill'>> & Partial<MyFeed> & { owner?: Partial<Omit<Extract<import('./worker-types').PetView, { viewer: 'owner' }>, keyof PetBase | keyof MyFeed | 'viewer'>> }>;
   /** `GET /api/pets/:id` refused (the server, the network, the rate limit) instead of answering */

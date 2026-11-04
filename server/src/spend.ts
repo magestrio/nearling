@@ -166,6 +166,7 @@ export interface Turn {
 export interface RunOpts {
   jobId?: string;
   turn?: Turn;
+  ownerAccount?: string;
 }
 
 /** Runs one thought. `job` is what the queue holds; the answer is stored in `jobs.result` (codes,
@@ -190,6 +191,7 @@ export async function run(env: Env, tokenId: string, job: ThoughtJob, epoch?: nu
     throw e;
   }
   if (pet === null) return { code: 'no_pet' };
+  if (opts.ownerAccount !== undefined && pet.owner_id !== opts.ownerAccount) return { code: 'no_pet' };
   await env.DB.prepare('INSERT OR IGNORE INTO pets (token_id, hatched_by, born_at, birth_tx) VALUES (?, ?, ?, ?)')
     .bind(tokenId, pet.owner_id, now, '')
     .run();
@@ -277,6 +279,10 @@ async function think(env: Env, tokenId: string, pet: PetRecord, job: ThoughtJob,
   const answers: Answer[] = [];
 
   // First call.
+  if (ctx.opts.ownerAccount !== undefined) {
+    const current = await petView(env, tokenId);
+    if (current?.owner_id !== ctx.opts.ownerAccount) return { code: 'no_pet' };
+  }
   const first = await complete(env, { messages, maxTokens: plan.ceiling, thinking: deep, timeoutMs: deep ? DEEP_TIMEOUT_MS : CHAT_TIMEOUT_MS });
   const failure = await refusalOf(env, first, ctx.reserve);
   if (failure !== null) return failure;

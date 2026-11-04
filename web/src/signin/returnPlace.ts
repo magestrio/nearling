@@ -5,8 +5,8 @@
 // for it. The record lives in one tab only, for the time of a sign-in.
 const KEY = 'nearling.returnPlace';
 
-export type ReturnAction = 'signin' | 'feed' | 'skill' | 'errand' | 'adapter' | 'code';
-const ACTIONS: readonly string[] = ['signin', 'feed', 'skill', 'errand', 'adapter', 'code'];
+export type ReturnAction = 'signin' | 'feed' | 'skill' | 'errand' | 'adapter' | 'code' | 'giftAccept';
+const ACTIONS: readonly string[] = ['signin', 'feed', 'skill', 'errand', 'adapter', 'code', 'giftAccept'];
 
 export interface ReturnPlace {
   /** the path with its query, e.g. `/hatch?from=2` */

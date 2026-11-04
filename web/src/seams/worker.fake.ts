@@ -17,6 +17,9 @@ import {
   type ErrandQuote,
   type FeedOutcome,
   type FeedSheetData,
+  type GiftLink,
+  type GiftOutcome,
+  type PublicGift,
   type PetView,
   type PortionNear,
   type SessionResult,
@@ -156,6 +159,8 @@ async function viewOf(token: string | null, tokenId: string): Promise<PetView> {
   const base = { ...rest, worn: worn ?? null, skill: skill ?? null };
   if (token === null) return { viewer: 'visitor', ...base };
   if (!(state().owned ?? []).includes(tokenId)) return { viewer: 'guest', ...base, myFeed: myFeed ?? null };
+  const me = state().me;
+  if (me && !isFail(me)) state().me = { ...me, currentPet: { tokenId, name: base.name } };
   return { viewer: 'owner', ...base, ...OWNER_DEFAULTS, myFeed: myFeed ?? null, ...owner };
 }
 
@@ -164,6 +169,15 @@ async function viewOf(token: string | null, tokenId: string): Promise<PetView> {
 export const fakeToastHeld = (): boolean => state().toastHeld === true;
 
 export const fakeWaitLineMs =(real: number): number => state().waitLineMs ?? real;
+
+function confirmGift(tokenId: string) {
+  state().owned = (state().owned ?? []).filter((id) => id !== tokenId);
+  const me = state().me;
+  if (me && !isFail(me) && me.currentPet?.tokenId === tokenId) {
+    const next = state().owned?.[0] ?? null;
+    state().me = { ...me, currentPet: next ? { tokenId: next, name: petsOf()[next]?.name ?? next } : null, ownedCount: state().owned?.length ?? 0, lastGifted: { tokenId, name: petsOf()[tokenId]?.name ?? tokenId } };
+  }
+}
 
 export const fakeWorkerApi: WorkerApi = {
   async health() {
@@ -174,6 +188,50 @@ export const fakeWorkerApi: WorkerApi = {
     if (token === null) throw new WorkerError(401, 'signed_out');
     needSession(token);
     return answer('me', state().me, { accountId: 'a'.repeat(64), hatched: null, currentPet: null, ownedCount: 0 });
+  },
+  myPets: async (token) => {
+    needSession(token);
+    const ids = state().owned ?? [];
+    return answer('myPets', state().myPets, {
+      pets: ids.map((tokenId, index) => ({ tokenId, name: (state().pets ?? {})[tokenId]?.name ?? tokenId, born: index === 0 })),
+      currentPet: ids.length ? { tokenId: ids[0]!, name: (state().pets ?? {})[ids[0]!]?.name ?? ids[0]! } : null,
+    });
+  },
+
+  publicGift: async (token) => {
+    needSession(token);
+    const result = await answer<PublicGift>('publicGift', state().publicGift, { tokenId: '9', name: 'Pixel', fullness: { state: 'full', level: 1 }, status: 'waiting', viewer: token ? 'receiver' : 'visitor', errand: null }, state().publicGiftDelayMs);
+    if (!token) return { ...result, viewer: 'visitor' };
+    return result.viewer === 'visitor' && result.status !== 'waiting' ? { ...result, viewer: 'receiver' } : result;
+  },
+  acceptGift: async (token) => {
+    needSession(token);
+    const result = await answer('acceptGift', state().acceptGift, { status: 'accepted' as const, tokenId: '9' });
+    const publicGift = state().publicGift;
+    if (publicGift && !isFail(publicGift)) state().publicGift = { ...publicGift, status: 'accepted', viewer: 'receiver' };
+    return result;
+  },
+
+  giftLink: async (token) => { needSession(token); return answer<GiftLink>('giftLink', state().giftLink, { status: 'none' }); },
+  createGift: async (token) => { needSession(token); return answer<GiftLink>('createGift', state().createGift, { status: 'waiting', code: 'a'.repeat(48) }); },
+  cancelGift: async (token) => { needSession(token); return answer<GiftLink>('cancelGift', state().cancelGift, { status: 'cancelled' }); },
+  prepareGift: async (token, tokenId) => {
+    needSession(token);
+    const result = await answer<GiftOutcome>('prepareGift', state().prepareGift, { status: 'unknown' });
+    if (result.status === 'ok') confirmGift(tokenId);
+    return result;
+  },
+  sendGift: async (token, tokenId) => {
+    needSession(token);
+    const result = await answer<GiftOutcome>('sendGift', state().sendGift, { status: 'ok' });
+    if (result.status === 'ok') confirmGift(tokenId);
+    return result;
+  },
+  giftOutcome: async (token, tokenId) => {
+    needSession(token);
+    const result = await answer<GiftOutcome>('giftOutcome', state().giftOutcome ?? { fail: { status: 409, code: 'gift_unavailable' } }, { status: 'unknown' });
+    if (result.status === 'ok') confirmGift(tokenId);
+    return result;
   },
 
   hatchStatus: (token, opts) => {
@@ -212,7 +270,7 @@ export const fakeWorkerApi: WorkerApi = {
     // Events are what happened since the last look — the real server tells each once. The fake does the same: the
     // events a test configured go out with this answer and are gone from the next.
     if (configured?.events?.length) state().petState = { ...configured, events: [] };
-    return { ...owner, events: [], ...(job ? { pending: false } : {}), ...configured };
+    return { ...owner, events: [], gift: null, ...(job ? { pending: false } : {}), ...configured };
   },
 
   conversation: (token) => {

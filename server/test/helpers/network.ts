@@ -148,6 +148,12 @@ export class FakeContract {
   /** Every transaction the Worker sent to the contract. */
   sends: { method: string; args: Record<string, unknown>; gas: string; deposit: string; signer: string; nonce: number }[] = [];
   mode: SendMode = 'normal';
+  /** Final chain height; the signed transaction's reference block is height 1000. */
+  blockHeight = 1000;
+  /** Execution block time for a gift test whose status node lags the owner view. */
+  blockTimestampMs: number | null = null;
+  /** The execution block is temporarily unavailable from this RPC node. */
+  blockBlind = false;
   /** When set, a transaction waits for it before the RPC answers (a slow chain). */
   sendGate: Promise<void> | null = null;
   /** Every transaction that reached the RPC (also the ones whose answer was lost). */
@@ -234,7 +240,7 @@ export class FakeContract {
       case 'nft_supply_for_owner':
         return String(this.ownedBy(String(args.account_id)));
       case 'nft_tokens_for_owner':
-        return [...this.pets].filter(([, p]) => p.owner_id === String(args.account_id)).map(([token_id]) => ({ token_id, owner_id: String(args.account_id) })).slice(0, Number(args.limit ?? 50));
+        return [...this.pets].filter(([, p]) => p.owner_id === String(args.account_id)).map(([token_id]) => ({ token_id, owner_id: String(args.account_id) })).slice(Number(args.from_index ?? 0), Number(args.from_index ?? 0) + Number(args.limit ?? 50));
       case 'pet_knows':
         return this.known.has(`${String(args.token_id)}:${String(args.account_id)}`);
       default:
@@ -555,6 +561,19 @@ export class FakeContract {
           this.balances.set(tx.signerId, (this.balances.get(tx.signerId) ?? 0n) - call.deposit);
           status = { SuccessValue: btoa(JSON.stringify(result.wrote)) };
         }
+      } else if (call.methodName === 'nft_transfer') {
+        const pet = this.pets.get(String(args.token_id));
+        const receiver = String(args.receiver_id);
+        const refused = pet === undefined ? 'no_pet' : pet.owner_id !== tx.signerId ? 'not_owner'
+          : receiver === tx.signerId ? 'same_owner' : call.deposit !== 1n ? 'one_yocto'
+            : args.memo !== null ? 'memo' : null;
+        if (refused !== null) {
+          status = { Failure: { ActionError: { index: 0, kind: { FunctionCallError: { ExecutionError: `Smart contract panicked: ${refused}` } } } } };
+        } else {
+          pet!.owner_id = receiver;
+          this.balances.set(tx.signerId, (this.balances.get(tx.signerId) ?? 0n) - 1n);
+          status = { SuccessValue: '' };
+        }
       } else if (call.methodName === 'pet_snack') {
         const result = this.snack(tx.signerId, String(args.token_id), String(args.feeder), String(args.kind));
         status =
@@ -600,8 +619,8 @@ export class FakeContract {
         final_execution_status: 'EXECUTED_OPTIMISTIC',
         status,
         transaction: { hash: key, signer_id: tx.signerId },
-        transaction_outcome: { id: key, outcome: { tokens_burnt: this.burnt } },
-        receipts_outcome: [],
+        transaction_outcome: { id: key, block_hash: BLOCK_HASH, outcome: { tokens_burnt: this.burnt } },
+        receipts_outcome: [{ block_hash: BLOCK_HASH, outcome: { tokens_burnt: '0' } }],
       };
       this.outcomes.set(key, outcome);
     }
@@ -652,7 +671,8 @@ export class FakeContract {
         throw new Error(`the fake RPC has no query ${String(type)}`);
       }
       case 'block':
-        return { result: { header: { hash: BLOCK_HASH, height: 1000 } } };
+        if (this.blockBlind && params.block_id !== undefined) return { error: { name: 'HANDLER_ERROR', code: -32000, message: 'Unknown block' } };
+        return { result: { header: { hash: BLOCK_HASH, height: params.block_id === undefined ? this.blockHeight : 1000, timestamp_nanosec: (BigInt(this.blockTimestampMs ?? Date.now()) * 1_000_000n).toString() } } };
       case 'send_tx':
         await this.during('send_tx');
         return await this.deliver(String(params.signed_tx_base64));

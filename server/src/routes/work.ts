@@ -18,6 +18,7 @@ import { priceView } from '../work/quote';
 import { sourceViews } from '../sources/store';
 import { deleteSkill, readSkill, SkillUnreadable, writeSkill } from '../work/skill';
 import { ownedPet, run as runDesk } from './thoughts';
+import { currentPet, ownedPets } from '../gift/current';
 
 export const workRoutes = new Hono<AppEnv>();
 
@@ -58,7 +59,7 @@ workRoutes.post('/api/pets/:id/offer/ask', async (c) => {
   if (owned instanceof Response) return owned;
   if (await isPaused(c.env.DB, 'thought')) return c.json({ code: 'paused' }, 409);
   if ((await standingOffer(c.env, owned.id, owned.pet)) === null || (await offerJobOnItsWay(c.env.DB, owned.id))) return c.json({ code: 'no_offer' }, 409);
-  const job = await enqueueJob(c.env.DB, owned.id, { kind: 'hire', price: body.price });
+  const job = await enqueueJob(c.env.DB, owned.id, { kind: 'hire', price: body.price }, session.accountId);
   runDesk(c, owned.id);
   return c.json({ job }, 202);
 });
@@ -68,7 +69,7 @@ workRoutes.post('/api/pets/:id/offer/decline', async (c) => {
   if (owned instanceof Response) return owned;
   if (await isPaused(c.env.DB, 'thought')) return c.json({ code: 'paused' }, 409);
   if ((await standingOffer(c.env, owned.id, owned.pet)) === null || (await offerJobOnItsWay(c.env.DB, owned.id))) return c.json({ code: 'no_offer' }, 409);
-  const job = await enqueueJob(c.env.DB, owned.id, { kind: 'decline' });
+  const job = await enqueueJob(c.env.DB, owned.id, { kind: 'decline' }, owned.pet.owner_id);
   runDesk(c, owned.id);
   return c.json({ job }, 202);
 });
@@ -78,7 +79,7 @@ workRoutes.post('/api/pets/:id/hire/finish', async (c) => {
   if (owned instanceof Response) return owned;
   if (await isPaused(c.env.DB, 'thought')) return c.json({ code: 'paused' }, 409);
   if ((await lostTurn(c.env.DB, owned.id)) === null || (await offerJobOnItsWay(c.env.DB, owned.id))) return c.json({ code: 'no_hire' }, 409);
-  const job = await enqueueJob(c.env.DB, owned.id, { kind: 'finish' });
+  const job = await enqueueJob(c.env.DB, owned.id, { kind: 'finish' }, owned.pet.owner_id);
   runDesk(c, owned.id);
   return c.json({ job }, 202);
 });
@@ -161,6 +162,15 @@ async function advicePair(c: AppContext, accountId: string, payerId: string): Pr
     throw e;
   }
   if (payer === null || payer.owner_id !== accountId) return c.json({ code: 'not_payer' }, 403);
+  if (c.req.method === 'POST') {
+    try {
+      const { pets } = await ownedPets(c.env, accountId);
+      if ((await currentPet(c.env, accountId, pets))?.tokenId !== payerId) return c.json({ code: 'not_payer' }, 403);
+    } catch (e) {
+      if (e instanceof ChainUnreachable) return c.json({ code: 'chain_unreachable' }, 503);
+      throw e;
+    }
+  }
   if (worker === null) return c.json({ code: 'no_pet' }, 404);
   if (worker.owner_id === accountId) return c.json({ code: 'same_owner' }, 409);
   return { workerId, worker, payer };
@@ -230,7 +240,7 @@ workRoutes.post('/api/pets/:id/advice', async (c) => {
   if (pair instanceof Response) return pair;
   // On a pause the question is not taken: nothing queued, held or spent.
   if (await isPaused(c.env.DB, 'thought')) return c.json({ code: 'paused' }, 409);
-  const job = await enqueueAdvice(c.env.DB, body.payer, { kind: 'advice', worker: pair.workerId, text: body.text, shown: body.price });
+  const job = await enqueueAdvice(c.env.DB, body.payer, { kind: 'advice', worker: pair.workerId, text: body.text, shown: body.price }, session.accountId);
   if (job === null) return c.json({ code: 'pending' }, 409);
   const stub = desk(c.env, body.payer);
   c.executionCtx.waitUntil(stub.process(body.payer));

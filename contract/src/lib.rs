@@ -416,6 +416,34 @@ impl Contract {
         token_id
     }
 
+    /// The owner gives a whole pet away. Only NEP-171 ownership and enumeration move;
+    /// every game record stays under the same token id.
+    #[payable]
+    pub fn nft_transfer(
+        &mut self,
+        receiver_id: AccountId,
+        token_id: TokenId,
+        approval_id: Option<u64>,
+        memo: Option<String>,
+    ) {
+        if env::attached_deposit() != NearToken::from_yoctonear(1) {
+            fail("one_yocto");
+        }
+        if memo.as_deref().is_some_and(|text| !text.is_empty()) {
+            fail("memo_not_empty");
+        }
+        let owner_id = self
+            .tokens
+            .owner_by_id
+            .get(&token_id)
+            .unwrap_or_else(|| fail("no_pet"));
+        if env::predecessor_account_id() != owner_id {
+            fail("not_owner");
+        }
+        self.tokens
+            .nft_transfer(receiver_id, token_id, approval_id, None);
+    }
+
     /// Server only, no deposit. One call debits a session's batch of 1–12 thoughts, whole or not
     /// at all; the sum goes to the treasury.
     pub fn debit_session(

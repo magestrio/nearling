@@ -10,6 +10,7 @@ import { useAuth } from './seams/auth';
 import { HatchScreen } from './screens/hatch/HatchScreen';
 import { HomeScreen } from './screens/home/HomeScreen';
 import { PetNotFound, PetScreen } from './screens/pet/PetScreen';
+import { GiftPage } from './gift/GiftPage';
 import { ReturnToPlace } from './signin/ReturnToPlace';
 import { SignInLayer } from './signin/signIn';
 
@@ -66,6 +67,7 @@ export function App() {
         {/* Home draws its own `Connection rule` page (`home-error`), whatever the exchange answered */}
         {route.name === 'home' ? <HomeScreen /> : null}
         {!unreachable && route.name === 'hatch' ? <HatchScreen from={route.from} /> : null}
+        {!unreachable && route.name === 'gift' ? <GiftPage key={route.code} code={route.code} /> : null}
         {/* one element for the three: the Diary and the Wardrobe open over the Pet screen's own state (the pet, the poll, the line being typed) */}
         {!unreachable && (route.name === 'pet' || route.name === 'diary' || route.name === 'wardrobe') ? (
           <PetScreen

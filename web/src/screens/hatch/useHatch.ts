@@ -16,6 +16,7 @@ export type HatchView =
   | { kind: 'unreachable'; busy: boolean }
   /** `noPets`: a signed-in player with no pet of their own — the screen has no way out for them (`add-pet` › `no exit`) */
   | { kind: 'closed'; reason: ClosedReason; until?: string; noPets: boolean }
+  | { kind: 'no-pets'; lastGifted: { tokenId: string; name: string }; closed: boolean; reason?: ClosedReason; until?: string }
   | { kind: 'already'; tokenId: string; name: string }
   | { kind: 'signed-out' }
   | { kind: 'form' };
@@ -124,6 +125,7 @@ export function useHatch(from: string | null) {
     if (check.kind === 'checking') return { kind: 'checking' };
     if (check.kind === 'failed') return { kind: 'unreachable', busy: check.busy };
     const { data } = check;
+    if (data.noPets && data.lastGifted) return { kind: 'no-pets', lastGifted: data.lastGifted, closed: !data.open, reason: data.reason, until: data.until };
     if (!data.open) return { kind: 'closed', reason: data.reason ?? 'service', until: data.until, noPets: data.noPets === true };
     if (data.already) return { kind: 'already', tokenId: data.already.tokenId, name: data.already.name };
     if (!auth.authenticated) return { kind: 'signed-out' };

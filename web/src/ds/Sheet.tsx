@@ -62,6 +62,7 @@ export function Sheet({
 
   useEffect(() => {
     const root = sheet.current;
+    if (self && document.activeElement instanceof HTMLTextAreaElement && !root?.contains(document.activeElement)) return;
     const target = root?.querySelector<HTMLElement>('[data-autofocus]') ?? (self ? root?.querySelector<HTMLElement>('h2') : null) ?? root?.querySelector<HTMLElement>(FOCUSABLE);
     target?.focus();
     return () => {

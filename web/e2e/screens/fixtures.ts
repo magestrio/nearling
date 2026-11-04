@@ -24,6 +24,8 @@ export interface ScreenFixture {
   /** Lines of the frame's `copy` that the frame's own PNG holds below its fold (inside a scrolling body, at the frame's scroll):
    *  the capture asserts them drawn and visible on the page, not inside the visible part of the scroll box. */
   belowFold?: string[];
+  /** Lines of the frame's `copy` that only a screen reader gets (a speaker's word the DS draws as Hidden): asserted in the page's text, not drawn. */
+  hiddenCopy?: string[];
 }
 
 /**
@@ -742,6 +744,30 @@ const testCode = async (page: Page, until: () => Promise<unknown>) => {
   await until();
   await atRest(page);
 };
+
+const GIFT_CODE = 'a'.repeat(48);
+const GIFT_ACCOUNT = 'b2'.repeat(32);
+const GIFT_ACCEPTED = { status: 'accepted' as const, code: GIFT_CODE, acceptedName: 'Maya', acceptedAccount: GIFT_ACCOUNT, version: 2 };
+const publicGift = (status: 'waiting' | 'accepted' | 'transferred' = 'waiting', viewer: 'giver' | 'receiver' | 'visitor' = 'receiver', asleep = false) => ({ tokenId: '9', name: 'Pixel', fullness: asleep ? { state: 'asleep' as const, level: 0 } : PIXEL.fullness, status, viewer, errand: null });
+const receiverGiftWorker = (extra: Partial<FakeWorkerState> = {}): FakeWorkerState => ({
+  owned: [], pets: { '9': { ...PIXEL, worn: 'thinking-cap' } },
+  me: { accountId: 'a'.repeat(64), hatched: { tokenId: '2', name: 'Biscuit' }, currentPet: { tokenId: '2', name: 'Biscuit' }, ownedCount: 1 },
+  publicGift: publicGift(), ...extra,
+});
+const giftWorker = (extra: Partial<FakeWorkerState> = {}, asleep = false): FakeWorkerState => ({
+  ...owner({ ownedCount: 2 }, asleep ? { state: 'asleep', level: 0 } : PIXEL.fullness),
+  owned: ['9', '0'],
+  pets: { ...owner({ ownedCount: 2 }, asleep ? { state: 'asleep', level: 0 } : PIXEL.fullness).pets,
+    '0': { tokenId: '0', name: 'Juno', stage: 'adult', fullness: { state: 'full', level: 1 }, mood: 'happy' } },
+  me: { accountId: 'a'.repeat(64), hatched: { tokenId: '9', name: 'Pixel' }, currentPet: { tokenId: '9', name: 'Pixel' }, ownedCount: 2 },
+  ...extra,
+});
+const giftDialog = (page: Page) => page.getByRole('dialog', { name: 'Give Pixel to a friend' });
+/** The sheet's words as drawn, not the copy of them in its hidden status line. */
+const giftShown = (page: Page, text: string) => giftDialog(page).getByText(text, { exact: false }).and(page.locator(':not([role="status"])'));
+const openGiftSheet = async (page: Page) => { await page.getByRole('button', { name: 'Give Pixel away' }).click(); await giftDialog(page).waitFor(); await atRest(page); };
+const acceptedGiftSheet = async (page: Page) => { await giftDialog(page).waitFor(); await atRest(page); };
+const tapGiftGive = async (page: Page) => { await acceptedGiftSheet(page); await giftDialog(page).getByRole('button', { name: 'Give Pixel to Maya' }).click(); await atRest(page); };
 
 export const fixtures: Record<string, ScreenFixture> = {
   // spec: add-pet › Hatch screen › success
@@ -3145,4 +3171,90 @@ export const fixtures: Record<string, ScreenFixture> = {
       await atRest(page);
     },
   },
+
+  // spec: add-gift › Gift sheet screen › success
+  // spec: add-gift › Gift sheet screen › что теряет дарящий
+  // spec: add-gift › Gift sheet screen › ссылку только другу
+  // spec: add-gift › Gift sheet screen › рождённый питомец
+  'gift-sheet': { route: '/pet/9', fakes: { auth: SIGNED_IN, worker: giftWorker() }, prepare: openGiftSheet },
+  // spec: add-gift › Gift sheet screen › error
+  'gift-sheet-error': { route: '/pet/9', fakes: { auth: SIGNED_IN, worker: giftWorker({ giftLink: { fail: { status: 503, code: 'chain_unreachable' } } }) }, prepare: openGiftSheet },
+  // spec: add-gift › Gift flow › ссылка ждёт
+  'gift-sheet-waiting': { route: '/pet/9', fakes: { auth: SIGNED_IN, worker: giftWorker({ giftLink: { status: 'waiting', code: GIFT_CODE } }) }, prepare: openGiftSheet },
+  // spec: add-gift › Gift flow › ссылка создана
+  'gift-sheet-copied': { route: '/pet/9', fakes: { auth: SIGNED_IN, worker: giftWorker({ createGift: { status: 'waiting', code: GIFT_CODE }, toastHeld: true }) }, prepare: async (page) => {
+    await page.evaluate(() => { Object.defineProperty(navigator, 'share', { value: undefined, configurable: true }); Object.defineProperty(navigator.clipboard, 'writeText', { value: async () => undefined, configurable: true }); });
+    await openGiftSheet(page); await giftDialog(page).getByRole('button', { name: 'Create gift link' }).click(); await giftShown(page, 'Your gift link is ready.').waitFor(); await atRest(page);
+  } },
+  // spec: add-gift › Gift flow › ссылка создана
+  'gift-sheet-manual': { route: '/pet/9', fakes: { auth: SIGNED_IN, worker: giftWorker({ createGift: { status: 'waiting', code: GIFT_CODE } }) }, prepare: async (page) => {
+    await page.evaluate(() => { Object.defineProperty(navigator, 'share', { value: undefined, configurable: true }); Object.defineProperty(navigator.clipboard, 'writeText', { value: async () => { throw new Error('copy unavailable'); }, configurable: true }); });
+    await openGiftSheet(page); await giftDialog(page).getByRole('button', { name: 'Create gift link' }).click(); await giftDialog(page).getByLabel('Copy this link and send it to a friend:').waitFor(); await atRest(page);
+  } },
+  // spec: add-gift › Gift flow › отменил
+  'gift-sheet-cancelled': { route: '/pet/9', fakes: { auth: SIGNED_IN, worker: giftWorker({ giftLink: { status: 'waiting', code: GIFT_CODE } }) }, prepare: async (page) => { await openGiftSheet(page); await giftDialog(page).getByRole('button', { name: 'Cancel gift' }).click(); await giftShown(page, "Gift cancelled. That link won't work anymore.").waitFor(); await atRest(page); } },
+  // spec: add-gift › Gift flow › друг принял
+  'gift-sheet-accepted': { route: '/pet/9', fakes: { auth: SIGNED_IN, worker: giftWorker({ giftLink: GIFT_ACCEPTED }) }, prepare: acceptedGiftSheet },
+  // spec: add-gift › Gift flow › друг принял
+  'gift-sheet-accepted-asleep': { route: '/pet/9', fakes: { auth: SIGNED_IN, worker: giftWorker({ giftLink: GIFT_ACCEPTED }, true) }, prepare: acceptedGiftSheet },
+  // spec: add-gift › Gift flow › имя принявшего не показать
+  'gift-sheet-unnamed': { route: '/pet/9', fakes: { auth: SIGNED_IN, worker: giftWorker({ giftLink: { ...GIFT_ACCEPTED, acceptedName: null } }) }, prepare: acceptedGiftSheet },
+  // spec: add-gift › Gift flow › передаёт
+  'gift-sheet-handing': { route: '/pet/9', fakes: { auth: SIGNED_IN, worker: giftWorker({ giftLink: GIFT_ACCEPTED, prepareGift: { status: 'unknown' } }) }, prepare: tapGiftGive },
+  // spec: add-gift › Gift flow › исход неизвестен
+  'gift-sheet-checking': { route: '/pet/9', fakes: { auth: SIGNED_IN, worker: giftWorker({ giftLink: GIFT_ACCEPTED, prepareGift: { status: 'unknown' } }) }, prepare: async (page) => { await tapGiftGive(page); await page.clock.fastForward(10_000); await giftDialog(page).locator('[data-gift-outcome]').getByText('Still checking — this can take a moment.').waitFor(); await atRest(page); } },
+  // spec: add-gift › Gift flow › подарен
+  'gift-sheet-given': { route: '/pet/9', fakes: { auth: SIGNED_IN, worker: giftWorker({ giftLink: GIFT_ACCEPTED, prepareGift: { status: 'ok' } }) }, prepare: tapGiftGive },
+  // spec: add-gift › Gift flow › не прошло
+  'gift-sheet-failed': { route: '/pet/9', fakes: { auth: SIGNED_IN, worker: giftWorker({ giftLink: GIFT_ACCEPTED, prepareGift: { status: 'failed' } }) }, prepare: tapGiftGive },
+  // spec: add-gift › Gift flow › подарки на паузе
+  'gift-sheet-paused': { route: '/pet/9', fakes: { auth: SIGNED_IN, worker: giftWorker({ giftLink: GIFT_ACCEPTED, prepareGift: { status: 'paused' } }) }, prepare: tapGiftGive },
+  // spec: add-gift › Gift flow › нет NEAR на передачу
+  'gift-sheet-no-near': { route: '/pet/9', fakes: { auth: SIGNED_IN, worker: giftWorker({ giftLink: GIFT_ACCEPTED, prepareGift: { status: 'no_near', missingYocto: '1' } }) }, prepare: tapGiftGive },
+  // spec: add-gift › Gift flow › chain rejected for gas
+  'gift-sheet-gas': { route: '/pet/9', fakes: { auth: SIGNED_IN, worker: giftWorker({ giftLink: GIFT_ACCEPTED, prepareGift: { status: 'gas_rejected', missingYocto: '1' } }) }, prepare: tapGiftGive },
+  // spec: add-gift › Gift screen › success
+  'gift-success': { route: `/gift/${GIFT_CODE}`, fakes: { auth: SIGNED_IN, worker: receiverGiftWorker() } },
+  // spec: add-gift › Gift screen › signed-out
+  'gift-signed-out': { route: `/gift/${GIFT_CODE}`, fakes: { worker: receiverGiftWorker({ publicGift: publicGift('waiting', 'visitor') }) } },
+  // spec: add-gift › Gift screen › signed-out (подарок уже принят)
+  'gift-signed-out-accepted': { route: `/gift/${GIFT_CODE}`, fakes: { worker: receiverGiftWorker({ publicGift: publicGift('accepted', 'visitor') }) } },
+  // spec: add-gift › Gift screen › ссылку открыл дарящий
+  'gift-own-link': { route: `/gift/${GIFT_CODE}`, fakes: { auth: SIGNED_IN, worker: receiverGiftWorker({ publicGift: publicGift('waiting', 'giver') }) } },
+  // spec: add-gift › Gift screen › loading
+  'gift-loading': { route: `/gift/${GIFT_CODE}`, fakes: { auth: SIGNED_IN, worker: receiverGiftWorker({ publicGiftDelayMs: 30_000 }) } },
+  // spec: add-gift › Gift screen › error
+  'gift-error': { route: `/gift/${GIFT_CODE}`, fakes: { auth: SIGNED_IN, worker: receiverGiftWorker({ publicGift: { fail: { status: 404, code: 'gift_unavailable' } } }) } },
+  // spec: add-gift › Gift accept flow › принял
+  'gift-accepted': { route: `/gift/${GIFT_CODE}`, fakes: { auth: SIGNED_IN, worker: receiverGiftWorker({ publicGift: publicGift('accepted') }) } },
+  // spec: add-gift › Gift accept flow › получил
+  'gift-received': { route: `/gift/${GIFT_CODE}`, fakes: { auth: SIGNED_IN, worker: receiverGiftWorker({ publicGift: publicGift('transferred') }) } },
+  // spec: add-gift › Gift screen › asleep
+  'gift-asleep': { route: `/gift/${GIFT_CODE}`, fakes: { auth: SIGNED_IN, worker: receiverGiftWorker({ publicGift: publicGift('waiting', 'receiver', true), pets: { '9': { ...PIXEL, worn: 'thinking-cap', fullness: { state: 'asleep', level: 0 } } } }) } },
+  // spec: add-gift › Gift screen › errand still running
+  'gift-errand-running': { route: `/gift/${GIFT_CODE}`, fakes: { auth: SIGNED_IN, worker: receiverGiftWorker({ publicGift: { ...publicGift(), errand: { running: true, maxCents: 2 } } }) } },
+  // spec: add-gift › My pets sheet screen › success
+  'my-pets': { route: '/pet/9', fakes: { auth: SIGNED_IN, worker: {
+    ...giftWorker(),
+    owned: ['9', '0', '1'], pets: {
+      '9': { ...PIXEL, worn: 'thinking-cap', owner: { ownedCount: 3 } },
+      '0': { tokenId: '0', name: 'Juno', stage: 'adult', fullness: { state: 'hungry', level: 0.125 }, mood: 'happy' },
+      '1': { tokenId: '1', name: 'Mochi', stage: 'adult', fullness: { state: 'asleep', level: 0 }, mood: null },
+    }, myPets: { pets: [{ tokenId: '9', name: 'Pixel', born: true }, { tokenId: '0', name: 'Juno', born: false }, { tokenId: '1', name: 'Mochi', born: false }], currentPet: PIXEL_REF },
+  } }, prepare: async (page) => { await page.getByRole('button', { name: 'My pets' }).click(); await page.getByRole('list', { name: 'Your pets' }).waitFor(); await atRest(page); } },
+  // spec: add-gift › My pets sheet screen › error
+  'my-pets-error': { route: '/pet/9', fakes: { auth: SIGNED_IN, worker: giftWorker({ myPets: { fail: { status: 503, code: 'chain_unreachable' } } }) }, prepare: async (page) => { await page.getByRole('button', { name: 'My pets' }).click(); await page.getByText("We couldn't load your pets right now. Try again in a moment.").waitFor(); await atRest(page); } },
+  // spec: add-gift › Gift rule › разговор и память
+  'pet-gifted': { route: '/pet/9', fakes: { auth: SIGNED_IN, worker: giftWorker({ conversation: { lines: [
+    ...HISTORY.map((line) => ({ ...line, previousOwner: true })),
+    { id: 'advice:you', who: 'player', text: 'My cat ignores me after I travel. How do I make up for it?', at: Date.parse('2026-11-11T10:00:00Z'), previousOwner: true },
+    { id: 'advice:reply', who: 'worker', text: "Don't chase. Sit on the floor near the cat's spot with a book and wait — let the cat come to you. Treats only after the first head-bump.", at: Date.parse('2026-11-11T10:00:01Z'), worker: { tokenId: '2', name: 'Biscuit' }, previousOwner: true },
+    { id: 'gift:1', who: 'event', code: 'gift', name: 'Pixel', at: Date.parse('2026-11-12T10:00:00Z') },
+  ], more: false, before: null }, pets: { '9': { ...PIXEL, worn: 'thinking-cap', owner: { ownedCount: 2, hello: true } }, '2': BISCUIT } }) }, hiddenCopy: ['Previous owner'] },
+  // spec: add-gift › Gift rule › дневник до подарка
+  'diary-before-gift': { route: '/pet/9/diary', fakes: { auth: SIGNED_IN, worker: giftWorker({ diary: { entry: { kind: 'text', id: 'diary-gift', lines: ['Yesterday you told me about the chart nobody understands. After you left I counted the fridge again — forty-three hums this time, two more than the night before.', 'I think the fridge is getting nervous about your presentation too.'], question: 'Did the chart surprise anyone?', work: null, previousOwner: true } } }) }, belowFold: ["Today's streak still needs {parts}."] },
+  // spec: add-gift › Several pets rule › питомцев не осталось
+  'hatch-no-pets': { route: '/hatch', fakes: { auth: SIGNED_IN, worker: { hatchStatus: { open: true, noPets: true, lastGifted: PIXEL_REF } } } },
+  // spec: add-gift › Several pets rule › питомцев не осталось, рождения закрыты
+  'hatch-no-pets-closed': { route: '/hatch?from=2', fakes: { auth: SIGNED_IN, worker: { hatchStatus: { open: false, reason: 'daily', until: MIDNIGHT_UTC, noPets: true, lastGifted: PIXEL_REF }, pets: { '2': BISCUIT } } } },
 };

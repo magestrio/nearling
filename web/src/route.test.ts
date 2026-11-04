@@ -11,6 +11,14 @@ describe('parseRoute', () => {
     expect(parseRoute('/__day1')).toEqual({ name: 'day1' });
   });
 
+  // spec: add-gift › Gift screen › loading
+  // spec: add-gift › Gift screen › error
+  it('reads a gift code and sends a cut or malformed gift link to its error state', () => {
+    expect(parseRoute(`/gift/${'a'.repeat(48)}`)).toEqual({ name: 'gift', code: 'a'.repeat(48) });
+    expect(parseRoute('/gift/short')).toEqual({ name: 'gift', code: '' });
+    expect(parseRoute('/gift')).toEqual({ name: 'gift', code: '' });
+  });
+
   it('takes a ?from= that is not a token_id for no friend', () => {
     expect(parseRoute('/hatch?from=abc')).toEqual({ name: 'hatch', from: null });
     expect(parseRoute('/hatch?from=')).toEqual({ name: 'hatch', from: null });

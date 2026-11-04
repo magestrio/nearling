@@ -43,7 +43,7 @@ describe('the queue of the server key', () => {
     expect(answer.status).toBe('unknown');
     if (answer.status !== 'unknown') return;
     chain.mode = 'normal';
-    expect(await txStatus(env, answer.txHash, env.SERVER_ACCOUNT_ID)).toEqual({ status: 'ok', value: '0' });
+    expect(await txStatus(env, answer.txHash, env.SERVER_ACCOUNT_ID)).toMatchObject({ status: 'ok', value: '0', blockHash: expect.any(String) });
     // a transaction the network never saw
     expect(await txStatus(env, 'Eo9RLnSNy6JCFHEuaYXSHz4aUqLZjQgJA85oYf3nboFT', env.SERVER_ACCOUNT_ID)).toBeNull();
   });

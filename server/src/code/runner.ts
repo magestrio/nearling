@@ -26,6 +26,8 @@ export type Shape = Record<string, string[]>;
 export type Declared = { ok: true; declaration: unknown } | { ok: false; message: string };
 export type RunResult = { outcome: 'ok'; output: string } | { outcome: 'limit' } | { outcome: 'error'; message: string };
 
+type DoorAnswer = { ok: true; value: unknown } | { ok: false; message: string };
+
 class Door extends RpcTarget {
   calls = 0;
   limited = false;
@@ -38,23 +40,25 @@ class Door extends RpcTarget {
     super();
   }
 
-  /** The code catching a refusal doesn't hide it: the run is still judged by what the door saw. */
-  async call(source: string, tool: string, values: unknown): Promise<unknown> {
+  /** The code catching a refusal doesn't hide it: the run is still judged by what the door saw. A refusal goes back as a
+   * value and the wrapper throws it inside the isolate: a rejection that crosses the RPC boundary is also reported by
+   * the runtime as an uncaught exception of this Worker, even when the code catches it. */
+  async call(source: string, tool: string, values: unknown): Promise<DoorAnswer> {
     if (this.calls >= MAX_DOOR_CALLS) {
       this.limited = true;
-      throw new Error(`more than ${MAX_DOOR_CALLS} calls to data sources`);
+      return { ok: false, message: `more than ${MAX_DOOR_CALLS} calls to data sources` };
     }
     this.calls += 1;
     if (!Object.hasOwn(this.shape, source) || !this.shape[source]!.includes(tool)) {
       this.refused = true;
-      throw new Error('that tool is not ticked on this skill');
+      return { ok: false, message: 'that tool is not ticked on this skill' };
     }
     const object = typeof values === 'object' && values !== null && !Array.isArray(values) ? (values as Record<string, unknown>) : {};
     try {
-      return await this.caller(source, tool, object);
+      return { ok: true, value: await this.caller(source, tool, object) };
     } catch (e) {
       // the code sees that the source didn't answer, never why or from where
-      throw new Error(e instanceof Error && e.message !== '' ? `the data source did not answer (${e.message})` : 'the data source did not answer');
+      return { ok: false, message: e instanceof Error && e.message !== '' ? `the data source did not answer (${e.message})` : 'the data source did not answer' };
     }
   }
 }
@@ -89,7 +93,13 @@ export class Run extends WorkerEntrypoint {
       const sources = {};
       for (const [label, tools] of Object.entries(shape)) {
         const one = {};
-        for (const tool of tools) one[tool] = (values) => door.call(label, tool, values === undefined ? {} : values);
+        for (const tool of tools) {
+          one[tool] = async (values) => {
+            const answer = await door.call(label, tool, values === undefined ? {} : values);
+            if (!answer.ok) throw new Error(answer.message);
+            return answer.value;
+          };
+        }
         sources[label] = one;
       }
       const result = await store.run(sources, () => f(...args));

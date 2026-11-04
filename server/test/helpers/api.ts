@@ -63,11 +63,11 @@ export function harness(): Harness {
       });
     }
     // Clean tables between tests (storage is isolated per file, not per test).
-    for (const table of ['pets', 'thoughts', 'thought_calls', 'memory_notes', 'debit_sessions', 'pet_spend', 'empty_answers', 'jobs', 'project_spend', 'service_pause', 'births_in_flight', 'feedings', 'friend_snacks', 'known_index', 'pet_life', 'life_friends', 'pending_growth', 'ritual_days', 'riddles', 'riddle_answers', 'ritual_clock', 'wardrobe', 'outfit_grants', 'outfit_buys', 'item_sends', 'pet_transactions', 'hires', 'hire_modes', 'hire_offers', 'worker_answers', 'skills', 'work_records', 'errands', 'data_sources', 'catalog_entries', 'skill_code', 'code_tests', 'code_versions']) {
+    for (const table of ['gift_flights', 'gift_links', 'pets', 'thoughts', 'thought_calls', 'memory_notes', 'debit_sessions', 'pet_spend', 'empty_answers', 'jobs', 'project_spend', 'service_pause', 'births_in_flight', 'feedings', 'friend_snacks', 'known_index', 'pet_life', 'life_friends', 'pending_growth', 'ritual_days', 'riddles', 'riddle_answers', 'ritual_clock', 'wardrobe', 'outfit_grants', 'outfit_buys', 'item_sends', 'pet_transactions', 'hires', 'hire_modes', 'hire_offers', 'worker_answers', 'skills', 'work_records', 'errands', 'data_sources', 'catalog_entries', 'skill_code', 'code_tests', 'code_versions']) {
       await env.DB.exec(`DELETE FROM ${table}`);
     }
     // The players stay (a token makes its row once), the feeding side of their rows does not.
-    await env.DB.exec("UPDATE players SET first_name = NULL, gas_topup_at = NULL, gas_added_yocto = '0', wallet_seen_yocto = '0'");
+    await env.DB.exec("UPDATE players SET first_name = NULL, gas_topup_at = NULL, gift_topup_at = NULL, gift_topup_flight = NULL, gift_topup_op = NULL, gift_topup_signed_bytes = NULL, gift_topup_retry_at = NULL, current_pet = NULL, last_gifted_pet = NULL, gas_added_yocto = '0', wallet_seen_yocto = '0'");
   });
 
   afterEach(() => {

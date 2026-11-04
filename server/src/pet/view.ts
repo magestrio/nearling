@@ -42,11 +42,13 @@ export async function fullnessOf(db: D1Database, tokenId: string, pet: PetRecord
 
 /** True while the owner has not sent a line of their own: the conversation they see has no player
  * line (the input hint «Say hi to {name}…»). Decided here, not by the client from the log. */
-export async function hello(db: D1Database, tokenId: string): Promise<boolean> {
+export async function hello(db: D1Database, tokenId: string, ownerAccount?: string): Promise<boolean> {
+  const gift = await db.prepare('SELECT last_gift_block_at FROM pets WHERE token_id = ?').bind(tokenId).first<{ last_gift_block_at: number | null }>();
+  const boundary = gift?.last_gift_block_at ?? 0;
   const row = await db
     // An erased reply still says the owner wrote: a clear leaves the hint at «Talk to…», not «Say hi to…».
-    .prepare("SELECT 1 AS found FROM thoughts WHERE token_id = ? AND (player_text IS NOT NULL OR (erased_at IS NOT NULL AND kind IN ('reply', 'deep', 'question'))) LIMIT 1")
-    .bind(tokenId)
+    .prepare("SELECT 1 AS found FROM thoughts WHERE token_id = ? AND (player_text IS NOT NULL OR (erased_at IS NOT NULL AND kind IN ('reply', 'deep', 'question'))) AND (? IS NULL OR origin_owner = ? OR (origin_owner IS NULL AND created_at >= ?)) LIMIT 1")
+    .bind(tokenId, ownerAccount ?? null, ownerAccount ?? null, boundary)
     .first<{ found: number }>();
   return row === null;
 }
@@ -221,8 +223,9 @@ export async function ownerFields(env: Env, tokenId: string, pet: PetRecord, pau
   const now = Date.now();
   const food = await foodState(env.DB, tokenId, pet, now);
   // An advice the pet pays for is read on the friend's page, not this one (`Advice flow`): not the owner's «is thinking…».
-  const pending = await env.DB.prepare("SELECT id, kind, mode, payload, progress FROM jobs WHERE token_id = ? AND status IN ('queued', 'running') AND kind NOT IN ('diary', 'advice', 'errand') ORDER BY created_at, rowid LIMIT 1")
-    .bind(tokenId)
+  const boundary = (await env.DB.prepare('SELECT last_gift_block_at FROM pets WHERE token_id = ?').bind(tokenId).first<{ last_gift_block_at: number | null }>())?.last_gift_block_at ?? 0;
+  const pending = await env.DB.prepare("SELECT id, kind, mode, payload, progress FROM jobs WHERE token_id = ? AND status IN ('queued', 'running') AND (owner_account = ? OR (owner_account IS NULL AND created_at >= ?)) AND kind NOT IN ('diary', 'advice', 'errand') ORDER BY created_at, rowid LIMIT 1")
+    .bind(tokenId, pet.owner_id, boundary)
     .first<PendingRow>();
   const last = await env.DB.prepare('SELECT id FROM thoughts WHERE token_id = ? AND reply_text IS NOT NULL ORDER BY created_at DESC, rowid DESC LIMIT 1')
     .bind(tokenId)
@@ -234,6 +237,7 @@ export async function ownerFields(env: Env, tokenId: string, pet: PetRecord, pau
   const energy = energyLeft(life, today);
   const wardrobe = await readWardrobe(env.DB, tokenId);
   const { entry, pet: row } = await entryToday(env.DB, tokenId, now);
+  const entryTime = entry.kind === 'text' ? await env.DB.prepare('SELECT created_at FROM thoughts WHERE id = ?').bind(entry.id).first<{ created_at: number }>() : null;
   const read = await env.DB.prepare('SELECT 1 AS found FROM ritual_days WHERE token_id = ? AND day = ? AND read_at IS NOT NULL').bind(tokenId, today).first();
   const offer = await readOffer(env.DB, tokenId, state.state === 'asleep');
   return {
@@ -243,7 +247,7 @@ export async function ownerFields(env: Env, tokenId: string, pet: PetRecord, pau
     ...(tired || energy === 0 ? { until: new Date((today + 1) * 86_400_000).toISOString() } : {}),
     paused: pausedNow,
     deepPrice: await deepPrice(env, tokenId),
-    hello: await hello(env.DB, tokenId),
+    hello: await hello(env.DB, tokenId, pet.owner_id),
     pendingJob: pending?.id ?? null,
     pendingMode: pending === null ? null : pending.mode === 'deep' ? 'deep' : 'chat',
     pendingKind: pending === null ? null : pending.kind === 'hire' || pending.kind === 'decline' || pending.kind === 'finish' ? 'reply' : pending.kind,
@@ -254,7 +258,7 @@ export async function ownerFields(env: Env, tokenId: string, pet: PetRecord, pau
     mood: moodOf(state.state, life.moodDay, today),
     traits: [...new Set(pet.traits)].map((t) => TRAIT_WORD[t]),
     energy,
-    diaryUnread: entry.kind === 'text' && read === null && row?.slept_at == null,
+    diaryUnread: entry.kind === 'text' && read === null && row?.slept_at == null && entryTime !== null && entryTime.created_at >= boundary,
     pendingQuestion: isQuestion(pending),
     outfits: slugsOf(pet.outfits),
     worn: wardrobe.worn,

@@ -195,6 +195,8 @@
 }
 
 /* ── Button ───────────────────────────────────────────────────────────────────────────────────────────────── */
+.ds-button--nowrap { flex: none; }
+.ds-button--nowrap .ds-button__label { white-space: nowrap; }
 .ds-button {
   position: relative;
   box-sizing: border-box;
@@ -507,13 +509,53 @@
    layout B1, 2026-11-03) */
 @media not all and (min-width: 768px) {
   .ds-plate--compact { flex-direction: row; flex-wrap: wrap; justify-content: center; align-items: center; gap: var(--space-1) var(--space-2); }
-  .ds-plate--compact .ds-plate__name { order: 1; }
+  .ds-plate--compact .ds-plate__name, .ds-plate--compact .ds-plate__head { order: 1; }
   .ds-plate--compact .ds-plate__extras { order: 2; }
   .ds-plate--compact .ds-plate__state { display: contents; }
   .ds-plate--compact .ds-plate__state > .ds-fullness { order: 3; flex-basis: 100%; justify-content: center; }
   .ds-plate--compact .ds-plate__badge { order: 4; }
   .ds-plate--compact .ds-plate__state > :not(.ds-fullness) { order: 5; }
   .ds-plate--compact .ds-skill-badge { padding-inline: var(--space-2); }
+}
+
+/* ── Grid: equal cards, three a row on the desktop, one on the phone ── */
+.ds-grid { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--space-5); margin: var(--space-0); padding: var(--space-0); list-style: none; }
+.ds-grid > li { min-width: var(--space-0); list-style: none; }
+@media (min-width: 768px) { .ds-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+
+/* ── Progress: a goal gathered — a bar in the food's hue, its words under it ── */
+.ds-progress { display: flex; flex-direction: column; gap: var(--space-2); }
+.ds-progress__track { display: block; block-size: var(--size-cell-height); border-radius: var(--radius-full); background: var(--color-line-hairline); overflow: hidden; }
+.ds-progress__fill { display: block; block-size: 100%; inline-size: calc(var(--progress) * 100%); border-radius: var(--radius-full); background: var(--color-role-food); }
+.ds-progress__words { margin: var(--space-0); }
+@media (forced-colors: active) {
+  .ds-progress__track { border: var(--stroke-hairline) solid CanvasText; }
+  .ds-progress__fill { background: CanvasText; }
+}
+
+/* ── Seal of character: a 5×5 mirrored pixel glyph from the character hash, in the pet's light ── */
+.ds-seal {
+  box-sizing: border-box;
+  display: inline-grid;
+  grid-template-columns: repeat(5, 1fr);
+  grid-template-rows: repeat(5, 1fr);
+  gap: var(--size-seal-gap);
+  flex: none;
+  inline-size: var(--size-seal);
+  block-size: var(--size-seal);
+  padding: var(--space-1);
+  border-radius: var(--radius-sm);
+  background: var(--color-bg-raised-2);
+}
+.ds-seal--sm { inline-size: var(--size-seal-sm); block-size: var(--size-seal-sm); }
+.ds-seal__cell { background: var(--color-line-hairline); }
+.ds-seal__cell--on { background: var(--color-accent); }
+.ds-plate__head { display: flex; align-items: center; justify-content: center; gap: var(--space-3); min-inline-size: 0; }
+.ds-plate--start .ds-plate__head { justify-content: flex-start; }
+@media (forced-colors: active) {
+  .ds-seal { border: var(--stroke-hairline) solid CanvasText; }
+  .ds-seal__cell { background: Canvas; }
+  .ds-seal__cell--on { background: CanvasText; }
 }
 
 /* ── Skill badge: the pet's skill under its name, «Good at {label}» with its gem; the owner's opens Skill sheet ── */
@@ -1254,7 +1296,8 @@
   border-radius: var(--radius-md);
   background: var(--color-bg-raised-2);
 }
-.ds-copy__value { flex: 1 1 auto; min-width: var(--space-0); overflow-wrap: anywhere; color: var(--color-text-primary); }
+.ds-copy__value { flex: 1 1 auto; min-width: var(--space-0); margin: var(--space-0); padding: var(--space-0); border: none; background: transparent; color: var(--color-text-primary); resize: none; field-sizing: content; overflow-wrap: anywhere; }
+.ds-copy__value:focus-visible { outline: var(--stroke-focus) solid var(--color-focus); outline-offset: var(--stroke-focus-offset); border-radius: var(--radius-sm); }
 
 /* ── Sheet: desktop — a panel at the right, the page beside it in view; phone — a bottom sheet over a scrim ── */
 .ds-sheet-layer { position: fixed; inset: var(--space-0); z-index: var(--layer-sheet); display: flex; align-items: flex-end; }
@@ -1566,7 +1609,6 @@
 
 /* ── Desktop ──────────────────────────────────────────────────────────────────────────────────────────────── */
 @media (min-width: 768px) {
-  .ds-toast:not(.ds-toast--inline) { inset-block-start: calc((var(--size-header) - var(--size-target)) / 2); }
   .ds-convo { --ds-fade: var(--fade-edge); }
   .ds-convo__list { padding-block-end: var(--space-3); }
   .ds-header__inner { padding-inline: var(--space-gutter-desktop); }

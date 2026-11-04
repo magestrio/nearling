@@ -81,6 +81,8 @@ const STATE: Record<keyof PetState, 'always' | 'sometimes'> = {
   hiresSeen: 'always',
   // the errand away or kept after a failure, or null (`add-pet-errands` › `Errand flow`)
   errand: 'always',
+  // the giver's open gift link, or null (`add-gift` › `Gift flow`)
+  gift: 'always',
   events: 'always',
   pending: 'sometimes',
   jobKind: 'sometimes',

@@ -87,6 +87,9 @@
   --size-energy-height: 0.875rem;
   --size-dot: 0.375rem;
   --size-growth-dot: 0.625rem;
+  --size-seal: 2.5rem;
+  --size-seal-sm: 2rem;
+  --size-seal-gap: 0.125rem;
   --size-streak-cell: 0.75rem;
   --size-composer-max: 10rem;
   --size-skeleton-line: 0.875rem;

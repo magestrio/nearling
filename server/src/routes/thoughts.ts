@@ -8,6 +8,7 @@ import { requireSession, TOKEN_ID, type AppContext, type AppEnv } from '../http'
 import { hasVisible } from '../name/clean';
 import { settleLate } from '../errands/late';
 import { errandView, readErrand, awayErrand } from '../errands/store';
+import { linkForToken } from '../gift/link';
 import { desk, enqueueJob, jobOf } from '../pet/desk';
 import { memoryEpoch } from '../pet/forget';
 import { settleRitual } from '../pet/ritual';
@@ -80,9 +81,9 @@ thoughtRoutes.post('/api/pets/:id/thoughts', async (c) => {
   // A Manual offer still standing is declined first, in the queue before the line: the pet answers its old line itself
   // and the new one goes next (`Pet hire flow` › «отказ в Manual»). An offer whose hirer is asleep goes at this read.
   if ((await standingOffer(c.env, owned.id, owned.pet)) !== null && !(await offerJobOnItsWay(c.env.DB, owned.id))) {
-    await enqueueJob(c.env.DB, owned.id, { kind: 'decline', line: true });
+    await enqueueJob(c.env.DB, owned.id, { kind: 'decline', line: true }, session.accountId);
   }
-  const job = await enqueueJob(c.env.DB, owned.id, { kind: 'reply', mode: body.mode, text: body.text });
+  const job = await enqueueJob(c.env.DB, owned.id, { kind: 'reply', mode: body.mode, text: body.text }, session.accountId);
   run(c, owned.id);
   return c.json({ job }, 202);
 });
@@ -126,7 +127,7 @@ thoughtRoutes.post('/api/pets/:id/wake', async (c) => {
     return c.json({ job: last.id }, 202);
   }
   if (last.payload === null) return c.json({ job: null }, 202);
-  const job = await enqueueJob(c.env.DB, owned.id, jobOf({ id: last.id, kind: 'wake', mode: null, payload: last.payload }));
+  const job = await enqueueJob(c.env.DB, owned.id, jobOf({ id: last.id, kind: 'wake', mode: null, payload: last.payload }), owned.pet.owner_id);
   await c.env.DB.prepare('UPDATE jobs SET payload = NULL WHERE id = ?').bind(last.id).run();
   run(c, owned.id);
   return c.json({ job }, 202);
@@ -166,9 +167,17 @@ thoughtRoutes.get('/api/pets/:id/state', async (c) => {
   // erased by this read).
   const errand = await errandView(c.env.DB, await readErrand(c.env.DB, id, pet.owner_id), c.req.query('job') === undefined);
   const out: Record<string, unknown> = { tokenId: id, name: pet.name, stage: stageOf(pet), ...fields, errand, events, ...(friend !== undefined ? { friend } : {}) };
+  // The owner page polls this route every five seconds, including while asleep. An acceptance
+  // appears on the open page through that existing poll; a new UTC day or service pause does not
+  // remove the accepted link.
+  const gift = await linkForToken(c.env.DB, id);
+  out.gift = gift !== null && gift.giver_account === pet.owner_id && (gift.status === 'waiting' || gift.status === 'accepted')
+    ? { code: gift.code, status: gift.status, acceptedName: gift.accepted_name, acceptedAccount: gift.accepted_account, version: gift.version }
+    : null;
   const jobId = c.req.query('job');
   if (jobId !== undefined && jobId !== '') {
-    const job = await c.env.DB.prepare('SELECT status, kind, result FROM jobs WHERE id = ? AND token_id = ?').bind(jobId, id).first<{ status: string; kind: string; result: string | null }>();
+    const boundary = (await c.env.DB.prepare('SELECT last_gift_block_at FROM pets WHERE token_id = ?').bind(id).first<{ last_gift_block_at: number | null }>())?.last_gift_block_at ?? 0;
+    const job = await c.env.DB.prepare('SELECT status, kind, result FROM jobs WHERE id = ? AND token_id = ? AND (owner_account = ? OR (owner_account IS NULL AND created_at >= ?))').bind(jobId, id, pet.owner_id, boundary).first<{ status: string; kind: string; result: string | null }>();
     if (job === null) return c.json({ code: 'no_job' }, 404);
     out.jobKind = job.kind;
     if (job.status === 'queued' || job.status === 'running' || job.result === null) {
@@ -242,17 +251,19 @@ thoughtRoutes.get('/api/pets/:id/conversation', async (c) => {
   // so the own reply (and the reply of a declined offer) shows no line of its own when its turn has a question to a
   // worker. `has_own` says the turn's own reply has words: the price under a hire goes under it, else under the worker's.
   const rows = await c.env.DB.prepare(
-    `SELECT t.id, t.created_at, t.kind, t.player_text, t.reply_text, t.cut, t.reasked, t.price_yocto, t.price_usd_micros, t.worker_id, t.worker_name, t.skilled, t.turn_id, t.form, t.sources, t.verdict, t.searches, t.data_missed, t.data_labels,
+    `SELECT t.id, t.created_at, t.origin_owner, COALESCE(t.origin_sent_at, t.created_at) AS order_at, t.kind, t.player_text, t.reply_text, t.cut, t.reasked, t.price_yocto, t.price_usd_micros, t.worker_id, t.worker_name, t.skilled, t.turn_id, t.form, t.sources, t.verdict, t.searches, t.data_missed, t.data_labels,
        EXISTS (SELECT 1 FROM thoughts q WHERE q.token_id = t.token_id AND q.turn_id = t.turn_id AND q.kind = 'hire_question') AS has_question,
        EXISTS (SELECT 1 FROM thoughts r WHERE r.token_id = t.token_id AND r.turn_id = t.turn_id AND r.kind IN ('reply', 'question') AND r.reply_text IS NOT NULL) AS has_own,
        h.fee_yocto, h.fee_usd_micros, h.status AS hire_status, h.worker_name AS hire_worker
      FROM thoughts t LEFT JOIN hires h ON h.hirer_id = t.token_id AND (h.answer_thought_id = t.id OR (t.turn_id IS NOT NULL AND h.turn_id = t.turn_id))
-     WHERE t.token_id = ? AND t.created_at < ? AND (t.player_text IS NOT NULL OR t.reply_text IS NOT NULL) ORDER BY t.created_at DESC, t.rowid DESC LIMIT ?`,
+     WHERE t.token_id = ? AND COALESCE(t.origin_sent_at, t.created_at) < ? AND (t.player_text IS NOT NULL OR t.reply_text IS NOT NULL) ORDER BY COALESCE(t.origin_sent_at, t.created_at) DESC, t.rowid DESC LIMIT ?`,
   )
     .bind(owned.id, Number.isFinite(before) ? before : Number.MAX_SAFE_INTEGER, CONVERSATION_PAGE + 1)
     .all<{
       id: string;
       created_at: number;
+      order_at: number;
+      origin_owner: string | null;
       kind: string;
       player_text: string | null;
       reply_text: string | null;
@@ -279,7 +290,11 @@ thoughtRoutes.get('/api/pets/:id/conversation', async (c) => {
     }>();
   const more = rows.results.length > CONVERSATION_PAGE;
   const page = rows.results.slice(0, CONVERSATION_PAGE).reverse();
+  const giftRow = await c.env.DB.prepare('SELECT last_gift_block_at FROM pets WHERE token_id = ?').bind(owned.id).first<{ last_gift_block_at: number | null }>();
+  const giftAt = giftRow?.last_gift_block_at ?? null;
   const lines = page.flatMap((t): Record<string, unknown>[] => {
+    const previousOwner = giftAt !== null && (t.order_at < giftAt || (t.origin_owner !== null && t.origin_owner !== owned.pet.owner_id));
+    const tag = previousOwner ? { previousOwner: true } : {};
     // What the hire cost, in the rate it was made at, or that the network did not take it: the page learns without a reload.
     const hire = (): Record<string, unknown> =>
       t.fee_yocto === null || t.fee_usd_micros === null
@@ -293,44 +308,50 @@ thoughtRoutes.get('/api/pets/:id/conversation', async (c) => {
     // An errand is two lines: the job under «You» with its form, and the pet's report with what it cites and what it
     // cost; a paid errand with no report is the job and a line that says so (`Errand flow` › «came back empty»).
     if (t.kind === 'errand') {
-      const job = t.player_text === null ? [] : [{ id: `${t.id}:you`, who: 'player', kicker: t.form, text: t.player_text, at: t.created_at }];
+      const job = t.player_text === null ? [] : [{ id: `${t.id}:you`, who: 'player', kicker: t.form, text: t.player_text, at: t.order_at, ...tag }];
       const priceCents = Number((t.price_usd_micros / 10_000).toPrecision(2));
-      if (t.reply_text === null) return [...job, { id: t.id, who: 'error', code: 'errand_empty', priceCents, at: t.created_at }];
+      if (t.reply_text === null) return [...job, { id: t.id, who: 'error', code: 'errand_empty', priceCents, at: t.order_at, ...tag }];
       return [
         ...job,
         {
           id: t.id,
           who: 'pet',
           text: t.reply_text,
-          at: t.created_at,
+          at: t.order_at,
+          ...tag,
           report: { form: t.form, sources: JSON.parse(t.sources ?? '[]'), verdict: t.verdict, searches: t.searches ?? 0, priceCents, missed: JSON.parse(t.data_missed ?? '[]') },
         },
       ];
     }
     const ownReply = (t.kind === 'reply' || t.kind === 'question') && t.has_question === 1;
-    const player = t.player_text !== null && !ownReply ? [{ id: `${t.id}:you`, who: 'player', text: t.player_text, at: t.created_at }] : [];
+    const player = t.player_text !== null && !ownReply ? [{ id: `${t.id}:you`, who: 'player', text: t.player_text, at: t.order_at, ...tag }] : [];
     if (t.reply_text === null) return player;
     switch (t.kind) {
       // The line of a transition is the game's: a centred line, not the pet's voice (`Growth flow`).
       case 'growth':
-        return [...player, { id: t.id, who: 'event', text: t.reply_text, at: t.created_at }];
+        return [...player, { id: t.id, who: 'event', text: t.reply_text, at: t.order_at, ...tag }];
       // The friend's pet's words, with its receipt at the worker's token id (`Receipt index data`). No price under it:
       // a saved advice shows none, and a dropped record changes the food quietly (`Advice flow`, `Hire price rule`).
       case 'advice':
-        return [...player, { id: t.id, who: 'worker', text: t.reply_text, at: t.created_at, worker, skilled: t.skilled === 1, ...dataLabels }];
+        return [...player, { id: t.id, who: 'worker', text: t.reply_text, at: t.order_at, worker, skilled: t.skilled === 1, ...dataLabels, ...tag }];
       case 'hire_answer':
-        return [...player, { id: t.id, who: 'worker', text: t.reply_text, at: t.created_at, worker, skilled: t.skilled === 1, ...dataLabels, ...(t.has_own === 1 ? {} : hire()) }];
+        return [...player, { id: t.id, who: 'worker', text: t.reply_text, at: t.order_at, worker, skilled: t.skilled === 1, ...dataLabels, ...(t.has_own === 1 ? {} : hire()), ...tag }];
       // What the pet wrote to the worker, its own thought (the client says «To {worker}: …»).
       case 'hire_question':
-        return [...player, { id: t.id, who: 'pet', text: t.reply_text, at: t.created_at, cut: null, hireTo: t.worker_name ?? '' }];
+        return [...player, { id: t.id, who: 'pet', text: t.reply_text, at: t.order_at, cut: null, hireTo: t.worker_name ?? '', ...tag }];
       case 'hire_event':
-        return [{ id: t.id, who: 'event', code: HIRE_EVENT_CODES[t.reply_text] ?? 'hire_failed', at: t.created_at, worker }];
+        return [{ id: t.id, who: 'event', code: HIRE_EVENT_CODES[t.reply_text] ?? 'hire_failed', at: t.order_at, worker, ...tag }];
       default:
         return [
           ...player,
-          { id: t.id, who: 'pet', text: t.reply_text, at: t.created_at, cut: t.cut, ...(t.kind === 'deep' ? { price: t.price_yocto, priceCents: t.price_usd_micros / 10_000 } : {}), ...(ownReply ? hire() : {}) },
+          { id: t.id, who: 'pet', text: t.reply_text, at: t.order_at, cut: t.cut, ...(t.kind === 'deep' ? { price: t.price_yocto, priceCents: t.price_usd_micros / 10_000 } : {}), ...(ownReply ? hire() : {}), ...tag },
         ];
     }
   });
-  return c.json({ lines, more, before: page.length > 0 ? page[0]!.created_at : null });
+  if (giftAt !== null && Number.isFinite(before) && before > giftAt && (page.length === 0 || page[0]!.order_at <= giftAt)) {
+    const event = { id: `gift:${giftAt}`, who: 'event', code: 'gift', name: owned.pet.name, at: giftAt };
+    const firstNew = lines.findIndex((line) => Number(line.at) >= giftAt && line.previousOwner !== true);
+    lines.splice(firstNew < 0 ? lines.length : firstNew, 0, event);
+  }
+  return c.json({ lines, more, before: page.length > 0 ? page[0]!.order_at : null });
 });

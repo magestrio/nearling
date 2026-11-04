@@ -24,7 +24,7 @@ import { claimGasTopUp, readWallet, releaseGasTopUp } from './wallet';
 
 /** A route's answer: the body and the HTTP status. */
 export interface Reply {
-  status: 200 | 400 | 404 | 409 | 500 | 502 | 503;
+  status: 200 | 400 | 403 | 404 | 409 | 500 | 502 | 503;
   body: Record<string, unknown>;
 }
 

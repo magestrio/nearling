@@ -1,5 +1,5 @@
 import { useId, type FormEvent, type ReactNode } from 'react';
-import { Block, Button, Center, Centerpiece, Header, Heading, Nest, Note, Page, Shell, Stack, Text, TextField } from '../../ds';
+import { Block, Button, Center, Centerpiece, Cluster, Header, Heading, Nest, Note, Page, Shell, Stack, Text, TextField } from '../../ds';
 import { AccountControl } from '../../account/AccountControl';
 import { resetTime } from '../../lib/time';
 import { petPath } from '../../route';
@@ -29,6 +29,14 @@ const NOT_HATCHED = "Your pet didn't hatch this time. Nothing was lost — try a
 function publicNotice(name: string): string {
   const subject = name ? `Your pet's name "${name}", character` : "Your pet's name, character";
   return `${subject}, ID, hatch date, owner and who gave it to whom, growth, traits, streak and freezes (so the days you finish its ritual), every outfit, meal and thought receipt, every pet it asks for help or helps, whether a skill shaped it, and every price and fee are public forever — even if this game shuts down.`;
+}
+
+/** The two notices beside a pet on the Gift screen are the Hatch screen's own words. */
+export function HatchNotices({ name }: { name: string }) {
+  return <Stack gap={3}>
+    <Block role="trust" icon="globe" quiet><Text variant="small">{publicNotice(name)}</Text><Text variant="small">{RECEIPTS_LINE}</Text></Block>
+    <Block role="mind" icon="bulb" quiet><Text variant="small">{AI_NOTICE}</Text></Block>
+  </Stack>;
 }
 
 /** A line why, then what can be done — the one place for every «why» of this screen. The line is silent where it is
@@ -73,6 +81,24 @@ export function HatchScreen({ from }: { from: string | null }) {
         </Page>
       </Shell>
     );
+  }
+
+  if (view.kind === 'no-pets') {
+    const { tokenId, name: giftedName } = view.lastGifted;
+    const closedLine = view.reason === 'daily'
+      ? `That's all the new pets for today. Hatching is back at ${resetTime(view.until)}. You can still feed and visit pets you know.`
+      : PAUSED;
+    return <Shell accent="none" header={header}>
+      <Page fill width="narrow"><Center>
+        <Nest />
+        {view.closed ? <Note>{closedLine}</Note> : null}
+        <Heading level={1} variant="lead" align="center" measure>{`You gave ${giftedName} a new home, so you don't have a pet right now. You can still feed and visit pets you know — and if someone gives you a pet, it'll show up here.`}</Heading>
+        <Cluster gap={3} justify="center">
+          <Button href={petPath(tokenId)}>{`Visit ${giftedName}`}</Button>
+          {hatch.friend && hatch.friend !== 'loading' ? <Button variant="secondary" href={petPath(hatch.friend.tokenId)}>{`Back to ${hatch.friend.name}`}</Button> : null}
+        </Cluster>
+      </Center></Page>
+    </Shell>;
   }
 
   // The way out of a closed screen: «Back to {friend_pet}» when the address names a friend's pet that exists; a signed-in
@@ -184,15 +210,7 @@ export function HatchScreen({ from }: { from: string | null }) {
                 error={hatch.nameRefused ? "Let's pick a different name." : undefined}
                 hint={cleaned ? [LIMIT_HINT, PUBLIC_HINT] : LIMIT_HINT}
               />
-              <Stack gap={3}>
-                <Block role="trust" icon="globe" quiet>
-                  <Text variant="small">{publicNotice(cleaned)}</Text>
-                  <Text variant="small">{RECEIPTS_LINE}</Text>
-                </Block>
-                <Block role="mind" icon="bulb" quiet>
-                  <Text variant="small">{AI_NOTICE}</Text>
-                </Block>
-              </Stack>
+              <HatchNotices name={cleaned} />
             </Stack>
           </Centerpiece>
         </form>

@@ -100,6 +100,15 @@ describe('the return from Google', () => {
     expect(peekReturnPlace()).toBeNull();
   });
 
+  // spec: add-gift › Gift accept flow › вход из ссылки
+  it('returns to the gift code with the one automatic acceptance action', async () => {
+    rememberReturnPlace({ path: `/gift/${'a'.repeat(48)}`, action: 'giftAccept' });
+    await mount(auth({ authenticated: true }));
+    expect(window.location.pathname).toBe(`/gift/${'a'.repeat(48)}`);
+    expect(takePendingAction()).toBe('giftAccept');
+    expect(peekReturnPlace()).toBeNull();
+  });
+
   // spec: add-account › Sign-in flow › вошёл с главной
   it('has nothing to do at `/` with no place: Home takes it from there', async () => {
     await mount(auth({ authenticated: true }));

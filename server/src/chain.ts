@@ -104,6 +104,10 @@ export const PET_MINT_TGAS = 15n;
  * (`Feeding gas data`). `contract/tests/feed.rs` › `gas_of_a_feed` reads this line and feeds with it. */
 export const PET_FEED_TGAS = 5n;
 
+/** Measured with a 64-character giver in contract/tests/gift_transfer.rs. */
+export const GIFT_TRANSFER_TGAS = 5n;
+export const GIFT_RESERVE_YOCTO = 6_000_000_000_000_000_000_001n;
+
 /** The send and execution fees of a `pet_feed` transaction, Tgas, rounded up: the wallet buys them up
  * front on top of the prepaid gas (`contract/tests/feed.rs` reads this line and feeds with it). */
 export const PET_FEED_FEES_TGAS = 1n;
@@ -188,6 +192,21 @@ export async function tokenIdsOf(env: Pick<Env, 'NEAR_RPC_URL' | 'CONTRACT_ID'>,
   return tokens.map((t) => t.token_id);
 }
 
+/** Read every NEP-181 page. A short page is the end; token ids stay on chain. */
+export async function allTokenIdsOf(env: Pick<Env, 'NEAR_RPC_URL' | 'CONTRACT_ID'>, accountId: string): Promise<string[]> {
+  const ids: string[] = [];
+  const pageSize = 50;
+  for (;;) {
+    const page = await view<{ token_id: string }[]>(env, 'nft_tokens_for_owner', {
+      account_id: accountId,
+      from_index: String(ids.length),
+      limit: pageSize,
+    });
+    ids.push(...page.map((token) => token.token_id));
+    if (page.length < pageSize) return [...new Set(ids)];
+  }
+}
+
 /** Whether the pet's record of acquaintances holds the account (`pet_knows`): the truth the hire candidates rest on. */
 export function petKnows(env: Pick<Env, 'NEAR_RPC_URL' | 'CONTRACT_ID'>, tokenId: string, accountId: string): Promise<boolean> {
   return view<boolean>(env, 'pet_knows', { token_id: tokenId, account_id: accountId });
@@ -243,8 +262,38 @@ export async function recentBlockHash(env: Pick<Env, 'NEAR_RPC_URL'>): Promise<U
   }
 }
 
+/** NEAR accepts a signed transaction while its reference block is within 86,400 blocks of the
+ * final head. Compare block heights, not wall time, before treating an unseen hash as expired. */
+export async function transactionExpired(env: Pick<Env, 'NEAR_RPC_URL'>, referenceHash: Uint8Array, createdAt: number): Promise<boolean> {
+  try {
+    const provider = rpcProvider(env);
+    const head = await withTimeout(provider.viewBlock({ finality: 'final' }), READ_TIMEOUT_MS);
+    try {
+      const reference = await withTimeout(provider.viewBlock({ blockId: baseEncode(Uint8Array.from(referenceHash)) }), READ_TIMEOUT_MS);
+      return Number(head.header.height) - Number(reference.header.height) > 86_400;
+    } catch {
+      // A non-archive RPC may have pruned the reference block. Give it two days before
+      // treating an unseen hash as expired; a short RPC outage still leaves it unknown.
+      if (Date.now() - createdAt >= 48 * 3_600_000) return true;
+      throw new ChainUnreachable();
+    }
+  } catch {
+    throw new ChainUnreachable();
+  }
+}
+
 /** What the network says about a transaction we sent. `null`: the network has not seen it (yet). */
-export type TxOutcome = { status: 'ok'; value: string | null; burnt?: string } | { status: 'failed'; code: string } | { status: 'pending' } | null;
+export type TxOutcome = { status: 'ok'; value: string | null; burnt?: string; blockHash?: string } | { status: 'failed'; code: string } | { status: 'pending' } | null;
+
+/** The execution block's timestamp, in milliseconds. Never use the Worker's clock as chain time. */
+export async function blockTime(env: Pick<Env, 'NEAR_RPC_URL'>, hash: string): Promise<number> {
+  try {
+    const block = await withTimeout(rpcProvider(env).viewBlock({ blockId: hash }), READ_TIMEOUT_MS);
+    return Number(BigInt(block.header.timestamp_nanosec) / 1_000_000n);
+  } catch {
+    throw new ChainUnreachable();
+  }
+}
 
 export async function txStatus(env: Pick<Env, 'NEAR_RPC_URL'>, txHash: string, senderId: string): Promise<TxOutcome> {
   try {
@@ -312,8 +361,8 @@ export type ContractCode = (typeof CONTRACT_CODES)[number];
 
 interface RawOutcome {
   status?: unknown;
-  transaction_outcome?: { outcome?: { tokens_burnt?: string } };
-  receipts_outcome?: { outcome?: { tokens_burnt?: string } }[];
+  transaction_outcome?: { block_hash?: string; outcome?: { tokens_burnt?: string } };
+  receipts_outcome?: { block_hash?: string; outcome?: { tokens_burnt?: string } }[];
 }
 
 /** The NEAR a transaction burned, all its receipts together, yocto; undefined when it is zero or unknown. */
@@ -329,7 +378,8 @@ function interpret(out: RawOutcome | null): TxOutcome {
     if ('SuccessValue' in status) {
       const b64 = status['SuccessValue'];
       const burnt = burntOf(out);
-      return { status: 'ok', value: decodeSuccess(typeof b64 === 'string' ? b64 : ''), ...(burnt !== undefined ? { burnt } : {}) };
+      const executionBlock = out?.receipts_outcome?.at(-1)?.block_hash ?? out?.transaction_outcome?.block_hash;
+      return { status: 'ok', value: decodeSuccess(typeof b64 === 'string' ? b64 : ''), ...(burnt !== undefined ? { burnt } : {}), ...(executionBlock !== undefined ? { blockHash: executionBlock } : {}) };
     }
     if ('Failure' in status) {
       const text = JSON.stringify(status['Failure']);
@@ -379,7 +429,7 @@ export interface ServerCall {
 
 /** Called with the hash of a signed transaction before each broadcast. A throw means the hash could not be
  * kept, and nothing is sent. */
-export type OnSigned = (txHash: string) => Promise<void>;
+export type OnSigned = (txHash: string, signedBytes: Uint8Array) => Promise<void>;
 
 export function serverAccount(env: Pick<Env, 'NEAR_RPC_URL' | 'SERVER_ACCOUNT_ID' | 'NEAR_SERVER_KEY'>): { account: Account; signer: KeyPairSigner } {
   const signer = KeyPairSigner.fromSecretKey(env.NEAR_SERVER_KEY as KeyPairString);
@@ -406,8 +456,8 @@ export function gasAccount(env: Pick<Env, 'NEAR_RPC_URL' | 'GAS_ACCOUNT_ID' | 'N
 }
 
 /** A plain transfer of NEAR from the account of `keys` (the gas account's top-up of a wallet). */
-export function signAndSendTransfer(keys: { account: Account; signer: KeyPairSigner }, receiverId: string, yocto: bigint): Promise<SendResult> {
-  return signAndSendActions(keys, receiverId, [actions.transfer(yocto)]);
+export function signAndSendTransfer(keys: { account: Account; signer: KeyPairSigner }, receiverId: string, yocto: bigint, onSigned?: OnSigned): Promise<SendResult> {
+  return signAndSendActions(keys, receiverId, [actions.transfer(yocto)], onSigned);
 }
 
 async function signAndSendActions(keys: { account: Account; signer: KeyPairSigner }, receiverId: string, todo: Action[], onSigned?: OnSigned): Promise<SendResult> {
@@ -422,7 +472,7 @@ async function signAndSendActions(keys: { account: Account; signer: KeyPairSigne
       signed = await signer.signTransaction(tx);
       // Before the broadcast, every time (a retry with a new nonce is a new transaction): a hash that
       // cannot be kept means nothing is sent.
-      await onSigned?.(baseEncode(signed.txHash));
+      await onSigned?.(baseEncode(signed.txHash), signed.signedTransaction.encode());
     } catch {
       // Nothing was sent: the nonce or the block could not be read, or the hash could not be kept.
       throw new ChainUnreachable();

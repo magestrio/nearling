@@ -1,6 +1,7 @@
 // GET /api/pets/:id and GET /api/me.
 import { Hono } from 'hono';
-import { ChainUnreachable, hatchView, ownedCount, petView, stageOf, type PetRecord } from '../chain';
+import { ChainUnreachable, ownedCount, petView, stageOf, type PetRecord } from '../chain';
+import { currentPet, lastGiftedPet, ownedPets, selectCurrentPet } from '../gift/current';
 import { requireSession, TOKEN_ID, type AppEnv } from '../http';
 import { wornOf } from '../pet/outfits';
 import { fullnessOf, moodFor, ownerFields } from '../pet/view';
@@ -54,6 +55,8 @@ petRoutes.get('/api/pets/:id', async (c) => {
   const myFeed = mine === null ? null : { id: mine.id, source: mine.source };
   if (pet.owner_id !== session.accountId) return c.json({ viewer: 'guest', ...base, myFeed });
 
+  await selectCurrentPet(c.env, session.accountId, id);
+
   let owned: number;
   try {
     owned = await ownedCount(c.env, session.accountId);
@@ -70,12 +73,24 @@ petRoutes.get('/api/me', async (c) => {
   const session = requireSession(c);
   if (session instanceof Response) return session;
   try {
-    const [hatch, owned] = await Promise.all([hatchView(c.env, session.accountId), ownedCount(c.env, session.accountId)]);
-    const hatchedPet = hatch.token_id === null ? null : await petView(c.env, hatch.token_id);
-    const hatched = hatch.token_id !== null && hatchedPet !== null ? { tokenId: hatch.token_id, name: hatchedPet.name } : null;
-    // Until `add-gift`, the current pet is the one the player hatched, if they still own it.
-    const currentPet = hatched !== null && hatchedPet?.owner_id === session.accountId ? hatched : null;
-    return c.json({ accountId: session.accountId, hatched, currentPet, ownedCount: owned });
+    const { pets, hatched } = await ownedPets(c.env, session.accountId);
+    const current = await currentPet(c.env, session.accountId, pets);
+    const lastGifted = pets.length === 0 && hatched !== null ? await lastGiftedPet(c.env, session.accountId) : null;
+    return c.json({ accountId: session.accountId, hatched: hatched === null ? null : { tokenId: hatched.tokenId, name: hatched.name },
+      currentPet: current === null ? null : { tokenId: current.tokenId, name: current.name }, ownedCount: pets.length,
+      ...(lastGifted === null ? {} : { lastGifted: { tokenId: lastGifted.tokenId, name: lastGifted.name } }) });
+  } catch (e) {
+    if (e instanceof ChainUnreachable) return unreachable(c);
+    throw e;
+  }
+});
+
+petRoutes.get('/api/me/pets', async (c) => {
+  const session = requireSession(c);
+  if (session instanceof Response) return session;
+  try {
+    const { pets } = await ownedPets(c.env, session.accountId);
+    return c.json({ pets, currentPet: await currentPet(c.env, session.accountId, pets) });
   } catch (e) {
     if (e instanceof ChainUnreachable) return unreachable(c);
     throw e;

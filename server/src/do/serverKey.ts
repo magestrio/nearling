@@ -26,10 +26,14 @@ export class ServerKey extends DurableObject<Env> {
   }
 
   /** Sends NEAR from the gas account to `receiver` (the `gas` instance). */
-  transfer(receiver: string, yocto: string): Promise<ServerKeyAnswer> {
+  transfer(receiver: string, yocto: string, giftClaim?: { sub: string; claimedAt: number; op: string }): Promise<ServerKeyAnswer> {
     return this.enqueue(async () => {
       this.gasKeys ??= gasAccount(this.env);
-      return signAndSendTransfer(this.gasKeys, receiver, BigInt(yocto));
+      return signAndSendTransfer(this.gasKeys, receiver, BigInt(yocto), giftClaim === undefined ? undefined : async (hash, bytes) => {
+        const noted = await this.env.DB.prepare('UPDATE players SET gift_topup_flight = ?1, gift_topup_signed_bytes = ?2 WHERE sub = ?3 AND gift_topup_at = ?4 AND gift_topup_op = ?5')
+          .bind(hash, bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength), giftClaim.sub, giftClaim.claimedAt, giftClaim.op).run();
+        if (noted.meta.changes !== 1) throw new ChainUnreachable();
+      });
     });
   }
 

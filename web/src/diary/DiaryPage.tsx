@@ -96,7 +96,7 @@ function Skeletons({ name }: { name: string }) {
   );
 }
 
-function Entry({ pet, today }: { pet: OwnerView; today: EntryDraw }) {
+function Entry({ pet, today, previousOwner }: { pet: OwnerView; today: EntryDraw; previousOwner?: boolean }) {
   if (today.kind === 'line') {
     return (
       <Surface>
@@ -104,7 +104,7 @@ function Entry({ pet, today }: { pet: OwnerView; today: EntryDraw }) {
       </Surface>
     );
   }
-  return (
+  const surface = (
     <Surface>
       <Stack gap={3}>
         <Cluster gap={3}>
@@ -119,6 +119,7 @@ function Entry({ pet, today }: { pet: OwnerView; today: EntryDraw }) {
           ))}
           {today.question !== null ? <Text variant="body-strong">{today.question}</Text> : null}
         </Stack>
+        {previousOwner ? <Text variant="small" tone="secondary">{`${pet.name} wrote this before coming to you.`}</Text> : null}
         {today.work !== null ? (
           <Text variant="small" tone="secondary">
             {today.work}
@@ -127,6 +128,7 @@ function Entry({ pet, today }: { pet: OwnerView; today: EntryDraw }) {
       </Stack>
     </Surface>
   );
+  return previousOwner ? <Stack gap={2}><Text variant="small" tone="secondary">Previous owner</Text>{surface}</Stack> : surface;
 }
 
 export function DiaryPage({
@@ -400,7 +402,7 @@ export function DiaryPage({
       <>
         <Streak {...streak} />
         <Stack gap={3}>
-          <Entry pet={pet} today={entry} />
+          <Entry pet={pet} today={entry} previousOwner={view.entry.kind === 'text' && view.entry.previousOwner} />
           {exchanged}
           <Stack gap={3}>
             <Text id={HANDOFF_ID} tabIndex={-1}>
@@ -423,7 +425,7 @@ export function DiaryPage({
       <>
         <Streak {...streak} />
         <Stack gap={3}>
-          <Entry pet={pet} today={entry} />
+          <Entry pet={pet} today={entry} previousOwner={view.entry.kind === 'text' && view.entry.previousOwner} />
           {exchanged}
           {exchanged === null && askable && view.entry.kind === 'text' ? (
             <Composer

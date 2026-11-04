@@ -5,7 +5,7 @@ import { Hono } from 'hono';
 import { requireSession, type AppEnv } from '../http';
 import { hasVisible } from '../name/clean';
 import { blocksOf } from '../errands/blocks';
-import { FORMS, allowanceFor, readCoefficients, searchQuote, typicalRead, view, type ErrandForm } from '../errands/price';
+import { FORMS, allowanceFor, fullRead, readCoefficients, searchQuote, typicalRead, view, type ErrandForm } from '../errands/price';
 import { readErrand, sendErrand } from '../errands/store';
 import { track } from '../track';
 import { ownedPet, run } from './thoughts';
@@ -54,10 +54,11 @@ errandRoutes.post('/api/pets/:id/errand', async (c) => {
   if (owned instanceof Response) return owned;
 
   // The blocks are read again now: a page that is stale, or another tab's spend, must not start what it cannot pay.
-  const { block } = await blocksOf(c.env, owned.id, owned.pet, form, Date.now());
+  const { block, food, hasData } = await blocksOf(c.env, owned.id, owned.pet, form, Date.now());
   if (block !== null) return c.json({ code: 'blocked', block }, 409);
 
-  const sent = await sendErrand(c.env.DB, { tokenId: owned.id, owner: owned.pet.owner_id, form, job: body.job, now: Date.now() });
+  const displayMax = view(form === 'read' ? fullRead(c.env) : searchQuote(c.env, food.room, hasData).upTo);
+  const sent = await sendErrand(c.env.DB, { tokenId: owned.id, owner: owned.pet.owner_id, form, job: body.job, now: Date.now(), displayMax });
   if (sent === null) return c.json({ code: 'away' }, 409);
   track('errand_given', { form });
   run(c, owned.id);

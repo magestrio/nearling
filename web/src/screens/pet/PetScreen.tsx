@@ -47,9 +47,13 @@ import { ReportMessage } from '../../errands/reportLines';
 import { useErrand } from '../../errands/useErrand';
 import { VerdictCard } from '../../errands/VerdictCard';
 import { closeVerdict, useVerdictRequest } from '../../errands/verdictRequest';
-import { closeFeed, openFeed, useAddNearRequest, useFeedRequest } from '../../feeding/feedRequest';
+import { closeFeed, feedOpenNow, openFeed, useAddNearRequest, useFeedRequest } from '../../feeding/feedRequest';
 import { FeedLayer } from '../../feeding/FeedLayer';
 import { useFeedLinkOpened } from '../../feeding/useFeedLinkOpened';
+import '../../gift/giftRequest';
+import { GiftSheet } from '../../gift/GiftSheet';
+import { MyPetsSheet, useMyPetsOpen, closeMyPets } from '../../gift/MyPetsSheet';
+import { closeGift, useGiftRequest } from '../../gift/giftRequest';
 import { energyLine } from '../../life/lines';
 import { OfferMessage, OwnLostMessage, WorkerMessage } from '../../work/hireLines';
 import { askingLine, offerLine, offerRoseLine, skillSavedLine } from '../../work/lines';
@@ -225,6 +229,12 @@ function OwnerPage({ pet, s }: { pet: OwnerView; s: ReturnType<typeof usePetScre
   const birth = useBirth(tokenId);
   const { hub } = figure;
   const feedCover = useFeedCover(tokenId);
+  const giftRequest = useGiftRequest();
+  const giftOpen = giftRequest?.tokenId === tokenId;
+  const myPetsOpen = useMyPetsOpen() === tokenId;
+  const giftGiven = giftOpen && giftRequest?.given === true;
+  const giftTyping = giftOpen && giftRequest?.self && s.draft !== '';
+  useEffect(() => { if (!auth.authenticated || auth.sessionEnded) { closeGift(); closeMyPets(); } }, [auth.authenticated, auth.sessionEnded]);
 
   // Skill sheet (`Skill sheet screen`): the badge under the name opens it, over the conversation column like Feed sheet. The label
   // the badge shows is the poll's, until a save or a forget of this tab says otherwise.
@@ -415,7 +425,8 @@ function OwnerPage({ pet, s }: { pet: OwnerView; s: ReturnType<typeof usePetScre
   // (`Session expiry flow` › «сессия кончилась при открытом экране»).
   const act = (name: ActionName) => {
     if (!auth.needSession()) return;
-    if (name === 'feed') skill.close();
+    if (name === 'feed') { skill.close(); closeGift(); }
+    if (name === 'gift' && feedOpenNow()) return;
     runAction(name, ctx);
   };
   const feedButton = (compact: boolean, variant?: 'secondary') => (
@@ -463,7 +474,7 @@ function OwnerPage({ pet, s }: { pet: OwnerView; s: ReturnType<typeof usePetScre
           {line.text}
         </Message>
       ) : line.who === 'player' ? (
-        <Message key={line.id} from="player" speaker="You" fresh={line.fresh} kicker={line.kicker ? FORM_WORD[line.kicker] : undefined}>
+        <Message key={line.id} from="player" speaker={line.previousOwner ? 'Previous owner' : 'You'} fresh={line.fresh} kicker={line.kicker ? FORM_WORD[line.kicker] : undefined}>
           {line.text}
         </Message>
       ) : line.who === 'error' ? (
@@ -585,17 +596,23 @@ function OwnerPage({ pet, s }: { pet: OwnerView; s: ReturnType<typeof usePetScre
     </Stack>
   );
 
-  // «Back to {friend_pet}» takes the place of «My pets» on the newborn that came from a friend's pet (frame
-  // `pet-newborn-from-friend`); both are the header's start control
+  // A newborn from a friend's pet keeps that route back; an owner with two pets also needs the list.
   const header = (
     <Header
       start={
-        s.friend ? (
+        s.friend && pet.ownedCount >= 2 ? <Cluster>
+          <Button variant="ghost" size="compact" icon="back" href={`/pet/${s.friend.tokenId}`}>
+            {`Back to ${s.friend.name}`}
+          </Button>
+          <Button variant="ghost" size="compact" icon="pets" haspopup="dialog" expanded={myPetsOpen} onClick={() => act('myPets')}>
+            My pets
+          </Button>
+        </Cluster> : s.friend ? (
           <Button variant="ghost" size="compact" icon="back" href={`/pet/${s.friend.tokenId}`}>
             {`Back to ${s.friend.name}`}
           </Button>
         ) : pet.ownedCount >= 2 ? (
-          <Button variant="ghost" size="compact" icon="pets" haspopup="dialog" onClick={() => act('myPets')}>
+          <Button variant="ghost" size="compact" icon="pets" haspopup="dialog" expanded={myPetsOpen} onClick={() => act('myPets')}>
             My pets
           </Button>
         ) : null
@@ -607,15 +624,16 @@ function OwnerPage({ pet, s }: { pet: OwnerView; s: ReturnType<typeof usePetScre
   // With Feed sheet open the phone's bottom sheet is modal: the header and the pet are out of reach (on the desktop the page stays
   // live beside the panel); the conversation and its field are covered on both, the sheet takes the column they stand in.
   return (
-    <Shell accent={accentOf(tokenId)} fill header={<Inert on={cover.open ? 'phone' : undefined}>{header}</Inert>}>
-      <Page fill>
+    <Shell accent={accentOf(tokenId)} fill header={<Inert on={giftGiven ? true : cover.open || giftOpen || myPetsOpen ? 'phone' : undefined}>{header}</Inert>}>
+      {myPetsOpen ? <MyPetsSheet tokenId={tokenId} /> : null}
+      <Inert on={myPetsOpen ? 'phone' : undefined}><Page fill>
         <ConnectionBanner banner={s.banner} name={name} tryAgain={s.tryAgain} />
         {paused && !s.banner ? <Banner tone="info">{pausedLine(name)}</Banner> : null}
         <Split
           fill
           ratio="start"
           start={
-            <Inert on={cover.open ? 'phone' : undefined}>
+            <Inert on={giftGiven ? true : cover.open || giftOpen ? 'phone' : undefined}>
               <PetStage
                 compact
                 owner
@@ -644,7 +662,7 @@ function OwnerPage({ pet, s }: { pet: OwnerView; s: ReturnType<typeof usePetScre
                         describedBy={s.away ? 'errand-away' : undefined}
                         onClick={openErrand}
                       />
-                      <RailItem icon="gift" label={`Give ${name} away`} haspopup="dialog" onClick={() => act('gift')} />
+                      <RailItem icon="gift" label={`Give ${name} away`} haspopup="dialog" expanded={giftOpen && !giftRequest?.self} onClick={() => act('gift')} />
                     </Rail>
                   )
                 }
@@ -672,7 +690,7 @@ function OwnerPage({ pet, s }: { pet: OwnerView; s: ReturnType<typeof usePetScre
           }
           end={
             <Stack gap={0} grow>
-              <Inert on={cover.open}>
+              <Inert on={cover.open || (giftOpen && !giftTyping)}>
                 <Conversation intro={card} introOn="phone">
                   {history}
                   {s.failure ? (
@@ -708,6 +726,7 @@ function OwnerPage({ pet, s }: { pet: OwnerView; s: ReturnType<typeof usePetScre
                 <ErrandSheet name={name} errand={errand} onFeed={() => openFeed({ tokenId, name, label: name, elsewhere: false })} />
               </Inert>
               <FeedLayer column pageFullness={pet.fullness} />
+              <GiftSheet tokenId={tokenId} name={name} stage={pet.stage} worn={pet.worn} onGiven={s.reread} />
               <SkillSheet
                 name={name}
                 skill={skill}
@@ -736,7 +755,7 @@ function OwnerPage({ pet, s }: { pet: OwnerView; s: ReturnType<typeof usePetScre
             </Stack>
           }
         />
-      </Page>
+      </Page></Inert>
       <Live>{skillSaved ? skillSavedLine(name) : ''}</Live>
       {skillSaved ? (
         <Toast icon="check" silent onDone={toastHeld() ? undefined : () => setSkillSaved(false)}>
@@ -785,6 +804,8 @@ function OutsiderPage({ pet, s }: { pet: Exclude<PetView, { viewer: 'owner' }>; 
       />
     );
   const cover = useFeedCover(tokenId);
+  const giftRequest = useGiftRequest();
+  const givenHere = giftRequest?.tokenId === tokenId && giftRequest.given === true;
   const feed = (
     <Button block icon="feed" haspopup="dialog" expanded={cover.opener || undefined} onClick={() => (viewer === 'visitor' ? begin('feed') : auth.needSession() && runAction('feed', ctx))}>
       {`Feed ${name}`}
@@ -846,14 +867,14 @@ function OutsiderPage({ pet, s }: { pet: Exclude<PetView, { viewer: 'owner' }>; 
       takeCarried: s.takeCarried,
     };
     return (
-      <Shell accent={accentOf(tokenId)} fill header={<Inert on={covered}>{header}</Inert>}>
+      <Shell accent={accentOf(tokenId)} fill header={<Inert on={givenHere ? true : covered}>{header}</Inert>}>
         <Page fill>
           <ConnectionBanner banner={s.banner} name={name} tryAgain={s.tryAgain} />
           <Split
             fill
             ratio="start"
             start={
-              <Inert on={covered}>
+              <Inert on={givenHere ? true : covered}>
                 <PetStage
                   compact
                   pet={<PetFigure tokenId={tokenId} name={name} state={state} stage={pet.stage} mood={asleep ? null : pet.mood} size="hero" lost={figure.lost} onLost={figure.onLost} hub={figure.hub} {...wearProps(pet.worn)} />}
@@ -874,8 +895,9 @@ function OutsiderPage({ pet, s }: { pet: Exclude<PetView, { viewer: 'owner' }>; 
             }
             end={
               <Stack gap={0} grow>
-                <Slot slot="advice" {...slot} advice={advice} />
+                <Inert on={givenHere}><Slot slot="advice" {...slot} advice={advice} /></Inert>
                 <FeedLayer column pageFullness={pet.fullness} />
+                {givenHere ? <GiftSheet tokenId={tokenId} name={name} stage={pet.stage} worn={pet.worn} onGiven={() => undefined} /> : null}
               </Stack>
             }
           />
@@ -885,8 +907,8 @@ function OutsiderPage({ pet, s }: { pet: Exclude<PetView, { viewer: 'owner' }>; 
     );
   }
   return (
-    <Shell accent={accentOf(tokenId)} fill header={<Inert on={covered}>{header}</Inert>}>
-      <Inert on={covered}>
+    <Shell accent={accentOf(tokenId)} fill header={<Inert on={givenHere ? true : covered}>{header}</Inert>}>
+      <Inert on={givenHere ? true : covered}>
         <Page fill width="narrow">
           <ConnectionBanner banner={s.banner} name={name} tryAgain={s.tryAgain} />
           <Centerpiece
@@ -920,6 +942,7 @@ function OutsiderPage({ pet, s }: { pet: Exclude<PetView, { viewer: 'owner' }>; 
         </Page>
       </Inert>
       <FeedLayer pageFullness={pet.fullness} />
+      {givenHere ? <GiftSheet tokenId={tokenId} name={name} stage={pet.stage} worn={pet.worn} onGiven={() => undefined} /> : null}
       {tail}
     </Shell>
   );
@@ -1019,7 +1042,11 @@ function PetView({
  *  the Pet screen's page for them, the address kept; an asleep pet's address is the Pet screen (`Diary screen` › entry point). */
 export function PetScreen({ tokenId, from, diary = false, wardrobe = false }: { tokenId: string; from: string | null; diary?: boolean; wardrobe?: boolean }) {
   const s = usePetScreen(tokenId, from, diary);
+  useEffect(() => closeGift, [tokenId]);
+  useEffect(() => closeMyPets, [tokenId]);
   const owner = s.page.kind === 'pet' && s.page.pet.viewer === 'owner' ? s.page.pet : null;
+  const isOwner = owner !== null;
+  useEffect(() => { if (!isOwner) closeMyPets(); }, [isOwner]);
   const asleep = owner?.fullness.state === 'asleep';
   // An asleep pet at the address has no Diary and no Wardrobe: its Pet screen, at its own address. A Diary or a Wardrobe that stood
   // while the pet was awake stays (and turns «asleep»).

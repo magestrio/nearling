@@ -3,6 +3,7 @@ import { hasVisible } from '../../lib/nameClean';
 import { formatCents } from '../../lib/price';
 import { onClearOutcome } from '../../account/clearMemory';
 import { utcDayNow } from '../../diary/useDiary';
+import { clearRiddleDrafts } from '../../diary/riddleDraft';
 import { hostOf, watchFlight } from '../../feeding/feedFlight';
 import { onFed } from '../../feeding/feedRequest';
 import { clearedReportLine, emptyErrandLine, failureLine, nothingFoundLine, reportMeta, unclearLine } from '../../errands/lines';
@@ -65,6 +66,7 @@ export interface Line {
   id: string;
   who: 'player' | 'pet' | 'event' | 'worker' | 'error';
   text: string;
+  previousOwner?: boolean;
   /** arrived while the screen is open: it rises in */
   fresh?: boolean;
   /** an errand's line made by this tab (the job of an errand that is away, the line of one that came back with nothing): a new
@@ -113,6 +115,10 @@ export function lineOf(l: ConversationLine, name: string, fresh: boolean, before
         },
       ];
     case 'event': {
+      if (l.code === 'gift') {
+        const date = new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', year: 'numeric' }).format(new Date(l.at));
+        return [{ id: l.id, who: 'event', text: `${l.name ?? name} came to you as a gift on ${date}. The chats above are from before.`, fresh: fresh || undefined }];
+      }
       if (!l.code) return [{ id: l.id, who: 'event', text, fresh: fresh || undefined }];
       const worker = l.worker?.name ?? '';
       const words =
@@ -441,6 +447,7 @@ export function usePetScreen(tokenId: string, from: string | null, diary = false
   }, [auth.ready, auth.authenticated, tokenId, attempt, tokenOf, fail, adopt]);
 
   const viewer = page.kind === 'pet' ? page.pet.viewer : null;
+  const previousViewer = useRef<typeof viewer>(null);
 
   // What a guest can go to or be offered: their current pet, or «Get your own pet».
   useEffect(() => {
@@ -497,7 +504,8 @@ export function usePetScreen(tokenId: string, from: string | null, diary = false
       const known = new Set((linesRef.current ?? []).map((l) => l.id));
       const reread = linesRef.current !== null && linesRef.current.length > 0;
       const past = history.lines.flatMap((l, i): Line[] =>
-        lineOf(l, name, l.who !== 'player' && !known.has(l.id) && ((reread && l.who === 'event') || (opts?.fresh === true && reread)), history.lines[i - 1]),
+        lineOf(l, name, l.who !== 'player' && !known.has(l.id) && ((reread && l.who === 'event') || (opts?.fresh === true && reread)), history.lines[i - 1])
+          .map((line) => ({ ...line, previousOwner: l.previousOwner })),
       );
       // the newest paid errand that came back with nothing is the one the owner's state keeps for «Try again» (`Errand flow` › «failed
       // errand after a reload»): it says what it came to (a search that could not be reached and was paid for, a read the pet paid
@@ -529,6 +537,11 @@ export function usePetScreen(tokenId: string, from: string | null, diary = false
     if (viewer === 'owner') {
       if (!historyRead.current) void loadLines();
     } else {
+      if (previousViewer.current === 'owner' && viewer === 'guest') {
+        setDraft('');
+        clearRiddleDrafts();
+      }
+      if (previousViewer.current === 'owner') setSpoke(false);
       setLines(null);
       changeJob(null);
       setFailure(null);
@@ -553,7 +566,8 @@ export function usePetScreen(tokenId: string, from: string | null, diary = false
       historyRead.current = false;
       unconfirmed.current.clear();
     }
-  }, [viewer, loadLines, changeJob]);
+    previousViewer.current = viewer;
+  }, [viewer, loadLines, changeJob, setDraft]);
 
   const askWake = useCallback(async () => {
     try {

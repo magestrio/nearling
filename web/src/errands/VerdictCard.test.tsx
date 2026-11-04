@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({ track: vi.fn(), render: vi.fn() }));
 vi.mock('../track', () => ({ track: mocks.track }));
-vi.mock('../pet/PetFigure', () => ({ PetFigure: () => null }));
+vi.mock('../pet/PetFigure', async (importOriginal) => ({ ...(await importOriginal<typeof import('../pet/PetFigure')>()), PetFigure: () => null }));
 vi.mock('./card', async () => ({ ...(await vi.importActual<typeof import('./card')>('./card')), renderCard: mocks.render }));
 
 import { VerdictCard } from './VerdictCard';

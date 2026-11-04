@@ -9,6 +9,7 @@ import { BIRTH_STORAGE_YOCTO, MAX_BIRTH_COST_YOCTO, nearUsdRate, STARTER_FOOD_YO
 import { desk, enqueueJob } from '../pet/desk';
 import { gasIsLow, pauseReason } from '../servicePause';
 import { track } from '../track';
+import { lastGiftedPet } from '../gift/current';
 
 export const hatchRoutes = new Hono<AppEnv>();
 
@@ -78,7 +79,14 @@ hatchRoutes.get('/api/hatch', async (c) => {
     }
     // `?look=1`: the screen's own repeat on a closed hatch; the event is for opening it or a tap.
     if (c.req.query('look') !== '1') track('birth_blocked', { reason: state.reason! });
-    return c.json(noPets ? { ...state, noPets: true } : state);
+    let lastGifted = null;
+    try {
+      lastGifted = noPets && session !== null && hatch.token_id !== null ? await lastGiftedPet(c.env, session.accountId) : null;
+    } catch (e) {
+      if (e instanceof ChainUnreachable) return unreachable(c);
+      throw e;
+    }
+    return c.json(noPets ? { ...state, noPets: true, ...(lastGifted === null ? {} : { lastGifted }) } : state);
   }
   if (session === null || hatch.token_id === null) return c.json(state);
   // Hatched before: «already» only while they still own that pet; one given away does not count.
@@ -91,7 +99,14 @@ hatchRoutes.get('/api/hatch', async (c) => {
     if (e instanceof ChainUnreachable) return unreachable(c);
     throw e;
   }
-  return c.json(state);
+  try {
+    const noPets = (await ownedCount(c.env, session.accountId)) === 0;
+    const lastGifted = noPets ? await lastGiftedPet(c.env, session.accountId) : null;
+    return c.json(lastGifted === null ? state : { ...state, noPets: true, lastGifted });
+  } catch (e) {
+    if (e instanceof ChainUnreachable) return unreachable(c);
+    throw e;
+  }
 });
 
 hatchRoutes.post('/api/hatch', async (c) => {

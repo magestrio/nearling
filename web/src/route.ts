@@ -43,6 +43,7 @@ export type Route =
   | { name: 'home' }
   | { name: 'hatch'; from: string | null }
   | { name: 'pet'; tokenId: string; from: string | null }
+  | { name: 'gift'; code: string }
   /** Diary screen: the ritual of the day, inside the Pet screen's own state (`add-daily-ritual` › `Diary screen`) */
   | { name: 'diary'; tokenId: string }
   /** Wardrobe screen: the pet's outfits, inside the Pet screen's own state (`add-wardrobe` › `Wardrobe screen`) */
@@ -65,6 +66,9 @@ export function parseRoute(location: string): Route {
   const path = url.pathname.replace(/\/+$/, '') || '/';
   if (path === '/') return { name: 'home' };
   if (path === '/hatch') return { name: 'hatch', from: friend };
+  const gift = /^\/gift\/([0-9a-f]{48})$/.exec(path);
+  if (gift) return { name: 'gift', code: gift[1]! };
+  if (path === '/gift' || path.startsWith('/gift/')) return { name: 'gift', code: '' };
   if (path === '/__day1') return { name: 'day1' };
   if (path === '/adapters') {
     const pet = url.searchParams.get('pet');

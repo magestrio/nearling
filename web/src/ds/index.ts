@@ -26,6 +26,7 @@ export { Menu, MenuItem } from './Menu';
 export { MotionToggle } from './MotionToggle';
 export { Meadow } from './Meadow';
 export { Note } from './Note';
+export { PetList, PetRow } from './PetList';
 export { Energy, Growth, PetPlate, PetStage, SkillBadge, Trait, type StageName, type TraitName } from './PetParts';
 export { Rail, RailItem } from './Rail';
 export { Segmented, type SegmentedOption } from './Segmented';

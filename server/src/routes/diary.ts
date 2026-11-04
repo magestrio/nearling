@@ -61,6 +61,9 @@ diaryRoutes.get('/api/pets/:id/diary', async (c) => {
   const day = (await readDay(c.env, id, now))!;
   const { facts, entry, row } = day;
   const complete = row?.completed_at != null || isComplete(facts);
+  const giftBoundary = await c.env.DB.prepare('SELECT last_gift_block_at FROM pets WHERE token_id = ?').bind(id).first<{ last_gift_block_at: number | null }>();
+  const entryTime = entry.kind === 'text' ? await c.env.DB.prepare('SELECT created_at FROM thoughts WHERE id = ?').bind(entry.id).first<{ created_at: number }>() : null;
+  const previousOwner = entryTime !== null && giftBoundary?.last_gift_block_at != null && entryTime.created_at < giftBoundary.last_gift_block_at;
 
   // Today's riddle: held until the commit is on chain; the owner's answer, if it is still there.
   const riddleRow = await c.env.DB.prepare(`SELECT ${RIDDLE_COLUMNS} FROM riddles WHERE day = ?`).bind(today).first<RiddleRow>();
@@ -101,7 +104,7 @@ diaryRoutes.get('/api/pets/:id/diary', async (c) => {
     closedAt: new Date(today * DAY_MS).toISOString(),
     until: new Date((today + 1) * DAY_MS).toISOString(),
     // `work`: the hires recorded in the day before this entry's (`Work diary rule`); the client writes the line.
-    entry: entry.kind === 'text' ? { kind: 'text', id: entry.id, lines: entry.lines, question: entry.question, work: await workOfDay(c.env.DB, id, today - 1) } : { kind: entry.kind },
+    entry: entry.kind === 'text' ? { kind: 'text', id: entry.id, lines: entry.lines, question: entry.question, work: await workOfDay(c.env.DB, id, today - 1), ...(previousOwner ? { previousOwner: true } : {}) } : { kind: entry.kind },
     read: facts.read,
     exchange,
     riddle,
@@ -209,7 +212,7 @@ diaryRoutes.post('/api/pets/:id/diary/answer', async (c) => {
   const { entry } = await entryToday(c.env.DB, owned.id, now);
   if (entry.kind !== 'text' || entry.question === null) return c.json({ code: 'no_question' }, 409);
 
-  const job = await enqueueQuestion(c.env.DB, owned.id, body.text, today);
+  const job = await enqueueQuestion(c.env.DB, owned.id, body.text, today, owned.pet.owner_id);
   if (job === null) return c.json({ code: 'already' }, 409);
   run(c, owned.id);
   return c.json({ job }, 202);

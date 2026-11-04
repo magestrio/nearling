@@ -108,7 +108,7 @@ export function runAction(name: ActionName, context: ActionContext): boolean {
 // screen the player returns to runs the action once (add-pet › Pet screen › «signed-out»).
 // The line of an ended session on Skill sheet, Errand sheet, Adapter sheet or Skill code sheet does the same with `skill`, `errand`,
 // `adapter` or `code`: the owner's page (or the catalog page for `adapter`) opens that sheet again.
-export type PendingAction = 'feed' | 'skill' | 'errand' | 'adapter' | 'code';
+export type PendingAction = 'feed' | 'skill' | 'errand' | 'adapter' | 'code' | 'giftAccept';
 let pendingAction: PendingAction | null = null;
 
 export function queueAction(action: PendingAction | undefined): void {

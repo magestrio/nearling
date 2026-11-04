@@ -86,6 +86,10 @@ export async function captureFrame(page: Page, frame: ManifestFrame, viewport: V
     // One occurrence must actually be in the visible part of every scrolling ancestor and the viewport.
     // Playwright's visible filter alone also accepts text that has scrolled out of an inner sheet body.
     const candidates = page.getByText(pattern).or(page.getByPlaceholder(pattern)).filter({ visible: true });
+    if (fixture.hiddenCopy?.includes(line)) {
+      await expect(page.getByText(pattern).first(), `copy «${line}» of ${frame.id} in the page's text for a screen reader`).toBeAttached();
+      continue;
+    }
     if (fixture.belowFold?.includes(line)) {
       await expect(candidates.and(page.locator(':not(.ds-hidden)')).first(), `copy «${line}» of ${frame.id} drawn below the fold`).toBeAttached();
       continue;
@@ -97,13 +101,21 @@ export async function captureFrame(page: Page, frame: ManifestFrame, viewport: V
       let box = { left: 0, top: 0, right: innerWidth, bottom: innerHeight };
       for (let parent = el.parentElement; parent; parent = parent.parentElement) {
         const style = getComputedStyle(parent);
-        if (!/(auto|scroll|hidden|clip)/.test(`${style.overflowX} ${style.overflowY}`)) continue;
+        // a `display: contents` ancestor has no box: it clips nothing
+        if (style.display === 'contents' || !/(auto|scroll|hidden|clip)/.test(`${style.overflowX} ${style.overflowY}`)) continue;
         const clip = parent.getBoundingClientRect();
         box = { left: Math.max(box.left, clip.left), top: Math.max(box.top, clip.top), right: Math.min(box.right, clip.right), bottom: Math.min(box.bottom, clip.bottom) };
       }
       return rect.left >= box.left - 1 && rect.top >= box.top - 1 && rect.right <= box.right + 1 && rect.bottom <= box.bottom + 1;
     })), { message: `copy «${line}» of ${frame.id} inside the visible scroll box` }).toBe(true);
   }
+
+  // The fixture can replace its loading state after the first font wait. Wait for the faces
+  // used by the final copy, then allow its new glyph layout to reach the paint pipeline.
+  await page.evaluate(async () => {
+    await document.fonts.ready;
+    await new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
+  });
 
   fs.mkdirSync(CMP_DIR, { recursive: true });
   const out = path.join(OUT_DIR, `${frame.id}.${viewport}.png`);

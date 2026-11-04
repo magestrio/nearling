@@ -175,14 +175,18 @@ export async function buildMessages(
   extra: { hire?: string; hired?: Hired } = {},
 ): Promise<Message[]> {
   const deep = job.kind === 'reply' && job.mode === 'deep';
-  const system = layers(pet, deep, life);
+  let system = layers(pet, deep, life);
   const user = instruction(job, pet);
+
+  const gift = await db.prepare('SELECT last_gift_block_at FROM pets WHERE token_id = ?').bind(tokenId).first<{ last_gift_block_at: number | null }>();
+  const giftAt = gift?.last_gift_block_at ?? null;
+  if (giftAt !== null) system += '\nYou came to this owner as a gift. Notes and conversations from before that gift are about your previous owner, not this owner.';
 
   const notes = await db
     .prepare("SELECT name, at FROM memory_notes WHERE token_id = ? AND kind = 'fed_by' ORDER BY at DESC LIMIT 20")
     .bind(tokenId)
     .all<{ name: string; at: number }>();
-  const fed = notes.results.map((n) => `${asName(n.name)} (${new Date(n.at).toISOString().slice(0, 10)})`);
+  const fed = notes.results.map((n) => `${asName(n.name)} (${new Date(n.at).toISOString().slice(0, 10)})${giftAt !== null && n.at < giftAt ? ' [previous owner period]' : ''}`);
   let noteLayer = fed.length > 0 ? `\nPeople who fed you, newest first: ${fed.join(', ')}.` : '';
   // `Memory rule` › «помнит кормивших»: the next reply names a feeder fed since the pet's last thought.
   // The wake thought thanks its own feeder by its instruction, so only a reply adds the line.
@@ -221,16 +225,16 @@ export async function buildMessages(
   const advice = await db
     .prepare(
       `SELECT player_text, reply_text, worker_name, at FROM (
-         SELECT player_text, reply_text, worker_name, created_at AS at FROM thoughts WHERE token_id = ?1 AND kind = 'advice' AND recall = 1 AND reply_text IS NOT NULL AND player_text IS NOT NULL
+         SELECT player_text, reply_text, worker_name, COALESCE(origin_sent_at, created_at) AS at FROM thoughts WHERE token_id = ?1 AND kind = 'advice' AND recall = 1 AND reply_text IS NOT NULL AND player_text IS NOT NULL
          UNION ALL
          SELECT q.reply_text AS player_text, a.reply_text, a.worker_name, a.created_at AS at FROM thoughts a JOIN thoughts q ON q.turn_id = a.turn_id AND q.token_id = a.token_id AND q.kind = 'hire_question'
          WHERE a.token_id = ?1 AND a.kind = 'hire_answer' AND a.recall = 1 AND a.reply_text IS NOT NULL AND q.reply_text IS NOT NULL AND a.turn_id IS NOT ?2
        ) ORDER BY at DESC LIMIT ?3`,
     )
     .bind(tokenId, extra.hired?.turnId ?? null, ADVICE_NOTES)
-    .all<{ player_text: string; reply_text: string; worker_name: string | null }>();
+    .all<{ player_text: string; reply_text: string; worker_name: string | null; at: number }>();
   const told = [
-    ...(extra.hired === undefined ? [] : [{ player_text: extra.hired.question, reply_text: extra.hired.answer, worker_name: extra.hired.worker }]),
+    ...(extra.hired === undefined ? [] : [{ player_text: extra.hired.question, reply_text: extra.hired.answer, worker_name: extra.hired.worker, at: Date.now() }]),
     ...advice.results,
   ];
   const tail = (await workLayer(db, tokenId, job)) + (extra.hire ?? '');
@@ -241,7 +245,7 @@ export async function buildMessages(
   const toldLines: string[] = [];
   for (const [i, a] of told.entries()) {
     const who = asName(a.worker_name ?? '');
-    const line = `\nYou asked ${who} for advice: ${JSON.stringify(a.player_text)}; ${who} said: ${JSON.stringify(a.reply_text)}`;
+    const line = `\n${giftAt !== null && a.at < giftAt ? '[Previous owner] ' : ''}You asked ${who} for advice: ${JSON.stringify(a.player_text)}; ${who} said: ${JSON.stringify(a.reply_text)}`;
     const size = bytesOf(line) + (toldLines.length === 0 ? bytesOf(TOLD_HEADER) : 0);
     const current = i === 0 && extra.hired !== undefined;
     if (!current && used + size + HISTORY_FLOOR > MEMORY_BYTES) break;
@@ -255,14 +259,14 @@ export async function buildMessages(
   // not to be remembered (`recall = 0`) are not its memory.
   const history = await db
     .prepare(
-      "SELECT player_text, reply_text FROM thoughts WHERE token_id = ?1 AND reply_text IS NOT NULL AND kind NOT IN ('growth', 'advice', 'hire_question', 'hire_answer', 'hire_event') AND recall = 1 AND id IS NOT ?2 ORDER BY created_at DESC, rowid DESC LIMIT 60",
+      "SELECT player_text, reply_text, COALESCE(origin_sent_at, created_at) AS at FROM thoughts WHERE token_id = ?1 AND reply_text IS NOT NULL AND kind NOT IN ('growth', 'advice', 'hire_question', 'hire_answer', 'hire_event') AND recall = 1 AND id IS NOT ?2 ORDER BY created_at DESC, rowid DESC LIMIT 60",
     )
     .bind(tokenId, entryId)
-    .all<{ player_text: string | null; reply_text: string }>();
+    .all<{ player_text: string | null; reply_text: string; at: number }>();
   const lines: Message[] = [];
   for (const row of history.results) {
     const pair: Message[] = [];
-    if (row.player_text !== null) pair.push({ role: 'user', content: row.player_text });
+    if (row.player_text !== null) pair.push({ role: 'user', content: giftAt !== null && row.at < giftAt ? `[Previous owner] ${row.player_text}` : row.player_text });
     pair.push({ role: 'assistant', content: row.reply_text });
     const size = pair.reduce((sum, m) => sum + bytesOf(m.content), 0);
     if (used + size > MEMORY_BYTES) break;

@@ -135,6 +135,7 @@ export interface HatchStatus {
   /** a closed answer to a session whose player has no pet of their own now (`add-pet` › Hatch screen › `no exit`): no way
    *  out is offered; absent for a visitor and for a player with a pet */
   noPets?: true;
+  lastGifted?: { tokenId: string; name: string };
 }
 
 export interface Me {
@@ -142,7 +143,37 @@ export interface Me {
   hatched: { tokenId: string; name: string } | null;
   currentPet: { tokenId: string; name: string } | null;
   ownedCount: number;
+  lastGifted?: { tokenId: string; name: string };
 }
+
+export interface MyPets {
+  pets: Array<{ tokenId: string; name: string; born: boolean }>;
+  currentPet: { tokenId: string; name: string } | null;
+}
+
+export interface GiftLink {
+  status: 'none' | 'waiting' | 'accepted' | 'cancelled' | 'transferred';
+  code?: string;
+  acceptedName?: string | null;
+  acceptedAccount?: string | null;
+  version?: number;
+}
+
+/** Public code read: no giver account or first name leaves the Worker. */
+export interface PublicGift {
+  tokenId: string;
+  name: string;
+  fullness: Fullness;
+  status: 'waiting' | 'accepted' | 'transferred';
+  viewer: 'giver' | 'receiver' | 'visitor';
+  errand: { running: true; maxCents: number } | null;
+}
+
+export type GiftOutcome =
+  | { status: 'ready'; tx: string; receiver: string; acceptedName: string | null }
+  | { status: 'pending' | 'unknown' | 'ok' | 'failed'; hash?: string }
+  | { status: 'gas_rejected' | 'no_near'; hash?: string; missingYocto: string }
+  | { status: 'paused' | 'unavailable'; hash?: string };
 
 export type ThoughtCode =
   | 'ai_unavailable'
@@ -217,6 +248,8 @@ export type PetState = Omit<Extract<PetView, { viewer: 'owner' }>, 'viewer' | 'o
   /** with `price_rose`: the worker's price now */
   price?: Price;
   events: PetEvent[];
+  /** the giver's open gift link (`GET …/state`): waiting for a friend or accepted, or null; the poll is how an open page learns of an acceptance */
+  gift: { code: string; status: 'waiting' | 'accepted'; acceptedName: string | null; acceptedAccount: string | null; version: number } | null;
   /** with `woke`: the name of the friend whose meal woke the pet — «{friend} fed {name}.»; `'A friend'` for a nameless
    *  feeder. Sent when the wake came from a friend's feeding (`wakes` below the pet's counter). */
   friend?: string;
@@ -259,7 +292,9 @@ export interface ConversationLine {
   skilled?: boolean;
   /** `event`: `hire_failed` — {worker} couldn't help just now; `hire_empty` — {worker} came up empty; `hire_data_failed` — its data
    *  didn't answer (`…_paid`: and the pet's food paid for the try). `error`: `errand_empty` (`priceCents` is what the errand cost) */
-  code?: 'hire_failed' | 'hire_empty' | 'hire_data_failed' | 'hire_data_failed_paid' | 'errand_empty';
+  code?: 'hire_failed' | 'hire_empty' | 'hire_data_failed' | 'hire_data_failed_paid' | 'errand_empty' | 'gift';
+  previousOwner?: boolean;
+  name?: string;
   hire?: HireMeta;
 }
 export interface Conversation {
@@ -353,7 +388,7 @@ export type DiaryEntry =
   /** `lines` are the paragraphs, `question` the last line when it asks (null: no question today); `work` is `add-pet-work`'s
    *  the pet's work of the day before as data — who hired it and the cents of food it earned — the client writes the line
    *  (`Work diary rule`); null when nobody hired it */
-  | { kind: 'text'; id: string; lines: string[]; question: string | null; work: DiaryWork | null }
+  | { kind: 'text'; id: string; lines: string[]; question: string | null; work: DiaryWork | null; previousOwner?: boolean }
   | { kind: 'first' | 'cleared' | 'writing' | 'asleep' | 'failed' };
 
 export interface DiaryWork {
@@ -540,6 +575,15 @@ export interface ErrandQuote {
 export interface WorkerApi {
   health(): Promise<Health>;
   me(token: Token): Promise<Me>;
+  myPets(token: Token): Promise<MyPets>;
+  publicGift(token: Token, code: string): Promise<PublicGift>;
+  acceptGift(token: Token, code: string): Promise<{ status: 'accepted'; tokenId: string }>;
+  giftLink(token: Token, tokenId: string): Promise<GiftLink>;
+  createGift(token: Token, tokenId: string): Promise<GiftLink>;
+  cancelGift(token: Token, tokenId: string): Promise<GiftLink>;
+  prepareGift(token: Token, tokenId: string): Promise<GiftOutcome>;
+  sendGift(token: Token, tokenId: string, body: { tx: string; signature: string }): Promise<GiftOutcome>;
+  giftOutcome(token: Token, tokenId: string): Promise<GiftOutcome>;
   /** `look`: the page's own repeat while it stands on a pause (`GET /api/hatch?look=1`). The server counts a closed hatch
    *  only for a load or a tap, never for a look. */
   hatchStatus(token: Token, opts?: { look?: boolean }): Promise<HatchStatus>;
