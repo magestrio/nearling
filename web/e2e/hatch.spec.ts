@@ -154,6 +154,64 @@ test('not hatched: the line and «Try again»; the name is kept and the retry ha
   await expect(page).toHaveURL(/\/pet\/9$/);
 });
 
+// spec: add-pet › Birth flow › birth pending
+test('birth pending: an unheard birth remains pending with its name after a reload', async ({ page }) => {
+  await openWith(page, '/hatch', { auth: SIGNED_IN, worker: { hatchDelayMs: 60_000 } });
+  await nameField(page).fill('Pixel');
+  await hatchButton(page).click();
+  await expect(page.getByRole('button', { name: 'Hatching…' })).toBeVisible();
+  await page.reload();
+  await expect(nameField(page)).toHaveValue('Pixel');
+  await expect(page.getByRole('button', { name: 'Hatching…' })).toBeVisible();
+  await expect(hatchButton(page)).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Try again' })).toHaveCount(0);
+  expect((await calls(page)).filter((call) => call.startsWith('worker:hatch:'))).toEqual([]);
+});
+
+/** After the next reload the Worker's status answer is `status` (the fakes themselves start over on a reload). */
+async function statusAfterReload(page: import('@playwright/test').Page, status: Record<string, unknown>): Promise<void> {
+  await page.addInitScript((s) => {
+    const g = globalThis as { __NEARLING_FAKES__?: { worker?: Record<string, unknown> } };
+    if (sessionStorage.getItem('e2e:status-after-reload') === '1') {
+      g.__NEARLING_FAKES__ = { ...g.__NEARLING_FAKES__, worker: { ...g.__NEARLING_FAKES__?.worker, hatchStatus: s } };
+    }
+  }, status);
+  await page.evaluate(() => sessionStorage.setItem('e2e:status-after-reload', '1'));
+}
+
+// spec: add-pet › Birth flow › не вылупился
+test('a reload after a failed birth restores the typed name and «Try again» hatches', async ({ page }) => {
+  await openWith(page, '/hatch', { auth: SIGNED_IN, worker: { hatchResult: { fail: { status: 503, code: 'chain_unreachable' } } } });
+  await nameField(page).fill('Pixel');
+  await hatchButton(page).click();
+  await expect(page.getByRole('button', { name: 'Hatching…' })).toBeVisible();
+  await statusAfterReload(page, { open: true, failed: true });
+  await page.reload();
+  await expect(page.getByText("Your pet didn't hatch this time. Nothing was lost — try again.").first()).toBeVisible();
+  await expect(nameField(page)).toHaveValue('Pixel');
+  const retry = page.getByRole('button', { name: 'Try again' });
+  await expect(retry).toBeEnabled();
+  await setWorker(page, { hatchResult: { tokenId: '9' }, hatchStatus: { open: true } });
+  await retry.click();
+  await expect(page).toHaveURL(/\/pet\/9$/);
+});
+
+// spec: add-pet › Birth flow › birth pending
+test('no birth in flight after a reload: «Hatching…» ends, the saved name returns and the form hatches', async ({ page }) => {
+  await openWith(page, '/hatch', { auth: SIGNED_IN, worker: { hatchResult: { fail: { status: 503, code: 'chain_unreachable' } } } });
+  await nameField(page).fill('Pixel');
+  await hatchButton(page).click();
+  await expect(page.getByRole('button', { name: 'Hatching…' })).toBeVisible();
+  await statusAfterReload(page, { open: true });
+  await page.reload();
+  await expect(nameField(page)).toHaveValue('Pixel');
+  await expect(page.getByRole('button', { name: 'Hatching…' })).toHaveCount(0);
+  await expect(hatchButton(page)).toBeEnabled();
+  await setWorker(page, { hatchResult: { tokenId: '9' } });
+  await hatchButton(page).click();
+  await expect(page).toHaveURL(/\/pet\/9$/);
+});
+
 // spec: add-pet › Birth flow › не вылупился × имя остаётся при закрытии и без связи
 test('the name stays when hatching closes between opening the screen and the tap', async ({ page }) => {
   await openWith(page, '/hatch', { auth: SIGNED_IN });
@@ -165,17 +223,17 @@ test('the name stays when hatching closes between opening the screen and the tap
   await expect(page.getByRole('link', { name: 'Go home' })).toBeVisible();
 });
 
-// spec: add-pet › Birth flow › не вылупился × имя остаётся при закрытии и без связи
-test('the name stays when the game can\'t be reached at the tap, and «Try again» brings the form back', async ({ page }) => {
+// spec: add-pet › Birth flow › birth pending
+test('a lost connection at the tap is an unknown outcome: «Hatching…», the name stays, until the original hash is confirmed', async ({ page }) => {
   await openWith(page, '/hatch', { auth: SIGNED_IN, worker: { hatchResult: { fail: { status: 503, code: 'chain_unreachable' } } } });
   await nameField(page).fill('Pixel');
   await hatchButton(page).click();
-  await expect(page.getByText("We can't reach the game right now. Try again in a moment.").first()).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Hatching…' })).toBeVisible();
   await expect(nameField(page)).toHaveValue('Pixel');
-  await expect(hatchButton(page)).toBeDisabled();
-  await page.getByRole('button', { name: 'Try again' }).click();
-  await expect(hatchButton(page)).toBeEnabled();
-  await expect(nameField(page)).toHaveValue('Pixel');
+  await expect(page.getByText("We can't reach the game right now. Try again in a moment.")).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Try again' })).toHaveCount(0);
+  await setWorker(page, { hatchStatus: { open: true, already: { tokenId: '9', name: 'Pixel' } } });
+  await expect(page).toHaveURL(/\/pet\/9$/);
 });
 
 // spec: add-pet › Hatch screen › уже есть рождённый питомец
@@ -187,7 +245,7 @@ test('already hatched: the line and «Go to {name}» to the current pet', async 
 });
 
 // spec: add-pet › Hatch screen › уже есть рождённый питомец × перезагрузка посреди рождения
-test('a reload in the middle of a birth shows «already hatched» when the birth went through', async ({ page }) => {
+test('a reload in the middle of a birth leads to the pet when the birth went through', async ({ page }) => {
   await openWith(page, '/hatch', { auth: SIGNED_IN, worker: { hatchDelayMs: 5000 } });
   // registered after the fakes' own script, so on the reload it runs second: the network now knows the pet
   await page.addInitScript(() => {
@@ -198,7 +256,8 @@ test('a reload in the middle of a birth shows «already hatched» when the birth
   await hatchButton(page).click();
   await expect(page.getByRole('button', { name: 'Hatching…' })).toBeVisible();
   await page.reload();
-  await expect(page.getByRole('link', { name: 'Go to Pixel' })).toBeVisible();
+  // the name is held for this account, so a confirmed birth leads to the pet (`Birth flow` › «вылупился»)
+  await expect(page).toHaveURL(/\/pet\/9$/);
 });
 
 // spec: add-pet › Hatch screen › error
@@ -265,8 +324,8 @@ test('closed for a player who already hatched: the closed line, not «already ha
   await expect(page.getByText("You've already hatched a pet — one per player.")).toHaveCount(0);
 });
 
-// spec: add-pet › Hatch screen › no exit
-test('no exit: a signed-in player with no pet and no friend link can find a pet to ask; «Account» and the name stay', async ({ page }) => {
+// spec: add-pet › Hatch screen › exit to the board
+test('exit to the board: a signed-in player who never hatched can find a pet to ask; «Account» and the name stay', async ({ page }) => {
   await openWith(page, '/hatch', { auth: SIGNED_IN, worker: { hatchStatus: { open: false, reason: 'daily', noPets: true } } });
   await nameField(page).fill('Pixel');
   await expect(page.getByText(/^That's all the new pets for today\. Hatching is back at \d\d:\d\d\. You can still feed and visit pets you know\.$/).first()).toBeVisible();
@@ -276,17 +335,31 @@ test('no exit: a signed-in player with no pet and no friend link can find a pet 
   await expect(hatchButton(page)).toHaveCount(0);
   await expect(page.getByRole('button', { name: 'Account' })).toBeVisible();
   await expect(nameField(page)).toHaveValue('Pixel');
+  await page.getByRole('link', { name: 'Find a pet to ask' }).click();
+  await expect(page).toHaveURL(/\/hire$/);
 });
 
-// spec: add-pet › Hatch screen › no exit
-test('no exit: a friend\'s pet that exists still wins — «Back to Biscuit»', async ({ page }) => {
+// spec: add-pet › Hatch screen › exit to the board
+test('exit to the board: a friend link keeps «Back to Biscuit»', async ({ page }) => {
   await openWith(page, '/hatch?from=2', { auth: SIGNED_IN, worker: { hatchStatus: { open: false, reason: 'daily', noPets: true } } });
   await expect(page.getByRole('link', { name: 'Back to Biscuit' })).toBeVisible();
+  await expect(page.getByRole('link', { name: 'Find a pet to ask' })).toHaveCount(0);
   await expect(page.getByRole('link', { name: 'Go home' })).toHaveCount(0);
 });
 
-// spec: add-pet › Hatch screen › no exit
-test('no exit: a player with a pet of their own (the answer has no `noPets`) keeps «Go home»', async ({ page }) => {
+// spec: add-pet › Hatch screen › exit to the board
+test('exit to the board: a player who gave every pet away sees the closed line and «Visit Pixel»', async ({ page }) => {
+  await openWith(page, '/hatch', {
+    auth: SIGNED_IN,
+    worker: { hatchStatus: { open: false, reason: 'daily', noPets: true, lastGifted: { tokenId: '9', name: 'Pixel' } } },
+  });
+  await expect(page.getByText(/^That's all the new pets for today\./).first()).toBeVisible();
+  await expect(page.getByRole('link', { name: 'Visit Pixel' })).toHaveAttribute('href', '/pet/9');
+  await expect(page.getByRole('link', { name: 'Find a pet to ask' })).toHaveCount(0);
+});
+
+// spec: add-pet › Hatch screen › выход на главную
+test('a player with a pet of their own (the answer has no `noPets`) keeps «Go home»', async ({ page }) => {
   await openWith(page, '/hatch', { auth: SIGNED_IN, worker: { hatchStatus: { open: false, reason: 'daily' } } });
   await expect(page.getByRole('link', { name: 'Go home' })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Account' })).toBeVisible();

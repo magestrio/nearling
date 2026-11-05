@@ -1,6 +1,8 @@
 import { env } from 'cloudflare:workers';
+import { baseEncode } from 'near-api-js';
 import { describe, expect, it } from 'vitest';
 import { assembleCharacter, longestAssemblyBytes, SLOTS } from '../src/character/presets';
+import { settleItemSends } from '../src/pet/itemTx';
 import { api, harness } from './helpers/api';
 import { NEAR_ACCOUNT, token } from './helpers/network';
 
@@ -21,6 +23,40 @@ async function everythingInD1(): Promise<string> {
 }
 
 describe('Birth flow', () => {
+  // spec: add-pet › Birth flow › birth pending
+  it('answers pending from a new Hatch screen while the first POST is still before signing', async () => {
+    let row: { tx_hash: string | null } | null = null;
+    let statusBody: unknown;
+    let sendsBeforeSigning = -1;
+    h.net().contract.meanwhile.hatch_view = async () => {
+      row = await env.DB.prepare('SELECT tx_hash FROM births_in_flight WHERE account = ?')
+        .bind(PLAYER).first<{ tx_hash: string | null }>();
+      statusBody = (await api('/api/hatch', { token: await asPlayer() })).body;
+      sendsBeforeSigning = mintCalls().length;
+    };
+    expect((await hatch('Pixel')).status).toBe(200);
+    expect(row).toEqual({ tx_hash: null });
+    expect(statusBody).toEqual({ open: true, pending: true });
+    expect(sendsBeforeSigning).toBe(0);
+  });
+
+  // spec: add-pet › Birth flow › birth pending
+  it('clears an unsigned flight after a rejected name or a closed or unreachable birth', async () => {
+    const count = async () => (await env.DB.prepare('SELECT COUNT(*) AS n FROM births_in_flight WHERE account = ?')
+      .bind(PLAYER).first<{ n: number }>())!.n;
+    expect((await hatch('Idiot')).body).toEqual({ code: 'name_rejected' });
+    expect(await count()).toBe(0);
+
+    h.net().contract.pool = 0n;
+    expect((await hatch('Pixel')).body).toMatchObject({ code: 'closed', reason: 'pool' });
+    expect(await count()).toBe(0);
+
+    h.net().contract.pool = BigInt(env.MAX_BIRTH_COST);
+    h.net().contract.down = true;
+    expect((await hatch('Pixel')).body).toEqual({ code: 'chain_unreachable' });
+    expect(await count()).toBe(0);
+  });
+
   // spec: add-pet › Birth flow › имя не принято
   it('refuses a name with a list word, or with nothing visible, and sends nothing to the network', async () => {
     for (const name of ['Idiot', 'IDIOT pie', 'Big_Idiot', 'BigIdiot', 'x-idiot', 'Idiot2', 'SHITface', '   ', '​‍', ' ​ ']) {
@@ -120,17 +156,140 @@ describe('Birth flow', () => {
     expect(h.events()).toEqual([{ name: 'pet_born', props: {} }]);
   });
 
-  // spec: add-pet › Birth flow › не вылупился
-  it('says "not hatched" when the transaction never reached the network, and the player can try again', async () => {
+  // spec: add-pet › Birth flow › birth pending
+  it('keeps an unknown birth and its original hash until the chain confirms the birth', async () => {
     h.net().contract.mode = 'lost';
     const res = await hatch('Pixel');
-    expect(res.status).toBe(502);
-    expect(res.body).toEqual({ code: 'not_hatched' });
+    expect(res.status).toBe(202);
+    expect(res.body).toEqual({ pending: true });
     expect(h.net().contract.pets.size).toBe(0);
     expect(await env.DB.prepare('SELECT COUNT(*) AS n FROM pets').first<{ n: number }>()).toEqual({ n: 0 });
+    const row = await env.DB.prepare('SELECT tx_hash FROM births_in_flight WHERE account = ?').bind(PLAYER).first<{ tx_hash: string }>();
+    expect(row?.tx_hash.length).toBeGreaterThan(30);
+    const pending = await api('/api/hatch', { token: await asPlayer() });
+    expect(pending.body).toMatchObject({ pending: true });
+    expect(h.net().contract.statusHashes).toContain(row!.tx_hash);
+    h.net().contract.mint(PLAYER, 'Pixel', 'character');
+    const confirmed = await api('/api/hatch', { token: await asPlayer() });
+    expect(confirmed.body).toMatchObject({ already: { tokenId: '0', name: 'Pixel' } });
+    expect(await env.DB.prepare('SELECT birth_tx FROM pets WHERE token_id = ?').bind('0').first<{ birth_tx: string }>()).toEqual({ birth_tx: row!.tx_hash });
+    expect(await env.DB.prepare('SELECT COUNT(*) AS n FROM jobs WHERE token_id = ? AND kind = ?').bind('0', 'greeting').first<{ n: number }>()).toEqual({ n: 1 });
+    expect(await env.DB.prepare('SELECT COUNT(*) AS n FROM project_spend WHERE birth_account = ?').bind(PLAYER).first<{ n: number }>()).toEqual({ n: 2 });
+    expect(h.events()).toEqual([{ name: 'pet_born', props: {} }]);
+    await api('/api/hatch', { token: await asPlayer() });
+    expect(await env.DB.prepare('SELECT COUNT(*) AS n FROM jobs WHERE token_id = ? AND kind = ?').bind('0', 'greeting').first<{ n: number }>()).toEqual({ n: 1 });
+    expect(await env.DB.prepare('SELECT COUNT(*) AS n FROM project_spend WHERE birth_account = ?').bind(PLAYER).first<{ n: number }>()).toEqual({ n: 2 });
+    expect(h.events()).toEqual([{ name: 'pet_born', props: {} }]);
     expect(await env.DB.prepare('SELECT COUNT(*) AS n FROM births_in_flight').first<{ n: number }>()).toEqual({ n: 0 });
+    expect(mintCalls()).toHaveLength(0);
+  });
+
+  // spec: add-pet › Birth flow › birth pending
+  // spec: add-pet › Birth flow › не вылупился
+  it('keeps an unknown birth pending until its original hash confirms failure, then permits a retry', async () => {
+    h.net().contract.mode = 'lost';
+    expect((await hatch('Pixel')).body).toEqual({ pending: true });
+    const row = await env.DB.prepare('SELECT tx_hash FROM births_in_flight WHERE account = ?').bind(PLAYER).first<{ tx_hash: string }>();
+    expect((await api('/api/hatch', { token: await asPlayer() })).body).toMatchObject({ pending: true });
+    h.net().contract.outcomes.set(row!.tx_hash, { status: { Failure: { ActionError: { kind: { FunctionCallError: { ExecutionError: 'failed' } } } } } });
+    expect((await api('/api/hatch', { token: await asPlayer() })).body).toMatchObject({ failed: true });
+    expect(h.net().contract.statusHashes).toContain(row!.tx_hash);
+    expect(await env.DB.prepare('SELECT COUNT(*) AS n FROM births_in_flight').first<{ n: number }>()).toEqual({ n: 1 });
+    expect((await api('/api/hatch', { token: await asPlayer() })).body).toMatchObject({ failed: true });
     h.net().contract.mode = 'normal';
     expect((await hatch('Pixel')).status).toBe(200);
+    expect(await env.DB.prepare('SELECT COUNT(*) AS n FROM births_in_flight').first<{ n: number }>()).toEqual({ n: 0 });
+  });
+
+  // spec: add-pet › Birth flow › birth pending
+  // spec: add-pet › Birth flow › не вылупился
+  it('keeps signed bytes, rebroadcasts the original birth, and expires an unseen birth after a fresh read', async () => {
+    h.net().contract.mode = 'lost';
+    expect((await hatch('Pixel')).body).toEqual({ pending: true });
+    const row = await env.DB.prepare('SELECT tx_hash, length(signed_bytes) AS bytes FROM births_in_flight WHERE account = ?')
+      .bind(PLAYER).first<{ tx_hash: string; bytes: number }>();
+    expect(row?.tx_hash).toBeTruthy();
+    expect(row?.bytes).toBeGreaterThan(100);
+    expect((await api('/api/hatch', { token: await asPlayer() })).body).toMatchObject({ pending: true });
+    expect(h.net().contract.pets.size).toBe(0);
+
+    // The chain advances beyond the signed transaction's reference block. Only a fresh
+    // hatch_view and a read of the original hash can release this claim.
+    h.net().contract.blockHeight = 87_401;
+    expect((await api('/api/hatch', { token: await asPlayer() })).body).toMatchObject({ failed: true });
+    expect(h.net().contract.statusHashes).toContain(row!.tx_hash);
+    expect((await hatch('Pixel')).status).toBe(202); // another lost send is a new flight
+    expect((await env.DB.prepare('SELECT tx_hash FROM births_in_flight WHERE account = ?').bind(PLAYER).first<{ tx_hash: string }>())?.tx_hash).not.toBe(row!.tx_hash);
+  });
+
+  // spec: add-pet › Birth flow › birth pending
+  it('returns the original pending flight when the daily allowance closes after signing', async () => {
+    h.net().contract.mode = 'lost';
+    expect((await hatch('Pixel')).body).toEqual({ pending: true });
+    h.net().contract.bornToday = 50;
+    const again = await hatch('Pixel');
+    expect(again.status).toBe(202);
+    expect(again.body).toEqual({ pending: true });
+    expect(mintCalls()).toHaveLength(0);
+  });
+
+  // spec: add-pet › First thought flow › Приветствие
+  // spec: add-pet › Birth flow › вылупился
+  it('finalizes a birth from cron without a later Hatch request', async () => {
+    h.net().contract.mode = 'lost';
+    expect((await hatch('Pixel')).body).toEqual({ pending: true });
+    const original = await env.DB.prepare('SELECT tx_hash FROM births_in_flight WHERE account = ?').bind(PLAYER).first<{ tx_hash: string }>();
+    h.net().contract.mode = 'normal';
+    await settleItemSends(env, Date.now() + 61_000);
+    expect(h.net().contract.pets.size).toBe(1);
+    expect((await env.DB.prepare('SELECT birth_tx FROM pets WHERE token_id = ?').bind('0').first<{ birth_tx: string }>())?.birth_tx).toBe(original!.tx_hash);
+    expect(await env.DB.prepare("SELECT COUNT(*) AS n FROM jobs WHERE token_id = '0' AND kind = 'greeting'").first<{ n: number }>()).toEqual({ n: 1 });
+    expect(await env.DB.prepare('SELECT COUNT(*) AS n FROM project_spend WHERE birth_account = ?').bind(PLAYER).first<{ n: number }>()).toEqual({ n: 2 });
+    expect(await env.DB.prepare('SELECT COUNT(*) AS n FROM births_in_flight WHERE account = ?').bind(PLAYER).first<{ n: number }>()).toEqual({ n: 0 });
+    expect(h.events()).toEqual([{ name: 'pet_born', props: {} }]);
+  });
+
+  // spec: add-pet › First thought flow › Приветствие
+  // spec: add-pet › Birth flow › birth pending
+  it('reaches a confirmed birth after more than ten older unresolved births, even when their chain reads fail', async () => {
+    h.net().contract.mode = 'lost';
+    expect((await hatch('Pixel')).body).toEqual({ pending: true });
+    const original = await env.DB.prepare('SELECT tx_hash FROM births_in_flight WHERE account = ?')
+      .bind(PLAYER).first<{ tx_hash: string }>();
+    expect(original?.tx_hash).toBeTruthy();
+    h.net().contract.mint(PLAYER, 'Pixel', 'character');
+
+    const oldSentAt = Date.now() - 2 * 60_000;
+    await env.DB.batch(Array.from({ length: 11 }, (_, i) => env.DB.prepare(
+      "INSERT INTO item_sends (tx_hash, token_id, item, sent_at, kind) VALUES (?, ?, 'birth', ?, 'birth')",
+    ).bind(baseEncode(new Uint8Array(32).fill(i + 1)), NEAR_ACCOUNT(i + 100), oldSentAt)));
+    const now = Date.now() + 61_000;
+
+    h.net().contract.down = true;
+    await settleItemSends(env, now);
+    expect(await env.DB.prepare('SELECT COUNT(*) AS n FROM item_sends WHERE kind = ? AND checked_at = ?')
+      .bind('birth', now).first<{ n: number }>()).toEqual({ n: 10 });
+
+    h.net().contract.down = false;
+    await settleItemSends(env, now);
+    expect((await env.DB.prepare('SELECT birth_tx FROM pets WHERE token_id = ?')
+      .bind('0').first<{ birth_tx: string }>())?.birth_tx).toBe(original!.tx_hash);
+    expect(await env.DB.prepare("SELECT COUNT(*) AS n FROM jobs WHERE token_id = '0' AND kind = 'greeting'")
+      .first<{ n: number }>()).toEqual({ n: 1 });
+    expect(await env.DB.prepare('SELECT COUNT(*) AS n FROM project_spend WHERE birth_account = ?')
+      .bind(PLAYER).first<{ n: number }>()).toEqual({ n: 2 });
+    expect(await env.DB.prepare('SELECT COUNT(*) AS n FROM item_sends WHERE kind = ? AND checked_at = ?')
+      .bind('birth', now).first<{ n: number }>()).toEqual({ n: 11 });
+  });
+
+  // spec: add-pet › Birth flow › не вылупился
+  it('lets cron mark an expired unseen birth failed after reading the chain again', async () => {
+    h.net().contract.mode = 'lost';
+    expect((await hatch('Pixel')).body).toEqual({ pending: true });
+    h.net().contract.blockHeight = 87_401;
+    await settleItemSends(env, Date.now() + 61_000);
+    expect((await api('/api/hatch', { token: await asPlayer() })).body).toMatchObject({ failed: true });
+    expect(await env.DB.prepare("SELECT COUNT(*) AS n FROM item_sends WHERE kind = 'birth'").first<{ n: number }>()).toEqual({ n: 0 });
   });
 
   // spec: add-pet › Birth flow › не вылупился
@@ -167,6 +326,19 @@ describe('Birth flow', () => {
     expect(mintCalls()).toHaveLength(0);
   });
 
+  // spec: add-pet › Birth flow › имя не принято
+  it('mints a valid second request when the first unsigned claim is released after its name is rejected', async () => {
+    await env.DB.prepare('INSERT INTO births_in_flight (account, started_at) VALUES (?, ?)').bind(PLAYER, Date.now()).run();
+    const second = hatch('Pixel');
+    await new Promise((resolve) => setTimeout(resolve, 150));
+    // The other POST rejected its name and removed its unsigned claim without signing.
+    await env.DB.prepare('DELETE FROM births_in_flight WHERE account = ? AND tx_hash IS NULL').bind(PLAYER).run();
+    const res = await second;
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ tokenId: '0' });
+    expect(mintCalls()).toHaveLength(1);
+  });
+
   // spec: add-pet › Birth flow › вылупился
   it('takes over a birth row that is too old to be alive', async () => {
     await env.DB.prepare('INSERT INTO births_in_flight (account, started_at) VALUES (?, ?)').bind(PLAYER, Date.now() - 61_000).run();
@@ -190,6 +362,7 @@ describe('Birth flow', () => {
     expect(res.body).toEqual({ code: 'chain_unreachable' });
     const open = await api('/api/hatch', { token: await asPlayer() });
     expect(open.status).toBe(503);
+    expect(await env.DB.prepare('SELECT COUNT(*) AS n FROM births_in_flight').first<{ n: number }>()).toEqual({ n: 0 });
   });
 });
 

@@ -147,6 +147,8 @@ export class FakeContract {
   serverBalance = 10_000_000_000_000_000_000_000_000n;
   /** Every contract view call the Worker made, as `method:args`. */
   reads: { method: string; args: Record<string, unknown> }[] = [];
+  /** Hashes asked through the transaction-status RPC. */
+  statusHashes: string[] = [];
   /** Every transaction the Worker sent to the contract. */
   sends: { method: string; args: Record<string, unknown>; gas: string; deposit: string; signer: string; nonce: number }[] = [];
   mode: SendMode = 'normal';
@@ -177,7 +179,7 @@ export class FakeContract {
   lag: number[] = [];
   /** Each runs once, inside the next RPC call of that name and before it answers: what the rest of
    * the world does while the Worker waits on that call. */
-  meanwhile: { view_account?: () => Promise<void>; pet_view?: () => Promise<void>; send_tx?: () => Promise<void>; tx?: () => Promise<void> } = {};
+  meanwhile: { view_account?: () => Promise<void>; pet_view?: () => Promise<void>; hatch_view?: () => Promise<void>; send_tx?: () => Promise<void>; tx?: () => Promise<void> } = {};
   outcomes = new Map<string, unknown>();
   /** A pet as it stood before each of its accepted debits, the oldest first. */
   private past = new Map<string, FakePet[]>();
@@ -665,6 +667,7 @@ export class FakeContract {
         if (type === 'call_function') {
           const args = JSON.parse(atob(String(params.args_base64))) as Record<string, unknown>;
           if (params.method_name === 'pet_view') await this.during('pet_view');
+          if (params.method_name === 'hatch_view') await this.during('hatch_view');
           const value = this.view(String(params.method_name), args);
           const bytes = Array.from(new TextEncoder().encode(JSON.stringify(value)));
           return { result: { result: bytes, logs: [], block_height: 1000, block_hash: BLOCK_HASH } };
@@ -702,6 +705,7 @@ export class FakeContract {
         return await this.deliver(String(params.signed_tx_base64));
       case 'tx': {
         await this.during('tx');
+        this.statusHashes.push(String(params.tx_hash));
         const outcome = this.txBlind ? undefined : this.outcomes.get(String(params.tx_hash));
         if (outcome === undefined) {
           if (this.unseenTx === 'timeout') return { error: { name: 'HANDLER_ERROR', cause: { name: 'TIMEOUT_ERROR', info: {} }, code: -32000, message: 'Server error', data: 'Timeout' } };

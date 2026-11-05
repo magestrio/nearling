@@ -1,0 +1,6 @@
+/* The compact PetPlate can be narrower than its heading and seal during the phone's flex layout. Keep the whole
+   heading inside that row and let the name wrap before it reaches the seal. */
+@media not all and (min-width: 768px) {
+  .ds-plate--compact .ds-plate__head { max-inline-size: 100%; }
+  .ds-plate--compact .ds-plate__name { min-inline-size: var(--space-0); }
+}

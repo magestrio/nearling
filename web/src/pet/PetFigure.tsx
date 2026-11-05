@@ -2,7 +2,7 @@ import { Environment, Lightformer, PerformanceMonitor } from '@react-three/drei'
 import { Canvas, useFrame, useThree } from '@react-three/fiber';
 import { Bloom, EffectComposer, ToneMapping } from '@react-three/postprocessing';
 import { ToneMappingMode } from 'postprocessing';
-import { Component, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type ComponentType, type ReactNode } from 'react';
+import { Component, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type ComponentType, type CSSProperties, type ReactNode } from 'react';
 import { cx } from '../ds/util';
 import { fakeState, recordCall } from '../seams/fakes';
 import type { Mood } from '../seams/worker-types';
@@ -12,6 +12,7 @@ import { AlphaFromLight } from './proto/AlphaFromLight.js';
 import { assemblePet } from './proto/assemble.js';
 import { Pet } from './proto/Pet.jsx';
 import { usePetMotion } from './proto/useMotion.js';
+import { heroAspect } from './stillAspect';
 
 // The DS's `Pet` (design/ds/components.js) for the live client: the 3D pet of the prototype (Pet.jsx, animator.js,
 // assemble.js, materials.js, face.js — proto/, unchanged) in one canvas, or the flat drawing when this browser has no
@@ -332,6 +333,16 @@ function FlatScene({ tokenId, state, stage, outfit, face }: Required<Pick<PetFig
   return <canvas ref={ref} className="pet-figure__canvas" />;
 }
 
+// The box proportion builds the pet's geometry outside the scene's FigureBoundary; a pet the geometry can't build
+// must lose only its picture (`Pet screen` › «WebGL недоступен»), so it falls back to the DS default box.
+function safeHeroAspect(tokenId: string, stage: 'baby' | 'teen' | 'adult'): number | null {
+  try {
+    return heroAspect(tokenId, stage);
+  } catch {
+    return null;
+  }
+}
+
 export function PetFigure({ tokenId, name, state = 'full', stage = 'adult', outfit, wearing, size = 'hero', decorative, lost: lostProp, onLost, hub, birth = false, mood, still = false }: PetFigureProps) {
   // Flat from the start when WebGL can't be had, and from the moment the one context is lost or the scene fails; the
   // actions around the pet work either way.
@@ -345,8 +356,10 @@ export function PetFigure({ tokenId, name, state = 'full', stage = 'adult', outf
     setOwnLost(true);
     onLost?.();
   };
+  // the hero's box takes the proportion of its pet's still (a wide pet is short), as the frames' picture does
+  const aspect = useMemo(() => (size === 'hero' ? safeHeroAspect(tokenId, stage) : null), [size, tokenId, stage]);
   return (
-    <div className={cx('ds-pet', `ds-pet--${size}`, 'pet-figure', `pet-figure--${size}`)} data-illustration="" data-still={still ? '' : undefined} data-view={flat ? 'flat' : '3d'} data-face={face} data-stage={stage} data-outfit={outfit}>
+    <div className={cx('ds-pet', `ds-pet--${size}`, 'pet-figure', `pet-figure--${size}`)} style={aspect === null ? undefined : ({ '--pet-aspect': aspect.toFixed(3) } as CSSProperties)} data-illustration="" data-still={still ? '' : undefined} data-view={flat ? 'flat' : '3d'} data-state={state} data-face={face} data-stage={stage} data-outfit={outfit}>
       <div className="pet-figure__box" role={decorative ? undefined : 'img'} aria-label={decorative ? undefined : alt} aria-hidden={decorative || undefined}>
         {flat ? (
           <FigureBoundary key="flat" onFail={() => undefined}>

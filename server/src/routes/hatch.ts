@@ -5,8 +5,8 @@ import { assembleCharacter } from '../character/presets';
 import { requireSession, type AppContext, type AppEnv } from '../http';
 import { cleanName, hasVisible } from '../name/clean';
 import { hasInsult } from '../name/insult';
-import { BIRTH_STORAGE_YOCTO, MAX_BIRTH_COST_YOCTO, nearUsdRate, STARTER_FOOD_YOCTO, yoctoToUsdMicros } from '../pricing';
-import { desk, enqueueJob } from '../pet/desk';
+import { MAX_BIRTH_COST_YOCTO } from '../pricing';
+import { birthFlight, finishBirth, type BirthFlight } from '../pet/birth';
 import { gasIsLow, pauseReason } from '../servicePause';
 import { track } from '../track';
 import { lastGiftedPet } from '../gift/current';
@@ -20,7 +20,7 @@ const MAX_NAME_BYTES = 32;
 const BIRTHS_PER_DAY = 50;
 /** New births close when the project's own spend reaches $100 (PRODUCT.md §4, in micro-dollars). */
 const BUDGET_USD_MICROS = 100_000_000;
-/** A birth row older than this belongs to an isolate that is gone; it is taken over. */
+/** A row without a signed hash may be reclaimed after the sender has stopped. */
 const IN_FLIGHT_STALE_MS = 60_000;
 const IN_FLIGHT_WAIT_MS = 30_000;
 const IN_FLIGHT_STEP_MS = 500;
@@ -52,6 +52,15 @@ const unreachable = (c: { json: (body: unknown, status: 503) => Response }) => c
 
 hatchRoutes.get('/api/hatch', async (c) => {
   const session = c.get('session');
+  if (session !== null) {
+    // The POST claims this account before its first chain read. An unsigned, live claim is
+    // enough to keep a remounted Hatch screen pending while that read is still in progress.
+    const claim = await c.env.DB.prepare('SELECT started_at, tx_hash FROM births_in_flight WHERE account = ?')
+      .bind(session.accountId).first<{ started_at: number; tx_hash: string | null }>();
+    if (claim !== null && claim.tx_hash === null && Date.now() - claim.started_at < IN_FLIGHT_STALE_MS) {
+      return c.json({ open: true, pending: true });
+    }
+  }
   let hatch: HatchRecord;
   if (session === null) {
     const copy = await c.env.GUEST_VIEW.get(c.env.GUEST_VIEW.idFromName('hatch')).readHatch();
@@ -60,6 +69,20 @@ hatchRoutes.get('/api/hatch', async (c) => {
   } else {
     try {
       hatch = await hatchView(c.env, session.accountId);
+    } catch (e) {
+      if (e instanceof ChainUnreachable) return unreachable(c);
+      throw e;
+    }
+  }
+  if (session !== null) {
+    try {
+      const flight = await birthFlight(c.env, session.accountId, hatch);
+      if (flight === 'pending') return c.json({ open: true, pending: true });
+      if (flight === 'failed') return c.json({ open: true, failed: true });
+      if (flight === 'born' && hatch.token_id === null) {
+        hatch = await hatchView(c.env, session.accountId);
+        if (hatch.token_id === null) return c.json({ open: true, pending: true });
+      }
     } catch (e) {
       if (e instanceof ChainUnreachable) return unreachable(c);
       throw e;
@@ -114,60 +137,120 @@ hatchRoutes.post('/api/hatch', async (c) => {
   const session = requireSession(c);
   if (session instanceof Response) return session;
 
-  const body = await c.req.json<{ name?: unknown }>().catch(() => null);
-  if (body === null || typeof body.name !== 'string') return c.json({ code: 'bad_request' }, 400);
-  const raw = body.name;
-  if (new TextEncoder().encode(raw).length > MAX_NAME_BYTES) return c.json({ code: 'name_too_long' }, 400);
-
-  // Nothing leaves the Worker before the name is accepted; a refusal writes and logs nothing of it.
-  const name = cleanName(raw);
-  if (!hasVisible(name) || hasInsult(name, c.env.INSULT_LIST)) {
-    console.log('name_rejected');
-    return c.json({ code: 'name_rejected' }, 422);
-  }
-
-  let hatch: HatchRecord;
+  // Claim before parsing the name, reading the chain or checking whether births are open.
+  // This gives every status read a durable pending answer as soon as the POST starts.
+  let startedAt = Date.now();
+  let claimed = await c.env.DB.prepare(
+    'INSERT INTO births_in_flight (account, started_at) VALUES (?, ?) ON CONFLICT (account) DO UPDATE SET started_at = excluded.started_at WHERE started_at < ? AND tx_hash IS NULL',
+  ).bind(session.accountId, startedAt, startedAt - IN_FLIGHT_STALE_MS).run();
+  let ownsClaim = claimed.meta.changes === 1;
+  let keepClaim = false;
+  let mintResponse: Response | null = null;
   try {
-    // The server's gas is read before a birth: a low balance closes hatching now, not at the next minute.
-    await gasIsLow(c.env, Date.now());
-    hatch = await hatchView(c.env, session.accountId);
-  } catch (e) {
-    if (e instanceof ChainUnreachable) return unreachable(c);
-    throw e;
-  }
-  const state = await openness(c.env, hatch);
-  if (!state.open) {
-    track('birth_blocked', { reason: state.reason! });
-    return c.json({ code: 'closed', reason: state.reason, until: state.until }, 409);
-  }
-  if (hatch.token_id !== null) {
-    // The network has this player's pet. If a birth reached the chain but its row did not reach
-    // D1 (the Worker died between the two), the row is written now: the network is the truth.
-    await c.env.DB.prepare('INSERT OR IGNORE INTO pets (token_id, hatched_by, born_at, birth_tx) VALUES (?, ?, ?, ?)')
-      .bind(hatch.token_id, session.accountId, Date.now(), '')
-      .run();
-    await publicPetId(c.env.DB, hatch.token_id);
-    return c.json({ code: 'already' }, 409);
-  }
+    const body = await c.req.json<{ name?: unknown }>().catch(() => null);
+    if (body === null || typeof body.name !== 'string') return c.json({ code: 'bad_request' }, 400);
+    const raw = body.name;
+    if (new TextEncoder().encode(raw).length > MAX_NAME_BYTES) return c.json({ code: 'name_too_long' }, 400);
 
-  // One birth in flight per account. A second request waits for the first one's outcome and
-  // answers the same: it never mints a second pet.
-  const now = Date.now();
-  const claimed = await c.env.DB.prepare(
-    'INSERT INTO births_in_flight (account, started_at) VALUES (?, ?) ON CONFLICT (account) DO UPDATE SET started_at = excluded.started_at WHERE started_at < ?',
-  )
-    .bind(session.accountId, now, now - IN_FLIGHT_STALE_MS)
-    .run();
-  if (claimed.meta.changes === 0) return waitForTheOtherBirth(c.env, session.accountId, c);
+    // Nothing leaves the Worker before the name is accepted; a refusal writes and logs nothing of it.
+    const name = cleanName(raw);
+    if (!hasVisible(name) || hasInsult(name, c.env.INSULT_LIST)) {
+      console.log('name_rejected');
+      return c.json({ code: 'name_rejected' }, 422);
+    }
 
-  try {
-    return await mint(c.env, session.accountId, name, c);
+    let hatch: HatchRecord;
+    try {
+      hatch = await hatchView(c.env, session.accountId);
+    } catch (e) {
+      if (e instanceof ChainUnreachable) return unreachable(c);
+      throw e;
+    }
+    if (hatch.token_id !== null) {
+      // The network has this player's pet. If a birth reached the chain but its row did not reach
+      // D1 (the Worker died between the two), the row is written now: the network is the truth.
+      if (!ownsClaim) await birthFlight(c.env, session.accountId, hatch);
+      await c.env.DB.prepare('INSERT OR IGNORE INTO pets (token_id, hatched_by, born_at, birth_tx) VALUES (?, ?, ?, ?)')
+        .bind(hatch.token_id, session.accountId, Date.now(), '')
+        .run();
+      await publicPetId(c.env.DB, hatch.token_id);
+      return c.json({ code: 'already' }, 409);
+    }
+
+    try {
+      if (!ownsClaim) {
+        const flight = await birthFlight(c.env, session.accountId, hatch);
+        if (flight === 'pending') {
+          const signed = await c.env.DB.prepare('SELECT tx_hash FROM births_in_flight WHERE account = ?')
+            .bind(session.accountId).first<{ tx_hash: string | null }>();
+          return signed?.tx_hash === null ? waitForTheOtherBirth(c.env, session.accountId, name, c) : c.json({ pending: true }, 202);
+        }
+        if (flight === 'failed') {
+          const old = await c.env.DB.prepare('SELECT started_at, tx_hash, signed_bytes, rebroadcast_at, failed FROM births_in_flight WHERE account = ?')
+            .bind(session.accountId).first<BirthFlight>();
+          if (old !== null) {
+            const [cleared] = await c.env.DB.batch([
+              c.env.DB.prepare('DELETE FROM births_in_flight WHERE account = ? AND started_at = ? AND tx_hash IS ?')
+                .bind(session.accountId, old.started_at, old.tx_hash),
+              c.env.DB.prepare('DELETE FROM item_sends WHERE tx_hash = ?').bind(old.tx_hash ?? ''),
+            ]);
+            if (cleared.meta.changes === 0) return waitForTheOtherBirth(c.env, session.accountId, name, c);
+          }
+        }
+        // A status read may have finalized the signed birth while the first hatch_view was
+        // one block behind. Never apply new-birth checks to that already completed mint.
+        if (flight === 'born') {
+          hatch = await hatchView(c.env, session.accountId);
+          if (hatch.token_id !== null) return c.json({ tokenId: hatch.token_id });
+          return c.json({ pending: true }, 202);
+        }
+      }
+    } catch (e) {
+      if (e instanceof ChainUnreachable) return unreachable(c);
+      throw e;
+    }
+
+    try {
+      // Only a new attempt needs the current gas and openness checks. An older signed birth
+      // remains pending even when another birth closes today's allowance.
+      await gasIsLow(c.env, Date.now());
+    } catch (e) {
+      if (e instanceof ChainUnreachable) return unreachable(c);
+      throw e;
+    }
+    const state = await openness(c.env, hatch);
+    if (!state.open) {
+      track('birth_blocked', { reason: state.reason! });
+      return c.json({ code: 'closed', reason: state.reason, until: state.until }, 409);
+    }
+
+    // One birth in flight per account. A second request waits for the first one's outcome and
+    // answers the same: it never mints a second pet.
+    if (!ownsClaim) {
+      startedAt = Date.now();
+      claimed = await c.env.DB.prepare(
+        'INSERT INTO births_in_flight (account, started_at) VALUES (?, ?) ON CONFLICT (account) DO UPDATE SET started_at = excluded.started_at WHERE started_at < ? AND tx_hash IS NULL',
+      ).bind(session.accountId, startedAt, startedAt - IN_FLIGHT_STALE_MS).run();
+      if (claimed.meta.changes === 0) return waitForTheOtherBirth(c.env, session.accountId, name, c);
+      ownsClaim = true;
+    }
+    mintResponse = await mint(c.env, session.accountId, name, startedAt, c);
+    keepClaim = mintResponse.status === 202;
+    return mintResponse;
   } finally {
-    await c.env.DB.prepare('DELETE FROM births_in_flight WHERE account = ?').bind(session.accountId).run();
+    if (ownsClaim && !keepClaim) {
+      // A thrown error may happen after the signer persisted the hash. In that case the
+      // original transaction still needs its journal for later reconciliation.
+      const sql = mintResponse === null
+        ? 'DELETE FROM births_in_flight WHERE account = ? AND started_at = ? AND tx_hash IS NULL'
+        : 'DELETE FROM births_in_flight WHERE account = ? AND started_at = ?';
+      await c.env.DB.prepare(sql)
+        .bind(session.accountId, startedAt).run();
+    }
   }
 });
 
-async function waitForTheOtherBirth(env: Env, account: string, c: AppContext): Promise<Response> {
+async function waitForTheOtherBirth(env: Env, account: string, name: string, c: AppContext): Promise<Response> {
   const deadline = Date.now() + IN_FLIGHT_WAIT_MS;
   while (Date.now() < deadline) {
     const row = await env.DB.prepare('SELECT 1 AS busy FROM births_in_flight WHERE account = ?').bind(account).first();
@@ -177,6 +260,34 @@ async function waitForTheOtherBirth(env: Env, account: string, c: AppContext): P
   try {
     const hatch = await hatchView(env, account);
     if (hatch.token_id !== null) return c.json({ tokenId: hatch.token_id });
+    const flight = await birthFlight(env, account, hatch);
+    if (flight === 'pending' || flight === 'born') return c.json({ pending: true }, 202);
+    // The other request may have rejected its name before signing. A valid request must
+    // compete for a fresh claim and mint; a missing pet alone is not a failed transaction.
+    const released = flight === 'failed' && await env.DB.prepare('SELECT 1 AS busy FROM births_in_flight WHERE account = ?')
+      .bind(account).first() === null;
+    if (flight === 'none' || released) {
+      await gasIsLow(env, Date.now());
+      const state = await openness(env, hatch);
+      if (!state.open) return c.json({ code: 'closed', reason: state.reason, until: state.until }, 409);
+      const startedAt = Date.now();
+      const claimed = await env.DB.prepare(
+        'INSERT INTO births_in_flight (account, started_at) VALUES (?, ?) ON CONFLICT (account) DO UPDATE SET started_at = excluded.started_at WHERE started_at < ? AND tx_hash IS NULL',
+      ).bind(account, startedAt, startedAt - IN_FLIGHT_STALE_MS).run();
+      if (claimed.meta.changes === 0) return c.json({ pending: true }, 202);
+      let response: Response | null = null;
+      try {
+        response = await mint(env, account, name, startedAt, c);
+        return response;
+      } finally {
+        if (response?.status !== 202) {
+          await env.DB.prepare(response === null
+            ? 'DELETE FROM births_in_flight WHERE account = ? AND started_at = ? AND tx_hash IS NULL'
+            : 'DELETE FROM births_in_flight WHERE account = ? AND started_at = ?')
+            .bind(account, startedAt).run();
+        }
+      }
+    }
   } catch (e) {
     if (e instanceof ChainUnreachable) return unreachable(c);
     throw e;
@@ -184,15 +295,21 @@ async function waitForTheOtherBirth(env: Env, account: string, c: AppContext): P
   return c.json({ code: 'not_hatched' }, 502);
 }
 
-async function mint(env: Env, account: string, name: string, c: AppContext): Promise<Response> {
+async function mint(env: Env, account: string, name: string, startedAt: number, c: AppContext): Promise<Response> {
   const character = assembleCharacter();
   const answer = await env.SERVER_KEY.get(env.SERVER_KEY.idFromName('server')).send({
     methodName: 'pet_mint',
     args: { receiver: account, name, character },
     gas: (PET_MINT_TGAS * 1_000_000_000_000n).toString(),
-    writes: { kind: 'birth', receiver: account },
+    writes: { kind: 'birth', receiver: account, startedAt },
   });
-  if (answer.status === 'unreachable') return unreachable(c);
+  if (answer.status === 'unreachable') {
+    // The send can lose its answer after the signer saved the hash. That outcome is still
+    // unknown and must be resolved through the original hash, never offered as a new birth.
+    const signed = await env.DB.prepare('SELECT tx_hash FROM births_in_flight WHERE account = ? AND started_at = ?')
+      .bind(account, startedAt).first<{ tx_hash: string | null }>();
+    return signed?.tx_hash === null || signed === null ? unreachable(c) : c.json({ pending: true }, 202);
+  }
 
   let tokenId: string | null = null;
   let txHash = '';
@@ -215,37 +332,16 @@ async function mint(env: Env, account: string, name: string, c: AppContext): Pro
       const after = await hatchView(env, account);
       tokenId = after.token_id;
     } catch (e) {
+      // The signed hash is durable. A failed read cannot turn an unknown mint into a failed birth.
+      if (e instanceof ChainUnreachable && answer.status === 'unknown') return c.json({ pending: true }, 202);
       if (e instanceof ChainUnreachable) return unreachable(c);
       throw e;
     }
   }
-  if (tokenId === null) return c.json({ code: 'not_hatched' }, 502);
+  if (tokenId === null) return answer.status === 'unknown'
+    ? c.json({ pending: true }, 202)
+    : c.json({ code: 'not_hatched' }, 502);
 
-  const at = Date.now();
-  const statements = [
-    env.DB.prepare('INSERT OR IGNORE INTO pets (token_id, hatched_by, born_at, birth_tx) VALUES (?, ?, ?, ?)').bind(tokenId, account, at, txHash),
-  ];
-  if (answer.status === 'ok') {
-    statements.push(
-      env.DB.prepare("INSERT OR IGNORE INTO pet_transactions (token_id, kind, ref, tx_hash, at) VALUES (?, 'birth', 'birth', ?, ?)").bind(tokenId, txHash, at),
-      env.DB.prepare("DELETE FROM item_sends WHERE token_id = ? AND kind = 'birth' AND item = 'birth'").bind(account),
-    );
-  }
-  // The starter food and the storage of the birth come out of the project's pocket (Траты проекта).
-  const rate = nearUsdRate(env.NEAR_USD_RATE);
-  if (rate === null) {
-    console.log('rate_missing');
-  } else {
-    for (const [kind, yocto] of [['starter_food', STARTER_FOOD_YOCTO], ['storage', BIRTH_STORAGE_YOCTO]] as const) {
-      statements.push(env.DB.prepare('INSERT INTO project_spend (at, kind, usd_micros) VALUES (?, ?, ?)').bind(at, kind, yoctoToUsdMicros(yocto, rate)));
-    }
-  }
-  await env.DB.batch(statements);
-  await publicPetId(env.DB, tokenId);
-  track('pet_born');
-  // The greeting is queued at birth and runs by the desk's alarm, with no request from the client
-  // (First thought flow); the empty Pet screen asks again and gets the same job.
-  await enqueueJob(env.DB, tokenId, { kind: 'greeting' });
-  await desk(env, tokenId).arm(tokenId);
+  await finishBirth(env, account, tokenId, txHash);
   return c.json({ tokenId });
 }

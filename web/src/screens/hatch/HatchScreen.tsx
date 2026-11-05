@@ -101,7 +101,7 @@ export function HatchScreen({ from }: { from: string | null }) {
     </Shell>;
   }
 
-  // The way out of a closed screen: a player without a pet or friend link can find a pet to ask.
+  // The way out of a closed screen: a player who never hatched and has no friend link can find a pet to ask.
   const noExit = view.kind === 'closed' && view.noPets;
   const wayOut =
     from && hatch.friend === 'loading' ? null : hatch.friend && hatch.friend !== 'loading' ? (
@@ -205,6 +205,7 @@ export function HatchScreen({ from }: { from: string | null }) {
                 placeholder="e.g. Pixel"
                 value={name}
                 onChange={hatch.setName}
+                readOnly={birth === 'hatching'}
                 error={hatch.nameRefused ? "Let's pick a different name." : undefined}
                 hint={cleaned ? [LIMIT_HINT, PUBLIC_HINT] : LIMIT_HINT}
               />

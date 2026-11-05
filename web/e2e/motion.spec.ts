@@ -1,5 +1,6 @@
 import { expect, test, type Page } from '@playwright/test';
 import { calls, lookAgain, openWith, OWNER, PIXEL, setWorker, SIGNED_IN } from './helpers';
+import { SAMPLE_SHOWCASE } from '../src/seams/showcase.sample';
 
 const ASLEEP = { ...PIXEL, fullness: { state: 'asleep' as const, level: 0 } };
 const PLAY = { pet: { hold: false } };
@@ -52,6 +53,34 @@ test('пауза: the pet moves — frames come and the picture changes — unti
   await page.getByRole('button', { name: 'Play motion' }).click();
   await expect(page.getByRole('button', { name: 'Pause motion' })).toBeVisible();
   expect(await drawnOver(page, 2500)).toBeGreaterThan(1);
+});
+
+// spec: add-pet › Pet motion rule › пауза
+test('a visitor pauses a pet, finds the Home meadow paused, and plays it there for the next visit', async ({ page }) => {
+  await openWith(page, '/pet/2', { worker: { showcase: SAMPLE_SHOWCASE }, ...PLAY });
+  await expect(page.locator('[data-illustration]')).toHaveAttribute('data-view', '3d');
+  await page.getByRole('button', { name: 'Pause motion' }).click();
+  await expect(page.getByRole('button', { name: 'Play motion' })).toBeVisible();
+  expect(await page.evaluate(() => localStorage.getItem('nearling.motion'))).toBe('paused');
+
+  await page.goto('/');
+  const meadow = page.locator('.ds-meadow');
+  await expect(meadow.locator('.ds-meadow__pet')).toHaveCount(10);
+  await meadow.scrollIntoViewIfNeeded();
+  await expect(meadow).toHaveClass(/ds-meadow--paused/);
+  await expect(meadow.getByRole('button', { name: 'Play motion' })).toBeVisible();
+  await comesToRest(page);
+  await page.reload();
+  await meadow.scrollIntoViewIfNeeded();
+  await expect(meadow).toHaveClass(/ds-meadow--paused/);
+
+  await meadow.getByRole('button', { name: 'Play motion' }).click();
+  await expect(meadow).not.toHaveClass(/ds-meadow--paused/);
+  // the ten pets share one canvas and a software-GL frame of it takes seconds
+  await expect.poll(() => drawnOver(page, 6000), { timeout: 60_000 }).toBeGreaterThan(1);
+  expect(await page.evaluate(() => localStorage.getItem('nearling.motion'))).toBe('playing');
+  await page.goto('/pet/2');
+  await expect(page.getByRole('button', { name: 'Pause motion' })).toBeVisible();
 });
 
 // spec: add-pet › Pet motion rule › система просит меньше движения

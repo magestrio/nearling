@@ -6,6 +6,7 @@ import { useAuth } from '../../seams/auth';
 import { WorkerError, workerApi, type ClosedReason, type HatchStatus } from '../../seams/worker';
 import { takeReturnText } from '../../signin/returnPlace';
 import { fitName } from './name';
+import { activeHatchPost, clearPendingName, keepPendingName, pendingName, trackHatchPost } from './pendingBirth';
 
 // The Hatch screen's state: what the page shows is chosen from the answer of `GET /api/hatch` in the order of
 // design.md › «Closed hatching for everyone»: no connection → Connection rule; closed (any reason, any viewer) → its
@@ -14,7 +15,7 @@ import { fitName } from './name';
 export type HatchView =
   | { kind: 'checking' }
   | { kind: 'unreachable'; busy: boolean }
-  /** `noPets`: a signed-in player with no pet of their own — the screen has no way out for them (`add-pet` › `no exit`) */
+  /** `noPets`: a signed-in player with no pet of their own; an earlier gift is represented by `lastGifted`. */
   | { kind: 'closed'; reason: ClosedReason; until?: string; noPets: boolean }
   | { kind: 'no-pets'; lastGifted: { tokenId: string; name: string }; closed: boolean; reason?: ClosedReason; until?: string }
   | { kind: 'already'; tokenId: string; name: string }
@@ -36,14 +37,25 @@ export function useHatch(from: string | null) {
   const auth = useAuth();
   const authRef = useRef(auth);
   authRef.current = auth;
-  const [name, setNameRaw] = useState('');
+  const [name, setNameRaw] = useState(() => pendingName(auth.nearAccountId) ?? '');
   const [check, setCheck] = useState<Check>({ kind: 'checking' });
   const [attempt, setAttempt] = useState(0);
-  const [birth, setBirth] = useState<Birth>('idle');
+  const [birth, setBirth] = useState<Birth>(() => pendingName(auth.nearAccountId) === null ? 'idle' : 'hatching');
   const [nameRefused, setNameRefused] = useState(false);
   // 'loading' while the friend's pet is being read: the way out waits for its name
   const [friend, setFriend] = useState<Friend | null | 'loading'>(from ? 'loading' : null);
   const inFlight = useRef(false);
+  const birthGeneration = useRef(0);
+
+  // A remount inherits the unresolved request, including the time spent obtaining its token.
+  useEffect(() => {
+    const post = activeHatchPost(auth.nearAccountId);
+    if (post === null) return undefined;
+    let live = true;
+    setBirth('hatching');
+    void post.then(() => { if (live) setAttempt((a) => a + 1); });
+    return () => { live = false; };
+  }, [auth.nearAccountId]);
 
   // «Is hatching open, and did this player already hatch» — on load, when the sign-in changes, and on «Try again».
   useEffect(() => {
@@ -55,11 +67,44 @@ export function useHatch(from: string | null) {
     setCheck({ kind: 'checking' });
     void (async () => {
       try {
+        const requestGeneration = birthGeneration.current;
+        const startedWhilePosting = activeHatchPost(auth.nearAccountId) !== null;
         const token = auth.authenticated ? await auth.getIdentityToken() : null;
         // a signed-in page whose token is gone: the session ended before anything was shown
         if (auth.authenticated && token === null) throw new WorkerError(401, 'signed_out');
         const data = await workerApi.hatchStatus(token);
-        if (live) setCheck({ kind: 'status', data });
+        if (live) {
+          setCheck({ kind: 'status', data });
+          if (startedWhilePosting || activeHatchPost(auth.nearAccountId) !== null) {
+            setBirth('hatching');
+          } else if (data.pending) {
+            const saved = pendingName(auth.nearAccountId);
+            if (saved !== null) setNameRaw(saved);
+            setBirth('hatching');
+          } else if (data.failed) {
+            const saved = pendingName(auth.nearAccountId);
+            if (saved !== null) setNameRaw(saved);
+            clearPendingName(auth.nearAccountId);
+            setBirth('not_hatched');
+          } else if (data.already) {
+            if (pendingName(auth.nearAccountId) !== null) {
+              clearPendingName(auth.nearAccountId);
+              markNewborn(data.already.tokenId);
+              go(petPath(data.already.tokenId, from));
+            }
+          } else {
+            // A look begun before the POST, or answered while it is still running, cannot say whether that POST
+            // will create a signed birth flight. Only a later look may release the saved name.
+            if (!inFlight.current && requestGeneration === birthGeneration.current) {
+              const saved = pendingName(auth.nearAccountId);
+              if (saved !== null) {
+                setNameRaw(saved);
+                clearPendingName(auth.nearAccountId);
+              }
+              setBirth('idle');
+            }
+          }
+        }
       } catch (e) {
         if (!live) return;
         // a `401` on the first load: nothing to hold, the page is the visitor's at once — `authenticated` turns false and
@@ -71,7 +116,48 @@ export function useHatch(from: string | null) {
     return () => {
       live = false;
     };
-  }, [auth.ready, auth.authenticated, attempt]);
+  }, [auth.ready, auth.authenticated, auth.nearAccountId, attempt, from]);
+
+  // A signed birth continues to be checked after the POST returns, after a reload, and when the tab returns.
+  useEffect(() => {
+    if (birth !== 'hatching' || !auth.ready || !auth.authenticated || auth.nearAccountId === null) return undefined;
+    let live = true;
+    const look = async () => {
+      if (document.hidden || !live) return;
+      const requestGeneration = birthGeneration.current;
+      const startedWhilePosting = inFlight.current || activeHatchPost(auth.nearAccountId) !== null;
+      try {
+        const token = await auth.getIdentityToken();
+        if (token === null) return;
+        const data = await workerApi.hatchStatus(token, { look: true });
+        if (!live) return;
+        if (startedWhilePosting || activeHatchPost(auth.nearAccountId) !== null) {
+          setBirth('hatching');
+        } else if (data.already) {
+          clearPendingName(auth.nearAccountId);
+          markNewborn(data.already.tokenId);
+          go(petPath(data.already.tokenId, from));
+        } else if (data.failed) {
+          const saved = pendingName(auth.nearAccountId);
+          if (saved !== null) setNameRaw(saved);
+          clearPendingName(auth.nearAccountId);
+          setBirth('not_hatched');
+        } else if (!data.pending && !startedWhilePosting && !inFlight.current && requestGeneration === birthGeneration.current) {
+          const saved = pendingName(auth.nearAccountId);
+          if (saved !== null) setNameRaw(saved);
+          clearPendingName(auth.nearAccountId);
+          setBirth('idle');
+        }
+      } catch { /* the original hash remains under watch on the next look */ }
+    };
+    const timer = setInterval(() => void look(), PAUSE_LOOK_MS);
+    document.addEventListener('visibilitychange', look);
+    return () => {
+      live = false;
+      clearInterval(timer);
+      document.removeEventListener('visibilitychange', look);
+    };
+  }, [birth, auth.ready, auth.authenticated, auth.nearAccountId, auth.getIdentityToken, from]);
 
   // The friend's pet from `?from=`: only its name is needed, for «Back to {friend_pet}».
   useEffect(() => {
@@ -122,6 +208,7 @@ export function useHatch(from: string | null) {
   }, [closedFor, auth]);
 
   const view: HatchView = (() => {
+    if (birth === 'hatching' && auth.authenticated) return { kind: 'form' };
     if (check.kind === 'checking') return { kind: 'checking' };
     if (check.kind === 'failed') return { kind: 'unreachable', busy: check.busy };
     const { data } = check;
@@ -150,21 +237,29 @@ export function useHatch(from: string | null) {
 
   const submit = useCallback(async () => {
     // a second tap while a birth is under way makes no second request
-    if (inFlight.current || name === '') return;
+    if (inFlight.current || activeHatchPost(auth.nearAccountId) !== null || birth === 'hatching' || name === '') return;
     // a session that ended: the line, nothing sent, the name stays
     if (!auth.needSession()) return;
     inFlight.current = true;
+    let settlePost!: () => void;
+    trackHatchPost(auth.nearAccountId, new Promise<void>((resolve) => { settlePost = resolve; }));
+    birthGeneration.current += 1;
+    keepPendingName(auth.nearAccountId, name);
     setBirth('hatching');
     setNameRefused(false);
     let navigated = false;
     try {
       const token = await auth.getIdentityToken();
       if (token === null) {
+        clearPendingName(auth.nearAccountId);
         auth.endSession(true, true);
         setBirth('idle');
         return;
       }
-      const { tokenId } = await workerApi.hatch(token, name);
+      const result = await workerApi.hatch(token, name);
+      if ('pending' in result) return;
+      const { tokenId } = result;
+      clearPendingName(auth.nearAccountId);
       // the tab stays «Hatching…» until the Pet screen takes over
       markNewborn(tokenId);
       go(petPath(tokenId, from));
@@ -173,26 +268,35 @@ export function useHatch(from: string | null) {
       const status = e instanceof WorkerError ? e.status : 0;
       const code = e instanceof WorkerError ? e.code : '';
       if (code === 'name_rejected') {
+        clearPendingName(auth.nearAccountId);
         setNameRefused(true);
         setBirth('idle');
       } else if (code === 'not_hatched') {
+        clearPendingName(auth.nearAccountId);
         setBirth('not_hatched');
       } else if (status === 401) {
         // the session ended under this tap: the same line as when it had ended before
         auth.endSession(true, true);
+        clearPendingName(auth.nearAccountId);
         setBirth('idle');
       } else if (code === 'closed' || code === 'already') {
         // closed between opening the screen and the tap, or hatched elsewhere meanwhile: the page asks again
+        clearPendingName(auth.nearAccountId);
         setBirth('idle');
         setAttempt((a) => a + 1);
       } else {
-        setBirth('idle');
-        setCheck({ kind: 'failed', busy: status === 429 });
+        // A missing POST answer may have followed a signed transaction: keep its name and wait for GET to settle it.
+        if (status !== 0 && code !== 'chain_unreachable') {
+          clearPendingName(auth.nearAccountId);
+          setBirth('idle');
+          setCheck({ kind: 'failed', busy: status === 429 });
+        }
       }
     } finally {
       if (!navigated) inFlight.current = false;
+      settlePost();
     }
-  }, [auth, name, from]);
+  }, [auth, name, from, birth]);
 
   const tryAgain = useCallback(() => {
     // a session that ended: the line, nothing asked, the view stands

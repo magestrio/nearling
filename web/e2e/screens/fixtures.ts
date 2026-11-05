@@ -44,6 +44,7 @@ const SIGNED_IN = { authenticated: true, nearAccountId: 'a'.repeat(64) };
 const FOREVER = 3_600_000;
 
 // the frames show the field at rest: no focus ring from the typing
+const NEAR_AI_NOTICE = "To write your pet's replies, we send NEAR AI what you say and what your pet remembers about you and the friends who feed it. When your pet asks another pet for help, the question it writes goes to that pet too.";
 const typeName = async (page: Page, name: string) => {
   const field = page.getByLabel('Name your pet');
   await field.fill(name);
@@ -268,7 +269,14 @@ const openSource = async (page: Page, label = 'Daybook') => {
 };
 
 /** The parts of the owner's frames that other changes build: the hiring mode was one (`add-pet-work`), and is built now */
-const OWNER_ELSEWHERE: Array<{ line: string; change: string }> = [];
+// The owner's rail entries that add-pet-errands builds in its rebuild (add-pet › tasks 19.1): the frames draw them, this
+// change's client does not yet.
+const OWNER_ELSEWHERE: Array<{ line: string; change: string }> = [
+  { line: 'Watch something', change: 'add-pet-errands' },
+  { line: 'Edit watch', change: 'add-pet-errands' },
+  { line: 'Ask friends to fund an errand', change: 'add-pet-errands' },
+];
+const OWNER_BELOW_FOLD = ['Grown-up', "Check it's really {name}", 'Hiring: Auto — {name} asks pets it knows when they can help, then tells you what it cost.'];
 
 // add-pet-work, the guest's advice frames (design/bundle/screens/pet.js › ADVICE, work.js — generated words, not spec copy): Pixel's
 // player asks Biscuit (seed 2) at 0.38¢; the question is the one of the sample cat.
@@ -327,7 +335,14 @@ const GUEST_ELSEWHERE = [
 ];
 const ME_PIXEL = { accountId: 'a'.repeat(64), hatched: PIXEL_REF, currentPet: PIXEL_REF, ownedCount: 1 };
 const HOOK = 'This pet pays for its own thoughts. When the money runs out, it falls asleep.';
-const meadowReady = (page: Page) => page.locator('.ds-meadow__ground canvas').first().waitFor();
+// A phone page whose content leaves the meadow's ground no height (home-error: the banner and the numbers fill it, as the
+// frame draws) never mounts the canvas; wait for the ground's size instead of a canvas there.
+const meadowReady = async (page: Page) => {
+  const ground = page.locator('.ds-meadow__ground').first();
+  await ground.waitFor({ state: 'attached' });
+  if (((await ground.boundingBox())?.height ?? 0) < 1) return;
+  await page.locator('.ds-meadow__ground canvas').first().waitFor();
+};
 const SIGNED_OUT_LINE = "You're signed out. See you soon!";
 const SESSION_LINE = "You've been signed out. Sign in to pick up where you left off.";
 const CLOSED_ALL_WORDS = 'Sign-in is closed for everyone until December 1. You can still look around, and any pet you have is safe.';
@@ -828,6 +843,7 @@ export const fixtures: Record<string, ScreenFixture> = {
     route: '/hatch',
     fakes: { auth: SIGNED_IN },
     prepare: (page) => typeName(page, 'Pixel'),
+    belowFold: [NEAR_AI_NOTICE],
   },
 
   // «Hatch my pet» tapped: «Hatching…», the Nest breathes
@@ -845,17 +861,18 @@ export const fixtures: Record<string, ScreenFixture> = {
   // spec: add-pet › Hatch screen › empty
   // spec: add-pet › Hatch screen › уведомление о публичности
   // spec: add-pet › Hatch screen › уведомление об AI-провайдере
-  'hatch-empty': { route: '/hatch', fakes: { auth: SIGNED_IN } },
+  'hatch-empty': { route: '/hatch', fakes: { auth: SIGNED_IN }, belowFold: [NEAR_AI_NOTICE] },
 
   // spec: add-pet › Hatch screen › loading
   'hatch-loading': {
     route: '/hatch',
     fakes: { auth: SIGNED_IN, worker: { hatchStatusDelayMs: FOREVER } },
     prepare: (page) => typeName(page, 'Pixel'),
+    belowFold: [NEAR_AI_NOTICE],
   },
 
   // spec: add-pet › Hatch screen › signed-out
-  'hatch-signed-out': { route: '/hatch', prepare: (page) => typeName(page, 'Pixel') },
+  'hatch-signed-out': { route: '/hatch', prepare: (page) => typeName(page, 'Pixel'), belowFold: [NEAR_AI_NOTICE] },
 
   // paused, signed in, not from a friend's pet: «Go home»
   // spec: add-pet › Hatch screen › error
@@ -864,6 +881,7 @@ export const fixtures: Record<string, ScreenFixture> = {
     route: '/hatch',
     fakes: { auth: SIGNED_IN, worker: { hatchStatus: { open: false, reason: 'service' } } },
     prepare: (page) => typeName(page, 'Pixel'),
+    belowFold: [NEAR_AI_NOTICE, 'Go home'],
   },
 
   // all for today, a visitor without a session who came from Biscuit: «Back to Biscuit»; {time} 02:00 at UTC+2
@@ -876,6 +894,7 @@ export const fixtures: Record<string, ScreenFixture> = {
       await typeName(page, 'Pixel');
       await page.getByRole('link', { name: 'Back to Biscuit' }).waitFor();
     },
+    belowFold: [NEAR_AI_NOTICE],
   },
 
   // spec: add-pet › Hatch screen › уже есть рождённый питомец
@@ -910,12 +929,14 @@ export const fixtures: Record<string, ScreenFixture> = {
   // spec: add-pet › Connection rule › сервер недоступен
   'hatch-unreachable': {
     route: '/hatch',
-    fakes: { auth: SIGNED_IN, worker: { hatchResult: { fail: { status: 503, code: 'chain_unreachable' } } } },
+    // the name is typed while the check is still asking; the check then fails, and the name stays (a lost connection at the
+    // tap is `birth pending` instead)
+    fakes: { auth: SIGNED_IN, worker: { hatchStatusDelayMs: 1500, hatchStatus: { fail: { status: 0, code: 'unreachable' } } } },
     prepare: async (page) => {
       await typeName(page, 'Pixel');
-      await tapHatch(page);
       await page.getByRole('button', { name: 'Try again' }).waitFor();
     },
+    belowFold: ['Hatch my pet'],
   },
 
   // spec: add-pet › Pet screen › success (владелец)
@@ -924,6 +945,8 @@ export const fixtures: Record<string, ScreenFixture> = {
     fakes: { auth: SIGNED_IN, worker: owner() },
     prepare: ownerReady,
     otherChange: OWNER_ELSEWHERE,
+    belowFold: OWNER_BELOW_FOLD,
+    hiddenCopy: ['You'],
   },
 
   // add-verification: the Seal of character rule on the owner's Pet screen; NEAR answers by the verification fixtures
@@ -944,6 +967,8 @@ export const fixtures: Record<string, ScreenFixture> = {
       });
     },
     otherChange: OWNER_ELSEWHERE,
+    belowFold: [...OWNER_BELOW_FOLD, 'Auto', 'Ask me first'],
+    hiddenCopy: ['You'],
   },
 
   // a signed-in player with a pet of their own on a friend's awake pet
@@ -951,9 +976,8 @@ export const fixtures: Record<string, ScreenFixture> = {
   // spec: add-pet › Pet screen › проверка питомца
   'pet-success-guest': {
     route: '/pet/2',
-    fakes: { auth: SIGNED_IN, worker: { me: { accountId: 'a'.repeat(64), hatched: PIXEL_REF, currentPet: PIXEL_REF, ownedCount: 1 } } },
+    fakes: { auth: SIGNED_IN, worker: guestAdvice() },
     prepare: (page) => page.getByRole('link', { name: 'Go to your Pixel' }).waitFor(),
-    otherChange: GUEST_ELSEWHERE,
   },
 
   // Biscuit at rest, its energy spent, seen by a player with a pet of their own: the advice column of `add-pet-work` says so in the
@@ -987,7 +1011,10 @@ export const fixtures: Record<string, ScreenFixture> = {
   },
 
   // spec: add-pet › Pet screen › loading
-  'pet-loading': { route: '/pet/9', fakes: { auth: SIGNED_IN, worker: { delayMs: FOREVER } }, prepare: (page) => page.getByText('Finding this pet…').first().waitFor() },
+  'pet-loading': { route: '/pet/9', fakes: { auth: SIGNED_IN, worker: { petDelayMs: FOREVER } }, prepare: async (page) => {
+      await page.getByText('Finding this pet…').first().waitFor();
+      await page.getByRole('button', { name: 'Account' }).waitFor();
+    } },
 
   // spec: add-pet › Pet screen › error
   'pet-error': { route: '/pet/77', prepare: (page) => page.getByRole('link', { name: 'Go home' }).waitFor() },
@@ -1000,7 +1027,7 @@ export const fixtures: Record<string, ScreenFixture> = {
       await ownerReady(page);
       await typeLine(page, TYPED);
       // the food ran out under the open page: the next look at the pet shows it asleep
-      await setWorker(page, { pets: { '9': { ...PIXEL, fullness: { state: 'asleep', level: 0 }, owner: { ownedCount: 2 } } }, petState: { events: ['fell_asleep'] } });
+      await setWorker(page, { pets: { '9': { ...PIXEL, worn: 'thinking-cap', fullness: { state: 'asleep', level: 0 }, owner: { ownedCount: 2, outfits: WARDROBE_OWNS } } }, petState: { events: ['fell_asleep'] } });
       await lookAgain(page);
       // drawn once, and said by the Dock's Live
       await page.getByText('Pixel is asleep. A meal will wake Pixel up.').first().waitFor();
@@ -1009,6 +1036,9 @@ export const fixtures: Record<string, ScreenFixture> = {
       // the field keeps the focus while it is off; the frame shows it at rest, with no ring from the typing
       await page.getByPlaceholder('Talk to Pixel…').blur();
     },
+    otherChange: OWNER_ELSEWHERE,
+    belowFold: OWNER_BELOW_FOLD,
+    hiddenCopy: ['You'],
   },
 
   // a newborn: no line yet, the greeting on its way
@@ -1019,13 +1049,14 @@ export const fixtures: Record<string, ScreenFixture> = {
       auth: SIGNED_IN,
       worker: {
         owned: ['9'],
-        pets: { '9': { ...PIXEL, stage: 'baby', worn: null, owner: { hello: true } } },
+        pets: { '9': { ...PIXEL, stage: 'baby', worn: null, owner: { hello: true, energy: 10 } } },
         conversation: { lines: [], more: false, before: null },
         petState: { pending: true },
         waitLineMs: FOREVER,
       },
     },
     prepare: (page) => page.getByText('Pixel is thinking…').first().waitFor(),
+    belowFold: ['Baby'],
   },
 
   // the server stopped answering under the open page: the last known pet, the typed line kept
@@ -1073,6 +1104,8 @@ export const fixtures: Record<string, ScreenFixture> = {
     beforeLoad: refuseWebGL,
     prepare: ownerReady,
     otherChange: OWNER_ELSEWHERE,
+    belowFold: OWNER_BELOW_FOLD,
+    hiddenCopy: ['You'],
   },
 
   // the day's cap is spent: the field off until 00:00 UTC (02:00 at UTC+2), feeding works
@@ -1138,7 +1171,7 @@ export const fixtures: Record<string, ScreenFixture> = {
     prepare: async (page) => {
       await ownerReady(page);
       await typeLine(page, TYPED);
-      await setWorker(page, { pets: { '9': { ...PIXEL, owner: { ownedCount: 2, paused: true } } } });
+      await setWorker(page, { pets: { '9': { ...PIXEL, worn: 'thinking-cap', owner: { ownedCount: 2, outfits: WARDROBE_OWNS, paused: true } } } });
       await lookAgain(page);
       await page.getByText('Chatting is paused on our side while we top up.').first().waitFor();
     },
@@ -1226,11 +1259,11 @@ export const fixtures: Record<string, ScreenFixture> = {
     fakes: { auth: SIGNED_IN, worker: owner() },
     prepare: async (page) => {
       await ownerReady(page);
-      await setWorker(page, { pets: { '9': { ...PIXEL, fullness: { state: 'asleep', level: 0 }, owner: { ownedCount: 2 } } }, petState: { events: ['fell_asleep'] } });
+      await setWorker(page, { pets: { '9': { ...PIXEL, worn: 'thinking-cap', fullness: { state: 'asleep', level: 0 }, owner: { ownedCount: 2, outfits: WARDROBE_OWNS } } }, petState: { events: ['fell_asleep'] } });
       await lookAgain(page);
       await page.getByText('Pixel fell asleep.').waitFor();
       await setWorker(page, {
-        pets: { '9': { ...PIXEL, owner: { ownedCount: 2, pendingJob: 'wake-1', pendingMode: 'chat' } } },
+        pets: { '9': { ...PIXEL, worn: 'thinking-cap', owner: { ownedCount: 2, outfits: WARDROBE_OWNS, pendingJob: 'wake-1', pendingMode: 'chat' } } },
         petState: { events: ['woke'], friend: 'Maya' },
       });
       await lookAgain(page);
@@ -1266,7 +1299,7 @@ export const fixtures: Record<string, ScreenFixture> = {
       auth: SIGNED_IN,
       worker: {
         owned: ['9'],
-        pets: { '9': { ...PIXEL, stage: 'baby', worn: null, fullness: { state: 'hungry', level: 11 / 12 }, owner: { hello: true } }, '2': BISCUIT },
+        pets: { '9': { ...PIXEL, stage: 'baby', worn: null, fullness: { state: 'hungry', level: 11 / 12 }, owner: { hello: true, energy: 10 } }, '2': BISCUIT },
         conversation: { lines: [], more: false, before: null },
         petState: { thought: { id: 'g', text: GREETING, cut: null } },
       },
@@ -1275,6 +1308,7 @@ export const fixtures: Record<string, ScreenFixture> = {
       await page.getByText('Hi! I\'m Pixel.').waitFor();
       await page.getByRole('link', { name: 'Back to Biscuit' }).waitFor();
     },
+    belowFold: ['Baby', '{name} gets a trait when it grows up.'],
   },
 
   // Sign-in closed sheet: the tap on «Sign in» while sign-in is closed for new players, then for everyone
@@ -1595,12 +1629,13 @@ export const fixtures: Record<string, ScreenFixture> = {
     otherChange: OWNER_ELSEWHERE,
   },
 
-  // Hatch screen › no exit: a signed-in player with no pet of their own, hatching closed for today — the line alone
-  // spec: add-pet › Hatch screen › no exit
-  'hatch-no-exit': {
+  // Hatch screen › exit to the board: a signed-in player who never hatched, hatching closed for today
+  // spec: add-pet › Hatch screen › exit to the board
+  'hatch-exit-board': {
     route: '/hatch',
     fakes: { auth: SIGNED_IN, worker: { hatchStatus: { open: false, reason: 'daily', noPets: true } } },
     prepare: (page) => typeName(page, 'Pixel'),
+    belowFold: [NEAR_AI_NOTICE, 'Find a pet to ask'],
   },
 
   // Feed sheet over the owner's Pet screen, Pixel Hungry

@@ -1,6 +1,6 @@
-/* The game's design system, ported. tokens.css matches design/bundle/ds/tokens.css. components.css matches
-   design/ds/components.css except the desktop Toast inset retained by design/INBOX.md line 186.
-   DS version note (design/ds/README.md): 0.43 · 2026-11-04 — CopyField's read-only textarea and Button `nowrap` are in the CSS; the React components wait for the change that uses them. 0.39 · 2026-11-03 — Meadow gives way first, Pause motion below its ground,
+/* The game's design system, ported. tokens.css matches design/bundle/ds/tokens.css and components.css matches
+   design/ds/components.css. Web-only layout rules live in the imported local stylesheets below.
+   DS version note (design/bundle/manifest.json): 0.46 · 2026-11-05 — the source CSS includes the in-flow Meadow foot, Menu message, RailItem describedby, ShareCard growth and outfit, and Sheet foot. 0.43 · 2026-11-04 — CopyField's read-only textarea and Button `nowrap` are in the CSS; the React components wait for the change that uses them. 0.39 · 2026-11-03 — Meadow gives way first, Pause motion below its ground,
    and Toast stays below the header on the phone. 0.28 (the prototype's P6): Pet's Motion and Reduced
    motion lines per moment. 0.27: a notice is always Block `quiet`, a filled role block is for what the player acts
    on or gets. 0.26: ItemNote and ItemGrid
@@ -13,6 +13,7 @@
 @import './tokens.css';
 @import './components.css';
 @import './pet-figure.css';
+@import './pet-layout.css';
 @import './meadow.css';
 
 /* The desktop Toast inset retained by design/INBOX.md line 186: in the header's band, between its controls. It sits here, not in

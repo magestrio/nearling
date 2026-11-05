@@ -7,6 +7,7 @@
 // by `ServerKey`), a writer with an `ok` keeps the hash at once (`itemTxStatements`), and the cron asks the
 // network about the rows nobody settled (`settleItemSends`).
 import { ChainUnreachable, hatchView, txStatus, type ServerCall } from '../chain';
+import { birthFlight, finishBirth } from './birth';
 /** A signed send waiting this long may belong to a writer that stopped. */
 const SEND_CLAIM_STALE_MS = 60_000;
 
@@ -26,11 +27,21 @@ const LOST_AFTER_MS = 24 * 3_600_000;
  * row with no hash noted (`settleBuys`), also one that is still waiting in the key's queue; when it did, the
  * insert changes nothing, this throws, and the transaction is not broadcast. The cron's flip
  * in turn changes nothing once a hash is noted, so of the two exactly one wins. */
-export async function noteItemSend(db: D1Database, writes: NonNullable<ServerCall['writes']>, txHash: string, now: number): Promise<void> {
+export async function noteItemSend(db: D1Database, writes: NonNullable<ServerCall['writes']>, txHash: string, now: number, signedBytes: Uint8Array): Promise<void> {
   if (writes.kind === 'birth' || writes.kind === 'growth') {
     const kind = writes.kind;
     const tokenId = kind === 'birth' ? writes.receiver : writes.tokenId;
     const ref = kind === 'birth' ? 'birth' : writes.stage;
+    if (writes.kind === 'birth') {
+      const [, updated] = await db.batch([
+        db.prepare('INSERT OR IGNORE INTO item_sends (tx_hash, token_id, item, sent_at, kind) VALUES (?, ?, ?, ?, ?)')
+          .bind(txHash, tokenId, ref, now, kind),
+        db.prepare('UPDATE births_in_flight SET tx_hash = ?, signed_bytes = ?, rebroadcast_at = ? WHERE account = ? AND started_at = ?')
+          .bind(txHash, signedBytes.buffer.slice(signedBytes.byteOffset, signedBytes.byteOffset + signedBytes.byteLength), now, writes.receiver, writes.startedAt),
+      ]);
+      if (updated.meta.changes !== 1) throw new Error('birth_claim_lost');
+      return;
+    }
     await db.prepare('INSERT OR IGNORE INTO item_sends (tx_hash, token_id, item, sent_at, kind) VALUES (?, ?, ?, ?, ?)')
       .bind(txHash, tokenId, ref, now, kind).run();
     return;
@@ -93,6 +104,30 @@ export async function settleItemSends(env: Env, nowMs: number): Promise<void> {
     .bind(nowMs - SEND_CLAIM_STALE_MS, nowMs - RECHECK_MS, SENDS_PER_TICK)
     .all<SendRow>();
   for (const row of due.results) {
+    if (row.kind === 'birth') {
+      try {
+        const hatch = await hatchView(env, row.token_id);
+        const result = await birthFlight(env, row.token_id, hatch, nowMs);
+        // An older successful POST can have removed the flight before its hash was found.
+        // Only a confirmed successful hash may become the pet's verification link.
+        if (result === 'none' && hatch.token_id !== null) {
+          const status = await txStatus(env, row.tx_hash, env.SERVER_ACCOUNT_ID);
+          if (status?.status === 'ok') await finishBirth(env, row.token_id, hatch.token_id, row.tx_hash);
+          else if (status?.status === 'failed' || nowMs - row.sent_at >= LOST_AFTER_MS) await dropItemSend(env.DB, row.tx_hash);
+        }
+        if (result === 'none' && hatch.token_id === null) {
+          const status = await txStatus(env, row.tx_hash, env.SERVER_ACCOUNT_ID);
+          if (status?.status === 'failed' || nowMs - row.sent_at >= LOST_AFTER_MS) await dropItemSend(env.DB, row.tx_hash);
+        }
+      } catch (e) {
+        if (!(e instanceof ChainUnreachable)) throw e;
+        console.log('item_tx_unreadable');
+      }
+      // Keep unresolved births behind fresh rows until the normal retry interval passes.
+      // A completed birth may already have removed this journal row.
+      await env.DB.prepare('UPDATE item_sends SET checked_at = ? WHERE tx_hash = ?').bind(nowMs, row.tx_hash).run();
+      continue;
+    }
     let seen;
     try {
       seen = await txStatus(env, row.tx_hash, env.SERVER_ACCOUNT_ID);
@@ -103,18 +138,7 @@ export async function settleItemSends(env: Env, nowMs: number): Promise<void> {
       continue;
     }
     if (seen?.status === 'ok') {
-      if (row.kind === 'birth') {
-        const tokenId = seen.value ?? (await hatchView(env, row.token_id)).token_id;
-        if (tokenId === null) continue;
-        await env.DB.batch([
-          env.DB.prepare('INSERT OR IGNORE INTO pets (token_id, hatched_by, born_at, birth_tx) VALUES (?, ?, ?, ?)').bind(tokenId, row.token_id, nowMs, row.tx_hash),
-          env.DB.prepare("UPDATE pets SET birth_tx = ? WHERE token_id = ? AND birth_tx = ''").bind(row.tx_hash, tokenId),
-          env.DB.prepare("INSERT OR IGNORE INTO pet_transactions (token_id, kind, ref, tx_hash, at) VALUES (?, 'birth', 'birth', ?, ?)").bind(tokenId, row.tx_hash, nowMs),
-          env.DB.prepare("DELETE FROM item_sends WHERE token_id = ? AND kind = 'birth' AND item = 'birth'").bind(row.token_id),
-        ]);
-      } else {
-        await env.DB.batch(recordTxStatements(env.DB, row.token_id, row.kind, row.item, row.tx_hash, nowMs));
-      }
+      await env.DB.batch(recordTxStatements(env.DB, row.token_id, row.kind, row.item, row.tx_hash, nowMs));
     } else if (seen?.status === 'failed') {
       await dropItemSend(env.DB, row.tx_hash);
     } else if (nowMs - row.sent_at >= LOST_AFTER_MS) {

@@ -21,7 +21,7 @@ export class ServerKey extends DurableObject<Env> {
     return this.enqueue(async () => {
       this.keys ??= serverAccount(this.env);
       const { writes } = call;
-      return signAndSend(this.env, this.keys, call, writes === undefined ? undefined : (hash) => noteItemSend(this.env.DB, writes, hash, Date.now()));
+      return signAndSend(this.env, this.keys, call, writes === undefined ? undefined : (hash, bytes) => noteItemSend(this.env.DB, writes, hash, Date.now(), bytes));
     });
   }
 

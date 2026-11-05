@@ -113,15 +113,19 @@ export async function captureFrame(page: Page, frame: ManifestFrame, viewport: V
   // The fixture can replace its loading state after the first font wait. Wait for the faces
   // used by the final copy, then allow its new glyph layout to reach the paint pipeline.
   await page.evaluate(async () => {
+    await Promise.all([
+      document.fonts.load('440 20px "Mona Sans"'),
+      document.fonts.load('640 24px "Mona Sans"'),
+      document.fonts.load('720 52px "Mona Sans"'),
+    ]);
     await document.fonts.ready;
     await new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
   });
 
   fs.mkdirSync(CMP_DIR, { recursive: true });
   const out = path.join(OUT_DIR, `${frame.id}.${viewport}.png`);
-  // Chromium headless on software GL: the first screenshot of a page with a WebGL canvas comes out without it (measured
-  // in the build of add-pet); the one after is right
-  if ((await page.locator('canvas').count()) > 0) await page.screenshot({ type: 'jpeg', quality: 1 });
+  // Give the font glyph atlas and a software WebGL canvas one completed screenshot before the capture that is compared.
+  await page.screenshot({ type: 'jpeg', quality: 1 });
   await page.screenshot({ path: out });
   return out;
 }

@@ -116,7 +116,7 @@ const real: WorkerApi = {
   sendGift: (token, tokenId, body) => call<GiftOutcome>(`/api/pets/${id(tokenId)}/gift/send`, token, { method: 'POST', body, timeoutMs: FEED_SEND_TIMEOUT_MS }),
   giftOutcome: (token, tokenId) => call<GiftOutcome>(`/api/pets/${id(tokenId)}/gift/outcome`, token),
   hatchStatus: (token, opts) => call<HatchStatus>(opts?.look ? '/api/hatch?look=1' : '/api/hatch', token),
-  hatch: (token, name) => call<{ tokenId: string }>('/api/hatch', token, { method: 'POST', body: { name }, timeoutMs: HATCH_TIMEOUT_MS }),
+  hatch: (token, name) => call<{ tokenId: string } | { pending: true }>('/api/hatch', token, { method: 'POST', body: { name }, timeoutMs: HATCH_TIMEOUT_MS }),
   pet: (token, tokenId) => call<PetView>(`/api/pets/${id(tokenId)}`, token),
   verificationIndex: (tokenId) => call<VerificationIndex>(`/api/verification/pets/${id(tokenId)}`, null),
   verificationThought: (token, tokenId, thoughtId) => call<VerificationThought>(

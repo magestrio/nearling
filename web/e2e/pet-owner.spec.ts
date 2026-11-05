@@ -53,8 +53,9 @@ test('empty × the owner\'s first line: «Say hi to Pixel…» becomes «Talk to
 
 // spec: add-pet › Pet screen › loading
 test('loading: «Finding this pet…» in a status region instead of the pet, the field inactive; then the pet', async ({ page }) => {
-  await openWith(page, '/pet/9', { auth: SIGNED_IN, worker: { ...OWNER, delayMs: 1200 } });
+  await openWith(page, '/pet/9', { auth: SIGNED_IN, worker: { ...OWNER, petDelayMs: 1200 } });
   await expect(page.getByRole('status').filter({ hasText: 'Finding this pet…' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Account' })).toBeVisible();
   const input = page.getByLabel('Finding this pet…');
   await expect(input).toHaveAttribute('aria-disabled', 'true');
   await expect(input).toHaveAttribute('readonly', '');

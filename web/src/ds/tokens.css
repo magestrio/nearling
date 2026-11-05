@@ -75,9 +75,11 @@
   --size-pet-hero-max-height-desktop: 52dvh;
   --size-pet-compact-max-height: 26dvh;
   --size-pet-compact-owner-max-height: 20dvh;
+  --size-centerpiece-compact-max-height: 36rem;
   --size-pet-md: 14rem;
   --size-item-picture: 6rem;
   --size-pet-sm: 3rem;
+  --size-share-card-pet: min(14rem, 60%);
   --size-meadow-pet: 10rem;
   --size-meadow-pet-compact: 7rem;
   --size-meadow-pet-share: 42cqh;

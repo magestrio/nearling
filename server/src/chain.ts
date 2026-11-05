@@ -451,7 +451,7 @@ export interface ServerCall {
   writes?:
     | { kind?: 'item'; tokenId: string; item: string; buy?: string }
     | { kind: 'growth'; tokenId: string; stage: 'teen' | 'adult' }
-    | { kind: 'birth'; receiver: string };
+    | { kind: 'birth'; receiver: string; startedAt: number };
 }
 
 /** Called with the hash of a signed transaction before each broadcast. A throw means the hash could not be

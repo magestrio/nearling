@@ -187,7 +187,14 @@ function Sample({ pet, width, height, rem, playing, motion, index, onMove }: {
 function Tick({ playing }: { playing: boolean }) {
   const invalidate = useThree((state) => state.invalidate);
   useEffect(() => { if (playing) invalidate(); }, [playing, invalidate]);
-  useFrame(() => { if (playing) invalidate(); });
+  useFrame(() => {
+    if (playing) invalidate();
+    // e2e only (VITE_FAKES): the same frame counter the Pet screen's canvas keeps, so a test can see the meadow rest or move
+    if (import.meta.env.VITE_FAKES === 'true') {
+      const g = globalThis as { __nearlingFrames?: number };
+      g.__nearlingFrames = (g.__nearlingFrames ?? 0) + 1;
+    }
+  });
   return null;
 }
 

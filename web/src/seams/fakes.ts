@@ -61,6 +61,9 @@ export interface FakeWorkerState {
   toastHeld?: boolean;
   /** every answer waits this long (ms), unless its own `*DelayMs` says otherwise */
   delayMs?: number;
+  /** only the pet read (`GET /api/pet/:id`) waits this long (ms), the session exchange answers at once: the Pet screen's
+   *  loading state with the session in place and «Account» in the header */
+  petDelayMs?: number;
   /** only the verification index waits this long (ms): the page draws its loading state with the session in place */
   verificationDelayMs?: number;
   /** `GET /api/hatch`; default `{ open: true }` */
@@ -68,7 +71,7 @@ export interface FakeWorkerState {
   hatchStatusDelayMs?: number;
   /** `POST /api/hatch`; default `{ tokenId: '9' }`. A name with no visible character is `name_rejected` as the
    *  real server answers it (the list's words never enter the repo). */
-  hatchResult?: { tokenId: string } | FakeFail;
+  hatchResult?: { tokenId: string } | { pending: true } | FakeFail;
   hatchDelayMs?: number;
   me?: Me | FakeFail;
   myPets?: MyPets | FakeFail;

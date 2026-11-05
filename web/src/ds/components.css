@@ -145,8 +145,10 @@
 }
 .ds-surface--raised-2 { background: var(--color-bg-raised-2); }
 
-/* the bottom of a fill page: clear of the phone's home bar */
+/* the bottom of a fill page: its full content height remains in the page's flow */
 .ds-dock { flex: none; padding-block: var(--space-3) max(var(--space-3), env(safe-area-inset-bottom)); }
+.ds-page--fill:has(.ds-meadow) { min-height: min-content; }
+.ds-page--fill:has(.ds-meadow) .ds-dock { position: sticky; inset-block-end: var(--space-0); background: var(--color-bg-canvas); }
 
 /* one object and its actions: phone — the object centred above, the actions pinned to the bottom; desktop — together
    in the middle, the actions right under the object */
@@ -177,6 +179,19 @@
 .ds-centerpiece--scroll .ds-centerpiece__body:focus-visible { outline: var(--stroke-focus) solid var(--color-focus); outline-offset: calc(-1 * var(--stroke-focus)); }
 .ds-centerpiece__object { display: flex; flex-direction: column; align-items: center; }
 .ds-centerpiece__text { display: flex; flex-direction: column; gap: var(--space-4); }
+/* compact guest path: the action stays at the foot of the first visible phone area; message states use immediate. */
+.ds-centerpiece--compact { flex: 0 1 auto; width: 100%; height: var(--size-centerpiece-compact-max-height); max-height: 100%; }
+.ds-centerpiece--compact .ds-centerpiece__body { flex: 1 1 auto; min-height: var(--space-0); padding-block: var(--space-3); }
+.ds-centerpiece--compact .ds-pet--hero .ds-pet__img { max-height: var(--size-pet-compact-owner-max-height); }
+.ds-centerpiece--compact .ds-centerpiece__actions { padding-block: var(--space-2) max(var(--space-2), env(safe-area-inset-bottom)); }
+.ds-centerpiece--compact.ds-centerpiece--immediate { height: auto; }
+.ds-centerpiece--compact.ds-centerpiece--immediate .ds-centerpiece__body { flex: none; }
+@media (min-width: 768px) {
+  .ds-centerpiece--compact { flex: 1 1 auto; height: auto; max-height: none; }
+  .ds-centerpiece--compact .ds-centerpiece__body { flex: none; padding-block: var(--space-0); }
+  .ds-centerpiece--compact .ds-pet--hero .ds-pet__img { max-height: var(--size-pet-hero-max-height-desktop); }
+  .ds-centerpiece--compact .ds-centerpiece__actions { padding-block: var(--space-0) var(--space-6); }
+}
 
 /* content on one viewport only: the wrapper adds no box where it shows */
 :root { --ds-viewport: phone; }
@@ -672,6 +687,8 @@
 /* compact (the owner's phone): a smaller pet so the conversation keeps its room; the rail as icons, their words
    kept for a screen reader; the foot moves into the conversation's intro */
 .ds-stage--compact { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; }
+.ds-stage--compact .ds-stage__pet { flex: 1 1 var(--size-pet-md); }
+.ds-stage--compact .ds-stage__rail { flex: none; }
 .ds-stage--compact .ds-stage__plate { flex: 1 0 100%; }
 .ds-stage--compact .ds-pet--hero .ds-pet__img { max-height: var(--size-pet-compact-max-height); }
 /* the owner's phone, awake or asleep: the pet a little smaller, so the conversation keeps its room at 390×650 even when
@@ -801,14 +818,40 @@
 .ds-share-card__form, .ds-share-card__foot, .ds-share-card__link { color: var(--color-text-secondary); }
 .ds-share-card__claim { margin: var(--space-0); }
 .ds-share-card__line { margin: var(--space-0); }
+.ds-share-card__detail { display: flex; flex: 1 1 auto; flex-direction: column; justify-content: center; gap: var(--space-3); min-width: var(--space-0); }
 .ds-share-card__moment { display: flex; align-items: flex-end; justify-content: space-between; gap: var(--space-3); }
+.ds-share-card--thought .ds-share-card__moment { justify-content: flex-end; }
 .ds-share-card__moment .ds-pet { flex: 0 1 auto; min-width: var(--space-0); }
+.ds-share-card--growth .ds-share-card__moment,
+.ds-share-card--outfit .ds-share-card__moment { flex: 1 1 auto; flex-direction: column; align-items: center; justify-content: center; min-height: var(--space-0); }
+.ds-share-card--growth .ds-share-card__moment .ds-pet,
+.ds-share-card--outfit .ds-share-card__moment .ds-pet { flex: none; width: var(--size-share-card-pet); height: auto; aspect-ratio: 1; }
+.ds-share-card--growth .ds-share-card__detail,
+.ds-share-card--outfit .ds-share-card__detail { flex: none; align-items: center; text-align: center; }
 .ds-share-card__stamp { flex: none; margin-block-end: var(--space-0); padding: var(--space-2) var(--space-4); }
 .ds-share-card__foot { display: flex; flex-direction: column; gap: var(--space-1); margin-block-start: auto; }
 .ds-share-card__link { overflow-wrap: anywhere; }
 @media (forced-colors: active) {
   .ds-share-card { border-color: CanvasText; }
 }
+
+/* ── ChoiceList: native radio rows of the pet's retained words ──────────────────────────────────────────── */
+.ds-choice-list { display: flex; flex-direction: column; gap: var(--space-3); min-width: var(--space-0); }
+.ds-choice-list__note { margin: var(--space-0); color: var(--color-text-secondary); }
+.ds-choice-list__options { display: flex; flex-direction: column; gap: var(--space-2); }
+.ds-choice-list__row { position: relative; box-sizing: border-box; display: flex; align-items: center; gap: var(--space-3); min-width: var(--space-0); min-height: var(--size-target); padding: var(--space-3); border: var(--stroke-control) solid var(--color-line-border); border-radius: var(--radius-md); background: var(--color-bg-raised-2); cursor: pointer; }
+/* the native radio covers the whole row (as Mission's), so the row is the target; the check mark shows the choice */
+.ds-choice-list__input { position: absolute; inset: 0; width: 100%; height: 100%; margin: var(--space-0); opacity: 0; cursor: pointer; }
+.ds-choice-list__copy { display: flex; flex: 1 1 auto; flex-direction: column; gap: var(--space-1); min-width: var(--space-0); }
+.ds-choice-list__text { overflow-wrap: anywhere; }
+.ds-choice-list__meta { color: var(--color-text-secondary); }
+.ds-choice-list__mark { display: none; flex: none; }
+.ds-choice-list__row:has(.ds-choice-list__input:checked) { border-color: var(--color-selected); }
+.ds-choice-list__row:has(.ds-choice-list__input:checked) .ds-choice-list__mark { display: flex; }
+.ds-choice-list__row:has(.ds-choice-list__input:focus-visible) { outline: var(--stroke-focus) solid var(--color-focus); outline-offset: var(--stroke-focus-offset); }
+@media (hover: hover) { .ds-choice-list__row:hover { background: var(--color-line-hairline); } }
+@media (min-width: 768px) { .ds-choice-list__row { min-height: var(--size-target-compact); } }
+@media (forced-colors: active) { .ds-choice-list__row { border-color: CanvasText; } .ds-choice-list__row:has(.ds-choice-list__input:checked) { border-color: Highlight; } }
 
 /* ── ToolList: an adapter's tools, each a checkbox row ──────────────────────────────────────────────────── */
 .ds-tools { display: flex; flex-direction: column; gap: var(--space-2); margin: var(--space-0); padding: var(--space-0); list-style: none; }
@@ -888,6 +931,7 @@
 
 /* ── Rail: round labelled buttons beside the pet ──────────────────────────────────────────────────────────── */
 .ds-rail { display: flex; flex-direction: column; align-items: center; gap: var(--space-3); }
+.ds-rail__entry { position: relative; }
 .ds-rail__item {
   display: flex;
   flex-direction: column;
@@ -942,6 +986,10 @@
 @media (prefers-reduced-motion: reduce) {
   .ds-rail__disc { transition: none; }
   .ds-rail__item:active .ds-rail__disc { transform: none; }
+}
+@media (min-width: 768px) {
+  .ds-rail__entry .ds-menu-layer { position: absolute; inset: var(--space-0) auto auto 100%; width: var(--size-popover-width); }
+  .ds-rail__entry .ds-menu { position: static; width: 100%; }
 }
 
 /* ── Conversation: the latest line large, earlier ones fading upward ────────────────────────────────────── */
@@ -1316,12 +1364,13 @@
   background: var(--color-bg-raised);
   animation: ds-sheet-up var(--duration-medium) var(--easing-enter) both;
 }
+.ds-sheet:has(.ds-sheet__foot) { padding-block-end: var(--space-0); }
 .ds-sheet__head { display: flex; align-items: center; gap: var(--space-2); padding: var(--space-3) var(--space-3) var(--space-2) var(--space-4); }
 .ds-sheet__title { flex: 1 1 auto; margin: var(--space-0); }
 .ds-sheet__title:focus-visible { outline: none; }
 .ds-sheet__sub { padding-inline: var(--space-4); }
-.ds-sheet__body { display: flex; flex-direction: column; gap: var(--space-4); min-height: var(--space-0); overflow-y: auto; overscroll-behavior: contain; padding: var(--space-3) var(--space-4) var(--space-2); }
-.ds-sheet__foot { display: flex; flex-direction: column; gap: var(--space-2); padding: var(--space-3) var(--space-4) var(--space-0); border-block-start: var(--stroke-hairline) solid var(--color-line-hairline); }
+.ds-sheet__body { display: flex; flex: 0 1 auto; flex-direction: column; gap: var(--space-4); min-height: var(--space-0); overflow-y: auto; overscroll-behavior: contain; padding: var(--space-3) var(--space-4) var(--space-2); }
+.ds-sheet__foot { display: flex; flex: none; flex-direction: column; gap: var(--space-2); padding: var(--space-3) var(--space-4) max(var(--space-4), env(safe-area-inset-bottom)); border-block-start: var(--stroke-hairline) solid var(--color-line-hairline); }
 .ds-sheet-layer--wide .ds-sheet { height: var(--size-sheet-max-height); }
 .ds-sheet-layer--wide .ds-sheet__body { flex: 1 1 auto; }
 @keyframes ds-sheet-up { from { transform: translateY(var(--shift-enter)); opacity: 0; } to { transform: none; opacity: 1; } }
@@ -1353,6 +1402,7 @@
   animation: ds-popover-in var(--duration-short) var(--easing-enter) both;
 }
 .ds-menu__note { margin: var(--space-0); padding: var(--space-2) var(--space-3) var(--space-3); color: var(--color-text-secondary); overflow-wrap: anywhere; border-block-end: var(--stroke-hairline) solid var(--color-line-hairline); }
+.ds-menu__note--message { border-block-end: var(--space-0); }
 .ds-menu__list { display: flex; flex-direction: column; margin: var(--space-0); padding: var(--space-2) var(--space-0) var(--space-0); list-style: none; }
 .ds-menu__item {
   box-sizing: border-box;
@@ -1444,27 +1494,26 @@
 .ds-meadow__link:hover .ds-meadow__tag,
 .ds-meadow__link:focus-visible .ds-meadow__tag,
 .ds-meadow__pet--tagged .ds-meadow__tag { display: block; }
-/* the foot under the ground: the numbers the contract keeps, the explorer link, and the toggle at the end — its own
-   row, so no pet stands under the toggle. On the phone the numbers take the first row, the link and the toggle the
-   second; on the desktop one row, the numbers and the link in the middle, the toggle at the end */
+/* the foot under the ground: five numbers, the explorer link and the toggle. Phone: two columns of numbers, then the
+   link and toggle. Desktop: one row of numbers, then the link and toggle. No pet stands under the toggle. */
 .ds-meadow__foot { display: flex; flex: none; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: var(--space-2) var(--space-5); padding-block: var(--space-2); }
 .ds-meadow__foot--numbers { justify-content: space-between; border-top: var(--stroke-hairline) solid var(--color-line-hairline); padding-block: var(--space-3) var(--space-2); }
-.ds-meadow__stats { display: flex; flex: 1 0 100%; justify-content: space-between; gap: var(--space-3); margin: var(--space-0); padding: var(--space-0); list-style: none; }
+.ds-meadow__stats { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); flex: 1 0 100%; gap: var(--space-3); margin: var(--space-0); padding: var(--space-0); list-style: none; }
 .ds-meadow__stats--loading { visibility: hidden; }
 .ds-meadow__stat { display: flex; flex-direction: column; align-items: center; text-align: center; }
 .ds-meadow__value { color: var(--color-text-primary); font-variant-numeric: tabular-nums; }
 .ds-meadow__label { color: var(--color-text-secondary); }
+.ds-meadow__since { color: var(--color-text-secondary); }
 .ds-meadow__explore { flex: 1 1 auto; }
 .ds-meadow__motion { display: flex; flex: none; justify-content: flex-end; }
 @media (min-width: 768px) {
   .ds-meadow__pet { --ds-meadow-pet: var(--size-meadow-pet); }
   .ds-meadow__pet--wide { display: block; }
   .ds-meadow__foot { padding-block: var(--space-3) var(--space-5); }
-  .ds-meadow__foot--numbers { flex-wrap: nowrap; justify-content: center; gap: var(--space-7); padding-block: var(--space-4) var(--space-5); }
-  .ds-meadow__stats { flex: none; gap: var(--space-7); }
+  .ds-meadow__foot--numbers { flex-wrap: wrap; justify-content: center; gap: var(--space-3); padding-block: var(--space-4) var(--space-5); }
+  .ds-meadow__stats { display: flex; flex: 1 0 100%; justify-content: space-between; gap: var(--space-3); }
   .ds-meadow__explore { flex: none; }
-  .ds-meadow__foot--numbers .ds-meadow__motion { position: absolute; right: var(--space-0); }
-  .ds-meadow__foot--numbers { position: relative; }
+  .ds-meadow__foot--numbers .ds-meadow__motion { position: static; }
 }
 /* paused («Pause motion») and reduced motion: the «z» stand still, both shown */
 .ds-meadow--paused .ds-meadow__zz .ds-icon { animation: none; opacity: 1; }
@@ -1480,6 +1529,10 @@
 
 /* ── Actions: one moment's actions — stacked full width on the phone, side by side on the desktop ─────────── */
 .ds-actions { display: flex; flex-direction: column; gap: var(--space-2); }
+.ds-actions--stack-phone { width: 100%; min-width: var(--space-0); }
+.ds-actions--stack-phone > * { box-sizing: border-box; width: 100%; min-width: var(--space-0); white-space: nowrap; }
+.ds-actions--stack-phone > .ds-button { padding-inline: var(--space-2); }
+@media (min-width: 768px) { .ds-actions--stack-phone { width: auto; } .ds-actions--stack-phone > * { width: auto; white-space: normal; } .ds-actions--stack-phone > .ds-button { padding-inline: var(--space-5); } }
 
 /* ── Verification: the receipt card, the marks, the record, the receipts ───────────────────────────────── */
 .ds-receipt { display: flex; flex-direction: column; gap: var(--space-3); padding: var(--space-4); border: var(--stroke-hairline) solid var(--color-line-hairline); border-radius: var(--radius-lg); background: var(--color-bg-raised); }
@@ -1685,6 +1738,7 @@
   .ds-sheet-layer--centered .ds-sheet__scrim { display: block; background: var(--color-scrim-strong); }
   .ds-sheet-layer--centered .ds-sheet { max-height: 100%; border: var(--stroke-hairline) solid var(--color-line-hairline); border-radius: var(--radius-xl); animation-name: ds-sheet-fade; }
   .ds-sheet-layer--wide .ds-sheet { width: var(--size-content); height: auto; }
+  .ds-sheet__foot { padding-block-end: var(--space-4); }
   .ds-menu { inset-inline-end: max(var(--space-gutter-desktop), calc((100% - var(--size-content-wide)) / 2 + var(--space-gutter-desktop))); }
   .ds-actions { flex-direction: row; flex-wrap: wrap; justify-content: center; }
   .ds-centerpiece { justify-content: center; gap: var(--space-5); }

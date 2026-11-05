@@ -155,7 +155,7 @@ let exchanged = false;
 /** What `GET /api/pets/:id` answers for this viewer. */
 async function viewOf(token: string | null, tokenId: string): Promise<PetView> {
   needSession(token);
-  const ms = state().delayMs ?? 0;
+  const ms = state().petDelayMs ?? state().delayMs ?? 0;
   if (ms > 0) await wait(ms);
   const refused = state().petResult;
   if (refused) throw new WorkerError(refused.fail.status, refused.fail.code);
@@ -249,7 +249,8 @@ export const fakeWorkerApi: WorkerApi = {
     needSession(token);
     // the query the real route takes: `?look=1` is recorded beside the call, so a test can tell a look from a check
     if (opts?.look) recordCall('worker:hatchStatus:look');
-    return answer('hatchStatus', state().hatchStatus, { open: true }, state().hatchStatusDelayMs);
+    const stored = typeof sessionStorage !== 'undefined' && sessionStorage.getItem(`nearling:hatch:${fakeAccount()}`) !== null;
+    return answer('hatchStatus', state().hatchStatus, stored ? { open: true, pending: true } : { open: true }, state().hatchStatusDelayMs);
   },
 
   async hatch(token, name) {
@@ -259,7 +260,7 @@ export const fakeWorkerApi: WorkerApi = {
     recordCall(`worker:hatch:${name}`);
     // The server cleans the raw name and refuses one with nothing visible; the list of insults never enters the repo.
     if (!hasVisible(cleanName(name))) {
-      return answer<{ tokenId: string }>('hatch', { fail: { status: 422, code: 'name_rejected' } }, PIXEL_RESULT, s.hatchDelayMs);
+      return answer<{ tokenId: string } | { pending: true }>('hatch', { fail: { status: 422, code: 'name_rejected' } }, PIXEL_RESULT, s.hatchDelayMs);
     }
     return answer('hatch', s.hatchResult, { tokenId: '9' }, s.hatchDelayMs);
   },

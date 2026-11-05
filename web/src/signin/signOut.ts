@@ -6,6 +6,7 @@ import { clearRiddleDrafts } from '../diary/riddleDraft';
 import { clearNewborn } from '../pet/newborn';
 import { navigate } from '../route';
 import { takePendingAction } from '../screens/pet/parts';
+import { clearPendingBirths } from '../screens/hatch/pendingBirth';
 import type { AuthApi } from '../seams/auth-context';
 import { END_SESSION_TIMEOUT_MS, workerApi } from '../seams/worker';
 import { clearOutcome } from './outcome';
@@ -35,6 +36,7 @@ function clearTab(): void {
   clearReturnPlace();
   clearOutcome();
   clearRiddleDrafts();
+  clearPendingBirths();
 }
 
 /** The token, within the limit of the server call: the menu is closed by now, so a token that doesn't come would leave the

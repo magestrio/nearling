@@ -206,6 +206,7 @@ async fn a_batch_of_13_thoughts_is_refused_whole_and_12_pass() -> anyhow::Result
 }
 
 // spec: add-pet › Session debit contract › больше 12 мыслей в пачке × пустая пачка
+// spec: add-pet › Session debit contract › пустая пачка
 #[tokio::test]
 async fn an_empty_batch_is_refused_and_changes_nothing() -> anyhow::Result<()> {
     let ctx = setup(BIG_POOL).await?;
@@ -222,6 +223,7 @@ async fn an_empty_batch_is_refused_and_changes_nothing() -> anyhow::Result<()> {
 /// report and re-ask); a pet that does not exist; the codes the Worker tells apart.
 // spec: add-pet-errands › Errand debit contract › errand recorded
 // spec: add-pet-errands › Errand debit contract › five calls in a receipt
+// spec: add-pet › Session debit contract › неверное число вызовов мысли
 #[tokio::test]
 async fn a_thought_has_one_to_four_calls_and_the_pet_must_exist() -> anyhow::Result<()> {
     let ctx = setup(BIG_POOL).await?;
@@ -229,14 +231,20 @@ async fn a_thought_has_one_to_four_calls_and_the_pet_must_exist() -> anyhow::Res
     let two = json!({ "model": "m", "price": "1000", "calls": [call_json(), call_json()] });
     ctx.debit("0", 1, vec![two]).await?.into_result()?;
     let none = json!({ "model": "m", "price": "1000", "calls": [] });
-    assert_refused(&ctx.debit("0", 2, vec![none]).await?, "bad_calls");
+    let before = debit_state(&ctx).await?;
+    let refused_zero = ctx.debit("0", 2, vec![none]).await?;
+    assert_refused(&refused_zero, "bad_calls");
+    assert_eq!(debit_state(&ctx).await?, before);
+    assert!(event_logs(&refused_zero).is_empty());
     let calls = |n: usize| vec![call_json(); n];
     let four = json!({ "model": "m", "price": "1000", "calls": calls(4) });
     ctx.debit("0", 2, vec![four]).await?.into_result()?;
     let five = json!({ "model": "m", "price": "1000", "calls": calls(5) });
     let before = debit_state(&ctx).await?;
-    assert_refused(&ctx.debit("0", 3, vec![five]).await?, "bad_calls");
+    let refused_five = ctx.debit("0", 3, vec![five]).await?;
+    assert_refused(&refused_five, "bad_calls");
     assert_eq!(debit_state(&ctx).await?, before);
+    assert!(event_logs(&refused_five).is_empty());
     assert_eq!(ctx.pet_view("0").await?["last_debit_id"], 2);
     assert_refused(&ctx.debit("77", 1, thoughts(1, 1_000)).await?, "no_pet");
     Ok(())

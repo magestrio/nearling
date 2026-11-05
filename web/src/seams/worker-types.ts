@@ -164,13 +164,17 @@ export type ClosedReason = 'service' | 'budget' | 'pool' | 'daily';
 /** `GET /api/hatch` */
 export interface HatchStatus {
   open: boolean;
+  /** The original signed birth is still being checked; no new birth may be sent. */
+  pending?: true;
+  /** Its transaction was confirmed unsuccessful and no pet was born. */
+  failed?: true;
   reason?: ClosedReason;
   /** ISO time, only for `daily` alone */
   until?: string;
   /** a signed-in player who hatched a pet they still own */
   already?: { tokenId: string; name: string };
-  /** a closed answer to a session whose player has no pet of their own now (`add-pet` › Hatch screen › `no exit`): no way
-   *  out is offered; absent for a visitor and for a player with a pet */
+  /** a closed answer to a session whose player has no pet of their own now: `lastGifted` distinguishes a player
+   *  who gave one away from a player who never hatched; absent for a visitor and for a player with a pet */
   noPets?: true;
   lastGifted?: { tokenId: string; name: string };
 }
@@ -627,7 +631,7 @@ export interface WorkerApi {
    *  only for a load or a tap, never for a look. */
   hatchStatus(token: Token, opts?: { look?: boolean }): Promise<HatchStatus>;
   /** `name` is the raw text as typed; the server cleans it again. Resolves `{ tokenId }`. */
-  hatch(token: Token, name: string): Promise<{ tokenId: string }>;
+  hatch(token: Token, name: string): Promise<{ tokenId: string } | { pending: true }>;
   pet(token: Token, tokenId: string): Promise<PetView>;
   verificationIndex(tokenId: string): Promise<VerificationIndex>;
   verificationThought(token: Token, tokenId: string, thoughtId: string): Promise<VerificationThought>;

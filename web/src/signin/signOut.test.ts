@@ -4,6 +4,7 @@ import { createRoot } from 'react-dom/client';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { loadRiddleDraft, saveRiddleDraft } from '../diary/riddleDraft';
 import { markNewborn, useBirth } from '../pet/newborn';
+import { keepPendingName, pendingName } from '../screens/hatch/pendingBirth';
 import { queueAction, takePendingAction } from '../screens/pet/parts';
 import { END_SESSION_TIMEOUT_MS } from '../seams/worker';
 import { WorkerError } from '../seams/worker-types';
@@ -65,16 +66,19 @@ describe('signOut', () => {
   });
 
   // spec: add-account › Sign-out flow › вышел × стирает текст во вкладке
+  // spec: add-pet › Birth flow › birth pending × sign-out
   it('leaves nothing of the player in the tab: the action, the return record with its text, the held text, the pet, the outcome', async () => {
     queueAction('feed');
     rememberReturnPlace({ path: '/pet/9', action: 'signin', text: 'half a line' });
     holdReturnText('/pet/9', 'half a line');
     markNewborn('9');
     setOutcome({ kind: 'failed', place: '/pet/9' });
+    keepPendingName('alice.testnet', 'Pixel');
     await signOut(auth());
     expect(takePendingAction()).toBeNull();
     expect(peekReturnPlace()).toBeNull();
     expect(sessionStorage.getItem('nearling.returnPlace')).toBeNull();
+    expect(pendingName('alice.testnet')).toBeNull();
     expect(takeReturnText('/pet/9')).toBeNull();
     window.history.replaceState(null, '', '/pet/9');
     expect(await readTab()).toEqual({ birth: false, outcome: null });

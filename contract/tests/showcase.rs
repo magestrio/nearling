@@ -13,6 +13,7 @@ fn amount(view: &Value, key: &str) -> u128 {
 }
 
 // spec: add-account › Showcase view contract › a birth counted
+// spec: add-pet › Pet mint contract › birth counted
 #[tokio::test]
 async fn public_zero_view_and_only_accepted_births_count() -> anyhow::Result<()> {
     let ctx = setup(BIG_POOL).await?;

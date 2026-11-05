@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import { useSeal, type SealState } from '../../verification/seal';
+import { AccountControl } from '../../account/AccountControl';
 import {
   Away,
   Banner,
@@ -128,13 +129,16 @@ function sealLine(name: string, state: SealState): string {
       : state.kind === 'checked' ? `This mark identifies ${name}'s character hash checked on NEAR. The contract can be upgraded later.` : '';
 }
 
-function CheckLink({ tokenId, name, seal }: { tokenId: string; name: string; seal: ReturnType<typeof useSeal> }) {
+/** `start`: the phone owner's intro card, where the line is left-aligned and a mismatch or an unreadable seal is said by the
+ *  banner above the page instead (the frames' `checkLink(pet, true)`). */
+function CheckLink({ tokenId, name, seal, start }: { tokenId: string; name: string; seal: ReturnType<typeof useSeal>; start?: boolean }) {
+  const align = start ? undefined : 'center';
   return (
-    <Stack gap={1} align="center">
+    <Stack gap={1} align={align}>
       <TextLink href={`/pet/${tokenId}/verify`} tone="trust" icon="verify">{`Check it's really ${name}`}</TextLink>
-      {seal.state.kind === 'checked' ? <Text variant="small" tone="secondary" align="center">{sealLine(name, seal.state)}</Text> : null}
-      {seal.state.kind === 'mismatch' ? <Note tone="error" silent>{sealLine(name, seal.state)}</Note> : null}
-      {seal.state.kind === 'unavailable' ? <Cluster gap={3}><Note tone="error" silent>{sealLine(name, seal.state)}</Note><Button variant="secondary" size="compact" onClick={seal.retry}>Try again</Button></Cluster> : null}
+      {seal.state.kind === 'checked' ? <Text variant="small" tone="secondary" align={align}>{sealLine(name, seal.state)}</Text> : null}
+      {seal.state.kind === 'mismatch' && !start ? <Note tone="error" silent>{sealLine(name, seal.state)}</Note> : null}
+      {seal.state.kind === 'unavailable' && !start ? <Cluster gap={3}><Note tone="error" silent>{sealLine(name, seal.state)}</Note><Button variant="secondary" size="compact" onClick={seal.retry}>Try again</Button></Cluster> : null}
     </Stack>
   );
 }
@@ -174,7 +178,7 @@ export function PetNotFound() {
 
 function LoadingView({ tokenId }: { tokenId: string }) {
   return (
-    <Shell fill header={<Header end={<Account tokenId={tokenId} name="" viewer="visitor" asleep={false} />} />}>
+    <Shell fill header={<Header end={<AccountControl tokenId={tokenId} />} />}>
       <Page fill>
         <Split
           fill
@@ -539,7 +543,7 @@ function OwnerPage({ pet, s, seal }: { pet: OwnerView; s: ReturnType<typeof useP
       <Cluster gap={3}>
         <Slot slot="growth" {...slot} />
       </Cluster>
-      <CheckLink tokenId={tokenId} name={name} seal={seal} />
+      <CheckLink tokenId={tokenId} name={name} seal={seal} start />
       {asleep ? null : <Slot slot="hiring" {...slot} />}
     </Stack>
   );
@@ -810,7 +814,8 @@ function OutsiderPage({ pet, s, seal }: { pet: Exclude<PetView, { viewer: 'owner
   const me = s.me;
   const home = me?.currentPet ?? null;
   // the label under the name, for every viewer, inert (`Skill rule` › «label on the pet's page»); none for a pet with no skill
-  const skillBadge = pet.skill ? <SkillBadge name={name} label={pet.skill.label} /> : undefined;
+  // the badge is always passed, as the frames do: with no skill it draws nothing, and the plate keeps the frames' spacing
+  const skillBadge = <SkillBadge name={name} label={pet.skill?.label} />;
   // a guest who never hatched is offered a pet of their own
   const fresh = viewer === 'guest' && me !== null && me.hatched === null;
   // a guest with a pet of their own would have the advice column (add-pet-work); without it the page stands as the visitor's
