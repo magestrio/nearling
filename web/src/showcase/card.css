@@ -1,0 +1,6 @@
+.showcase-card-preview {
+  display: block;
+  width: min(var(--size-content-narrow), 100%);
+  height: auto;
+  margin: var(--space-0) auto;
+}

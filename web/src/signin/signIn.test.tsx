@@ -9,8 +9,8 @@ import { SignInLayer, useSignIn, type SignInApi } from './signIn';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
-const mocks = vi.hoisted(() => ({ signInState: vi.fn(), track: vi.fn(), login: vi.fn(), clearSignInError: vi.fn() }));
-vi.mock('../seams/worker', async (original) => ({ ...(await original<typeof import('../seams/worker')>()), workerApi: { signInState: mocks.signInState } }));
+const mocks = vi.hoisted(() => ({ signInState: vi.fn(), judgeCheck: vi.fn(), track: vi.fn(), login: vi.fn(), clearSignInError: vi.fn() }));
+vi.mock('../seams/worker', async (original) => ({ ...(await original<typeof import('../seams/worker')>()), workerApi: { signInState: mocks.signInState, judgeCheck: mocks.judgeCheck } }));
 vi.mock('../track', () => ({ track: mocks.track }));
 
 const IPHONE =
@@ -18,6 +18,7 @@ const IPHONE =
 const CLOSED = '2026-12-01T00:00:00.000Z';
 
 let root: Root | null = null;
+let host: HTMLDivElement;
 let sign: SignInApi;
 
 function Probe() {
@@ -56,7 +57,7 @@ const auth = (over: Partial<AuthApi> = {}): AuthApi => ({
 });
 
 async function mount(over: Partial<AuthApi> = {}) {
-  root ??= createRoot(document.createElement('div'));
+  if (!root) { host = document.createElement('div'); root = createRoot(host); }
   await act(async () => {
     root!.render(
       <AuthContext.Provider value={auth(over)}>
@@ -82,6 +83,8 @@ const DESKTOP_UA = navigator.userAgent;
 beforeEach(() => {
   mocks.signInState.mockReset();
   mocks.signInState.mockResolvedValue({ state: 'open' });
+  mocks.judgeCheck.mockReset();
+  mocks.judgeCheck.mockResolvedValue({ ok: true });
   mocks.track.mockReset();
   mocks.login.mockReset();
   mocks.clearSignInError.mockReset();
@@ -204,6 +207,29 @@ describe('begin', () => {
 });
 
 describe('the gate', () => {
+  // spec: add-showcase › Judge admission flow › invalid code
+  // spec: add-showcase › Judge admission flow › valid code
+  it('keeps an invalid draft, then checks before Google and preserves the tapped action', async () => {
+    mocks.signInState.mockResolvedValue({ state: 'closed_new', until: CLOSED });
+    mocks.judgeCheck.mockRejectedValueOnce(new WorkerError(403, 'judge_invalid'));
+    await mount();
+    await tap('feed');
+    await act(async () => sign.openJudge());
+    const input = host.querySelector('input')!;
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(input, 'sample-private-code');
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    const submit = () => host.querySelector('form')!.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+    await act(async () => submit());
+    expect(host.textContent).toContain("That code doesn't work. Check it and try again.");
+    expect(input.value).toBe('sample-private-code');
+    expect(mocks.login).not.toHaveBeenCalled();
+    await act(async () => submit());
+    expect(mocks.judgeCheck).toHaveBeenCalledWith('sample-private-code');
+    expect(peekReturnPlace()).toEqual({ path: '/pet/9', action: 'feed', judge: true });
+    expect(mocks.login).toHaveBeenCalledTimes(1);
+  });
   // spec: add-account › Sign-in flow › вход закрыт
   it('shows the closed sheet for a new player, and starts no Google', async () => {
     mocks.signInState.mockResolvedValue({ state: 'closed_new', until: CLOSED });

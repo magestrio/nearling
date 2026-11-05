@@ -3,6 +3,7 @@ import { navigate, replaceLocation } from '../route';
 import { queueAction } from '../screens/pet/parts';
 import { useAuth } from '../seams/auth';
 import { setOutcome } from './outcome';
+import { clearJudgeCode } from './judgeCode';
 import {
   clearReturnPlace,
   eraseLeftBehind,
@@ -17,13 +18,13 @@ import {
   type ReturnPlace,
 } from './returnPlace';
 
-/** A sign-in begun on Home leaves `{ path: '/' }`: it tells a Back from Google from a plain load of `/`, and is no place to lead
- *  the tab to. Nor is a cancel's record: `begin` writes a new one for a sign-in, so a session that finds it was opened elsewhere. */
-const placeOf = (record: ReturnPlace | null): ReturnPlace | null => (record && record.path !== '/' && !record.cancelled ? record : null);
+/** An ordinary sign-in begun on Home leaves `{ path: '/' }` only as its Back-from-Google marker. A judge's Home is a public
+ *  destination, so its record is a place to restore. A cancelled record is never a successful return. */
+const placeOf = (record: ReturnPlace | null): ReturnPlace | null => (record && (record.path !== '/' || record.judge) && !record.cancelled ? record : null);
 
 /** A sign-in that came back with no session: the place and the action stay, the text goes. */
 function rewriteCancelled(place: ReturnPlace): void {
-  rememberReturnPlace({ path: place.path, ...(place.action ? { action: place.action } : {}), cancelled: true });
+  rememberReturnPlace({ path: place.path, ...(place.action ? { action: place.action } : {}), ...(place.judge ? { judge: true } : {}), cancelled: true });
 }
 
 /** Back from Google the tab is at `/` — the one address Privy gets — and the place it began at waits in the tab. This leads
@@ -45,10 +46,23 @@ export function ReturnToPlace() {
 
   useEffect(() => {
     const here = window.location.pathname + window.location.search;
-    if (window.location.pathname === '/') return;
+    if (window.location.pathname === '/') {
+      const record = peekReturnPlace();
+      if (record?.cancelled && record.judge && record.path === here) {
+        clearJudgeCode();
+        setOutcome({ kind: 'judge_failed', place: here });
+      }
+      return;
+    }
     // a cancel's record for this very address: the tab was led back here by a full load (Back from Google), and the phone's
     // fallback line has to be there
-    if (peekReturnPlace()?.cancelled && peekReturnPlace()?.path === here) setOutcome({ kind: 'cancelled', place: here });
+    if (peekReturnPlace()?.cancelled && peekReturnPlace()?.path === here) {
+      const record = peekReturnPlace();
+      if (record?.judge) clearJudgeCode();
+      setOutcome({ kind: record?.judge ? 'judge_failed' : 'cancelled', place: here });
+    }
+    const leftover = peekReturnPlace();
+    if (leftover?.judge && !(leftover.cancelled && leftover.path === here)) clearJudgeCode();
     eraseLeftBehind(here);
   }, []);
 
@@ -65,8 +79,9 @@ export function ReturnToPlace() {
       }
       const place = placeOf(record);
       if (!place) {
+        if (record.judge) clearJudgeCode();
         clearReturnPlace();
-        setOutcome({ kind: 'cancelled', place: '/' });
+        setOutcome({ kind: record.judge ? 'judge_failed' : 'cancelled', place: '/' });
         return;
       }
       rewriteCancelled(place);
@@ -83,13 +98,16 @@ export function ReturnToPlace() {
       if (!auth.signInError) return;
       const record = peekReturnPlace();
       if (record) rewriteCancelled(record);
-      setOutcome({ kind: auth.signInError, place: here });
+      if (record?.judge) clearJudgeCode();
+      setOutcome({ kind: record?.judge ? 'judge_failed' : auth.signInError, place: here });
       return;
     }
     // where an outcome on Home stands: Home's own address may carry a mark (`?ib=x`); a return's code is about to go from it
     const home = auth.freshSignIn ? '/' : here;
     if (auth.authenticated || auth.walletFailed) {
-      const place = placeOf(takeReturnPlace());
+      const record = takeReturnPlace();
+      if (record?.judge) clearJudgeCode();
+      const place = placeOf(record);
       if (!place) return;
       if (auth.authenticated) {
         // «Feed {name}» tapped before the sign-in: the pet's screen runs it once it is back
@@ -100,11 +118,13 @@ export function ReturnToPlace() {
           else holdReturnText(place.path, place.text);
         }
       }
-      navigate(place.path);
+      navigate(place.judge && place.path === '/' ? '/?showcase=numbers' : place.path);
     } else if (auth.refusal) {
-      const place = placeOf(takeReturnPlace());
+      const record = takeReturnPlace();
+      if (record?.judge) clearJudgeCode();
+      const place = placeOf(record);
       // the closed sheet of a refusal at the ceiling is drawn by `SignInLayer`; «mau» has its line under the action
-      if (auth.refusal.reason === 'mau') setOutcome({ kind: 'mau', place: place?.path ?? home, until: auth.refusal.until });
+      if (auth.refusal.reason === 'mau') setOutcome({ kind: record?.judge ? 'judge_full' : 'mau', place: place?.path ?? home, until: auth.refusal.until });
       if (place) navigate(place.path);
     } else if (auth.signInError || (!auth.freshSignIn && !auth.unreachable && !signInUnderWay())) {
       const record = peekReturnPlace();
@@ -115,13 +135,15 @@ export function ReturnToPlace() {
       }
       const place = placeOf(record);
       if (!place) {
+        if (record?.judge) clearJudgeCode();
         // a sign-in begun on Home has no place: its outcome stands on Home
         if (record) clearReturnPlace();
-        if (record || auth.signInError) setOutcome({ kind, place: home });
+        if (record || auth.signInError) setOutcome({ kind: record?.judge ? 'judge_failed' : kind, place: home });
         return;
       }
       rewriteCancelled(place);
-      setOutcome({ kind, place: place.path });
+      if (place.judge) clearJudgeCode();
+      setOutcome({ kind: place.judge ? 'judge_failed' : kind, place: place.path });
       navigate(place.path);
     }
   }, [auth.ready, auth.authenticated, auth.walletFailed, auth.refusal, auth.signInError, auth.freshSignIn, auth.unreachable]);

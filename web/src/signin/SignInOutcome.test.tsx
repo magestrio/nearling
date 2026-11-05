@@ -82,6 +82,13 @@ afterEach(async () => {
 });
 
 describe('the line of a sign-in', () => {
+  // spec: add-showcase › Judge admission flow › code after Google failure
+  it('offers code re-entry without adding failure copy absent from the judge frame', async () => {
+    setOutcome({ kind: 'judge_failed', place: '/pet/2' });
+    await mount();
+    expect(page.querySelector('a')?.textContent).toContain('Try Google again');
+    expect(page.textContent).not.toContain(FAILED);
+  });
   // spec: add-account › Sign-in flow › вход не удался
   it('comes after its region: a Live mounted together with its words is not heard', async () => {
     setOutcome({ kind: 'failed', place: '/pet/2' });

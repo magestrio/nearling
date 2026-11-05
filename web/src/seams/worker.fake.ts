@@ -12,6 +12,7 @@ import { fakeState, recordCall, type FakeFail, type FakeWorkerState } from './fa
 import {
   WorkerError,
   type CatalogEntryView,
+  type CardSource,
   type CodeRead,
   type CodeTestResult,
   type ErrandForm,
@@ -269,6 +270,40 @@ export const fakeWorkerApi: WorkerApi = {
     recordCall('worker:pet');
     return viewOf(token, tokenId);
   },
+  cardLines: async (token, tokenId) => {
+    needSession(token);
+    const pet = await viewOf(token, tokenId);
+    if (pet.viewer !== 'owner') throw new WorkerError(403, 'not_owner');
+    const conversation = state().conversation;
+    const lines = conversation && !isFail(conversation) ? conversation.lines.filter((line): line is typeof line & { text: string } => line.who === 'pet' && !!line.text).map(({ id, text }) => ({ id, text })).reverse() : [];
+    return answer('cardLines', state().cardLines, { lines });
+  },
+  cardSource: async (token, tokenId, body) => {
+    needSession(token);
+    const pet = await viewOf(token, tokenId);
+    if (pet.viewer !== 'owner') throw new WorkerError(403, 'not_owner');
+    const oneShot = state().cardSourceOnce;
+    if (oneShot) {
+      delete state().cardSourceOnce;
+      return answer('cardSource', oneShot, {} as CardSource);
+    }
+    const source = state().cardSource;
+    const conversation = state().conversation;
+    const retained = state().cardLines;
+    const line = retained && !isFail(retained) ? retained.lines.find((item) => item.id === body.thoughtId)?.text
+      : conversation && !isFail(conversation) ? conversation.lines.find((item) => item.id === body.thoughtId && item.who === 'pet')?.text : undefined;
+    if (source === undefined && body.kind === 'growth' && pet.stage === 'baby') throw new WorkerError(409, 'growth_not_reached');
+    if (source === undefined && body.kind === 'outfit' && !pet.worn) throw new WorkerError(409, 'no_outfit');
+    const fallback: CardSource = body.kind === 'thought'
+      ? { tokenId, name: pet.name, kind: 'thought', thoughtId: body.thoughtId ?? '', line: line ?? '' }
+      : body.kind === 'growth' ? { tokenId, name: pet.name, kind: 'growth', stage: pet.stage === 'baby' ? 'teen' : pet.stage }
+        : { tokenId, name: pet.name, kind: 'outfit', worn: pet.worn ?? 'thinking-cap' };
+    return answer('cardSource', source, fallback);
+  },
+  cardShared: (token) => {
+    needSession(token);
+    return answer('cardShared', undefined, undefined);
+  },
 
   async verificationIndex(tokenId) {
     return answer<VerificationIndex>('verificationIndex', state().verificationIndex,
@@ -347,6 +382,7 @@ export const fakeWorkerApi: WorkerApi = {
 
   session: async (token, body) => {
     recordCall(`worker:session:${body.fresh ? 'fresh' : 'load'}${body.from ? `:${body.from}` : ''}`);
+    if (body.judgeCode) recordCall('worker:session:judge-code-body');
     if (token === null || state().sessionExpired) throw new WorkerError(401, 'signed_out');
     const result = await answer<SessionResult>('session', state().session, { ok: true });
     exchanged = 'ok' in result;
@@ -361,6 +397,10 @@ export const fakeWorkerApi: WorkerApi = {
   },
 
   signInState: () => answer<SignInGate>('signInState', state().signIn, { state: 'open' }),
+  judgeCheck: (_code) => {
+    recordCall('worker:judgeCheck:body');
+    return answer('judgeCheck', state().judgeCheck, { ok: true });
+  },
 
   feedSheet: async (token, tokenId) => {
     // asked is recorded before the refusal, as the Worker would have been asked

@@ -129,8 +129,8 @@ async fn built_wasm_exposes_version_and_source_metadata() -> anyhow::Result<()> 
     let pool_before_migration = ctx.pool().await?;
     let state = ctx.read_state().await?;
     let counters = borsh::to_vec(&(1u64, 0u64, 0u128))?;
-    assert_eq!(&state[state.len() - counters.len()..], counters);
-    let old_tail = state.len() - counters.len() - 5;
+    assert_eq!(&state[state.len() - 24 - counters.len()..state.len() - 24], counters);
+    let old_tail = state.len() - 24 - counters.len() - 5;
     assert_eq!(&state[old_tail..old_tail + 5], &[1, 0, 0, 0, b'g']);
     ctx.worker.patch_state(ctx.contract.id(), b"STATE", &state[..old_tail]).await?;
     ctx.contract.as_account().deploy(&updated_wasm).await?.into_result()?;

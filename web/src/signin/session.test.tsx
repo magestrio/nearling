@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { navigate } from '../route';
 import { ProviderContext, useAuth, type AuthApi, type ProviderApi } from '../seams/auth-context';
 import { WorkerError } from '../seams/worker-types';
+import { keepJudgeCode, readJudgeCode } from './judgeCode';
 import { markSignInUnderWay, rememberReturnPlace, signInUnderWay } from './returnPlace';
 import { SessionProvider } from './session';
 
@@ -68,6 +69,14 @@ afterEach(async () => {
 });
 
 describe('the exchange', () => {
+  // spec: add-showcase › Judge admission data › admitted Google return
+  it('carries the checked bearer in the session body on a fresh judge return, then erases it', async () => {
+    rememberReturnPlace({ path: '/pet/2', action: 'feed', judge: true });
+    keepJudgeCode('sample-private-code');
+    await show(provider({ freshSignIn: true }));
+    expect(worker.session).toHaveBeenCalledWith('identity-token', { fresh: true, from: 'link', judgeCode: 'sample-private-code' });
+    expect(readJudgeCode()).toBeNull();
+  });
   // spec: add-account › Sign-in flow › вошёл со страницы
   it('holds the page unready while it runs, and is signed in only after the 200', async () => {
     let answer: (v: { ok: true }) => void = () => undefined;

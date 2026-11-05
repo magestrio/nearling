@@ -1,18 +1,20 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { hatchPath, navigate, petPath } from '../../route';
+import { hatchPath, navigate, petPath, useLocation } from '../../route';
 import { useAuth } from '../../seams/auth';
 import { WorkerError, workerApi, type SignInGate } from '../../seams/worker';
 import { readGate } from '../../signin/gate';
 import { track } from '../../track';
+import { hasEvidenceIntent } from './evidenceIntent';
 
 // The Home screen's state (add-account › Home screen): a visitor sees what the game is and how to enter it — or, while sign-in
-// is closed, the closed view with the server's word on it; a signed-in player is led to their pet at once and never sees the
-// page (`Sign-in flow` › «вошёл с главной»). A load that gets no answer is `Connection rule` › «сервер недоступен».
+// is closed, the closed view with the server's word on it. A signed-in player follows their pet unless the README's
+// numbers URL keeps them on Home. A load that gets no answer is `Connection rule` › «сервер недоступен».
 export type HomeView =
   | { kind: 'loading' }
   | { kind: 'error'; busy: boolean }
   | { kind: 'signed-out' }
   | { kind: 'closed'; all: boolean; until: string }
+  | { kind: 'evidence' }
   /** a signed-in player on the way to their pet: the page is not drawn */
   | { kind: 'leaving' };
 
@@ -20,9 +22,12 @@ type Read =
   | { as: 'visitor' | 'player'; kind: 'asking' }
   | { as: 'visitor' | 'player'; kind: 'failed'; busy: boolean }
   | { as: 'visitor'; kind: 'gate'; gate: SignInGate }
+  | { as: 'player'; kind: 'evidence' }
   | { as: 'player'; kind: 'leaving' };
 
 export function useHome() {
+  const location = useLocation();
+  const evidenceIntent = hasEvidenceIntent(new URL(location, 'http://local').search);
   const auth = useAuth();
   const authRef = useRef(auth);
   authRef.current = auth;
@@ -38,6 +43,10 @@ export function useHome() {
     setRead({ as: who, kind: 'asking' });
     void (async () => {
       try {
+        if (who === 'player' && evidenceIntent) {
+          if (live) setRead({ as: 'player', kind: 'evidence' });
+          return;
+        }
         if (who === 'player') {
           const token = await authRef.current.getIdentityToken();
           if (token === null) throw new WorkerError(401, 'signed_out');
@@ -61,7 +70,7 @@ export function useHome() {
     return () => {
       live = false;
     };
-  }, [auth.ready, auth.unreachable, who, attempt]);
+  }, [auth.ready, auth.unreachable, who, attempt, evidenceIntent]);
 
   const view: HomeView = (() => {
     if (!auth.ready) return { kind: 'loading' };
@@ -69,6 +78,7 @@ export function useHome() {
     if (read.as !== who) return { kind: 'loading' };
     if (read.kind === 'failed') return { kind: 'error', busy: read.busy };
     if (read.kind === 'leaving') return { kind: 'leaving' };
+    if (read.kind === 'evidence') return { kind: 'evidence' };
     if (read.kind === 'gate') {
       return read.gate.state === 'open' ? { kind: 'signed-out' } : { kind: 'closed', all: read.gate.state === 'closed_all', until: read.gate.until };
     }

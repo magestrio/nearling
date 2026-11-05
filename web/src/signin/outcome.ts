@@ -5,7 +5,7 @@
 import { useSyncExternalStore } from 'react';
 import { useLocation } from '../route';
 
-export type OutcomeKind = 'failed' | 'cancelled' | 'mau';
+export type OutcomeKind = 'failed' | 'cancelled' | 'mau' | 'judge_failed' | 'judge_full';
 
 export interface Outcome {
   kind: OutcomeKind;

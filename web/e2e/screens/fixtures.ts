@@ -6,6 +6,7 @@ import type { DiaryView } from '../../src/seams/worker-types';
 import type { HireBoard } from '../../src/seams/worker-types';
 import { CLOSED_ALL, CLOSED_NEW, lookAgain, setWorker, UA } from '../helpers';
 import { verificationFakes } from '../verification.fixtures';
+import { SAMPLE_SHOWCASE } from '../../src/seams/showcase.sample';
 
 /** One frame's state in the real client, on the sample values of design/BRIEF.md §1. */
 export interface ScreenFixture {
@@ -78,6 +79,7 @@ const tapSignIn = async (page: Page) => {
   await page.getByRole('button', { name: 'Sign in' }).click();
   await page.mouse.move(0, 0);
 };
+const judgeDay = (page: Page) => page.clock.install({ time: new Date('2026-11-05T12:00:00.000Z') });
 const FAILED_LINE = "We couldn't sign you in with Google. Try again in a moment.";
 const MAU_LINE = "Looks like you haven't played here this month, so we can't sign you in until December 1. You can still look around.";
 const FALLBACK_LINE = 'Trouble signing in? Try it in your browser.';
@@ -800,6 +802,36 @@ const BOARD_PETS: HireBoard['pets'] = [
   { tokenId: '1', opaqueId: 'mochi', name: 'Mochi', label: 'moon phases', price: BOARD_PRICE, status: 'available', yours: false },
   { tokenId: '9', opaqueId: 'pixel', name: 'Pixel', label: 'plot twists', price: BOARD_PRICE, status: 'available', yours: true },
 ];
+const openShareMenu = async (page: Page) => {
+  await page.getByRole('button', { name: 'Share Pixel' }).click();
+  await page.mouse.move(0, 0);
+};
+const clickShareKind = async (page: Page, kind: 'thought' | 'growth' | 'outfit') => {
+  await openShareMenu(page);
+  await page.getByRole('menuitem', { name: `Share ${kind === 'thought' ? 'a thought' : kind}` }).click();
+  await page.mouse.move(0, 0);
+};
+const chooseShare = async (page: Page, kind: 'thought' | 'growth' | 'outfit') => {
+  await clickShareKind(page, kind);
+  await page.getByRole('dialog', { name: kind === 'thought' ? 'Share a thought' : `Share ${kind}` }).waitFor();
+};
+const shareFixture = (kind: 'thought' | 'growth' | 'outfit', worker: FakeWorkerState = owner()): ScreenFixture => ({
+  route: '/pet/9', fakes: { auth: SIGNED_IN, worker }, beforeLoad: async (page) => {
+    await page.addInitScript(() => {
+      Object.defineProperty(navigator, 'canShare', { value: () => true, configurable: true });
+      Object.defineProperty(navigator, 'share', { value: async () => undefined, configurable: true });
+    });
+  }, prepare: async (page) => { await ownerReady(page); await chooseShare(page, kind); await page.locator('.showcase-card-preview').waitFor(); await settle(page); },
+});
+const selectedThoughtFixture = (worker: FakeWorkerState = owner()): ScreenFixture => ({
+  ...shareFixture('thought', worker), prepare: async (page) => {
+    await ownerReady(page);
+    await chooseShare(page, 'thought');
+    await page.getByRole('dialog', { name: 'Share a thought' }).getByRole('radio').first().click();
+    await page.locator('.showcase-card-preview[alt*="Start with the chart"]').waitFor();
+    await settle(page);
+  },
+});
 function hireBoardSample(kind: 'own' | 'three' | 'asleep' | 'resting' | 'paused' | undefined = undefined): HireBoard {
   if (kind === 'asleep') return { pets: [{ ...BOARD_PETS[0]!, status: 'asleep' }], visits: [] };
   if (kind === 'resting') return { pets: [{ ...BOARD_PETS[1]!, status: 'resting', until: MIDNIGHT_UTC }], visits: [] };
@@ -808,6 +840,71 @@ function hireBoardSample(kind: 'own' | 'three' | 'asleep' | 'resting' | 'paused'
 }
 
 export const fixtures: Record<string, ScreenFixture> = {
+  // spec: add-showcase › Pet card sharing flow › choose a thought
+  'pet-share-menu': { route: '/pet/9', fakes: { auth: SIGNED_IN, worker: owner() }, prepare: async (page) => { await ownerReady(page); await openShareMenu(page); } },
+  // spec: add-showcase › Pet card sharing flow › no thought to choose
+  'share-no-thought': { route: '/pet/9', fakes: { auth: SIGNED_IN, worker: { ...owner({ hello: true }), conversation: { lines: [], more: false, before: null }, greeting: { job: null } } }, prepare: async (page) => { await page.getByRole('button', { name: 'Share Pixel' }).waitFor(); await clickShareKind(page, 'thought'); } },
+  // spec: add-showcase › Pet card sharing flow › growth not reached
+  'share-no-growth': { route: '/pet/9', fakes: { auth: SIGNED_IN, worker: { ...owner(), conversation: { lines: [], more: false, before: null }, greeting: { job: null }, pets: { '9': { ...PIXEL, stage: 'baby', worn: null, owner: { ownedCount: 1, hello: true, energy: 10 } }, '2': BISCUIT } } }, prepare: async (page) => { await page.getByRole('button', { name: 'Share Pixel' }).waitFor(); await clickShareKind(page, 'growth'); } },
+  // spec: add-showcase › Pet card sharing flow › no outfit worn
+  'share-no-outfit': { route: '/pet/9', fakes: { auth: SIGNED_IN, worker: { ...owner(), pets: { '9': { ...PIXEL, worn: null, owner: { ownedCount: 2 } }, '2': BISCUIT } } }, prepare: async (page) => { await ownerReady(page); await clickShareKind(page, 'outfit'); } },
+  // spec: add-showcase › Pet card sharing flow › choose a thought
+  'share-pick': shareFixture('thought'),
+  // spec: add-showcase › Pet share card screen › success
+  'share-card': selectedThoughtFixture(),
+  // spec: add-showcase › Pet card sharing flow › choose growth
+  'share-card-growth': shareFixture('growth'),
+  // spec: add-showcase › Pet card sharing flow › choose outfit
+  'share-card-outfit': shareFixture('outfit'),
+  // spec: add-showcase › Card eligibility rule › pet asleep
+  'share-asleep': selectedThoughtFixture(owner({}, { state: 'asleep', level: 0 })),
+  // spec: add-showcase › Card eligibility rule › memory cleared
+  'share-thought-gone': { ...shareFixture('thought'), prepare: async (page) => {
+    await ownerReady(page);
+    await chooseShare(page, 'thought');
+    await page.locator('.showcase-card-preview').waitFor();
+    await page.waitForFunction(() => (globalThis as { __NEARLING_CALLS__?: string[] }).__NEARLING_CALLS__?.filter((call) => call === 'worker:cardSource').length === 2);
+    await setWorker(page, { cardSourceOnce: { fail: { status: 409, code: 'thought_erased' } } });
+    await page.getByRole('dialog', { name: 'Share a thought' }).getByRole('button', { name: 'Save image' }).click();
+    await page.getByText('That thought is no longer here. Choose another one.').first().waitFor();
+    // the next retained thought, as in the frame: the erased one is not drawn again
+    await page.locator('.showcase-card-preview[alt*="Then here\'s the plan"]').waitFor();
+    await settle(page);
+  } },
+  // spec: add-showcase › Pet card sharing flow › ownership changed
+  'share-new-owner': { ...selectedThoughtFixture(), prepare: async (page) => {
+    await selectedThoughtFixture().prepare?.(page);
+    await setWorker(page, { cardSource: { fail: { status: 403, code: 'not_owner' } } });
+    await page.getByRole('dialog', { name: 'Share a thought' }).getByRole('button', { name: 'Save image' }).click();
+    await page.getByText("Pixel has a new owner. This card can't be shared from here.").filter({ visible: true }).first().waitFor();
+    await settle(page);
+  } },
+  // spec: add-showcase › Pet card sharing flow › share failed
+  'share-failed': { ...selectedThoughtFixture(), beforeLoad: async (page) => {
+    await page.addInitScript(() => {
+      Object.defineProperty(navigator, 'canShare', { value: () => true, configurable: true });
+      Object.defineProperty(navigator, 'share', { value: async () => { throw new Error('share failed'); }, configurable: true });
+    });
+  }, prepare: async (page) => {
+    await selectedThoughtFixture().prepare?.(page);
+    await page.getByRole('dialog', { name: 'Share a thought' }).getByRole('button', { name: 'Share', exact: true }).click();
+    await page.getByText("Couldn't share the card. Save the image and try from your browser.").filter({ visible: true }).first().waitFor();
+    await settle(page);
+  } },
+  // spec: add-showcase › Pet card sharing flow › share unavailable
+  'share-unavailable': { ...selectedThoughtFixture(), beforeLoad: async (page) => {
+    await page.addInitScript(() => {
+      Object.defineProperty(navigator, 'share', { value: undefined, configurable: true });
+      Object.defineProperty(navigator, 'canShare', { value: undefined, configurable: true });
+    });
+  } },
+  // spec: add-showcase › Pet share card screen › error
+  'share-card-error': { ...shareFixture('thought'), prepare: async (page) => {
+    await ownerReady(page);
+    await page.evaluate(() => { const original = HTMLCanvasElement.prototype.getContext; HTMLCanvasElement.prototype.getContext = function (this: HTMLCanvasElement & { __showcaseCard?: boolean }, kind: string, ...rest: unknown[]) { return kind === '2d' && this.__showcaseCard ? null : (original as (...args: unknown[]) => unknown).call(this, kind, ...rest); } as typeof original; });
+    await chooseShare(page, 'thought');
+    await page.getByText("We couldn't make this card. Try again.").first().waitFor();
+  } },
   // Hire board samples from design/bundle/screens/hire.js and design/BRIEF.md §1.
   // spec: add-pet-work › Hire board screen › empty
   'hire-empty': { route: '/hire', fakes: { auth: SIGNED_IN, worker: { hireBoard: { pets: [], visits: [
@@ -1333,6 +1430,12 @@ export const fixtures: Record<string, ScreenFixture> = {
     },
   },
 
+  // spec: add-showcase › Judge admission flow › ordinary entry closed
+  'signin-closed-judge': {
+    route: '/pet/2', fakes: { worker: { signIn: CLOSED_NEW } }, beforeLoad: judgeDay,
+    prepare: async (page) => { await tapSignIn(page); await page.getByRole('dialog').getByRole('link', { name: 'Enter judge code' }).waitFor(); await settle(page); },
+  },
+
   // Open in browser sheet (phone only): inside X on Android, inside X on an iPhone after «Copy link», and the iPhone's field
   // when the copy did not work
   // spec: add-account › Open in browser sheet screen › success (Android)
@@ -1430,6 +1533,63 @@ export const fixtures: Record<string, ScreenFixture> = {
   },
 
   // Home screen: a visitor with sign-in open; the check on its way; the game not reached; closed for new players, for everyone
+  // spec: add-showcase › Home evidence flow › public totals
+  'home-totals': { route: '/', prepare: meadowReady },
+  // spec: add-showcase › Home evidence flow › partial history
+  'home-totals-partial': { route: '/', fakes: { worker: { showcase: { ...SAMPLE_SHOWCASE, numbers: { ...SAMPLE_SHOWCASE.numbers!, counted_since: Date.UTC(2026, 10, 5) * 1_000_000 } } } }, prepare: meadowReady },
+  // spec: add-showcase › Showcase totals rule › no new activity
+  'home-totals-zero': { route: '/', fakes: { worker: { showcase: { ...SAMPLE_SHOWCASE, numbers: { ...SAMPLE_SHOWCASE.numbers!, hires_completed: 0, friend_snacks: 0, counted_since: Date.UTC(2026, 10, 5) * 1_000_000 } } } }, prepare: meadowReady },
+  // spec: add-showcase › Public demo flow › README numbers link with a session
+  'home-numbers-session': { route: '/?showcase=numbers', fakes: { auth: SIGNED_IN }, prepare: async (page) => {
+    await page.getByRole('button', { name: 'Account' }).waitFor();
+    await meadowReady(page);
+    await page.evaluate(() => window.scrollTo(0, 0));
+    await page.waitForFunction(() => {
+      const title = document.querySelector('h1');
+      const box = title?.getBoundingClientRect();
+      return box && box.top >= 0 && box.bottom <= innerHeight;
+    });
+  } },
+  // spec: add-showcase › Judge code sheet screen › success
+  'judge-code': { route: '/', fakes: { worker: { signIn: CLOSED_NEW } }, beforeLoad: judgeDay, prepare: async (page) => {
+    await page.getByRole('link', { name: 'Enter judge code' }).first().click();
+    await page.getByRole('dialog').getByLabel('Judge code').waitFor(); await page.mouse.move(0, 0); await settle(page);
+  } },
+  // spec: add-showcase › Judge code sheet screen › error
+  'judge-code-error': { route: '/', fakes: { worker: { signIn: CLOSED_NEW, judgeCheck: { fail: { status: 503, code: 'judge_unavailable' } } } }, beforeLoad: judgeDay, prepare: async (page) => {
+    await page.getByRole('link', { name: 'Enter judge code' }).first().click();
+    await page.getByRole('dialog').getByLabel('Judge code').fill('K7QF2-M9XH4-TR8WZ-CN3VD-PJ6BL-A');
+    await page.getByRole('dialog').getByRole('button', { name: 'Continue with Google' }).click();
+    await page.getByRole('dialog').getByRole('button', { name: 'Try again' }).waitFor(); await page.mouse.move(0, 0); await settle(page);
+  } },
+  // spec: add-showcase › Judge admission flow › invalid code
+  'judge-code-invalid': { route: '/', fakes: { worker: { signIn: CLOSED_NEW, judgeCheck: { fail: { status: 403, code: 'judge_invalid' } } } }, beforeLoad: judgeDay, prepare: async (page) => {
+    await page.getByRole('link', { name: 'Enter judge code' }).first().click();
+    await page.getByRole('dialog').getByLabel('Judge code').fill('K7QF2-M9XH4-TR8WZ-CN3VD-PJ6BL-A');
+    await page.getByRole('dialog').getByRole('button', { name: 'Continue with Google' }).click();
+    await page.getByRole('dialog').getByText("That code doesn't work. Check it and try again.").first().waitFor(); await page.mouse.move(0, 0); await settle(page);
+  } },
+  // spec: add-showcase › Judge admission flow › exhausted code
+  'judge-code-exhausted': { route: '/', fakes: { worker: { signIn: CLOSED_NEW, judgeCheck: { fail: { status: 403, code: 'judge_exhausted' } } } }, beforeLoad: judgeDay, prepare: async (page) => {
+    await page.getByRole('link', { name: 'Enter judge code' }).first().click();
+    await page.getByRole('dialog').getByLabel('Judge code').fill('K7QF2-M9XH4-TR8WZ-CN3VD-PJ6BL-A');
+    await page.getByRole('dialog').getByRole('button', { name: 'Continue with Google' }).click();
+    await page.getByRole('dialog').getByRole('link', { name: 'View demo pet' }).waitFor(); await page.mouse.move(0, 0); await settle(page);
+  } },
+  // spec: add-showcase › Judge admission flow › expired code
+  'judge-code-expired': { route: '/', fakes: { worker: { signIn: CLOSED_NEW, judgeCheck: { fail: { status: 403, code: 'judge_expired' } } } }, beforeLoad: judgeDay, prepare: async (page) => {
+    await page.getByRole('link', { name: 'Enter judge code' }).first().click();
+    await page.getByRole('dialog').getByLabel('Judge code').fill('K7QF2-M9XH4-TR8WZ-CN3VD-PJ6BL-A');
+    await page.getByRole('dialog').getByRole('button', { name: 'Continue with Google' }).click();
+    await page.getByRole('dialog').getByRole('link', { name: 'View demo pet' }).waitFor(); await page.mouse.move(0, 0); await settle(page);
+  } },
+  // spec: add-showcase › Judge admission flow › code after Google failure
+  'judge-google-failed': { route: '/', fakes: { worker: { signIn: CLOSED_NEW }, auth: { outcome: 'failed' } }, beforeLoad: judgeDay, prepare: async (page) => {
+    await page.getByRole('link', { name: 'Enter judge code' }).first().click();
+    await page.getByRole('dialog').getByLabel('Judge code').fill('K7QF2-M9XH4-TR8WZ-CN3VD-PJ6BL-A');
+    await page.getByRole('dialog').getByRole('button', { name: 'Continue with Google' }).click();
+    await page.getByRole('link', { name: 'Try Google again' }).waitFor(); await page.mouse.move(0, 0); await settle(page);
+  } },
   // spec: add-account › Home screen › signed-out
   'home-signed-out': { route: '/', prepare: async (page) => { await page.getByRole('button', { name: 'Sign in' }).waitFor(); await meadowReady(page); } },
   // spec: add-account › Home screen › pet on the meadow

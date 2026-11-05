@@ -105,13 +105,15 @@ async fn migrate_takes_the_previous_layout_of_a_deployed_contract() -> anyhow::R
         )
         .await?;
 
-    // The current layout ends in three Showcase counters after the work and transfer maps.
+    // The current layout ends in three original Showcase counters and 24 bytes of added totals.
     // Strip both the counters and map prefixes to recreate the exact V3 layout.
     let pool_before = ctx.pool().await?;
     let state = ctx.read_state().await?;
     let counters = borsh::to_vec(&(1u64, 0u64, 0u128))?;
-    assert_eq!(&state[state.len() - counters.len()..], counters);
-    let tail = state.len() - counters.len() - 15;
+    let new_totals = &state[state.len() - 24..];
+    assert_eq!(&new_totals[..16], &[0; 16]);
+    assert_eq!(&state[state.len() - 24 - counters.len()..state.len() - 24], counters);
+    let tail = state.len() - 24 - counters.len() - 15;
     assert_eq!(&state[tail..tail + 15], &[1, 0, 0, 0, b'w', 1, 0, 0, 0, b'x', 1, 0, 0, 0, b'g']);
     ctx.worker
         .patch_state(ctx.contract.id(), b"STATE", &state[..tail])

@@ -4,6 +4,8 @@ import { describe, expect, it, vi } from 'vitest';
 import { api, harness } from './helpers/api';
 import { NEAR_ACCOUNT, token } from './helpers/network';
 import { publicVisits } from '../src/pet/publicVisits';
+import { run } from '../src/spend';
+import { tick } from '../src/cron';
 
 const h = harness();
 const owner = NEAR_ACCOUNT(41);
@@ -56,7 +58,8 @@ describe('Showcase data', () => {
   // spec: add-account › Showcase data › one copy for everyone × simultaneous visitors / reload
   it('shares one public pet and totals read across simultaneous visitors and an object restart', async () => {
     const pet = h.net().contract.addPet('701', owner, { name: 'Juniper', stage: 'Teen', outfits: [1] });
-    h.net().contract.showcaseNumbers = { pets_hatched: 7, thoughts_paid: 12, spent: '1230000000000000000000000' };
+    h.net().contract.showcaseNumbers = { pets_hatched: 7, thoughts_paid: 12, spent: '1230000000000000000000000',
+      hires_completed: 0, friend_snacks: 0, counted_since: 0 };
     await born('701');
     await env.DB.prepare("INSERT INTO wardrobe (token_id, worn, seen) VALUES ('701', 'cozy-scarf', 0)").run();
     const stub = env.SHOWCASE.getByName('stage14-concurrent');
@@ -136,6 +139,44 @@ describe('Showcase data', () => {
     const limiter = env.LIMITER.getByName(`ip:${ip}`);
     for (let n = 2; n < 120; n += 1) await limiter.hit(Math.floor(Date.now() / oneMinute), 120);
     expect(await api('/api/showcase', { ip })).toEqual({ status: 429, body: { code: 'rate_limited' } });
+  });
+
+  // spec: add-showcase › Public showcase data › guest follows demo link
+  it('keeps the demo pet and a published receipt readable anonymously without a write or Privy call', async () => {
+    h.net().contract.addPet('705', owner, { name: 'Demo' });
+    await born('705');
+    await run(env, '705', { kind: 'reply', mode: 'chat', text: 'A sample question' });
+    await tick(env, Date.now() + 11 * oneMinute);
+    const row = await env.DB.prepare('SELECT id FROM thoughts WHERE token_id = ?').bind('705').first<{ id: string }>();
+    const tk = await token('did:privy:demo-publisher', owner);
+    const link = await api(`/api/verification/pets/705/thoughts/${row!.id}/links`, { token: tk, body: { operationId: 'demo_publish_operation_001' } });
+    expect(link.status).toBe(200);
+    h.net().fetched.length = 0;
+    const sends = h.net().contract.sends.length;
+    expect((await api('/api/pets/705')).body).toMatchObject({ viewer: 'visitor', tokenId: '705', name: 'Demo' });
+    expect((await api(`/api/verification/receipts/${link.body.code}`)).body).toMatchObject({ status: 'live' });
+    vi.setSystemTime(Date.now() + oneMinute);
+    expect((await api('/api/showcase')).body.pets).toMatchObject([{ tokenId: '705', name: 'Demo' }]);
+    expect(h.net().contract.sends).toHaveLength(sends);
+    expect(h.net().fetched).not.toContain(env.PRIVY_JWKS_URL);
+  });
+
+  // spec: add-showcase › Showcase totals rule › no new activity × refresh/RPC failure/reload/tab hidden/00:00 UTC
+  it('carries zero and partial-history fields in the same public copy for a minute', async () => {
+    h.net().contract.addPet('706', owner);
+    await born('706');
+    h.net().contract.showcaseNumbers = {
+      pets_hatched: 6, thoughts_paid: 8, spent: '900', hires_completed: 0, friend_snacks: 0,
+      counted_since: Date.UTC(2026, 10, 5) * 1_000_000,
+    };
+    const stub = env.SHOWCASE.getByName('showcase-totals-upgrade');
+    const first = await stub.read();
+    expect(first?.numbers).toEqual(h.net().contract.showcaseNumbers);
+    vi.setSystemTime(Date.now() + oneMinute - 1);
+    h.net().contract.showcaseNumbers = { ...h.net().contract.showcaseNumbers, hires_completed: 2, friend_snacks: 3 };
+    expect((await stub.read())?.numbers).toEqual(first?.numbers);
+    vi.setSystemTime(Date.now() + 1);
+    expect((await stub.read())?.numbers).toMatchObject({ hires_completed: 2, friend_snacks: 3 });
   });
 });
 

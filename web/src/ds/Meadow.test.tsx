@@ -98,7 +98,7 @@ it('makes real pets named links in left-to-right keyboard order, with a tag and 
 it('keeps empty number space while loading and leaves the explorer reachable', async () => {
   await act(async () => root.render(<Meadow pets={[]} numbers="loading" explore={<a href="/explorer">See it on the NEAR explorer</a>} motion />));
   expect(host.querySelector('.ds-meadow__stats--loading')?.getAttribute('aria-hidden')).toBe('true');
-  expect(host.querySelectorAll('.ds-meadow__stat')).toHaveLength(3);
+  expect(host.querySelectorAll('.ds-meadow__stat')).toHaveLength(5);
   expect(host.querySelector('.ds-meadow__motion')).toBeNull();
   expect(host.querySelector('.ds-meadow__explore a')).not.toBeNull();
 });

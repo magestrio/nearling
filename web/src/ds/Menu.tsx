@@ -7,13 +7,17 @@ import { Icon, type IconName } from './Icon';
  *  goes on. */
 export function Menu({
   label,
+  id,
   note,
+  message,
   onClose,
   children,
 }: {
   label: string;
+  id?: string;
   note?: ReactNode;
-  onClose: (by: 'escape' | 'tab') => void;
+  message?: ReactNode;
+  onClose?: (by: 'escape' | 'tab') => void;
   children?: ReactNode;
 }) {
   const list = useRef<HTMLUListElement>(null);
@@ -36,17 +40,16 @@ export function Menu({
     else if (e.key === 'End') to(-1);
     else if (e.key === 'Escape') {
       e.preventDefault();
-      onClose('escape');
-    } else if (e.key === 'Tab') onClose('tab');
+      onClose?.('escape');
+    } else if (e.key === 'Tab') onClose?.('tab');
   };
 
   return (
     <div className="ds-menu-layer">
       <div className="ds-menu" onKeyDown={onKeyDown}>
+        {message ? <p id={id ? `${id}-message` : undefined} className="ds-menu__note ds-menu__note--message type-small" role="status">{message}</p> : null}
         {note ? <p className="ds-menu__note type-small">{note}</p> : null}
-        <ul ref={list} className="ds-menu__list" role="menu" aria-label={label}>
-          {children}
-        </ul>
+        {message ? null : <ul ref={list} id={id} className="ds-menu__list" role="menu" aria-label={label}>{children}</ul>}
       </div>
     </div>
   );

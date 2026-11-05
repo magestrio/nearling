@@ -10,6 +10,7 @@ import { clearPendingBirths } from '../screens/hatch/pendingBirth';
 import type { AuthApi } from '../seams/auth-context';
 import { END_SESSION_TIMEOUT_MS, workerApi } from '../seams/worker';
 import { clearOutcome } from './outcome';
+import { clearJudgeCode } from './judgeCode';
 import { clearReturnPlace } from './returnPlace';
 
 /** The words of the Toast and of Home's Live after a sign-out. */
@@ -34,6 +35,7 @@ function clearTab(): void {
   takePendingAction();
   clearNewborn();
   clearReturnPlace();
+  clearJudgeCode();
   clearOutcome();
   clearRiddleDrafts();
   clearPendingBirths();

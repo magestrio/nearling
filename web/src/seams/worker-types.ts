@@ -20,8 +20,14 @@ export interface HireBoard {
 /** Public Home copy; a null `numbers` means no live meadow is available. */
 export interface ShowcaseCopy {
   pets: Array<{ tokenId: string; name: string; stage: Stage; fullness: Fullness['state']; worn: OutfitSlug | null }>;
-  numbers: { pets_hatched: number; thoughts_paid: number; spent: string } | null;
+  numbers: { pets_hatched: number; thoughts_paid: number; spent: string; hires_completed: number; friend_snacks: number; counted_since: number } | null;
 }
+
+export type CardKind = 'thought' | 'growth' | 'outfit';
+export type CardSource =
+  | { tokenId: string; name: string; kind: 'thought'; thoughtId: string; line: string }
+  | { tokenId: string; name: string; kind: 'growth'; stage: Exclude<Stage, 'baby'> }
+  | { tokenId: string; name: string; kind: 'outfit'; worn: OutfitSlug };
 
 /** Public record pointers; each transaction is read by the browser from NEAR. */
 export interface VerificationIndex {
@@ -347,11 +353,11 @@ export interface Conversation {
 /** `GET /api/sign-in` (Sign-in data): what a browser with no session may do before Google. Nothing about players. */
 export type SignInGate = { state: 'open' } | { state: 'closed_new' | 'closed_all'; until: string };
 
-/** Why the server did not open a session after Google (`POST /api/session`, `403 sign_in_refused`): `mau` — closed to new
- *  players, `ceiling` — closed to everyone. `until` is 00:00 UTC of the 1st, ISO. */
+/** Why the server did not open a session after Google. `mau` and `ceiling` have `until` (next UTC month); judge code
+ *  refusals use their own response code and keep the public page readable. */
 export interface SignInRefusal {
-  reason: 'mau' | 'ceiling';
-  until: string;
+  reason: 'mau' | 'ceiling' | 'judge_invalid' | 'judge_exhausted' | 'judge_expired';
+  until?: string;
 }
 
 /** `POST /api/session`: the session is open, or the server refused to open it. Any other answer is a `WorkerError`:
@@ -633,6 +639,9 @@ export interface WorkerApi {
   /** `name` is the raw text as typed; the server cleans it again. Resolves `{ tokenId }`. */
   hatch(token: Token, name: string): Promise<{ tokenId: string } | { pending: true }>;
   pet(token: Token, tokenId: string): Promise<PetView>;
+  cardLines(token: Token, tokenId: string): Promise<{ lines: Array<{ id: string; text: string }> }>;
+  cardSource(token: Token, tokenId: string, body: { kind: CardKind; thoughtId?: string }): Promise<CardSource>;
+  cardShared(token: Token, body: { at: number; kind: CardKind; delivery: 'save' | 'share'; tabId: string; playerId: string; petId: string }): Promise<void>;
   verificationIndex(tokenId: string): Promise<VerificationIndex>;
   verificationThought(token: Token, tokenId: string, thoughtId: string): Promise<VerificationThought>;
   publishReceipt(token: Token, tokenId: string, thoughtId: string, operationId: string): Promise<{ code: string; path: string }>;
@@ -649,7 +658,9 @@ export interface WorkerApi {
   retryWake(token: Token, tokenId: string): Promise<{ job: string | null }>;
   /** The exchange after Google, once per page load with a Privy session. `fresh`: this load came back from Google; `from`:
    *  where the sign-in began (a page, or Home). Outside the request limit. */
-  session(token: Token, body: { fresh: boolean; from?: 'link' | 'home' }): Promise<SessionResult>;
+  session(token: Token, body: { fresh: boolean; from?: 'link' | 'home'; judgeCode?: string }): Promise<SessionResult>;
+  /** Public, body-only check. No place is reserved. */
+  judgeCheck(code: string): Promise<{ ok: true }>;
   /** «Sign out» on the server (ADR-022); `204`. Takes at most `END_SESSION_TIMEOUT_MS`. */
   endSession(token: Token): Promise<void>;
   /** The state of the sign-in, read before Google. Sent with no token: a stale one would be a `401`. */

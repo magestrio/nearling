@@ -14,5 +14,5 @@ export const SAMPLE_SHOWCASE: ShowcaseCopy = {
     { tokenId: '298', name: 'Pebble', stage: 'adult', fullness: 'full', worn: null },
     { tokenId: '43', name: 'Kiwi', stage: 'teen', fullness: 'full', worn: null },
   ],
-  numbers: { pets_hatched: 1204, thoughts_paid: 58310, spent: '41200000000000000000000000' },
+  numbers: { pets_hatched: 1204, thoughts_paid: 58310, spent: '41200000000000000000000000', hires_completed: 312, friend_snacks: 87, counted_since: 0 },
 };

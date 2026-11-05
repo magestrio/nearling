@@ -7,4 +7,5 @@ export const config = {
   serverAccountId: import.meta.env.VITE_SERVER_ACCOUNT_ID,
   treasuryAccountId: import.meta.env.VITE_TREASURY_ACCOUNT_ID,
   privyAppId: import.meta.env.VITE_PRIVY_APP_ID,
+  demoPetId: import.meta.env.VITE_DEMO_PET_ID,
 } as const;

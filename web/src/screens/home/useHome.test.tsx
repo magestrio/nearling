@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { AuthContext, type AuthApi } from '../../seams/auth-context';
 import { WorkerError } from '../../seams/worker-types';
 import { useHome } from './useHome';
+import { go } from '../../route';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -106,6 +107,18 @@ describe('the closed view', () => {
 });
 
 describe('a signed-in player', () => {
+  // spec: add-showcase › Public demo flow › README numbers link with a session
+  it('keeps the public numbers URL visible without reading the player pet', async () => {
+    window.history.replaceState(null, '', '/?showcase=numbers');
+    await show(auth({ authenticated: true }));
+    expect(window.location.pathname + window.location.search).toBe('/?showcase=numbers');
+    expect(home.view).toEqual({ kind: 'evidence' });
+    expect(mocks.me).not.toHaveBeenCalled();
+    mocks.me.mockResolvedValue({ accountId: 'a', hatched: null, currentPet: { tokenId: '9', name: 'Pixel' }, ownedCount: 1 });
+    await act(async () => go('/'));
+    expect(window.location.pathname).toBe('/pet/9');
+  });
+
   // spec: add-account › Home screen › success
   it('is led to the current pet, and to the Hatch screen with none', async () => {
     mocks.me.mockResolvedValue({ accountId: 'a', hatched: null, currentPet: { tokenId: '9', name: 'Pixel' }, ownedCount: 1 });

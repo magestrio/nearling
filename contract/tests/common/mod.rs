@@ -56,6 +56,9 @@ struct StateMirror {
     pets_hatched: u64,
     thoughts_paid: u64,
     spent: u128,
+    hires_completed: u64,
+    friend_snacks: u64,
+    counted_since: u64,
 }
 
 pub struct Ctx {
@@ -605,12 +608,24 @@ impl Ctx {
     }
 
     /// Recreate the deployed V5 `STATE` bytes for an upgrade test. Its layout is the exact
-    /// prefix of the current layout; only the three appended Showcase scalars are removed.
+    /// prefix of the current layout; both sets of Showcase scalars are removed.
     pub async fn restore_v5_state(&self) -> anyhow::Result<()> {
         let mut state = self.read_state().await?;
         let _: StateMirror = borsh::from_slice(&state)?;
-        state.truncate(state.len() - 32);
+        state.truncate(state.len() - 56);
         let _: nearling_contract::ContractV5 = borsh::from_slice(&state)?;
+        self.worker
+            .patch_state(self.contract.id(), b"STATE", &state)
+            .await?;
+        Ok(())
+    }
+
+    /// Recreate the deployed state immediately before the two added Showcase totals.
+    pub async fn restore_v6_state(&self) -> anyhow::Result<()> {
+        let mut state = self.read_state().await?;
+        let _: StateMirror = borsh::from_slice(&state)?;
+        state.truncate(state.len() - 24);
+        let _: nearling_contract::ContractV6 = borsh::from_slice(&state)?;
         self.worker
             .patch_state(self.contract.id(), b"STATE", &state)
             .await?;

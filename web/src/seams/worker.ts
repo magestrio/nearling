@@ -5,6 +5,7 @@
 import type {
   AdviceRead,
   CatalogEntryView,
+  CardSource,
   CodeRead,
   CodeTestResult,
   Conversation,
@@ -118,6 +119,9 @@ const real: WorkerApi = {
   hatchStatus: (token, opts) => call<HatchStatus>(opts?.look ? '/api/hatch?look=1' : '/api/hatch', token),
   hatch: (token, name) => call<{ tokenId: string } | { pending: true }>('/api/hatch', token, { method: 'POST', body: { name }, timeoutMs: HATCH_TIMEOUT_MS }),
   pet: (token, tokenId) => call<PetView>(`/api/pets/${id(tokenId)}`, token),
+  cardLines: (token, tokenId) => call<{ lines: Array<{ id: string; text: string }> }>(`/api/pets/${id(tokenId)}/card-lines`, token),
+  cardSource: (token, tokenId, body) => call<CardSource>(`/api/pets/${id(tokenId)}/card-source`, token, { method: 'POST', body }),
+  cardShared: (token, body) => call<void>('/api/showcase/card-shared', token, { method: 'POST', body }),
   verificationIndex: (tokenId) => call<VerificationIndex>(`/api/verification/pets/${id(tokenId)}`, null),
   verificationThought: (token, tokenId, thoughtId) => call<VerificationThought>(
     `/api/verification/pets/${id(tokenId)}/thoughts/${encodeURIComponent(thoughtId)}`, token),
@@ -147,11 +151,15 @@ const real: WorkerApi = {
         const { reason, until } = (e.body ?? {}) as { reason?: unknown; until?: unknown };
         if ((reason === 'mau' || reason === 'ceiling') && typeof until === 'string') return { refused: { reason, until } };
       }
+      if (e instanceof WorkerError && e.status === 403 && (e.code === 'judge_invalid' || e.code === 'judge_exhausted' || e.code === 'judge_expired')) {
+        return { refused: { reason: e.code } };
+      }
       throw e;
     }
   },
   endSession: (token) => call<void>('/api/session/end', token, { method: 'POST', timeoutMs: END_SESSION_TIMEOUT_MS }),
   signInState: () => call<SignInGate>('/api/sign-in', null),
+  judgeCheck: (code) => call<{ ok: true }>('/api/judge/check', null, { method: 'POST', body: { code } }),
   clearMemory: (token, tokenId) => call<{ ok: true }>(`/api/pets/${id(tokenId)}/memory/clear`, token, { method: 'POST' }),
   feedSheet: (token, tokenId) => call<FeedSheetAnswer>(`/api/pets/${id(tokenId)}/feed`, token),
   buildFeed: (token, tokenId, portion) => call<{ tx: string }>(`/api/pets/${id(tokenId)}/feed`, token, { method: 'POST', body: { portion } }),

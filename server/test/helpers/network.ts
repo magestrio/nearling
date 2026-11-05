@@ -136,7 +136,7 @@ export class FakeContract {
   grants: { token_id: string }[] = [];
   buys: { token_id: string; item: number; price: string }[] = [];
   treasury = 0n;
-  showcaseNumbers = { pets_hatched: 0, thoughts_paid: 0, spent: '0' };
+  showcaseNumbers = { pets_hatched: 0, thoughts_paid: 0, spent: '0', hires_completed: 0, friend_snacks: 0, counted_since: 0 };
   /** What the next successful transaction burns, yoctoNEAR (`tokens_burnt` of its outcome). */
   burnt = '0';
   /** When set, `debit_session` fails with this contract code even if its rules would pass. */

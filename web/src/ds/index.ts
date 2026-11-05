@@ -6,6 +6,7 @@ export { CatalogEntry, CatalogList } from './Catalog';
 export { Console } from './Console';
 export { Missions, type MissionOption } from './Missions';
 export { ShareCard } from './ShareCard';
+export { ChoiceList } from './ChoiceList';
 export { Socket, Sockets } from './Sockets';
 export { ToolList, ToolRow } from './ToolList';
 export { Block } from './Block';

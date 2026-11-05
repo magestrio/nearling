@@ -1,0 +1,9 @@
+{
+  "ordinaryAdmission": 460,
+  "judgeAdmission": 480,
+  "countedSignIns": 490,
+  "judgeCodes": 10,
+  "redemptionsPerCode": 2,
+  "judgeExpiresAt": "2026-11-19T00:00:00.000Z",
+  "judgeDeleteAt": "2026-12-01T00:00:00.000Z"
+}

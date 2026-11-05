@@ -29,9 +29,9 @@ function FlatSample({ pet }: { pet: MeadowPet }) {
 }
 
 export type MeadowVisit = MeadowPet & { href?: string; name?: string; tag?: string; tagged?: boolean };
-export type MeadowNumber = { value: string; label: string };
+export type MeadowNumber = { value: string; label: string; since?: string };
 
-/** DS 0.44: one scene, linked pets in reading order, and the contract's public numbers. */
+/** DS 0.46: one scene, linked pets in reading order, and five contract-backed public numbers. */
 export function Meadow({ pets, motion = true, numbers, explore, label }: {
   pets: MeadowVisit[]; motion?: boolean | ReactNode; numbers?: MeadowNumber[] | 'loading'; explore?: ReactNode; label?: string;
 }) {
@@ -45,7 +45,8 @@ export function Meadow({ pets, motion = true, numbers, explore, label }: {
   const ordered = [...pets].sort((a, b) => a.x - b.x);
   const live = ordered.some((pet) => Boolean(pet.href));
   const loading = numbers === 'loading';
-  const stats = loading ? [{ value: '0', label: 'pets' }, { value: '0', label: 'thoughts' }, { value: '0', label: 'NEAR' }] : numbers;
+  // the hidden placeholders carry the caption too, so the line holds the height of its tallest form (design/ds/components.js › Meadow)
+  const stats = loading ? [{ value: '0', label: 'pets', since: 'since November 5' }, { value: '0', label: 'thoughts', since: 'since November 5' }, { value: '0', label: 'NEAR', since: 'since November 5' }, { value: '0', label: 'hires', since: 'since November 5' }, { value: '0', label: 'friend snacks', since: 'since November 5' }] : numbers;
   const moveTarget = useCallback((index: number, x: number) => {
     positions.current[index] = x;
     targets.current[index]?.style.setProperty('--x', String(x));
@@ -97,7 +98,7 @@ export function Meadow({ pets, motion = true, numbers, explore, label }: {
       </div>
       {stats || explore || (motion && pets.length > 0 && !lost) ? <div className={cx('ds-meadow__foot', Boolean(stats || explore) && 'ds-meadow__foot--numbers')}>
         {stats ? <ul className={cx('ds-meadow__stats', loading && 'ds-meadow__stats--loading')} aria-hidden={loading ? true : undefined}>
-          {stats.map((n, i) => <li key={i} className="ds-meadow__stat"><span className="ds-meadow__value type-title-2">{n.value}</span>{' '}<span className="ds-meadow__label type-small">{n.label}</span></li>)}
+          {stats.map((n, i) => <li key={i} className="ds-meadow__stat"><span className="ds-meadow__value type-title-2">{n.value}</span>{' '}<span className="ds-meadow__label type-small">{n.label}</span>{'since' in n && n.since ? <span className="ds-meadow__since type-caption">{n.since}</span> : null}</li>)}
         </ul> : null}
         {explore ? <div className="ds-meadow__explore">{explore}</div> : null}
         {motion && pets.length > 0 && !lost ? <div className="ds-meadow__motion">{motion === true ? <><Only on="desktop"><MotionToggle paused={paused} onToggle={toggle} /></Only><Only on="phone"><MotionToggle paused={paused} onToggle={toggle} icon /></Only></> : motion}</div> : null}

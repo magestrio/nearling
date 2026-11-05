@@ -9,6 +9,7 @@ export interface BuildEnv {
   VITE_SERVER_ACCOUNT_ID: string;
   VITE_TREASURY_ACCOUNT_ID: string;
   VITE_PRIVY_APP_ID: string;
+  VITE_DEMO_PET_ID?: string;
   /** The day-1 checks route (/__day1). Absent from the production build. */
   VITE_DEV_ROUTE: 'true' | 'false';
   /** 'true' only in the e2e mode: the seams use their fakes. No dev or prod build sets it. */
@@ -23,6 +24,7 @@ const dev: BuildEnv = {
   VITE_SERVER_ACCOUNT_ID: 'nearling-dev-server.testnet',
   VITE_TREASURY_ACCOUNT_ID: 'nearling-dev-treasury.testnet',
   VITE_PRIVY_APP_ID: 'cmvtjc1q100s30gl22hfxq7ap',
+  VITE_DEMO_PET_ID: '0',
   VITE_DEV_ROUTE: 'true',
   VITE_FAKES: undefined,
 };
@@ -49,6 +51,7 @@ const e2e: BuildEnv = {
   VITE_SERVER_ACCOUNT_ID: 'nearling-e2e-server.testnet',
   VITE_TREASURY_ACCOUNT_ID: 'nearling-e2e-treasury.testnet',
   VITE_PRIVY_APP_ID: 'e2e-app-id',
+  VITE_DEMO_PET_ID: '2',
   VITE_DEV_ROUTE: 'true',
   VITE_FAKES: 'true',
 };

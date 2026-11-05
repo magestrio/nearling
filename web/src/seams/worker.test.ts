@@ -97,6 +97,30 @@ describe('the Worker seam', () => {
 describe('the Worker seam of the session', () => {
   const calls = (fetchMock: ReturnType<typeof vi.fn>) => fetchMock.mock.calls.map((c) => c as unknown as [string, RequestInit]);
 
+  // spec: add-showcase › Judge admission data › private code checked
+  it('sends a judge code only in a public POST body before Google', async () => {
+    const fetchMock = vi.fn(async () => Response.json({ ok: true }));
+    vi.stubGlobal('fetch', fetchMock);
+    await workerApi.judgeCheck('sample-private-code');
+    const [url, init] = calls(fetchMock)[0]!;
+    expect(url).toBe('/api/judge/check');
+    expect(init.method).toBe('POST');
+    expect(init.headers).not.toHaveProperty('privy-id-token');
+    expect(JSON.parse(init.body as string)).toEqual({ code: 'sample-private-code' });
+    expect(JSON.stringify({ url, headers: init.headers })).not.toContain('sample-private-code');
+  });
+
+  // spec: add-showcase › Judge admission data › admitted Google return
+  it('sends the checked bearer only in the session body and maps a post-Google exhausted refusal', async () => {
+    const fetchMock = vi.fn(async () => Response.json({ code: 'judge_exhausted' }, { status: 403 }));
+    vi.stubGlobal('fetch', fetchMock);
+    expect(await workerApi.session('identity', { fresh: true, from: 'home', judgeCode: 'sample-private-code' })).toEqual({ refused: { reason: 'judge_exhausted' } });
+    const [url, init] = calls(fetchMock)[0]!;
+    expect(url).toBe('/api/session');
+    expect(JSON.parse(init.body as string)).toEqual({ fresh: true, from: 'home', judgeCode: 'sample-private-code' });
+    expect(JSON.stringify({ url, headers: init.headers })).not.toContain('sample-private-code');
+  });
+
   // spec: add-account › Sign-in flow › вошёл со страницы
   it('sends the exchange with the token and its two marks, and takes the 200', async () => {
     const fetchMock = vi.fn(async () => Response.json({ ok: true }));

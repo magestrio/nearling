@@ -112,8 +112,8 @@ export function Dock({ children }: { children?: ReactNode }) {
 
 /** The actions of one moment that stand as peers (Home's «Hatch your pet» and «Sign in»): stacked and full width on the
  *  phone, side by side and centred on the desktop. Not a control: no motion, hover, focus or keys of its own. */
-export function Actions({ children }: { children?: ReactNode }) {
-  return <div className="ds-actions">{children}</div>;
+export function Actions({ children, stackPhone }: { children?: ReactNode; stackPhone?: boolean }) {
+  return <div className={cx('ds-actions', stackPhone && 'ds-actions--stack-phone')}>{children}</div>;
 }
 
 /** Content that stands in a different place on each viewport: where it shows it adds no box of its own. */

@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react';
+import type { KeyboardEvent, ReactNode } from 'react';
 import { Icon, type IconName } from './Icon';
 import { cx } from './util';
 
@@ -20,6 +20,10 @@ export function RailItem({
   expanded,
   off,
   describedBy,
+  describedby,
+  controls,
+  menu,
+  onClose,
 }: {
   href?: string;
   onClick?: () => void;
@@ -30,6 +34,10 @@ export function RailItem({
   expanded?: boolean;
   off?: boolean;
   describedBy?: string;
+  describedby?: string;
+  controls?: string;
+  menu?: ReactNode;
+  onClose?: (event: KeyboardEvent<HTMLDivElement>) => void;
 }) {
   const inner = (
     <>
@@ -39,8 +47,8 @@ export function RailItem({
       <span className="ds-rail__label type-small">{label}</span>
     </>
   );
-  return href ? (
-    <a className={cx('ds-rail__item', off && 'ds-rail__item--off')} href={href} data-role={role} aria-disabled={off || undefined} aria-describedby={describedBy}>
+  const item = href ? (
+    <a className={cx('ds-rail__item', off && 'ds-rail__item--off')} href={href} data-role={role} aria-disabled={off || undefined} aria-describedby={describedby ?? describedBy}>
       {inner}
     </a>
   ) : (
@@ -51,10 +59,18 @@ export function RailItem({
       data-role={role}
       aria-haspopup={haspopup}
       aria-expanded={expanded}
+      aria-controls={controls}
       aria-disabled={off || undefined}
-      aria-describedby={describedBy}
+      aria-describedby={describedby ?? describedBy}
     >
       {inner}
     </button>
   );
+  return menu ? <div className="ds-rail__entry" onKeyDown={(event) => {
+    if (event.key === 'Escape' && expanded && onClose) {
+      event.stopPropagation();
+      onClose(event);
+      event.currentTarget.querySelector<HTMLElement>('.ds-rail__item')?.focus();
+    }
+  }}>{item}{expanded ? menu : null}</div> : item;
 }

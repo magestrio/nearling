@@ -10,6 +10,7 @@ export function TextLink({
   icon,
   iconEnd,
   external,
+  onClick,
   children,
 }: {
   href: string;
@@ -17,6 +18,8 @@ export function TextLink({
   icon?: IconName;
   iconEnd?: IconName;
   external?: boolean;
+  /** A local control styled as the frame's text link; the address is not followed. */
+  onClick?: () => void;
   children?: ReactNode;
 }) {
   const standalone = Boolean(icon || iconEnd || external);
@@ -26,6 +29,7 @@ export function TextLink({
       href={href}
       target={external ? '_blank' : undefined}
       rel={external ? 'noopener noreferrer' : undefined}
+      onClick={onClick ? (event) => { event.preventDefault(); onClick(); } : undefined}
     >
       {icon ? <Icon name={icon} size="sm" /> : null}
       {standalone ? <span className="ds-link__label">{children}</span> : children}

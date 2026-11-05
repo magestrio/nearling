@@ -6,14 +6,16 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useIsDesktop } from '../ds/util';
 import { useAuth } from '../seams/auth';
-import { WorkerError } from '../seams/worker';
+import { workerApi, WorkerError } from '../seams/worker';
 import { track } from '../track';
 import { ClosedSheet } from './ClosedSheet';
+import { JudgeCodeSheet, type JudgeError } from './JudgeCodeSheet';
+import { clearJudgeCode, keepJudgeCode } from './judgeCode';
 import { gateBlocks, readGate } from './gate';
 import { thisBrowser, type InApp } from './inApp';
 import { OpenInBrowserSheet } from './OpenInBrowserSheet';
 import { clearOutcome } from './outcome';
-import { fromOf, markSignInUnderWay, peekReturnPlace, rememberReturnPlace, signInUnderWay } from './returnPlace';
+import { clearReturnPlace, fromOf, markSignInUnderWay, peekReturnPlace, rememberReturnPlace, signInUnderWay } from './returnPlace';
 
 export type SignInAction = 'signin' | 'feed' | 'skill' | 'errand' | 'adapter' | 'code' | 'giftAccept';
 
@@ -31,6 +33,7 @@ export interface BeginOptions {
 /** What `SignInLayer` shows over the page. */
 export type SignInSheet =
   | { kind: 'closed_new' | 'closed_all'; until: string; action: SignInAction; text?: string }
+  | { kind: 'judge' }
   /** `inApp` is null for the phone's fallback after a sign-in that did not work: the browser was not recognised as in-app */
   | { kind: 'open_browser'; inApp: InApp | null; action: SignInAction; place: string };
 
@@ -45,6 +48,7 @@ export interface SignInApi {
   retry(): void;
   /** «Open in browser» of the phone's fallback line (`Sign-in flow` › «запасной путь на телефоне») */
   openInBrowser(action?: SignInAction): void;
+  openJudge(): void;
 }
 
 const SignInContext = createContext<SignInApi | null>(null);
@@ -62,6 +66,10 @@ export function SignInLayer({ children }: { children?: ReactNode }) {
   authRef.current = auth;
   const [sheet, setSheet] = useState<SignInSheet | null>(null);
   const [readFailed, setReadFailed] = useState<GateReadFailure | null>(null);
+  const [judgeDraft, setJudgeDraft] = useState('');
+  const [judgeError, setJudgeError] = useState<JudgeError>(null);
+  const [judgeBusy, setJudgeBusy] = useState(false);
+  const judgeReading = useRef(false);
   const reading = useRef(false);
   // what a sheet gives the focus back to: the control tapped, which the page going inert would otherwise lose
   const opener = useRef<HTMLElement | null>(null);
@@ -124,7 +132,61 @@ export function SignInLayer({ children }: { children?: ReactNode }) {
     })();
   }, []);
 
-  const closeSheet = useCallback(() => setSheet(null), []);
+  const closeSheet = useCallback(() => {
+    if (sheet?.kind === 'judge') clearReturnPlace();
+    clearJudgeCode();
+    setJudgeDraft('');
+    setJudgeError(null);
+    setSheet(null);
+  }, [sheet]);
+
+  const openJudge = useCallback(() => {
+    const fromClosed = sheet?.kind === 'closed_new' || sheet?.kind === 'closed_all';
+    const returned = peekReturnPlace();
+    lastTap.current = { action: fromClosed ? sheet.action : returned?.judge ? returned.action ?? 'signin' : 'signin' };
+    if (!fromClosed) noteOpener();
+    clearReturnPlace();
+    clearOutcome();
+    clearJudgeCode();
+    setJudgeDraft('');
+    setJudgeError(null);
+    setSheet({ kind: 'judge' });
+  }, [sheet]);
+
+  const submitJudge = useCallback(() => {
+    if (judgeReading.current) return;
+    judgeReading.current = true;
+    setJudgeBusy(true);
+    setJudgeError(null);
+    void (async () => {
+      try {
+        const gate = await readGate();
+        if (gate.state === 'closed_all') {
+          setSheet({ kind: 'closed_all', until: gate.until, action: 'signin' });
+          return;
+        }
+        await workerApi.judgeCheck(judgeDraft);
+        const place = window.location.pathname + window.location.search;
+        const browser = thisBrowser();
+        if (browser.inApp) {
+          clearJudgeCode();
+          setSheet({ kind: 'open_browser', inApp: browser.inApp, action: 'signin', place });
+          return;
+        }
+        keepJudgeCode(judgeDraft);
+        rememberReturnPlace({ path: place, action: lastTap.current?.action ?? 'signin', judge: true });
+        markSignInUnderWay(true);
+        setSheet(null);
+        authRef.current.login();
+      } catch (e) {
+        const code = e instanceof WorkerError ? e.code : '';
+        setJudgeError(code === 'judge_invalid' ? 'invalid' : code === 'judge_exhausted' ? 'exhausted' : code === 'judge_expired' ? 'expired' : 'unavailable');
+      } finally {
+        judgeReading.current = false;
+        setJudgeBusy(false);
+      }
+    })();
+  }, [judgeDraft]);
 
   const retry = useCallback(() => {
     const tap = lastTap.current;
@@ -145,15 +207,20 @@ export function SignInLayer({ children }: { children?: ReactNode }) {
   // A refusal after Google at the ceiling: the sign-in closed for everyone while the player was at Google. The sheet opens on
   // the screen the tab is led back to; the action is not continued. «mau» has its line under the action instead.
   useEffect(() => {
-    if (auth.refusal?.reason === 'ceiling') {
+    if (auth.refusal?.reason === 'ceiling' && auth.refusal.until) {
       opener.current = null;
       setSheet({ kind: 'closed_all', until: auth.refusal.until, action: 'signin' });
+    }
+    if (auth.refusal?.reason === 'judge_invalid' || auth.refusal?.reason === 'judge_exhausted' || auth.refusal?.reason === 'judge_expired') {
+      setJudgeDraft('');
+      setJudgeError(auth.refusal.reason === 'judge_invalid' ? 'invalid' : auth.refusal.reason === 'judge_exhausted' ? 'exhausted' : 'expired');
+      setSheet({ kind: 'judge' });
     }
   }, [auth.refusal]);
 
   const api = useMemo<SignInApi>(
-    () => ({ begin, sheet, closeSheet, readFailed, retry, openInBrowser }),
-    [begin, sheet, closeSheet, readFailed, retry, openInBrowser],
+    () => ({ begin, sheet, closeSheet, readFailed, retry, openInBrowser, openJudge }),
+    [begin, sheet, closeSheet, readFailed, retry, openInBrowser, openJudge],
   );
   const back = () => opener.current;
   // modal: the centred closed sheet on both viewports, Open in browser on the phone only (a panel beside a live page on desktop)
@@ -168,12 +235,16 @@ export function SignInLayer({ children }: { children?: ReactNode }) {
       {/* The sheets stand beside the page, not inside its Shell, which is where the DS sets the text colour and the font: the
           tokens are given here, so the sheet reads the same as in the frames. */}
       <div className="ds-only" style={{ color: 'var(--color-text-primary)', fontFamily: 'var(--font-sans)' }}>
-        {sheet && sheet.kind !== 'open_browser' ? (
+        {sheet?.kind === 'judge' ? (
+          <JudgeCodeSheet code={judgeDraft} error={judgeError} busy={judgeBusy} onCode={(code) => { setJudgeDraft(code); setJudgeError(null); }} onSubmit={submitJudge} onClose={closeSheet} returnFocusTo={back} />
+        ) : null}
+        {sheet && sheet.kind !== 'open_browser' && sheet.kind !== 'judge' ? (
           <ClosedSheet
             all={sheet.kind === 'closed_all'}
             until={sheet.until}
             onClose={closeSheet}
             onReturning={() => begin(sheet.action, { returning: true, ...(sheet.text ? { text: sheet.text } : {}) })}
+            onJudge={openJudge}
             returnFocusTo={back}
           />
         ) : null}

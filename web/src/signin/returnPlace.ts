@@ -19,6 +19,8 @@ export interface ReturnPlace {
   /** the record a cancel (or a failed sign-in) rewrote: the place and the action stay, the text is gone. It is what survives
    *  the full load of a Back from Google, which a value in memory would not. */
   cancelled?: boolean;
+  /** A checked judge code was carried through Google. Its value is kept separately in sessionStorage. */
+  judge?: boolean;
 }
 
 /** Where a sign-in began, for the events: `link` — on a pet's or a gift's address, `home` — anywhere else. */
@@ -34,7 +36,8 @@ function parse(raw: string | null): ReturnPlace | null {
     const action = 'action' in value && typeof value.action === 'string' && ACTIONS.includes(value.action) ? (value.action as ReturnAction) : undefined;
     const text = 'text' in value && typeof value.text === 'string' && value.text !== '' ? value.text : undefined;
     const cancelled = 'cancelled' in value && value.cancelled === true;
-    return { path: value.path, ...(action ? { action } : {}), ...(text !== undefined ? { text } : {}), ...(cancelled ? { cancelled } : {}) };
+    const judge = 'judge' in value && value.judge === true;
+    return { path: value.path, ...(action ? { action } : {}), ...(text !== undefined ? { text } : {}), ...(cancelled ? { cancelled } : {}), ...(judge ? { judge } : {}) };
   } catch {
     return null;
   }

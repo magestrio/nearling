@@ -53,21 +53,21 @@ describe('Sign-in data', () => {
     ]);
   });
 
-  // spec: add-account › Sign-in data › новый игрок вошёл × два входа на 479
-  it('lets one of two sign-ins at 479 pass, and only one', async () => {
-    await seed(479);
+  // spec: add-showcase › Judge admission flow › ordinary entry closed
+  it('lets one of two ordinary sign-ins at 459 pass, and only one', async () => {
+    await seed(459);
     const [a, b] = await Promise.all([exchange(await newcomer(1)), exchange(await newcomer(2))]);
     expect([a.status, b.status].sort()).toEqual([200, 403]);
-    expect(await count('players', `month = '${MONTH}'`)).toBe(480);
+    expect(await count('players', `month = '${MONTH}'`)).toBe(460);
     expect(await count('sign_in_refusals')).toBe(1);
     expect([a, b].find((r) => r.status === 403)!.body).toEqual({ code: 'sign_in_refused', reason: 'mau', until: UNTIL_NOV });
   });
 
   // spec: add-account › Sign-in data › вход закрыт
-  it('tells every browser only that sign-in is closed to new players, once 480 are in', async () => {
-    await seed(479);
+  it('tells every browser only that sign-in is closed to new players, once 460 are in', async () => {
+    await seed(459);
     expect((await api('/api/sign-in')).body).toEqual({ state: 'open' });
-    await env.DB.prepare("INSERT INTO players (sub, account_id, month, created_at) VALUES ('did:privy:the-480th', 'a', ?, 1)").bind(MONTH).run();
+    await env.DB.prepare("INSERT INTO players (sub, account_id, month, created_at) VALUES ('did:privy:the-460th', 'a', ?, 1)").bind(MONTH).run();
     const visitor = await api('/api/sign-in');
     expect(visitor).toEqual({ status: 200, body: { state: 'closed_new', until: UNTIL_NOV } });
     // the same to a player with a session

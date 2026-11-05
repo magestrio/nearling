@@ -7,6 +7,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } fro
 import { useLocation } from '../route';
 import { AuthContext, useProvider, type AuthApi } from '../seams/auth-context';
 import { workerApi, WorkerError, type SignInRefusal } from '../seams/worker';
+import { clearJudgeCode, readJudgeCode } from './judgeCode';
 import { fromOf, markSignInUnderWay, peekReturnPlace } from './returnPlace';
 
 /** `Session expiry flow` › «сессия кончилась при открытом экране»: what a tap that needs the session says. */
@@ -58,7 +59,9 @@ export function SessionProvider({ children }: { children: ReactNode }) {
           // where the sign-in began: on a pet's or a gift's address (its place waits in the tab), or anywhere else
           const place = fresh ? peekReturnPlace() : null;
           const from = fresh ? (place ? fromOf(place.path) : 'home') : undefined;
-          const answer = await workerApi.session(token, { fresh, ...(from ? { from } : {}) });
+          const judgeCode = fresh && place?.judge ? readJudgeCode() : null;
+          const answer = await workerApi.session(token, { fresh, ...(from ? { from } : {}), ...(judgeCode ? { judgeCode } : {}) });
+          if (fresh) clearJudgeCode();
           if ('refused' in answer) {
             result = 'refused';
             refused = answer.refused;
@@ -104,6 +107,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     // the request of a tap that met the `401` asks for the line at once, as a tap that finds the session ended does
     if (line && held) setLine(true);
     if (endedRef.current) return;
+    clearJudgeCode();
     setEnded({ at: window.location.pathname + window.location.search, held });
   }, []);
 
@@ -138,6 +142,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const logout = useCallback(async () => {
+    clearJudgeCode();
     loggingOut.current = true;
     setEnded(null);
     setLine(false);

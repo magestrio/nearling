@@ -87,6 +87,7 @@ import { hasSlot, peekPendingAction, runAction, Slot, takePendingAction, type Ac
 import { takeReturnSheet, takeReturnSkill } from '../../signin/returnPlace';
 import { usePetScreen, type Banner as BannerKind, type OwnerView } from './usePetScreen';
 import { useWaking } from './useWaking';
+import { usePetCard } from '../../showcase/usePetCard';
 
 // Pet screen (add-pet › Pet screen, Connection rule) built from design/bundle/screens/pet.js: the owner's page is two
 // columns — the pet with its rail and plate at the left, the conversation with the input pinned at its bottom at the
@@ -238,6 +239,7 @@ function OwnerPage({ pet, s, seal }: { pet: OwnerView; s: ReturnType<typeof useP
   const figure = useFigure();
   const asleep = pet.fullness.state === 'asleep';
   const hungry = pet.fullness.state === 'hungry';
+  const share = usePetCard(pet, s.lines ?? [], s.tokenOf, auth.authenticated && !auth.sessionEnded);
   const hello = pet.hello && !s.spoke;
   const slot = {
     tokenId,
@@ -559,7 +561,8 @@ function OwnerPage({ pet, s, seal }: { pet: OwnerView; s: ReturnType<typeof useP
   const off = asleep || tired || paused || signedOut;
   const tiredLine = `${name} is tired for today. Back at ${resetTime(pet.until)}.`;
   const hungryLine = `${name} is too hungry to think hard right now.`;
-  const sleepLine = `${name} is asleep. A meal will wake ${name} up.`;
+  // with a card sheet open the page under it says the line of `Card eligibility rule` › pet asleep
+  const sleepLine = share.open ? `${name} is asleep. A meal can wake ${name}.` : `${name} is asleep. A meal will wake ${name} up.`;
   // zero energy is not the day's cap: «Think hard» stops for it, chatting does not (`Energy rule`), and its words come before the hunger's
   const drained = !asleep && !tired && pet.energy === 0;
   const note = asleep ? null : tired ? tiredLine : drained ? energyLine(name, pet.until) : hungry ? hungryLine : null;
@@ -649,10 +652,17 @@ function OwnerPage({ pet, s, seal }: { pet: OwnerView; s: ReturnType<typeof useP
 
   // With Feed sheet open the phone's bottom sheet is modal: the header and the pet are out of reach (on the desktop the page stays
   // live beside the panel); the conversation and its field are covered on both, the sheet takes the column they stand in.
+  if (share.lostOwner) {
+    const guestPet: Exclude<PetView, { viewer: 'owner' }> = { ...pet, viewer: 'guest' };
+    return <>
+      <Inert on><OutsiderPage pet={guestPet} s={s} seal={seal} /></Inert>
+      <div className="ds-only" data-accent={accentOf(tokenId)} style={{ color: 'var(--color-text-primary)', fontFamily: 'var(--font-sans)' }}>{share.sheet}</div>
+    </>;
+  }
   return (
-    <Shell accent={accentOf(tokenId)} fill header={<Inert on={giftGiven ? true : cover.open || giftOpen || myPetsOpen ? 'phone' : undefined}>{header}</Inert>}>
+    <Shell accent={accentOf(tokenId)} fill header={<Inert on={giftGiven || share.open ? true : cover.open || giftOpen || myPetsOpen ? 'phone' : undefined}>{header}</Inert>}>
       {myPetsOpen ? <MyPetsSheet tokenId={tokenId} /> : null}
-      <Inert on={myPetsOpen ? 'phone' : undefined}><Page fill>
+      <Inert on={share.open ? true : myPetsOpen ? 'phone' : undefined}><Page fill>
         <ConnectionBanner banner={s.banner} name={name} tryAgain={s.tryAgain} />
         <SealBanner name={name} seal={seal} />
         {paused && !s.banner ? <Banner tone="info">{pausedLine(name)}</Banner> : null}
@@ -675,7 +685,7 @@ function OwnerPage({ pet, s, seal }: { pet: OwnerView; s: ReturnType<typeof useP
                 // the walker of the errand moves on a flat page too (no WebGL, the context lost): «Pause motion» stops it (DS › Away)
                 motion={s.away ? figure.toggle : figure.motion}
                 rail={
-                  asleep ? null : (
+                  asleep ? <Rail>{share.entry}</Rail> : (
                     <Rail>
                       <RailItem icon="today" label="Today" href={`/pet/${tokenId}/diary`} role="food" />
                       <RailItem icon="hanger" label="Wardrobe" href={`/pet/${tokenId}/wardrobe`} />
@@ -689,6 +699,7 @@ function OwnerPage({ pet, s, seal }: { pet: OwnerView; s: ReturnType<typeof useP
                         describedBy={s.away ? 'errand-away' : undefined}
                         onClick={openErrand}
                       />
+                      {share.entry}
                       <RailItem icon="gift" label={`Give ${name} away`} haspopup="dialog" expanded={giftOpen && !giftRequest?.self} onClick={() => act('gift')} />
                     </Rail>
                   )
@@ -784,6 +795,7 @@ function OwnerPage({ pet, s, seal }: { pet: OwnerView; s: ReturnType<typeof useP
           }
         />
       </Page></Inert>
+      {share.sheet}
       <Live>{skillSaved ? skillSavedLine(name) : ''}</Live>
       {skillSaved ? (
         <Toast icon="check" silent onDone={toastHeld() ? undefined : () => setSkillSaved(false)}>

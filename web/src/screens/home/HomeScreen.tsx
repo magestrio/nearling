@@ -1,8 +1,10 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { Actions, Banner, Button, Dock, Header, Heading, Live, Meadow, Note, Only, Page, Shell, Stack, Text, TextLink, Toast } from '../../ds';
 import { config } from '../../config';
+import { AccountControl } from '../../account/AccountControl';
 import { closedWords } from '../../signin/ClosedSheet';
 import { SignInOutcome } from '../../signin/SignInOutcome';
+import { useOutcome } from '../../signin/outcome';
 import { useSignIn } from '../../signin/signIn';
 import { consumeSignedOutLine, peekSignedOutLine, SIGNED_OUT_LINE } from '../../signin/signOut';
 import { toastHeld } from '../../seams/worker';
@@ -13,7 +15,7 @@ import './home.css';
 
 // Home screen (add-account › Home screen, Sign-out flow) follows design/bundle/screens/account.js › home: the header,
 // hook, action and Meadow in the room below. The public copy is independent of admission.
-// A signed-in player never sees it (`useHome` leads them to their pet). The words are the Scenarios' and the frames' `copy`.
+// A signed-in player sees it through the README numbers link; ordinary Home leads them to their pet.
 const HOOK = 'This pet pays for its own thoughts. When the money runs out, it falls asleep.';
 const LEAD = 'Hatch a pet that talks with you, remembers you and grows up.';
 const OPENING = 'Opening the game…';
@@ -24,7 +26,9 @@ const TITLE_ID = 'home-title';
 export function HomeScreen() {
   const { view, tryAgain } = useHome();
   const showcase = useShowcase(view.kind !== 'leaving');
-  const { begin } = useSignIn();
+  const { begin, openJudge } = useSignIn();
+  // a failed Google return after a judge code: the frame draws «Try Google again» in the phone's pinned Dock, under the entries
+  const judgeFailed = useOutcome()?.kind === 'judge_failed';
   // after a sign-out: the Toast and the Live say it once, and the focus lands on the h1 (design/ds/README.md › Menu)
   const [fromSignOut] = useState(peekSignedOutLine);
   const [signedOut, setSignedOut] = useState(fromSignOut);
@@ -45,7 +49,12 @@ export function HomeScreen() {
   const off = view.kind === 'loading' || view.kind === 'error';
   const entry = (block: boolean) => <Button href={off ? undefined : '/hatch'} disabled={off} block={block}>Hatch your pet</Button>;
   const returning = (block: boolean) => <Button block={block} onClick={() => begin('signin', { returning: true })}>Played here before? Sign in</Button>;
-  const actions = (block: boolean) => <Actions>{action?.(block)}<Button variant="secondary" href={off ? undefined : '/hire'} disabled={off} block={block}>Find a pet to ask</Button></Actions>;
+  const actions = (block: boolean, below?: ReactNode) => {
+    const row = <Actions>{action?.(block)}<Button variant="secondary" href={off ? undefined : '/hire'} disabled={off} block={block}>Find a pet to ask</Button></Actions>;
+    return view.kind === 'closed' && !view.all
+      ? <Stack gap={2} align="center">{row}<TextLink href="#judge" tone="quiet" iconEnd="chevron" onClick={openJudge}>Enter judge code</TextLink>{below}</Stack>
+      : row;
+  };
   let action: ((block: boolean) => ReactNode) | null = entry;
   let words: ReactNode = null;
   let status: ReactNode = '';
@@ -53,6 +62,8 @@ export function HomeScreen() {
   if (view.kind === 'closed') {
     words = <div className="home-closed-notice"><Text align="center" measure>{closedWords(view.all, view.until)}</Text></div>;
     action = view.all ? null : returning;
+  } else if (view.kind === 'evidence') {
+    action = null;
   } else {
     if (view.kind === 'loading') words = <Note tone="status">{OPENING}</Note>;
   }
@@ -75,7 +86,7 @@ export function HomeScreen() {
   }
 
   return (
-    <Shell accent="none" fill header={<Header end={view.kind === 'closed' ? null : <Button variant="secondary" size="compact" disabled={off} onClick={() => begin('signin')}>Sign in</Button>} />}>
+    <Shell accent="none" fill header={<Header end={view.kind === 'closed' ? null : view.kind === 'evidence' ? <AccountControl /> : <Button variant="secondary" size="compact" disabled={off} onClick={() => begin('signin')}>Sign in</Button>} />}>
       <Page width="default">
         <Stack gap={5}>
           {signedOut && shown && toast ? <div className="home-signout-spacer" aria-hidden="true" /> : null}
@@ -84,8 +95,8 @@ export function HomeScreen() {
             <Heading level={1} variant="display" wide align="center" id={TITLE_ID} tabIndex={signedOut && shown ? -1 : undefined}>{HOOK}</Heading>
             <Text variant="lead" align="center">{LEAD}</Text>
             {words}
-            <Only on="desktop">{actions(false)}</Only>
-            {off ? null : <SignInOutcome />}
+            {view.kind === 'evidence' ? null : <Only on="desktop">{actions(false, judgeFailed && !off ? <SignInOutcome /> : null)}</Only>}
+            {off || judgeFailed ? null : <SignInOutcome />}
           </Stack>
         </Stack>
       </Page>
@@ -97,7 +108,7 @@ export function HomeScreen() {
           explore={<TextLink href={`https://${config.nearNetwork === 'testnet' ? 'testnet.' : ''}nearblocks.io/address/${encodeURIComponent(config.contractId)}`} external>See it on the NEAR explorer</TextLink>}
           motion
         />
-        <Only on="phone"><Dock>{actions(true)}</Dock></Only>
+        {view.kind === 'evidence' ? null : <Only on="phone"><Dock>{actions(true, judgeFailed && !off ? <SignInOutcome /> : null)}</Dock></Only>}
       </Page>
       <Live>{status}</Live>
       {signedOut && shown && toast ? (

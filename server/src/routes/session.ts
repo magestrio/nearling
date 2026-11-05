@@ -3,6 +3,7 @@
 import { Hono } from 'hono';
 import { identify } from '../auth';
 import { requireSession, type AppEnv } from '../http';
+import { checkJudgeCode, redeemJudgeCode } from '../judge';
 import { feederName } from '../name/first';
 import { admit, countsOf, monthOf, nextMonthStart, stateOf } from '../signin';
 import { track } from '../track';
@@ -30,8 +31,9 @@ exchangeRoutes.post('/api/session', async (c) => {
   const ended = await db.prepare('SELECT 1 AS found FROM ended_sessions WHERE sid = ?').bind(tokenHash).first();
   if (ended !== null) return c.json({ code: 'signed_out' }, 401);
 
-  const body = await c.req.json<{ fresh?: unknown; from?: unknown }>().catch(() => null);
+  const body = await c.req.json<{ fresh?: unknown; from?: unknown; judgeCode?: unknown }>().catch(() => null);
   const fresh = body?.fresh === true;
+  const judgeCode = typeof body?.judgeCode === 'string' ? body.judgeCode : null;
   const from: From | null = body?.from === 'link' || body?.from === 'home' ? body.from : null;
   const now = Date.now();
   const month = monthOf(now);
@@ -65,7 +67,17 @@ exchangeRoutes.post('/api/session', async (c) => {
   // At the ceiling even a player of this month is refused (`Sign-in flow` › «закрылся для всех после Google»).
   if (state === 'closed_all') return refuse('ceiling');
   if (counted) return welcome();
-  if (state === 'closed_new') return refuse('mau');
+  if (state === 'closed_new') {
+    if (judgeCode === null) return refuse('mau');
+    const result = await redeemJudgeCode(db, judgeCode, sub, accountId, month, now, row !== null);
+    if (result === 'ok') return welcome();
+    const again = await db.prepare('SELECT month FROM players WHERE sub = ?').bind(sub).first<{ month: string }>();
+    if (again?.month === month) return welcome();
+    if (result === 'ceiling' || result === 'mau') return refuse(result);
+    if (!counted) await db.prepare('INSERT OR IGNORE INTO sign_in_refusals (sub, month) VALUES (?, ?)').bind(sub, month).run();
+    console.log('session_refused:judge_code');
+    return c.json({ code: result }, 403);
+  }
   if (await admit(db, sub, accountId, month, now, row !== null)) return welcome();
 
   // The statement changed nothing: the month moved under it. Read again and answer by what is there.
@@ -87,4 +99,16 @@ sessionRoutes.get('/api/sign-in', async (c) => {
   const now = Date.now();
   const state = stateOf(await countsOf(c.env.DB, monthOf(now)));
   return c.json(state === 'open' ? { state } : { state, until: nextMonthStart(now) });
+});
+
+// Public, body-only pre-Google check. The ordinary guest gate applies and this reserves nothing.
+sessionRoutes.post('/api/judge/check', async (c) => {
+  const body = await c.req.json<{ code?: unknown }>().catch(() => null);
+  const code = typeof body?.code === 'string' ? body.code : '';
+  try {
+    const result = await checkJudgeCode(c.env.DB, code);
+    return result === 'ok' ? c.json({ ok: true }) : c.json({ code: result }, 403);
+  } catch {
+    return c.json({ code: 'judge_unavailable' }, 503);
+  }
 });

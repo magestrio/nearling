@@ -80,11 +80,38 @@ pub struct ContractV5 {
     transfer_generation: LookupMap<TokenId, u64>,
 }
 
+/// The deployed layout after the first Showcase upgrade.
+#[near(serializers = [borsh])]
+pub struct ContractV6 {
+    owner_id: AccountId,
+    server_id: AccountId,
+    treasury_id: AccountId,
+    tokens: NonFungibleToken,
+    pets: LookupMap<TokenId, VersionedPet>,
+    hatched: LookupMap<AccountId, TokenId>,
+    births_day: u64,
+    births_today: u32,
+    next_token_id: u64,
+    pool: u128,
+    known: LookupSet<(TokenId, AccountId), Sha256>,
+    riddle_commits: LookupMap<u64, [u8; 32]>,
+    riddle_reserve: u128,
+    work_pairs: LookupSet<(TokenId, TokenId), Sha256>,
+    work_index: LookupMap<u64, Vec<u64>>,
+    transfer_generation: LookupMap<TokenId, u64>,
+    pets_hatched: u64,
+    thoughts_paid: u64,
+    spent: u128,
+}
+
 #[near(serializers = [json])]
 pub struct ShowcaseView {
     pub pets_hatched: u64,
     pub thoughts_paid: u64,
     pub spent: U128,
+    pub hires_completed: u64,
+    pub friend_snacks: u64,
+    pub counted_since: u64,
 }
 
 /// The game's contract. Errors are `env::panic_str` with a code in the text; the Worker tells
@@ -123,6 +150,9 @@ pub struct Contract {
     pets_hatched: u64,
     thoughts_paid: u64,
     spent: u128,
+    hires_completed: u64,
+    friend_snacks: u64,
+    counted_since: u64,
 }
 
 fn fail(code: &str) -> ! {
@@ -255,6 +285,9 @@ impl Contract {
             pets_hatched: 0,
             thoughts_paid: 0,
             spent: 0,
+            hires_completed: 0,
+            friend_snacks: 0,
+            counted_since: env::block_timestamp(),
         }
     }
 
@@ -381,6 +414,9 @@ impl Contract {
             pets_hatched: old.next_token_id,
             thoughts_paid: 0,
             spent: 0,
+            hires_completed: 0,
+            friend_snacks: 0,
+            counted_since: env::block_timestamp(),
         }
     }
 
@@ -409,6 +445,9 @@ impl Contract {
             pets_hatched: old.next_token_id,
             thoughts_paid: 0,
             spent: 0,
+            hires_completed: 0,
+            friend_snacks: 0,
+            counted_since: env::block_timestamp(),
         };
         contract.reserve_legacy_generations();
         contract
@@ -450,6 +489,40 @@ impl Contract {
             pets_hatched: old.next_token_id,
             thoughts_paid: 0,
             spent: 0,
+            hires_completed: 0,
+            friend_snacks: 0,
+            counted_since: env::block_timestamp(),
+        }
+    }
+
+    /// One-time upgrade of the deployed Showcase state, without recounting earlier activity.
+    #[init(ignore_state)]
+    #[private]
+    pub fn migrate_showcase_totals() -> Self {
+        let old: ContractV6 = env::state_read().unwrap_or_else(|| fail("no_state"));
+        Self {
+            owner_id: old.owner_id,
+            server_id: old.server_id,
+            treasury_id: old.treasury_id,
+            tokens: old.tokens,
+            pets: old.pets,
+            hatched: old.hatched,
+            births_day: old.births_day,
+            births_today: old.births_today,
+            next_token_id: old.next_token_id,
+            pool: old.pool,
+            known: old.known,
+            riddle_commits: old.riddle_commits,
+            riddle_reserve: old.riddle_reserve,
+            work_pairs: old.work_pairs,
+            work_index: old.work_index,
+            transfer_generation: old.transfer_generation,
+            pets_hatched: old.pets_hatched,
+            thoughts_paid: old.thoughts_paid,
+            spent: old.spent,
+            hires_completed: 0,
+            friend_snacks: 0,
+            counted_since: env::block_timestamp(),
         }
     }
 
@@ -467,6 +540,9 @@ impl Contract {
             pets_hatched: self.pets_hatched,
             thoughts_paid: self.thoughts_paid,
             spent: U128(self.spent),
+            hires_completed: self.hires_completed,
+            friend_snacks: self.friend_snacks,
+            counted_since: self.counted_since,
         }
     }
 
@@ -789,6 +865,10 @@ impl Contract {
             .spent
             .checked_add(to_treasury)
             .unwrap_or_else(|| fail("overflow"));
+        self.hires_completed = self
+            .hires_completed
+            .checked_add(u64::try_from(hires.len()).unwrap_or_else(|_| fail("overflow")))
+            .unwrap_or_else(|| fail("overflow"));
 
         // The events in receipt order, a hire right after its answer's receipt.
         let mut planned = hires.into_iter().peekable();
@@ -907,6 +987,12 @@ impl Contract {
         let introduced =
             kind == SnackKind::Friend && self.introduce(&token_id, &feeder, SNACK_AMOUNT);
         self.pool -= SNACK_AMOUNT;
+        if kind == SnackKind::Friend {
+            self.friend_snacks = self
+                .friend_snacks
+                .checked_add(1)
+                .unwrap_or_else(|| fail("overflow"));
+        }
 
         NearlingEvent::Snack {
             token_id,

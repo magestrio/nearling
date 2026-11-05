@@ -19,15 +19,18 @@ export function meadowPets(copy: ShowcaseCopy): MeadowVisit[] {
 
 export function meadowNumbers(copy: ShowcaseCopy): MeadowNumber[] | undefined {
   if (!copy.numbers || copy.pets.length === 0) return undefined;
-  const { pets_hatched: pets, thoughts_paid: thoughts, spent } = copy.numbers;
+  const { pets_hatched: pets, thoughts_paid: thoughts, spent, hires_completed: hires, friend_snacks: snacks, counted_since: sinceNs } = copy.numbers;
   const count = (n: number) => new Intl.NumberFormat('en-US').format(n);
   const near = Number(spent) / 1e24;
   const amount = near < 1
     ? new Intl.NumberFormat('en-US', { minimumSignificantDigits: 2, maximumSignificantDigits: 2 }).format(near)
     : new Intl.NumberFormat('en-US', { minimumFractionDigits: 1, maximumFractionDigits: 1 }).format(near);
+  const since = sinceNs > 0 ? `since ${new Intl.DateTimeFormat('en-US', { month: 'long', day: 'numeric', timeZone: 'UTC' }).format(new Date(sinceNs / 1_000_000))}` : undefined;
   return [
     { value: count(pets), label: pets === 1 ? 'pet hatched' : 'pets hatched' },
     { value: count(thoughts), label: thoughts === 1 ? 'thought paid for' : 'thoughts paid for' },
     { value: `${amount} NEAR`, label: 'spent on thinking' },
+    { value: count(hires), label: 'hires', since },
+    { value: count(snacks), label: 'friend snacks', since },
   ];
 }

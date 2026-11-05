@@ -53,7 +53,7 @@ test('numbers preserve grouping and precision and the explorer uses the configur
 
 // spec: add-account › Home screen › meadow numbers
 test('one pet and one thought use singular, and under one NEAR uses two significant digits', async ({ page }) => {
-  await openWith(page, '/', { worker: { showcase: { ...SAMPLE_SHOWCASE, numbers: { pets_hatched: 1, thoughts_paid: 1, spent: '420000000000000000000000' } } } });
+  await openWith(page, '/', { worker: { showcase: { ...SAMPLE_SHOWCASE, numbers: { ...SAMPLE_SHOWCASE.numbers!, pets_hatched: 1, thoughts_paid: 1, spent: '420000000000000000000000' } } } });
   await expect(page.locator('.ds-meadow__stats')).toContainText('1 pet hatched');
   await expect(page.locator('.ds-meadow__stats')).toContainText('1 thought paid for');
   await expect(page.locator('.ds-meadow__stats')).toContainText('0.42 NEAR spent on thinking');

@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { takePendingAction } from '../screens/pet/parts';
 import { AuthContext, type AuthApi } from '../seams/auth-context';
 import { clearOutcome, useOutcome, type Outcome } from './outcome';
+import { keepJudgeCode, readJudgeCode } from './judgeCode';
 import { markSignInUnderWay, peekReturnPlace, rememberReturnPlace, signInUnderWay, takeReturnText } from './returnPlace';
 import { ReturnToPlace } from './ReturnToPlace';
 
@@ -90,6 +91,15 @@ afterEach(async () => {
 });
 
 describe('the return from Google', () => {
+  // spec: add-showcase › Judge code sheet screen › success × navigation away
+  it('erases a judge bearer left behind when the tab opens another public page', async () => {
+    rememberReturnPlace({ path: '/pet/2', action: 'signin', judge: true });
+    keepJudgeCode('sample-private-code');
+    window.history.replaceState(null, '', '/pet/9');
+    await mount(auth());
+    expect(peekReturnPlace()).toBeNull();
+    expect(readJudgeCode()).toBeNull();
+  });
   // spec: add-account › Sign-in flow › вошёл со страницы
   it('leads a whole sign-in back to the place, with the tapped «Feed» and the typed text to give back', async () => {
     rememberReturnPlace({ path: '/pet/9', action: 'feed', text: 'And if they ask why?' });
@@ -294,6 +304,23 @@ describe('the record of a cancel, at `/`', () => {
 });
 
 describe('a sign-in begun on Home', () => {
+  // spec: add-showcase › Judge admission flow › valid code × Google return
+  it('keeps a successful judge on public Home numbers and clears the bearer', async () => {
+    rememberReturnPlace({ path: '/', action: 'signin', judge: true });
+    keepJudgeCode('sample-private-code');
+    await mount(auth({ authenticated: true }));
+    expect(window.location.search).toBe('?showcase=numbers');
+    expect(readJudgeCode()).toBeNull();
+  });
+
+  // spec: add-showcase › Judge admission flow › code after Google failure × Back from Google
+  it('restores Try Google again after a cancelled judge return to Home', async () => {
+    rememberReturnPlace({ path: '/', action: 'signin', judge: true, cancelled: true });
+    keepJudgeCode('sample-private-code');
+    await mount(auth());
+    expect(outcome).toEqual({ kind: 'judge_failed', place: '/' });
+    expect(readJudgeCode()).toBeNull();
+  });
   // spec: add-account › Sign-in flow › запасной путь на телефоне
   it('takes a load at `/` with its record, no session and no code for a Back from Google, and stands on Home', async () => {
     rememberReturnPlace({ path: '/', action: 'signin' });

@@ -2,11 +2,15 @@
 // hold the facts: `players.month` for the signed-in, `sign_in_refusals` for the refused after Google.
 // A new month needs no reset: the month is in the key.
 
+import policy from './showcasePolicy.json';
+
 /** Signed-in players a month after which sign-in is closed to new players (OD-130). */
-export const NEW_PLAYERS_LIMIT = 480;
+export const NEW_PLAYERS_LIMIT = policy.ordinaryAdmission;
+/** Ordinary and judge entries share this admitted-player ceiling. */
+export const JUDGE_PLAYERS_LIMIT = policy.judgeAdmission;
 /** Signed-in plus refused after Google in a month after which sign-in is closed to everyone without
  * a session (OD-840, ADR-016: 9 below Privy's 500). */
-export const CEILING = 490;
+export const CEILING = policy.countedSignIns;
 
 export type SignInState = 'open' | 'closed_new' | 'closed_all';
 

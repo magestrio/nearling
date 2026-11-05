@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Button, Live, Note, Stack } from '../ds';
+import { Button, Live, Note, Stack, TextLink } from '../ds';
 import { useAuth } from '../seams/auth';
 import { monthOf } from './gate';
 import { thisBrowser } from './inApp';
@@ -25,7 +25,7 @@ export interface SignInLine {
   text: string;
   /** a failure: its line carries the coral icon where the page draws it that way (`column`) */
   failed?: boolean;
-  action?: { label: string; onClick: () => void };
+  action?: { label: string; onClick: () => void; link?: boolean };
 }
 
 export interface SignInLinesOptions {
@@ -45,16 +45,20 @@ export interface SignInLinesOptions {
 export function useSignInLines({ unreachable = UNREACHABLE, text, action = 'signin' }: SignInLinesOptions = {}): SignInLine[] {
   const auth = useAuth();
   const outcome = useOutcome();
-  const { begin, readFailed, retry, openInBrowser } = useSignIn();
+  const { begin, readFailed, retry, openInBrowser, openJudge } = useSignIn();
   const [phone] = useState(() => thisBrowser().phone);
   const tap = () => begin(action, text ? { text } : undefined);
 
   if (readFailed) return [{ text: readFailed === 'busy' ? BUSY : unreachable, action: { label: 'Try again', onClick: retry } }];
   const lines: SignInLine[] = [];
-  if (outcome?.kind === 'mau') {
+  if (outcome?.kind === 'judge_full') {
+    lines.push({ text: `New entries are closed until ${monthOf(outcome.until ?? '')} 1. You can still explore the demo.` });
+  } else if (outcome?.kind === 'mau') {
     lines.push({
       text: `Looks like you haven't played here this month, so we can't sign you in until ${monthOf(outcome.until ?? '')} 1. You can still look around.`,
     });
+  } else if (outcome?.kind === 'judge_failed') {
+    lines.push({ text: '', action: { label: 'Try Google again', onClick: openJudge, link: true } });
   } else if (outcome?.kind === 'failed') {
     lines.push({ text: FAILED, failed: true, action: { label: 'Try again', onClick: tap } });
   } else if (auth.sessionLine) {
@@ -62,7 +66,7 @@ export function useSignInLines({ unreachable = UNREACHABLE, text, action = 'sign
     lines.push({ text: SESSION_LINE, action: { label: 'Sign in', onClick: tap } });
   }
   // a phone's sign-in that came back with no session, cancelled or not working: the way out to a real browser
-  if (phone && outcome && outcome.kind !== 'mau') {
+  if (phone && outcome && outcome.kind !== 'mau' && outcome.kind !== 'judge_failed' && outcome.kind !== 'judge_full') {
     lines.push({ text: FALLBACK, action: { label: 'Open in browser', onClick: () => openInBrowser('signin') } });
   }
   return lines;
@@ -77,13 +81,10 @@ export function SignInLines({ lines, column }: { lines: SignInLine[]; column?: b
     <Stack gap={2} align={column ? 'flex-start' : 'center'}>
       {lines.map((line) => (
         <Stack key={line.text} gap={2} align={column ? 'flex-start' : 'center'}>
-          <Note tone={column && line.failed ? 'error' : 'plain'} silent>
-            {line.text}
-          </Note>
+          {line.text ? <Note tone={column && line.failed ? 'error' : 'plain'} silent>{line.text}</Note> : null}
           {line.action ? (
-            <Button variant={column ? 'secondary' : 'ghost'} size="compact" onClick={line.action.onClick}>
-              {line.action.label}
-            </Button>
+            line.action.link ? <TextLink href="#judge" tone="quiet" iconEnd="chevron" onClick={line.action.onClick}>{line.action.label}</TextLink>
+              : <Button variant={column ? 'secondary' : 'ghost'} size="compact" onClick={line.action.onClick}>{line.action.label}</Button>
           ) : null}
         </Stack>
       ))}

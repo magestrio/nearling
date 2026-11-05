@@ -1,4 +1,4 @@
-import { Button, Sheet, Stack, Text } from '../ds';
+import { Button, Sheet, Stack, Text, TextLink } from '../ds';
 import { monthOf } from './gate';
 
 // Sign-in closed sheet screen (add-account) built from design/bundle/screens/account.js › closedSheet: the spec gives the
@@ -14,12 +14,14 @@ export function ClosedSheet({
   until,
   onClose,
   onReturning,
+  onJudge,
   returnFocusTo,
 }: {
   all: boolean;
   until: string;
   onClose: () => void;
   onReturning: () => void;
+  onJudge?: () => void;
   returnFocusTo: () => HTMLElement | null;
 }) {
   const words = closedWords(all, until);
@@ -36,6 +38,7 @@ export function ClosedSheet({
         <Button block variant={all ? undefined : 'secondary'} onClick={onClose}>
           Keep looking
         </Button>
+        {all || !onJudge ? null : <TextLink href="#judge" tone="quiet" iconEnd="chevron" onClick={onJudge}>Enter judge code</TextLink>}
       </Stack>
     </Sheet>
   );

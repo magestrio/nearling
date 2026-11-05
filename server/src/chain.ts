@@ -97,11 +97,15 @@ export interface HatchRecord {
   pool: string;
 }
 
-/** The three public counters of `showcase_view`; the U128 amount is a decimal yoctoNEAR string. */
+/** Public `showcase_view` counters; the U128 amount is a decimal yoctoNEAR string. */
 export interface ShowcaseNumbers {
   pets_hatched: number;
   thoughts_paid: number;
   spent: string;
+  hires_completed: number;
+  friend_snacks: number;
+  /** Nanoseconds since Unix epoch; the contract's plain u64 JSON number. */
+  counted_since: number;
 }
 
 /** Prepaid gas of `pet_mint`, Tgas. The mint's gas grows with the token tree: 8.58 Tgas burnt at most

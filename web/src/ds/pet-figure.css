@@ -6,6 +6,9 @@
    for the light on the ground inside the box, `FIT` in PetFigure.tsx). Enlarge the picture inside its box from the ground
    line, so the pet is the size of the frames' still while the stage, the plate and the rail keep the box's room. */
 .pet-figure--hero .pet-figure__box { transform: scale(1.1); transform-origin: center bottom; }
+/* the growth and outfit cards draw the pet as large as the frames' still does (same reason as the hero) */
+.ds-share-card--growth .pet-figure--sm .pet-figure__box,
+.ds-share-card--outfit .pet-figure--sm .pet-figure__box { transform: scale(1.4); transform-origin: center bottom; }
 /* the flat drawing keeps less room around the figure still */
 .pet-figure--hero[data-view='flat'] .pet-figure__box { transform: scale(1.18); }
 /* out of the size calculation: a canvas's default 300 px width must not floor the box. The 3D canvas stands the same

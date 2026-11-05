@@ -41,6 +41,9 @@ export interface FakeFail {
 }
 
 export interface FakeWorkerState {
+  cardLines?: { lines: Array<{ id: string; text: string }> } | FakeFail;
+  cardSource?: import('./worker-types').CardSource | FakeFail;
+  cardSourceOnce?: FakeFail;
   showcase?: ShowcaseCopy | FakeFail;
   showcaseDelayMs?: number;
   hireBoard?: HireBoard | FakeFail;
@@ -107,6 +110,8 @@ export interface FakeWorkerState {
   endSession?: FakeFail;
   /** `GET /api/sign-in`; default `{ state: 'open' }` */
   signIn?: SignInGate | FakeFail;
+  /** `POST /api/judge/check`; default accepts the sample code. */
+  judgeCheck?: { ok: true } | FakeFail;
   /** `POST …/memory/clear`; default `{ ok: true }` */
   clearMemory?: { ok: true } | FakeFail;
   clearMemoryDelayMs?: number;
