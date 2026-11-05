@@ -7,6 +7,7 @@ import { PORTION_YOCTO, toBase64 } from '../feeding/feedTx';
 import { cleanName, hasVisible } from '../lib/nameClean';
 import { publicKeyFromImplicitAccount } from '../near/privySigner';
 import { sampleDiary } from './diary.sample';
+import { SAMPLE_SHOWCASE } from './showcase.sample';
 import { fakeState, recordCall, type FakeFail, type FakeWorkerState } from './fakes';
 import {
   WorkerError,
@@ -20,6 +21,7 @@ import {
   type GiftLink,
   type GiftOutcome,
   type HireBoard,
+  type ShowcaseCopy,
   type PublicGift,
   type PetView,
   type VerificationIndex,
@@ -187,6 +189,7 @@ export const fakeWorkerApi: WorkerApi = {
   async health() {
     return { ok: true, version: state().version ?? 'fake-version', env: 'e2e' };
   },
+  showcase: () => answer<ShowcaseCopy>('showcase', state().showcase, SAMPLE_SHOWCASE, state().showcaseDelayMs ?? 0),
   hireBoard: async (token) => {
     needSession(token);
     return answer<HireBoard>('hireBoard', state().hireBoard, { pets: [], visits: [] }, state().hireBoardDelayMs);

@@ -109,6 +109,22 @@ describe('the return from Google', () => {
     expect(peekReturnPlace()).toBeNull();
   });
 
+  // spec: add-account › Sign-in return data › return to the adapter catalog
+  it('returns to the catalog with its owner query after Google, then drops the tab record', async () => {
+    rememberReturnPlace({ path: '/adapters?pet=9', action: 'signin' });
+    await mount(auth({ authenticated: true }));
+    expect(window.location.pathname + window.location.search).toBe('/adapters?pet=9');
+    expect(peekReturnPlace()).toBeNull();
+  });
+
+  // spec: add-account › Sign-in flow › вошёл со страницы
+  it('returns to the hire board after Google', async () => {
+    rememberReturnPlace({ path: '/hire', action: 'signin' });
+    await mount(auth({ authenticated: true }));
+    expect(window.location.pathname).toBe('/hire');
+    expect(peekReturnPlace()).toBeNull();
+  });
+
   // spec: add-account › Sign-in flow › вошёл с главной
   it('has nothing to do at `/` with no place: Home takes it from there', async () => {
     await mount(auth({ authenticated: true }));

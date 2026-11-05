@@ -136,6 +136,7 @@ export class FakeContract {
   grants: { token_id: string }[] = [];
   buys: { token_id: string; item: number; price: string }[] = [];
   treasury = 0n;
+  showcaseNumbers = { pets_hatched: 0, thoughts_paid: 0, spent: '0' };
   /** What the next successful transaction burns, yoctoNEAR (`tokens_burnt` of its outcome). */
   burnt = '0';
   /** When set, `debit_session` fails with this contract code even if its rules would pass. */
@@ -230,6 +231,8 @@ export class FakeContract {
         const before = this.past.get(String(args.token_id)) ?? [];
         return before[before.length - (this.lag.shift() ?? 0)] ?? this.pets.get(String(args.token_id)) ?? null;
       }
+      case 'showcase_view':
+        return this.showcaseNumbers;
       case 'hatch_view':
         return {
           token_id: this.hatchedBy.get(String(args.account_id)) ?? null,

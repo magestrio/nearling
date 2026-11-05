@@ -18,6 +18,7 @@ import type {
   HatchStatus,
   Health,
   HireBoard,
+  ShowcaseCopy,
   HireMode,
   Me,
   MyPets,
@@ -102,6 +103,7 @@ const id = (tokenId: string) => encodeURIComponent(tokenId);
 
 const real: WorkerApi = {
   health: () => call<Health>('/health', null),
+  showcase: () => call<ShowcaseCopy>('/api/showcase', null),
   hireBoard: (token) => call<HireBoard>('/api/hire', token),
   me: (token) => call<Me>('/api/me', token),
   myPets: (token) => call<MyPets>('/api/me/pets', token),

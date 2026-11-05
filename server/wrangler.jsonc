@@ -34,8 +34,8 @@
     { "binding": "EVENTS", "database_name": "nearling-events-local", "database_id": "00000000-0000-0000-0000-000000000000", "migrations_dir": "migrations/events" }
   ],
 
-  "durable_objects": { "bindings": [{ "name": "PET_DESK", "class_name": "PetDesk" }, { "name": "LIMITER", "class_name": "Limiter" }, { "name": "GUEST_VIEW", "class_name": "GuestView" }, { "name": "SERVER_KEY", "class_name": "ServerKey" }, { "name": "SOURCE_CACHE", "class_name": "SourceCache" }] },
-  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["PetDesk", "Limiter", "GuestView", "ServerKey"] }, { "tag": "v2", "new_sqlite_classes": ["SourceCache"] }],
+  "durable_objects": { "bindings": [{ "name": "PET_DESK", "class_name": "PetDesk" }, { "name": "LIMITER", "class_name": "Limiter" }, { "name": "GUEST_VIEW", "class_name": "GuestView" }, { "name": "SERVER_KEY", "class_name": "ServerKey" }, { "name": "SOURCE_CACHE", "class_name": "SourceCache" }, { "name": "SHOWCASE", "class_name": "Showcase" }] },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["PetDesk", "Limiter", "GuestView", "ServerKey"] }, { "tag": "v2", "new_sqlite_classes": ["SourceCache"] }, { "tag": "v3", "new_sqlite_classes": ["Showcase"] }],
 
   // Dynamic Workers (ADR-025): the isolates a skill's code runs in. Open beta, Workers Paid.
   "worker_loaders": [{ "binding": "LOADER" }],
@@ -78,9 +78,9 @@
         { "binding": "EVENTS", "database_name": "nearling-events-dev", "database_id": "9334227d-ad92-4d14-8051-b8452171fcae", "migrations_dir": "migrations/events" }
       ],
       // Durable Objects (ADR-021): PetDesk spends one pet's thoughts one at a time, Limiter and GuestView
-      // hold their counts and copies in memory only, ServerKey queues the server key's transactions.
-      "durable_objects": { "bindings": [{ "name": "PET_DESK", "class_name": "PetDesk" }, { "name": "LIMITER", "class_name": "Limiter" }, { "name": "GUEST_VIEW", "class_name": "GuestView" }, { "name": "SERVER_KEY", "class_name": "ServerKey" }, { "name": "SOURCE_CACHE", "class_name": "SourceCache" }] },
-      "migrations": [{ "tag": "v1", "new_sqlite_classes": ["PetDesk", "Limiter", "GuestView", "ServerKey"] }, { "tag": "v2", "new_sqlite_classes": ["SourceCache"] }],
+      // hold memory-only counts and copies, Showcase persists one public copy, ServerKey queues transactions.
+      "durable_objects": { "bindings": [{ "name": "PET_DESK", "class_name": "PetDesk" }, { "name": "LIMITER", "class_name": "Limiter" }, { "name": "GUEST_VIEW", "class_name": "GuestView" }, { "name": "SERVER_KEY", "class_name": "ServerKey" }, { "name": "SOURCE_CACHE", "class_name": "SourceCache" }, { "name": "SHOWCASE", "class_name": "Showcase" }] },
+      "migrations": [{ "tag": "v1", "new_sqlite_classes": ["PetDesk", "Limiter", "GuestView", "ServerKey"] }, { "tag": "v2", "new_sqlite_classes": ["SourceCache"] }, { "tag": "v3", "new_sqlite_classes": ["Showcase"] }],
       "worker_loaders": [{ "binding": "LOADER" }],
       "triggers": { "crons": ["* * * * *"] },
       // Names that exist on the Worker `nearling-dev`, RIDDLE_LIST (add-daily-ritual) and SKILL_KEY
@@ -123,8 +123,8 @@
         { "binding": "DB", "database_name": "nearling-db-prod", "database_id": "00000000-0000-0000-0000-000000000000", "migrations_dir": "migrations/db" },
         { "binding": "EVENTS", "database_name": "nearling-events-prod", "database_id": "00000000-0000-0000-0000-000000000000", "migrations_dir": "migrations/events" }
       ],
-      "durable_objects": { "bindings": [{ "name": "PET_DESK", "class_name": "PetDesk" }, { "name": "LIMITER", "class_name": "Limiter" }, { "name": "GUEST_VIEW", "class_name": "GuestView" }, { "name": "SERVER_KEY", "class_name": "ServerKey" }, { "name": "SOURCE_CACHE", "class_name": "SourceCache" }] },
-      "migrations": [{ "tag": "v1", "new_sqlite_classes": ["PetDesk", "Limiter", "GuestView", "ServerKey"] }, { "tag": "v2", "new_sqlite_classes": ["SourceCache"] }],
+      "durable_objects": { "bindings": [{ "name": "PET_DESK", "class_name": "PetDesk" }, { "name": "LIMITER", "class_name": "Limiter" }, { "name": "GUEST_VIEW", "class_name": "GuestView" }, { "name": "SERVER_KEY", "class_name": "ServerKey" }, { "name": "SOURCE_CACHE", "class_name": "SourceCache" }, { "name": "SHOWCASE", "class_name": "Showcase" }] },
+      "migrations": [{ "tag": "v1", "new_sqlite_classes": ["PetDesk", "Limiter", "GuestView", "ServerKey"] }, { "tag": "v2", "new_sqlite_classes": ["SourceCache"] }, { "tag": "v3", "new_sqlite_classes": ["Showcase"] }],
       "worker_loaders": [{ "binding": "LOADER" }],
       "triggers": { "crons": ["* * * * *"] },
       "secrets": { "required": ["NEARAI_API_KEY", "NEAR_GAS_ACCOUNT_KEY", "NEAR_SERVER_KEY", "INSULT_LIST", "RIDDLE_LIST", "SKILL_KEY"] }

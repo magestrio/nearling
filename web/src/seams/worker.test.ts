@@ -23,6 +23,18 @@ function blackHole() {
 }
 
 describe('the Worker seam', () => {
+  // spec: add-account › Showcase data › one copy for everyone
+  it('reads the public Showcase copy without a session or request body', async () => {
+    const copy = { pets: [], numbers: null };
+    const fetchMock = vi.fn(async () => Response.json(copy));
+    vi.stubGlobal('fetch', fetchMock);
+    expect(await workerApi.showcase()).toEqual(copy);
+    const [path, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+    expect(path).toBe('/api/showcase');
+    expect(init.method).toBe('GET');
+    expect(init.headers).not.toHaveProperty('privy-id-token');
+    expect(init.body).toBeUndefined();
+  });
   // spec: add-verification › Verification screen › success
   it('reads public list and selected thought through their exact paths, keeping words behind the session token', async () => {
     const fetchMock = vi.fn(async () => Response.json({ id: 'a'.repeat(24) }));

@@ -11,9 +11,8 @@ export interface Session {
   sub: string;
   /** The embedded wallet's NEAR implicit account: 64 lowercase hex. */
   accountId: string;
-  /** Privy's opaque session id (the token's `sid`): what a sign-out records (ADR-022). `null` when the
-   * token carries none; then a sign-out records nothing. */
-  sid: string | null;
+  /** SHA-256 of the exact verified identity token, used only to reject this token after sign-out. */
+  tokenHash: string;
   /** The Google name as the `google_oauth` entry of `linked_accounts` carries it, unchecked. Only
    * `POST /api/session` reads it (`Feeder identity data`); it is never logged. `null`: none. */
   name: string | null;
@@ -116,9 +115,9 @@ export async function identify(req: Request, env: Pick<Env, 'PRIVY_APP_ID' | 'PR
       console.log('auth refused · no NEAR wallet ·', shapeOf(payload['linked_accounts']));
       return { kind: 'invalid' };
     }
-    const sid = typeof payload['sid'] === 'string' && payload['sid'] !== '' ? payload['sid'] : null;
-    if (sid === null) console.log('session_no_sid');
-    return { kind: 'session', session: { sub: payload.sub, accountId, sid, name: googleNameOf(payload['linked_accounts']) } };
+    const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(token));
+    const tokenHash = Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, '0')).join('');
+    return { kind: 'session', session: { sub: payload.sub, accountId, tokenHash, name: googleNameOf(payload['linked_accounts']) } };
   } catch (e) {
     // A bad signature, an expired token, a wrong audience: no session.
     const code = (e as { code?: string } | null)?.code ?? '';

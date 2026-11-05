@@ -97,6 +97,13 @@ export interface HatchRecord {
   pool: string;
 }
 
+/** The three public counters of `showcase_view`; the U128 amount is a decimal yoctoNEAR string. */
+export interface ShowcaseNumbers {
+  pets_hatched: number;
+  thoughts_paid: number;
+  spent: string;
+}
+
 /** Prepaid gas of `pet_mint`, Tgas. The mint's gas grows with the token tree: 8.58 Tgas burnt at most
  * over 260 births (`contract/tests/pet_mint.rs`, which reads this line and births them with it).
  * Unused gas is refunded. */
@@ -185,6 +192,10 @@ export async function petView(env: Pick<Env, 'NEAR_RPC_URL' | 'CONTRACT_ID'>, to
 
 export function hatchView(env: Pick<Env, 'NEAR_RPC_URL' | 'CONTRACT_ID'>, accountId: string): Promise<HatchRecord> {
   return view<HatchRecord>(env, 'hatch_view', { account_id: accountId });
+}
+
+export function showcaseView(env: Pick<Env, 'NEAR_RPC_URL' | 'CONTRACT_ID'>): Promise<ShowcaseNumbers> {
+  return view<ShowcaseNumbers>(env, 'showcase_view', {});
 }
 
 /** The chain's UTC day now: the contract's own `day_of(block_timestamp)`, which `hatch_view` returns

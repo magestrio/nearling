@@ -1327,7 +1327,7 @@ export const fixtures: Record<string, ScreenFixture> = {
     },
   },
   // spec: add-account › Open in browser sheet screen › error
-  'open-browser-error': {
+  'open-browser-error-iphone': {
     route: '/pet/2',
     beforeLoad: async (page) => {
       await asBrowser(UA.xOnIphone)(page);
@@ -1339,6 +1339,21 @@ export const fixtures: Record<string, ScreenFixture> = {
       await tapSignIn(page);
       await page.getByRole('button', { name: 'Copy link' }).click();
       await page.getByLabel('Copy this link and paste it into Safari:').waitFor();
+      await settle(page);
+    },
+  },
+  // spec: add-account › Open in browser sheet screen › error
+  'open-browser-error-android': {
+    route: '/pet/2',
+    beforeLoad: async (page) => {
+      await asBrowser(UA.xOnAndroid)(page);
+      await page.clock.install();
+    },
+    prepare: async (page) => {
+      await tapSignIn(page);
+      await page.getByRole('button', { name: 'Open in browser' }).click();
+      await page.clock.runFor(2100);
+      await page.getByLabel('Copy this link and paste it into your browser:').waitFor();
       await settle(page);
     },
   },
@@ -1383,6 +1398,24 @@ export const fixtures: Record<string, ScreenFixture> = {
   // Home screen: a visitor with sign-in open; the check on its way; the game not reached; closed for new players, for everyone
   // spec: add-account › Home screen › signed-out
   'home-signed-out': { route: '/', prepare: async (page) => { await page.getByRole('button', { name: 'Sign in' }).waitFor(); await meadowReady(page); } },
+  // spec: add-account › Home screen › pet on the meadow
+  'home-meadow-tag': { route: '/', prepare: async (page) => {
+    await page.getByRole('button', { name: 'Sign in' }).waitFor();
+    await meadowReady(page);
+    await page.getByRole('link', { name: 'Lumen · asleep — out of food' }).hover();
+    // the DS hides the chip from a screen reader (the link already carries its words), so the capture's own visible-copy
+    // check can't see it: the chip drawn over the pet is waited for here, and its words asserted as the page's text
+    await page.locator('.ds-meadow__tag:visible', { hasText: 'Lumen · asleep — out of food' }).waitFor();
+  }, hiddenCopy: ['{name} · asleep — out of food'] },
+  // spec: add-account › Home screen › meadow loading
+  'home-meadow-loading': { route: '/', fakes: { worker: { showcaseDelayMs: FOREVER } }, prepare: async (page) => {
+    await page.getByRole('button', { name: 'Sign in' }).waitFor();
+  } },
+  // spec: add-account › Home screen › meadow unavailable
+  'home-meadow-unavailable': { route: '/', fakes: { worker: { showcase: { pets: [], numbers: null } } }, prepare: async (page) => {
+    await page.getByRole('button', { name: 'Sign in' }).waitFor();
+    await page.locator('.ds-meadow__stats').waitFor({ state: 'detached' });
+  } },
   // spec: add-account › Home screen › loading
   'home-loading': {
     route: '/',
@@ -1456,10 +1489,24 @@ export const fixtures: Record<string, ScreenFixture> = {
       await ownerReady(page);
       await openClearDialog(page);
     },
-    // design/INBOX.md line 185: the manifest still has the pre-proposal copy; the dialog keeps the spec's words.
-    staleCopy: [
-      '{name} will forget your chats, its diary, any skill you taught it, and what it knows about you, the friends who fed it and the pets it helped. Our backup keeps a copy for up to 30 days. NEAR AI may keep what it already received.',
-    ],
+  },
+  // The signed-close path is built by the errands stage. This capture sets the dialog's public state directly so its
+  // warning and safe action can be checked before that path is wired to Account.
+  // spec: add-account › Clear memory dialog screen › success (unsettled shared job)
+  'clear-memory-unsettled-shared-job': {
+    route: '/pet/9',
+    fakes: { auth: SIGNED_IN, worker: owner() },
+    prepare: async (page) => {
+      await ownerReady(page);
+      await page.evaluate(async () => {
+        const modulePath = '/src/account/clearMemory.ts';
+        const { openClearMemory } = await import(modulePath);
+        openClearMemory({ tokenId: '9', name: 'Pixel', unsettledSharedJob: true });
+      });
+      await page.getByRole('alertdialog').getByText("Clearing memory will close this shared link. You'll sign approval so unused food can return to Pixel.").waitFor();
+      await page.mouse.move(0, 0);
+      await settle(page);
+    },
   },
   // spec: add-account › Clear memory dialog screen › что останется
   'clear-memory-stays': {
@@ -1519,7 +1566,8 @@ export const fixtures: Record<string, ScreenFixture> = {
     prepare: async (page) => {
       await ownerReady(page);
       await openClearDialog(page);
-      await setWorker(page, { owned: [], clearMemory: { fail: { status: 403, code: 'not_owner' } } });
+      // the fake's `me` follows the owner view it served (add-gift): the player's own pet is Juno again once Pixel is gone
+      await setWorker(page, { owned: [], me: JUNO_ME, clearMemory: { fail: { status: 403, code: 'not_owner' } } });
       await page.getByRole('button', { name: 'Clear memory' }).click();
       await page.getByRole('link', { name: 'Go to your Juno' }).waitFor();
       await page.locator('.ds-toast').waitFor();

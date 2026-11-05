@@ -105,11 +105,14 @@ async fn migrate_takes_the_previous_layout_of_a_deployed_contract() -> anyhow::R
         )
         .await?;
 
-    // The state before add-pet-work has none of the three trailing map prefixes.
+    // The current layout ends in three Showcase counters after the work and transfer maps.
+    // Strip both the counters and map prefixes to recreate the exact V3 layout.
     let pool_before = ctx.pool().await?;
     let state = ctx.read_state().await?;
-    let tail = state.len() - 15;
-    assert_eq!(&state[tail..], &[1, 0, 0, 0, b'w', 1, 0, 0, 0, b'x', 1, 0, 0, 0, b'g']);
+    let counters = borsh::to_vec(&(1u64, 0u64, 0u128))?;
+    assert_eq!(&state[state.len() - counters.len()..], counters);
+    let tail = state.len() - counters.len() - 15;
+    assert_eq!(&state[tail..tail + 15], &[1, 0, 0, 0, b'w', 1, 0, 0, 0, b'x', 1, 0, 0, 0, b'g']);
     ctx.worker
         .patch_state(ctx.contract.id(), b"STATE", &state[..tail])
         .await?;

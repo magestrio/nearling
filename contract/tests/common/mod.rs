@@ -53,6 +53,9 @@ struct StateMirror {
     work_pairs: LookupSet<(String, String), Sha256>,
     work_index: LookupMap<u64, Vec<u64>>,
     transfer_generation: LookupMap<String, u64>,
+    pets_hatched: u64,
+    thoughts_paid: u64,
+    spent: u128,
 }
 
 pub struct Ctx {
@@ -599,6 +602,19 @@ impl Ctx {
     /// back.
     pub async fn read_state(&self) -> anyhow::Result<Vec<u8>> {
         Ok(self.read_key(b"STATE").await?.expect("the contract state"))
+    }
+
+    /// Recreate the deployed V5 `STATE` bytes for an upgrade test. Its layout is the exact
+    /// prefix of the current layout; only the three appended Showcase scalars are removed.
+    pub async fn restore_v5_state(&self) -> anyhow::Result<()> {
+        let mut state = self.read_state().await?;
+        let _: StateMirror = borsh::from_slice(&state)?;
+        state.truncate(state.len() - 32);
+        let _: nearling_contract::ContractV5 = borsh::from_slice(&state)?;
+        self.worker
+            .patch_state(self.contract.id(), b"STATE", &state)
+            .await?;
+        Ok(())
     }
 
     /// One key of the contract's trie, by the same lowered-usage read as `read_state`.

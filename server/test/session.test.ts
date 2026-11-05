@@ -262,14 +262,16 @@ describe('Sign-in data', () => {
 describe('Sign-out data', () => {
   const player = (sid: string | null, sub = 'did:privy:owner') => token(sub, NEAR_ACCOUNT(1), { sid });
   const end = (tk: string) => api('/api/session/end', { method: 'POST', token: tk });
+  const hash = async (tk: string) => Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(tk))),
+    (byte) => byte.toString(16).padStart(2, '0')).join('');
 
   // spec: add-account › Sign-out data › second tab
-  it('refuses the ended session in every tab of the browser, at once', async () => {
-    const tabA = await player('sid-1');
-    const tabB = await player('sid-1'); // another token of the same session
+  it('refuses the exact ended token in another tab at once', async () => {
+    const tabA = await player(null);
+    const tabB = tabA; // the same token copied into another tab
     expect((await api('/api/hatch', { token: tabB })).status).toBe(200);
     expect((await end(tabA)).status).toBe(204);
-    expect((await env.DB.prepare('SELECT sid, ended_at FROM ended_sessions').first())).toEqual({ sid: 'sid-1', ended_at: Date.now() });
+    expect((await env.DB.prepare('SELECT sid, ended_at FROM ended_sessions').first())).toEqual({ sid: await hash(tabA), ended_at: Date.now() });
     for (const tk of [tabA, tabB]) {
       expect(await api('/api/hatch', { token: tk })).toEqual({ status: 401, body: { code: 'signed_out' } });
       expect((await exchange(tk, { fresh: false })).status).toBe(401);
@@ -279,49 +281,56 @@ describe('Sign-out data', () => {
   });
 
   // spec: add-account › Sign-out data › second tab × токен другого устройства
-  it('leaves the session of another device untouched', async () => {
-    const here = await player('sid-here');
-    const other = await player('sid-other');
+  // spec: add-account › Sign-out data › tab with another token
+  // spec: add-account › Sign-out data › tab with another token × other token accepted
+  it('leaves another token of the same player untouched', async () => {
+    const here = await player(null);
+    const other = await token('did:privy:owner', NEAR_ACCOUNT(1), { sid: null, name: 'Another token', expiresIn: '2s' });
+    expect(other).not.toBe(here);
     await end(here);
     expect((await api('/api/hatch', { token: other })).status).toBe(200);
     expect((await exchange(other, { fresh: false })).status).toBe(200);
+    vi.setSystemTime(Date.now() + 3_000);
+    expect((await api('/api/hatch', { token: other })).status).toBe(401);
   });
 
   // spec: add-account › Sign-out data › signed in again
+  // spec: add-account › Sign-out data › signed in again × new hash within 24 hours
   it('accepts the new session of the same player within the 24 hours', async () => {
-    await end(await player('sid-1'));
+    await end(await player(null));
     vi.setSystemTime(Date.now() + 23 * 3_600_000);
-    const again = await player('sid-2');
+    const again = await player(null);
     expect(await exchange(again, { fresh: true, from: 'link' })).toEqual({ status: 200, body: { ok: true } });
     expect((await api('/api/hatch', { token: again })).status).toBe(200);
   });
 
-  // spec: add-account › Sign-out data › second tab
-  it('records nothing for a token with no session id, and says so by a code', async () => {
+  // spec: add-account › Sign-out data › second tab × exact token hash refused
+  it('records the exact hash even when Privy issued no session id', async () => {
     const tk = await player(null);
     expect((await end(tk)).status).toBe(204);
-    expect(await count('ended_sessions')).toBe(0);
-    expect(h.logs()).toContain('session_no_sid');
-    expect((await api('/api/hatch', { token: tk })).status).toBe(200);
+    expect((await env.DB.prepare('SELECT sid FROM ended_sessions').first())).toEqual({ sid: await hash(tk) });
+    expect((await api('/api/hatch', { token: tk })).status).toBe(401);
   });
 
   // spec: add-account › Sign-out data › second tab
-  it('keeps no sid or player id in the logs', async () => {
+  it('keeps no token hash or player id in the logs', async () => {
     const tk = await player('sid-secret');
     await end(tk);
     await api('/api/hatch', { token: tk });
     await exchange(tk, { fresh: true });
-    expect(h.logs().join('\n')).not.toMatch(/sid-secret|did:privy|owner/);
+    expect(h.logs().join('\n')).not.toMatch(new RegExp(`${await hash(tk)}|sid-secret|did:privy|owner`));
   });
 
   // spec: add-account › Sign-in data › новый месяц
   it('erases an ended session 24 hours after the sign-out and not before', async () => {
-    await end(await player('sid-old'));
+    const old = await player(null);
+    await end(old);
     vi.setSystemTime(Date.now() + 3_600_000);
-    await end(await player('sid-new', 'did:privy:other'));
+    const recent = await player(null, 'did:privy:other');
+    await end(recent);
     vi.setSystemTime(Date.now() + 23 * 3_600_000 + 1);
     await clean(env, Date.now());
-    expect((await env.DB.prepare('SELECT sid FROM ended_sessions').all()).results).toEqual([{ sid: 'sid-new' }]);
+    expect((await env.DB.prepare('SELECT sid FROM ended_sessions').all()).results).toEqual([{ sid: await hash(recent) }]);
   });
 });
 

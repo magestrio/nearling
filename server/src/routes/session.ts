@@ -21,16 +21,14 @@ exchangeRoutes.post('/api/session', async (c) => {
   const identity = await identify(c.req.raw, c.env);
   if (identity.kind === 'unavailable') return c.json({ code: 'auth_unavailable' }, 503);
   if (identity.kind !== 'session') return c.json({ code: 'signed_out' }, 401);
-  const { sub, accountId, sid, name } = identity.session;
+  const { sub, accountId, tokenHash, name } = identity.session;
   const db = c.env.DB;
   // The feeder's first name (`Feeder identity data`): kept on every `ok` answer, NULL when it does
   // not pass or the token has none. The row exists by then (a new one was made by `admit`).
   const rememberName = () => db.prepare('UPDATE players SET first_name = ?1 WHERE sub = ?2').bind(feederName(name, c.env.INSULT_LIST), sub).run();
 
-  if (sid !== null) {
-    const ended = await db.prepare('SELECT 1 AS found FROM ended_sessions WHERE sid = ?').bind(sid).first();
-    if (ended !== null) return c.json({ code: 'signed_out' }, 401);
-  }
+  const ended = await db.prepare('SELECT 1 AS found FROM ended_sessions WHERE sid = ?').bind(tokenHash).first();
+  if (ended !== null) return c.json({ code: 'signed_out' }, 401);
 
   const body = await c.req.json<{ fresh?: unknown; from?: unknown }>().catch(() => null);
   const fresh = body?.fresh === true;
@@ -76,14 +74,11 @@ exchangeRoutes.post('/api/session', async (c) => {
   return refuse(stateOf(await countsOf(db, month)) === 'closed_all' ? 'ceiling' : 'mau');
 });
 
-// «Sign out» on the server: this session's `sid` is refused from now on, in every tab of the browser.
+// «Sign out» on the server: this exact identity token is refused from now on.
 sessionRoutes.post('/api/session/end', async (c) => {
   const session = requireSession(c);
   if (session instanceof Response) return session;
-  // A token with no `sid` records nothing (identify logged `session_no_sid`).
-  if (session.sid !== null) {
-    await c.env.DB.prepare('INSERT OR REPLACE INTO ended_sessions (sid, ended_at) VALUES (?, ?)').bind(session.sid, Date.now()).run();
-  }
+  await c.env.DB.prepare('INSERT OR REPLACE INTO ended_sessions (sid, ended_at) VALUES (?, ?)').bind(session.tokenHash, Date.now()).run();
   return c.body(null, 204);
 });
 

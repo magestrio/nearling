@@ -17,6 +17,15 @@ export type AppContext = Context<AppEnv>;
 export const REQUESTS_PER_MINUTE = 120;
 
 export const gate = createMiddleware<AppEnv>(async (c, next) => {
+  // Showcase is the same public copy for every visitor. A token on the request is ignored:
+  // no player lookup, JWKS fetch or player-scoped limit is needed to read it.
+  if (c.req.path === '/api/showcase') {
+    const guest = c.env.LIMITER.get(c.env.LIMITER.idFromName(`ip:${c.req.header('cf-connecting-ip') ?? 'unknown'}`));
+    if (!(await guest.hit(Math.floor(Date.now() / 60_000), REQUESTS_PER_MINUTE))) return c.json({ code: 'rate_limited' }, 429);
+    c.set('session', null);
+    await next();
+    return undefined;
+  }
   const identity = await identify(c.req.raw, c.env);
   const key =
     identity.kind === 'session' ? `player:${identity.session.sub}` : `ip:${c.req.header('cf-connecting-ip') ?? 'unknown'}`;
@@ -32,9 +41,9 @@ export const gate = createMiddleware<AppEnv>(async (c, next) => {
   if (identity.kind === 'session') {
     // A valid token alone opens nothing: the player needs a row (the exchange of `POST /api/session`
     // made it) and a session that was not ended by a sign-out (ADR-022).
-    const { sub, sid } = identity.session;
+    const { sub, tokenHash } = identity.session;
     const row = await c.env.DB.prepare('SELECT month, EXISTS (SELECT 1 FROM ended_sessions WHERE sid = ?1) AS ended FROM players WHERE sub = ?2')
-      .bind(sid, sub)
+      .bind(tokenHash, sub)
       .first<{ month: string; ended: number }>();
     if (row === null || row.ended === 1) return c.json({ code: 'signed_out' }, 401);
     // A request with a session counts as played this month, with no cap: the session is alive.

@@ -17,6 +17,12 @@ export interface HireBoard {
   visits: Array<{ tokenId: string; name: string; stage: Stage; fullness: Fullness['state']; worn: OutfitSlug | null }>;
 }
 
+/** Public Home copy; a null `numbers` means no live meadow is available. */
+export interface ShowcaseCopy {
+  pets: Array<{ tokenId: string; name: string; stage: Stage; fullness: Fullness['state']; worn: OutfitSlug | null }>;
+  numbers: { pets_hatched: number; thoughts_paid: number; spent: string } | null;
+}
+
 /** Public record pointers; each transaction is read by the browser from NEAR. */
 export interface VerificationIndex {
   tokenId: string;
@@ -605,6 +611,7 @@ export interface ErrandQuote {
 
 export interface WorkerApi {
   health(): Promise<Health>;
+  showcase(): Promise<ShowcaseCopy>;
   hireBoard(token: Token): Promise<HireBoard>;
   me(token: Token): Promise<Me>;
   myPets(token: Token): Promise<MyPets>;

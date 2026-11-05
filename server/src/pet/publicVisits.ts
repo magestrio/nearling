@@ -14,13 +14,13 @@ export interface PublicVisit {
 
 export async function publicVisits(env: Env): Promise<PublicVisit[] | null> {
   const rows = await env.DB.prepare('SELECT token_id FROM pets ORDER BY RANDOM() LIMIT 10').all<{ token_id: string }>();
-  const visits: PublicVisit[] = [];
-  for (const { token_id: tokenId } of rows.results) {
+  const sampled = await Promise.all(rows.results.map(async ({ token_id: tokenId }) => {
     const copy = await env.GUEST_VIEW.get(env.GUEST_VIEW.idFromName(`pet:${tokenId}`)).readPet(tokenId);
-    if (!copy.ok) return null;
-    if (copy.value === null) continue;
+    if (!copy.ok) return { ok: false as const };
+    if (copy.value === null) return { ok: true as const, visit: null };
     const pet = copy.value;
-    visits.push({ tokenId, name: pet.name, stage: stageOf(pet), fullness: (await fullnessOf(env.DB, tokenId, pet)).state, worn: await wornOf(env.DB, tokenId) });
-  }
-  return visits;
+    return { ok: true as const, visit: { tokenId, name: pet.name, stage: stageOf(pet), fullness: (await fullnessOf(env.DB, tokenId, pet)).state, worn: await wornOf(env.DB, tokenId) } };
+  }));
+  if (sampled.some((result) => !result.ok)) return null;
+  return sampled.flatMap((result) => result.ok && result.visit !== null ? [result.visit] : []);
 }

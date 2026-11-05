@@ -59,6 +59,34 @@ pub struct ContractV4 {
     work_index: LookupMap<u64, Vec<u64>>,
 }
 
+/// The deployed layout immediately before the Showcase counters.
+#[near(serializers = [borsh])]
+pub struct ContractV5 {
+    owner_id: AccountId,
+    server_id: AccountId,
+    treasury_id: AccountId,
+    tokens: NonFungibleToken,
+    pets: LookupMap<TokenId, VersionedPet>,
+    hatched: LookupMap<AccountId, TokenId>,
+    births_day: u64,
+    births_today: u32,
+    next_token_id: u64,
+    pool: u128,
+    known: LookupSet<(TokenId, AccountId), Sha256>,
+    riddle_commits: LookupMap<u64, [u8; 32]>,
+    riddle_reserve: u128,
+    work_pairs: LookupSet<(TokenId, TokenId), Sha256>,
+    work_index: LookupMap<u64, Vec<u64>>,
+    transfer_generation: LookupMap<TokenId, u64>,
+}
+
+#[near(serializers = [json])]
+pub struct ShowcaseView {
+    pub pets_hatched: u64,
+    pub thoughts_paid: u64,
+    pub spent: U128,
+}
+
 /// The game's contract. Errors are `env::panic_str` with a code in the text; the Worker tells
 /// the refusals apart by it (design.md › Контракт).
 #[near(contract_state)]
@@ -92,6 +120,9 @@ pub struct Contract {
     work_index: LookupMap<u64, Vec<u64>>,
     /// Incremented on every public NFT transfer, including one outside the game UI.
     transfer_generation: LookupMap<TokenId, u64>,
+    pets_hatched: u64,
+    thoughts_paid: u64,
+    spent: u128,
 }
 
 fn fail(code: &str) -> ! {
@@ -221,6 +252,9 @@ impl Contract {
             work_pairs: LookupSet::with_hasher(b"w".to_vec()),
             work_index: LookupMap::new(b"x".to_vec()),
             transfer_generation: LookupMap::new(b"g".to_vec()),
+            pets_hatched: 0,
+            thoughts_paid: 0,
+            spent: 0,
         }
     }
 
@@ -344,6 +378,9 @@ impl Contract {
             work_pairs: LookupSet::with_hasher(b"w".to_vec()),
             work_index: LookupMap::new(b"x".to_vec()),
             transfer_generation: LookupMap::new(b"g".to_vec()),
+            pets_hatched: old.next_token_id,
+            thoughts_paid: 0,
+            spent: 0,
         }
     }
 
@@ -369,6 +406,9 @@ impl Contract {
             work_pairs: old.work_pairs,
             work_index: old.work_index,
             transfer_generation: LookupMap::new(b"g".to_vec()),
+            pets_hatched: old.next_token_id,
+            thoughts_paid: 0,
+            spent: 0,
         };
         contract.reserve_legacy_generations();
         contract
@@ -384,12 +424,50 @@ impl Contract {
         contract
     }
 
+    /// One-time upgrade of the deployed transfer-generation layout. Earlier receipts are not
+    /// reconstructed; the monotonic mint id gives the count of already hatched pets.
+    #[init(ignore_state)]
+    #[private]
+    pub fn migrate_showcase() -> Self {
+        let old: ContractV5 = env::state_read().unwrap_or_else(|| fail("no_state"));
+        Self {
+            owner_id: old.owner_id,
+            server_id: old.server_id,
+            treasury_id: old.treasury_id,
+            tokens: old.tokens,
+            pets: old.pets,
+            hatched: old.hatched,
+            births_day: old.births_day,
+            births_today: old.births_today,
+            next_token_id: old.next_token_id,
+            pool: old.pool,
+            known: old.known,
+            riddle_commits: old.riddle_commits,
+            riddle_reserve: old.riddle_reserve,
+            work_pairs: old.work_pairs,
+            work_index: old.work_index,
+            transfer_generation: old.transfer_generation,
+            pets_hatched: old.next_token_id,
+            thoughts_paid: 0,
+            spent: 0,
+        }
+    }
+
     pub fn owner_id(&self) -> AccountId {
         self.owner_id.clone()
     }
 
     pub fn version(&self) -> String {
         env!("CARGO_PKG_VERSION").to_string()
+    }
+
+    /// Public, read-only totals kept by the calls that change them.
+    pub fn showcase_view(&self) -> ShowcaseView {
+        ShowcaseView {
+            pets_hatched: self.pets_hatched,
+            thoughts_paid: self.thoughts_paid,
+            spent: U128(self.spent),
+        }
     }
 
     /// Anyone adds NEAR to the project's pool.
@@ -488,7 +566,14 @@ impl Contract {
         self.pool -= cost;
         self.births_day = day;
         self.births_today = born_today + 1;
-        self.next_token_id += 1;
+        self.next_token_id = self
+            .next_token_id
+            .checked_add(1)
+            .unwrap_or_else(|| fail("overflow"));
+        self.pets_hatched = self
+            .pets_hatched
+            .checked_add(1)
+            .unwrap_or_else(|| fail("overflow"));
 
         NftMint {
             owner_id: &receiver,
@@ -531,8 +616,13 @@ impl Contract {
         }
         self.tokens
             .nft_transfer(receiver_id, token_id.clone(), approval_id, None);
-        let next = self.transfer_generation.get(&token_id).copied().unwrap_or(0)
-            .checked_add(1).unwrap_or_else(|| fail("overflow"));
+        let next = self
+            .transfer_generation
+            .get(&token_id)
+            .copied()
+            .unwrap_or(0)
+            .checked_add(1)
+            .unwrap_or_else(|| fail("overflow"));
         self.transfer_generation.insert(token_id, next);
         self.transfer_generation.flush();
     }
@@ -690,6 +780,15 @@ impl Contract {
         for hire in &hires {
             self.introduce_pair(&token_id, &hire.worker);
         }
+
+        self.thoughts_paid = self
+            .thoughts_paid
+            .checked_add(u64::try_from(thoughts.len()).unwrap_or_else(|_| fail("overflow")))
+            .unwrap_or_else(|| fail("overflow"));
+        self.spent = self
+            .spent
+            .checked_add(to_treasury)
+            .unwrap_or_else(|| fail("overflow"));
 
         // The events in receipt order, a hire right after its answer's receipt.
         let mut planned = hires.into_iter().peekable();
@@ -1060,7 +1159,11 @@ impl Contract {
             day_of(env::block_timestamp()),
             work_known,
         );
-        view.transfer_generation = self.transfer_generation.get(&token_id).copied().unwrap_or(0);
+        view.transfer_generation = self
+            .transfer_generation
+            .get(&token_id)
+            .copied()
+            .unwrap_or(0);
         Some(view)
     }
 

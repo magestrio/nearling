@@ -12,6 +12,8 @@ export interface ClearRequest {
   /** called once memory is cleared, for a dialog opened from the Gift sheet (it returns there); with none, the owner's input
    *  takes the focus */
   onDone?: () => void;
+  /** A shared link with reserved food needs the owner's signed close approval before erasure. */
+  unsettledSharedJob?: boolean;
 }
 
 /** What the dialog learned from the server, for the Pet screen of that pet. */

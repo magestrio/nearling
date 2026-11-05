@@ -31,6 +31,19 @@ test('вышел: Home without a session with «You\'re signed out. See you soon
   expect(await calls(page)).toContain('worker:endSession');
 });
 
+// spec: add-account › Sign-out flow › вышел
+test('phone sign-out leaves the Home heading below the Toast', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await openWith(page, '/pet/9', { auth: SIGNED_IN, worker: OWNER });
+  await signOut(page);
+  await expect(page.getByRole('heading', { level: 1, name: HOOK })).toBeVisible();
+  const toast = await page.locator('.ds-toast').boundingBox();
+  const heading = await page.getByRole('heading', { level: 1, name: HOOK }).boundingBox();
+  expect(toast).not.toBeNull();
+  expect(heading).not.toBeNull();
+  expect(toast!.y + toast!.height).toBeLessThanOrEqual(heading!.y);
+});
+
 // spec: add-account › Sign-out flow › вышел × стирает текст во вкладке
 test('вышел × стирает текст во вкладке: the typed line and the return record with its text are gone from the tab', async ({ page }) => {
   await openWith(page, '/pet/9', { auth: SIGNED_IN, worker: OWNER });

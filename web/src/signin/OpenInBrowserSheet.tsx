@@ -58,7 +58,7 @@ export function OpenInBrowserSheet({
   // «copying failed — in the link's field, its text selected» (DS README › Sheet › Focus)
   useEffect(() => {
     if (!manual) return;
-    const input = field.current?.querySelector('input');
+    const input = field.current?.querySelector('textarea');
     input?.focus();
     input?.select();
   }, [manual]);
@@ -82,7 +82,7 @@ export function OpenInBrowserSheet({
       <Text>{WHY}</Text>
       {manual ? (
         <div ref={field}>
-          <TextField label={fieldLabel} readOnly value={link} />
+          <TextField label={fieldLabel} readOnly multiline rows={2} value={link} />
         </div>
       ) : (
         <Stack gap={2}>

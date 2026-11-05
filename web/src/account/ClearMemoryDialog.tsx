@@ -9,7 +9,8 @@ import { useClearMemory } from './useClearMemory';
 const BUSY = 'Lots of visitors right now. Try again in a minute.';
 
 const forgets = (name: string) =>
-  `${name} will forget your chats, its diary, any skill you taught it with its data sources and code, and what it knows about you, the friends who fed it and the pets it helped. Adapters you published leave the catalog. Our backup keeps a copy for up to 30 days. NEAR AI may keep what it already received.`;
+  `${name} will forget your chats, diary, skill with its data sources and code, and what it knows about you, its feeders and the pets it helped. Your published data sources leave the catalog. A backup may keep a copy up to 30 days; NEAR AI may keep what it received.`;
+const SHARED_JOB = (name: string) => `Clearing memory will close this shared link. You'll sign approval so unused food can return to ${name}.`;
 const stays = (name: string, time: string) =>
   `${name}'s name, character, growth, streak, outfits and food stay, and what's public about ${name} stays public forever. An answer to today's riddle is cleared too and won't be checked at ${time}. Old thought receipts can't be fully checked after this. This can't be undone.`;
 const clearing = (name: string) => `Clearing ${name}'s memory…`;
@@ -23,6 +24,7 @@ export function ClearMemoryDialog({
   onDone,
   onNotOwner,
   returnFocusTo,
+  unsettledSharedJob = false,
 }: {
   tokenId: string;
   name: string;
@@ -30,6 +32,7 @@ export function ClearMemoryDialog({
   onDone: () => void;
   onNotOwner: () => void;
   returnFocusTo: () => HTMLElement | null;
+  unsettledSharedJob?: boolean;
 }) {
   const { phase, clear } = useClearMemory(tokenId, { done: onDone, notOwner: onNotOwner, close: onClose });
   const busy = phase.kind === 'clearing';
@@ -78,6 +81,7 @@ export function ClearMemoryDialog({
         </Note>
       ) : null}
       <Text>{forgets(name)}</Text>
+      {unsettledSharedJob ? <Note tone="plain">{SHARED_JOB(name)}</Note> : null}
       <Text>{stays(name, resetTime())}</Text>
       <div ref={actions}>
         <Stack gap={2}>

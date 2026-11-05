@@ -1,0 +1,40 @@
+// @vitest-environment jsdom
+import { renderToStaticMarkup } from 'react-dom/server';
+import { expect, it } from 'vitest';
+import { AuthContext, type AuthApi } from '../seams/auth-context';
+import { ClearMemoryDialog } from './ClearMemoryDialog';
+
+function render(unsettledSharedJob: boolean) {
+  return renderToStaticMarkup(
+    <AuthContext.Provider value={{} as AuthApi}>
+      <ClearMemoryDialog
+        tokenId="9"
+        name="Pixel"
+        unsettledSharedJob={unsettledSharedJob}
+        onClose={() => undefined}
+        onDone={() => undefined}
+        onNotOwner={() => undefined}
+        returnFocusTo={() => null}
+      />
+    </AuthContext.Provider>,
+  );
+}
+
+// spec: add-account › Clear memory dialog screen › success
+it('uses the exact H31 description of what is forgotten and retained', () => {
+  const html = render(false);
+  expect(html).toContain('Pixel will forget your chats, diary, skill with its data sources and code, and what it knows about you, its feeders and the pets it helped. Your published data sources leave the catalog. A backup may keep a copy up to 30 days; NEAR AI may keep what it received.');
+  expect(html).toContain("Pixel&#x27;s name, character, growth, streak, outfits and food stay");
+  expect(html.indexOf('Keep memory')).toBeLessThan(html.indexOf('Clear memory'));
+});
+
+it('renders the signed-close copy when the dialog is given an unsettled shared job', () => {
+  const html = render(true);
+  const forgotten = html.indexOf('Pixel will forget your chats');
+  const warning = html.indexOf('Clearing memory will close this shared link. You&#x27;ll sign approval so unused food can return to Pixel.');
+  const stays = html.indexOf('name, character, growth, streak');
+  expect(forgotten).toBeGreaterThanOrEqual(0);
+  expect(warning).toBeGreaterThan(forgotten);
+  expect(stays).toBeGreaterThan(warning);
+  expect(html.indexOf('Keep memory')).toBeLessThan(html.indexOf('Clear memory'));
+});

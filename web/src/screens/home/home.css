@@ -1,0 +1,8 @@
+/* Home's closed notice takes the available column width so its date can wrap on a phone. */
+.home-closed-notice { width: 100%; min-width: var(--space-0); }
+.home-closed-notice .ds-text { margin-inline: auto; }
+
+/* The sign-out Toast stands below the phone header; the heading starts below it while the Meadow gives way. */
+@media (max-width: 767px) {
+  .home-signout-spacer { height: calc(var(--size-header) + var(--size-target)); flex: none; }
+}

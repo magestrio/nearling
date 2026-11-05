@@ -7,8 +7,11 @@ const PORT = 5199;
 export default defineConfig({
   outputDir: '../build/playwright',
   fullyParallel: true,
-  // the 3D pet is drawn by software GL here (swiftshader): several pages at once starve each other for seconds
-  expect: { timeout: 15_000 },
+  // the 3D pet is drawn by software GL here (swiftshader): several pages at once starve each other for seconds, and the
+  // first draw of Home's ten-pet meadow alone holds a page's main thread for ~13 s (measured, add-account stage 10), so
+  // what the DOM waits behind it gets a ceiling above that
+  expect: { timeout: 45_000 },
+  timeout: 90_000,
   reporter: [['list']],
   use: {
     baseURL: `http://127.0.0.1:${PORT}`,

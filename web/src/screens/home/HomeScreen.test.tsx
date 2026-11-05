@@ -3,12 +3,14 @@ import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { HomeScreen } from './HomeScreen';
+import { SAMPLE_SHOWCASE } from '../../seams/showcase.sample';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 const mocks = vi.hoisted(() => ({ view: { kind: 'signed-out' } as { kind: string; all?: boolean; until?: string }, begin: vi.fn(), tryAgain: vi.fn() }));
 vi.mock('./useHome', () => ({ useHome: () => ({ view: mocks.view, tryAgain: mocks.tryAgain }) }));
 vi.mock('../../signin/signIn', () => ({ useSignIn: () => ({ begin: mocks.begin }) }));
 vi.mock('../../signin/SignInOutcome', () => ({ SignInOutcome: () => null }));
+vi.mock('./useShowcase', () => ({ useShowcase: () => ({ kind: 'ready', copy: SAMPLE_SHOWCASE }) }));
 vi.mock('../../ds/Meadow', () => ({ Meadow: ({ pets }: { pets: unknown[] }) => <div data-meadow={pets.length} /> }));
 
 let root: Root;
@@ -25,7 +27,7 @@ afterEach(async () => { await act(async () => root.unmount()); host.remove(); })
 const show = () => act(async () => root.render(<HomeScreen />));
 
 // spec: add-account › Home screen › signed-out
-it('puts sign-in in the header and the hatch action above the meadow on desktop and in the phone dock', async () => {
+it('puts sign-in in the header and the hatch action above the live meadow on desktop and in the phone dock', async () => {
   await show();
   expect(host.querySelector('.ds-header__end button')?.textContent).toBe('Sign in');
   expect(host.querySelector('h1')?.textContent).toBe('This pet pays for its own thoughts. When the money runs out, it falls asleep.');
@@ -47,6 +49,7 @@ it('keeps the meadow and hire entry while sign-in closes, with the returning act
   mocks.view = { kind: 'closed', all: true, until: '2026-12-01T00:00:00.000Z' };
   await show();
   expect(host.textContent).toContain('Sign-in is closed for everyone until December 1.');
+  expect(host.querySelector('.home-closed-notice .ds-text')?.textContent).toBe('Sign-in is closed for everyone until December 1. You can still look around, and any pet you have is safe.');
   expect(host.querySelector('.ds-dock button')).toBeNull();
   expect(host.querySelector('.ds-dock a')?.getAttribute('href')).toBe('/hire');
   expect(host.querySelector('.ds-dock a')?.textContent).toBe('Find a pet to ask');

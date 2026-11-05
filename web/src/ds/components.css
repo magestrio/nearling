@@ -1421,12 +1421,50 @@
   20% { opacity: 1; }
   100% { opacity: 0; transform: translate(calc(var(--shift-zz) * 0.4), calc(var(--shift-zz) * -1)); }
 }
-/* the toggle's own row under the ground, at the right: nothing stands under it */
-.ds-meadow__motion { display: flex; flex: none; justify-content: flex-end; padding-block: var(--space-2); }
+/* a live pet is a link: the whole pet is its target; its tag — the name strong, then the condition — a chip over its
+   head on hover and focus (and on a frame's hover moment), never clipped by the ground's edge it stands near */
+.ds-meadow__link { position: relative; display: block; height: 100%; color: inherit; text-decoration: none; border-radius: var(--radius-lg); }
+/* a pet the short ground made small still takes a whole target: the hit area grows to it around the pet */
+.ds-meadow__link::before { content: ""; position: absolute; inset: min(calc(var(--size-target) * 0), calc((100% - var(--size-target)) / 2)); }
+.ds-meadow__link:focus-visible { outline: var(--stroke-focus) solid var(--color-focus); outline-offset: var(--stroke-focus-offset); }
+.ds-meadow__tag {
+  position: absolute;
+  bottom: 100%;
+  left: 50%;
+  display: none;
+  padding: var(--space-1) var(--space-3);
+  border-radius: var(--radius-full);
+  background: var(--color-bg-raised-2);
+  color: var(--color-text-secondary-more);
+  white-space: nowrap;
+  transform: translate(-50%, calc(-1 * var(--space-1)));
+  pointer-events: none;
+}
+.ds-meadow__tag-name { color: var(--color-text-primary); }
+.ds-meadow__link:hover .ds-meadow__tag,
+.ds-meadow__link:focus-visible .ds-meadow__tag,
+.ds-meadow__pet--tagged .ds-meadow__tag { display: block; }
+/* the foot under the ground: the numbers the contract keeps, the explorer link, and the toggle at the end — its own
+   row, so no pet stands under the toggle. On the phone the numbers take the first row, the link and the toggle the
+   second; on the desktop one row, the numbers and the link in the middle, the toggle at the end */
+.ds-meadow__foot { display: flex; flex: none; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: var(--space-2) var(--space-5); padding-block: var(--space-2); }
+.ds-meadow__foot--numbers { justify-content: space-between; border-top: var(--stroke-hairline) solid var(--color-line-hairline); padding-block: var(--space-3) var(--space-2); }
+.ds-meadow__stats { display: flex; flex: 1 0 100%; justify-content: space-between; gap: var(--space-3); margin: var(--space-0); padding: var(--space-0); list-style: none; }
+.ds-meadow__stats--loading { visibility: hidden; }
+.ds-meadow__stat { display: flex; flex-direction: column; align-items: center; text-align: center; }
+.ds-meadow__value { color: var(--color-text-primary); font-variant-numeric: tabular-nums; }
+.ds-meadow__label { color: var(--color-text-secondary); }
+.ds-meadow__explore { flex: 1 1 auto; }
+.ds-meadow__motion { display: flex; flex: none; justify-content: flex-end; }
 @media (min-width: 768px) {
   .ds-meadow__pet { --ds-meadow-pet: var(--size-meadow-pet); }
   .ds-meadow__pet--wide { display: block; }
-  .ds-meadow__motion { padding-block: var(--space-3) var(--space-5); }
+  .ds-meadow__foot { padding-block: var(--space-3) var(--space-5); }
+  .ds-meadow__foot--numbers { flex-wrap: nowrap; justify-content: center; gap: var(--space-7); padding-block: var(--space-4) var(--space-5); }
+  .ds-meadow__stats { flex: none; gap: var(--space-7); }
+  .ds-meadow__explore { flex: none; }
+  .ds-meadow__foot--numbers .ds-meadow__motion { position: absolute; right: var(--space-0); }
+  .ds-meadow__foot--numbers { position: relative; }
 }
 /* paused («Pause motion») and reduced motion: the «z» stand still, both shown */
 .ds-meadow--paused .ds-meadow__zz .ds-icon { animation: none; opacity: 1; }
@@ -1437,6 +1475,7 @@
 }
 @media (forced-colors: active) {
   .ds-meadow__ground::before { display: none; }
+  .ds-meadow__tag { border: var(--stroke-hairline) solid CanvasText; }
 }
 
 /* ── Actions: one moment's actions — stacked full width on the phone, side by side on the desktop ─────────── */

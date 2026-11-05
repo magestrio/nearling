@@ -1,6 +1,7 @@
 mod common;
 
 use common::*;
+use near_sdk::borsh;
 use near_workspaces::types::NearToken;
 use nearling_contract::events::hex;
 use serde_json::{Value, json};
@@ -127,8 +128,11 @@ async fn built_wasm_exposes_version_and_source_metadata() -> anyhow::Result<()> 
     // Simulate an account still holding the pre-verification state, then redeploy and migrate it.
     let pool_before_migration = ctx.pool().await?;
     let state = ctx.read_state().await?;
-    anyhow::ensure!(state.ends_with(&[1, 0, 0, 0, b'g']), "new transfer map is the state tail");
-    ctx.worker.patch_state(ctx.contract.id(), b"STATE", &state[..state.len() - 5]).await?;
+    let counters = borsh::to_vec(&(1u64, 0u64, 0u128))?;
+    assert_eq!(&state[state.len() - counters.len()..], counters);
+    let old_tail = state.len() - counters.len() - 5;
+    assert_eq!(&state[old_tail..old_tail + 5], &[1, 0, 0, 0, b'g']);
+    ctx.worker.patch_state(ctx.contract.id(), b"STATE", &state[..old_tail]).await?;
     ctx.contract.as_account().deploy(&updated_wasm).await?.into_result()?;
     ctx.contract.call("migrate_verification").args_json(json!({})).transact().await?.into_result()?;
     assert!(

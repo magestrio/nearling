@@ -16,6 +16,7 @@ import type {
   PublicGift,
   HatchStatus,
   HireBoard,
+  ShowcaseCopy,
   HireMode,
   Me,
   MyPets,
@@ -40,6 +41,8 @@ export interface FakeFail {
 }
 
 export interface FakeWorkerState {
+  showcase?: ShowcaseCopy | FakeFail;
+  showcaseDelayMs?: number;
   hireBoard?: HireBoard | FakeFail;
   hireBoardDelayMs?: number;
   publicGift?: PublicGift | FakeFail;

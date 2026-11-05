@@ -1,6 +1,10 @@
 /* The DS ground's single scene canvas and the flat fallback fill the boxes already sized by components.css. */
 .ds-meadow__canvas { position: absolute !important; inset: var(--space-0); width: 100% !important; height: 100% !important; pointer-events: none; }
 .ds-meadow__pet { aspect-ratio: 1192 / 1423; pointer-events: none; }
+.ds-meadow__link { pointer-events: auto; }
+.ds-meadow__tag { pointer-events: auto; }
+/* Bridge the token-sized air below the chip so the pointer can reach it without leaving the link. */
+.ds-meadow__tag::after { content: ''; position: absolute; inset-inline: var(--space-0); top: 100%; height: var(--space-1); }
 .ds-meadow__flat { display: block; width: 100%; height: 100%; }
 /* The phone's action is before the motion control in keyboard order, while the Dock stays below the ground. */
 .ds-page--fill > .ds-only--phone > .ds-dock { order: 2; }

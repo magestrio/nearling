@@ -23,6 +23,7 @@ export function ClearMemoryLayer({ children }: { children: ReactNode }) {
             key={request.tokenId}
             tokenId={request.tokenId}
             name={request.name}
+            unsettledSharedJob={request.unsettledSharedJob}
             onClose={closeClearMemory}
             onDone={() => {
               cleared.current = true;

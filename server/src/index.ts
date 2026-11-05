@@ -12,6 +12,7 @@ import { hireRoutes } from './routes/hire';
 import { memoryRoutes } from './routes/memory';
 import { petRoutes } from './routes/pets';
 import { exchangeRoutes, sessionRoutes } from './routes/session';
+import { showcaseRoutes } from './routes/showcase';
 import { sourceRoutes } from './routes/sources';
 import { thoughtRoutes } from './routes/thoughts';
 import { wardrobeRoutes } from './routes/wardrobe';
@@ -35,6 +36,7 @@ app.route('/', exchangeRoutes);
 // Every other /api route: the request limit first, then the session (src/http.ts).
 app.use('/api/*', gate);
 app.route('/', sessionRoutes);
+app.route('/', showcaseRoutes);
 app.route('/', petRoutes);
 app.route('/', thoughtRoutes);
 app.route('/', memoryRoutes);
@@ -60,6 +62,7 @@ export default { fetch: app.fetch, scheduled } satisfies ExportedHandler<Env>;
 
 export { Limiter } from './do/limiter';
 export { GuestView } from './do/guestView';
+export { Showcase } from './do/showcase';
 export { ServerKey } from './do/serverKey';
 export { SourceCache } from './do/sourceCache';
 export { PetDesk } from './pet/desk';

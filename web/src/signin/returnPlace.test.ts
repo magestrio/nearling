@@ -53,6 +53,13 @@ describe('the record of a sign-in', () => {
     expect(takeReturnPlace()).toEqual({ path: '/pet/2', action: 'feed', cancelled: true });
   });
 
+  it('stores and takes a shared errand URL and Feed action in this tab', () => {
+    rememberReturnPlace({ path: '/pet/9/errand/abc123', action: 'feed' });
+    expect(peekReturnPlace()).toEqual({ path: '/pet/9/errand/abc123', action: 'feed' });
+    expect(takeReturnPlace()).toEqual({ path: '/pet/9/errand/abc123', action: 'feed' });
+    expect(peekReturnPlace()).toBeNull();
+  });
+
   // spec: add-account › Sign-in return data › вход со ссылки подарка × перезагрузка на главной
   it('is taken once: a reload at `/` after the return finds nothing', () => {
     rememberReturnPlace({ path: '/pet/2', action: 'signin' });

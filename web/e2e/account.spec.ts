@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { BISCUIT, openWith, OWNER, PIXEL, SIGNED_IN } from './helpers';
+import { BISCUIT, CLOSED_NEW, openWith, OWNER, PIXEL, SIGNED_IN, UA } from './helpers';
 
 const ASLEEP = { ...PIXEL, fullness: { state: 'asleep' as const, level: 0 } };
 const ME_PIXEL = { accountId: 'a'.repeat(64), hatched: { tokenId: '9', name: 'Pixel' }, currentPet: { tokenId: '9', name: 'Pixel' }, ownedCount: 1 };
@@ -85,4 +85,45 @@ test('success: a visitor has no Account button', async ({ page }) => {
   await openWith(page, '/pet/2', {});
   await expect(page.getByRole('button', { name: 'Sign in' })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Account' })).toHaveCount(0);
+});
+
+// spec: add-account › Account menu screen › success
+test('success: signed-in catalog and hire board keep the ordinary Account menu', async ({ page }) => {
+  await openWith(page, '/adapters', { auth: SIGNED_IN });
+  const account = page.getByRole('button', { name: 'Account' });
+  await expect(account).toBeVisible();
+  await account.click();
+  await expect(page.getByRole('menuitem')).toHaveText(['Sign out']);
+  await page.keyboard.press('Escape');
+  await expect(account).toBeFocused();
+  await page.goto('/hire');
+  await expect(page).toHaveURL('/hire');
+  await page.getByRole('button', { name: 'Account' }).click();
+  await expect(page.getByRole('menuitem')).toHaveText(['Sign out']);
+});
+
+// spec: add-account › Sign-in flow › вход закрыт
+test('catalog and hire board use the shared Sign-in closed sheet', async ({ page }) => {
+  await openWith(page, '/adapters', { worker: { signIn: CLOSED_NEW } });
+  await page.getByRole('button', { name: 'Sign in' }).click();
+  await expect(page.getByRole('dialog')).toContainText("We're full for new players this month.");
+  await page.getByRole('button', { name: 'Keep looking' }).click();
+  await page.goto('/hire');
+  await page.getByRole('button', { name: 'Sign in' }).click();
+  await expect(page.getByRole('dialog')).toContainText("We're full for new players this month.");
+});
+
+test.describe('account screens inside X on Android', () => {
+  test.use({ userAgent: UA.xOnAndroid, viewport: { width: 390, height: 844 } });
+
+  // spec: add-account › Sign-in flow › встроенный браузер
+  test('catalog and hire board offer the shared Open in browser sheet', async ({ page }) => {
+    await openWith(page, '/adapters');
+    await page.getByRole('button', { name: 'Sign in' }).click();
+    await expect(page.getByRole('dialog')).toContainText('Open in your browser to sign in');
+    await page.getByRole('button', { name: 'Close' }).click();
+    await page.goto('/hire');
+    await page.getByRole('button', { name: 'Sign in' }).click();
+    await expect(page.getByRole('dialog')).toContainText('Open in your browser to sign in');
+  });
 });

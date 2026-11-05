@@ -64,6 +64,7 @@ test.describe('Android, inside X', () => {
     await expect(field).toBeVisible();
     await expect(field).toHaveValue(/\/pet\/2\?ib=x$/);
     await expect(field).toHaveAttribute('readonly', '');
+    await expect(field).toHaveJSProperty('tagName', 'TEXTAREA');
     await expect(dialog(page).getByRole('button', { name: 'Open in browser' })).toHaveCount(0);
     // the focus is in the field, its text selected, for the player to copy by hand
     await expect(field).toBeFocused();
@@ -132,6 +133,7 @@ test.describe('iPhone, inside X', () => {
     await expect(field).toBeVisible();
     await expect(field).toHaveValue(/\/pet\/2\?ib=x$/);
     await expect(field).toHaveAttribute('readonly', '');
+    await expect(field).toHaveJSProperty('tagName', 'TEXTAREA');
     await expect(dialog(page).getByText(COPIED)).toHaveCount(0);
   });
 });
