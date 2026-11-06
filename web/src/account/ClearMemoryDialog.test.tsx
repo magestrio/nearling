@@ -13,6 +13,7 @@ function render(unsettledSharedJob: boolean) {
         unsettledSharedJob={unsettledSharedJob}
         onClose={() => undefined}
         onDone={() => undefined}
+        onRetry={() => undefined}
         onNotOwner={() => undefined}
         returnFocusTo={() => null}
       />

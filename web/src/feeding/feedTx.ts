@@ -39,6 +39,8 @@ export interface Expected {
   portion: PortionNear;
   /** the pets contract; defaults to this build's */
   contractId?: string;
+  linked?: boolean;
+  jobHash?: string;
 }
 
 export function fromBase64(text: string): Uint8Array | null {
@@ -97,7 +99,11 @@ export function checkFeedTx(tx: string, expected: Expected): TxCheck {
     return { ok: false, why: 'args' };
   }
   const keys = typeof args === 'object' && args !== null ? Object.keys(args) : [];
-  if (keys.length !== 1 || keys[0] !== 'token_id' || (args as { token_id: unknown }).token_id !== expected.tokenId) return { ok: false, why: 'args' };
+  if (expected.linked) {
+    if (keys.sort().join(',') !== 'job_hash,token_id' || typeof (args as { job_hash?: unknown }).job_hash !== 'string' || !/^[0-9a-f]{64}$/.test((args as { job_hash: string }).job_hash)) return { ok: false, why: 'args' };
+    if ((args as { job_hash: string }).job_hash !== expected.jobHash) return { ok: false, why: 'args' };
+  } else if (keys.length !== 1 || keys[0] !== 'token_id') return { ok: false, why: 'args' };
+  if ((args as { token_id: unknown }).token_id !== expected.tokenId) return { ok: false, why: 'args' };
   if (call.deposit !== PORTION_YOCTO[expected.portion]) return { ok: false, why: 'deposit' };
   if (call.gas > MAX_FEED_GAS) return { ok: false, why: 'gas' };
   return { ok: true, bytes };

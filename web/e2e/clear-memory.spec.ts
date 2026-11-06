@@ -12,6 +12,10 @@ const UNKNOWN = "We couldn't confirm whether Pixel's memory was cleared. Reload 
 const BUSY = 'Lots of visitors right now. Try again in a minute.';
 const DONE = "Pixel's memory is clear — same Pixel, fresh start.";
 const NEW_OWNER = 'Pixel belongs to a new owner now, so nothing was erased.';
+const SHARED_WARNING = "Clearing memory will close this shared link. You'll sign approval so unused food can return to Pixel.";
+const SHARED_JOB = { tokenId: '9', name: 'Pixel', state: 'funding' as const, form: 'find' as const,
+  job: 'When does the next NEAR release ship?', viewer: 'owner' as const, funded: '1700000000000000000000',
+  needed: '4330000000000000000000', chainState: 'Funding' as const, fullness: PIXEL.fullness };
 const ME_BISCUIT = { accountId: 'a'.repeat(64), hatched: { tokenId: '2', name: 'Biscuit' }, currentPet: { tokenId: '2', name: 'Biscuit' }, ownedCount: 1 };
 
 const clearCalls = async (page: Page) => (await calls(page)).filter((c) => c === 'worker:clearMemory:9');
@@ -23,6 +27,46 @@ async function openDialog(page: Page, worker: Record<string, unknown> = {}) {
   await page.getByRole('menuitem', { name: "Clear Pixel's memory" }).click();
   await expect(dialog(page)).toBeVisible();
 }
+
+// spec: add-account › Clear memory dialog screen › success (unsettled shared job)
+// spec: add-account › Memory deletion flow › unsettled shared job
+test('Account opener warns of an unsettled link and signs before one atomic clear', async ({ page }) => {
+  await openDialog(page, { sharedErrand: SHARED_JOB });
+  await expect(dialog(page).getByText(SHARED_WARNING)).toBeVisible();
+  await dialog(page).getByRole('button', { name: 'Clear memory' }).click();
+  await expect(dialog(page)).toHaveCount(0);
+  await expect(page.getByRole('log')).toContainText(DONE);
+  expect(await clearCalls(page)).toHaveLength(1);
+  expect(await calls(page)).toContain('worker:clearMemoryApproval');
+  await expect(page.getByRole('log')).not.toContainText('Start with the chart, then.');
+});
+
+// spec: add-account › Clear memory dialog screen › success (unsettled shared job)
+test('Gift opener carries the same warning and returns to the Gift sheet after clear', async ({ page }) => {
+  await openWith(page, '/pet/9', { auth: SIGNED_IN, worker: { ...OWNER, sharedErrand: SHARED_JOB } });
+  await page.getByRole('button', { name: 'Give Pixel away' }).click();
+  const gift = page.getByRole('dialog', { name: 'Give Pixel to a friend' });
+  await gift.getByRole('button', { name: 'Clear memory' }).click();
+  await expect(dialog(page).getByText(SHARED_WARNING)).toBeVisible();
+  await dialog(page).getByRole('button', { name: 'Clear memory' }).click();
+  await expect(dialog(page)).toHaveCount(0);
+  await expect(gift).toBeVisible();
+  expect(await calls(page)).toContain('worker:clearMemoryApproval');
+});
+
+// spec: add-account › Memory deletion flow › shared job close refused
+// spec: add-account › Memory deletion flow › close retry after memory clear
+test('refused close keeps words; a confirmed erase with delayed close reports its recovery state', async ({ page }) => {
+  await openDialog(page, { sharedErrand: SHARED_JOB, clearMemory: { fail: { status: 409, code: 'close_refused' } } });
+  await dialog(page).getByRole('button', { name: 'Clear memory' }).click();
+  await expect(dialog(page).getByRole('alert')).toHaveText(FAILED);
+  await expect(page.getByRole('log')).toContainText('Start with the chart, then.');
+  await setWorker(page, { clearMemory: { code: 'close_retry' } });
+  await dialog(page).getByRole('button', { name: 'Try again' }).click();
+  await expect(dialog(page)).toHaveCount(0);
+  await expect(page.getByRole('log')).toContainText("Memory cleared. This job's food is still reserved while we retry closing it.");
+  await expect(page.getByRole('log')).not.toContainText('Start with the chart, then.');
+});
 
 // spec: add-account › Clear memory dialog screen › success
 test('success: the title, what Pixel forgets, «Clear memory» and «Keep memory»; the focus is on the safe action', async ({ page }) => {

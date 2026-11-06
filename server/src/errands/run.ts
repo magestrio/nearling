@@ -38,6 +38,7 @@ import { settleInterrupted } from './late';
 import { cutPrice, READ_LIMIT_TOKENS, REASK_FUSE, REPORT_FUSE, need } from './price';
 import { linkOf, readPage, tokensOf } from './reader';
 import { awayErrand, failErrand, tokensCostUsd, type ErrandRow, type Paid } from './store';
+import { settleSharedOutcome } from './sharedSettle';
 
 /** What the desk queues for an errand: nothing but the fact; the form and the job live on the errand row. */
 export type ErrandJob = { kind: 'errand' };
@@ -49,15 +50,18 @@ const FAILED: JobResult = { code: 'errand_failed' };
 export async function runErrand(env: Env, tokenId: string, epoch: number): Promise<JobResult> {
   const row = await awayErrand(env.DB, tokenId);
   if (row === null) return FAILED;
+  let result: JobResult;
   try {
-    return await go(env, tokenId, epoch, row);
+    result = await go(env, tokenId, epoch, row);
   } catch (e) {
     console.log(e instanceof ChainUnreachable ? 'errand_chain' : 'errand_error');
     // A search can already be signed and stored when the data or report step throws. Its recorded searches
     // must become an unbilled failed thought; only an errand with no such thought takes the no-spend path.
     if ((await settleInterrupted(env, tokenId)) === null) await failErrand(env.DB, row, { reason: 'empty' });
-    return FAILED;
+    result = FAILED;
   }
+  if (row.shared_job_hash != null) await settleSharedOutcome(env, row);
+  return result;
 }
 
 async function go(env: Env, tokenId: string, epoch: number, row: ErrandRow): Promise<JobResult> {
@@ -76,7 +80,7 @@ async function go(env: Env, tokenId: string, epoch: number, row: ErrandRow): Pro
 
   // A block that holds now but did not at «Send»: nothing is spent or searched; the sheet opens with the job
   // (`Errand flow` › «blocked after Send»).
-  const { block, food, hasData } = await blocksOf(env, tokenId, pet, row.form, now, true);
+  const { block, food, hasData } = await blocksOf(env, tokenId, pet, row.form, now, true, row.shared_job_hash ?? undefined);
   if (block !== null) {
     await failErrand(env.DB, row, { reason: 'blocked' });
     return FAILED;

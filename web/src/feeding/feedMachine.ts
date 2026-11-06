@@ -25,7 +25,7 @@ export type Phase =
   /** the owner's awake pet was fed: «Yum! {name} is fuller now.» and «Done» */
   | { kind: 'yum'; sheet: FeedSheetData }
   /** a friend's meal or snack was confirmed: the thanks, with «Done» or «Get your own pet» */
-  | { kind: 'thanks'; sheet: FeedSheetData; friend: string | null; hatched: boolean }
+  | { kind: 'thanks'; sheet: FeedSheetData; friend: string | null; hatched: boolean; source: FeedSource }
   /** the step inside the sheet that shows the wallet's address; `from` is the sheet it returns to */
   | { kind: 'addNear'; from: FeedSheetData }
   /** nothing more to show: the sheet closes by itself (the owner's pet woke) or by «Done» */
@@ -131,7 +131,7 @@ export function reduce(phase: Phase, action: Action): Phase {
       // confirmed. A friend gets the thanks. The owner's snack, and a meal that woke the pet, close the sheet at once and the
       // page takes over (`Sleep and wake flow`); a meal for the awake pet says «Yum!»
       if (phase.sheet.viewer === 'guest') {
-        return { kind: 'thanks', sheet: phase.sheet, friend: action.friend ?? null, hatched: action.hatched ?? phase.sheet.hatched };
+        return { kind: 'thanks', sheet: phase.sheet, friend: action.friend ?? null, hatched: action.hatched ?? phase.sheet.hatched, source: phase.source };
       }
       return phase.source === 'snack' || phase.wasAsleep ? { kind: 'done' } : { kind: 'yum', sheet: phase.sheet };
     }

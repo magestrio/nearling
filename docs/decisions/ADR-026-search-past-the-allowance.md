@@ -3,9 +3,10 @@
 **Status:** Accepted (the user, 2026-11-03, build add-pet-errands: OD-1861 → «Обрывать» — option A)
 **Date:** 2026-11-03
 **Deciders:** the user
+**Amended:** 2026-11-04 — the allowance of 2 holds only for a pet whose skill has data sources (reading a source takes the third search's place); a pet with code alone keeps 3, and the sheet shows a data-source pet its real ceiling, «up to ≈ 1.75¢» (`add-pet-errands` › `Errand sheet screen` › «a skill with outside data»).
 
 ## Context
-A «Find out» or «Is it true?» errand runs one streamed NEAR AI call with the server-side tool `web_context_search`; NEAR AI runs the searches inside that call, and the model decides how many (OD-1760: up to 3; 2 for a pet whose skill has data sources or code; fewer when food pays fewer — `add-pet-errands` › `Errand price data`). NEAR AI documents no cap on searches in a call: forced, the model ran 5 in one call (REVIEW_LOG.md, 2026-11-01).
+A «Find out» or «Is it true?» errand runs one streamed NEAR AI call with the server-side tool `web_context_search`; NEAR AI runs the searches inside that call, and the model decides how many (OD-1760: up to 3; 2 for a pet whose skill has data sources — code alone keeps 3, amended 2026-11-04; fewer when food pays fewer — `add-pet-errands` › `Errand price data`). NEAR AI documents no cap on searches in a call: forced, the model ran 5 in one call (REVIEW_LOG.md, 2026-11-01).
 
 Recorded on `dev` 2026-11-03 (the user's yes; REVIEW_LOG.md, 2026-11-03 · paid recordings on dev):
 - With `tool_choice: "auto"` and `enable_thinking: false`, each search shows in the stream — its tool-call id and its query — about 2 s before its result arrives. So the server sees a search past the allowance before it runs.

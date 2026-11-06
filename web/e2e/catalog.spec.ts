@@ -47,16 +47,16 @@ const ownerWorker = (sources: SourceView[] = [], extra: Record<string, unknown> 
 });
 
 const connectButtons = (page: Page) => page.getByRole('button', { name: /^Connect to Pixel's skill/ });
-const connectSheet = (page: Page) => page.getByRole('dialog', { name: "Connect data to Pixel's skill" });
+const connectSheet = (page: Page) => page.getByRole('dialog', { name: "Add a data source to Pixel's skill" });
 const skillSheet = (page: Page) => page.getByRole('dialog', { name: "Pixel's skill" });
-const BROWSE_LINE = "To connect one, open your pet's skill and tap “Add data”.";
+const BROWSE_LINE = "To connect one, open your pet's skill and tap «Add data».";
 const SESSION_LINE = "You've been signed out. Sign in to pick up where you left off.";
 
 // spec: add-pet-errands › Adapter catalog screen › error
 test('error: «We couldn\'t load the catalog. Try again in a moment.» and «Try again», which reads the catalog again', async ({ page }) => {
   await openWith(page, '/adapters?pet=9', { auth: SIGNED_IN, worker: ownerWorker([], { adapters: { fail: { status: 503, code: 'unavailable' } } }) });
   await expect(page.getByText("We couldn't load the catalog. Try again in a moment.")).toBeVisible();
-  await expect(page.getByRole('heading', { level: 1, name: 'Adapter catalog' })).toBeVisible();
+  await expect(page.getByRole('heading', { level: 1, name: 'Data source catalog' })).toBeVisible();
   await setWorker(page, { adapters: { entries: ENTRIES } });
   await page.getByRole('button', { name: 'Try again' }).click();
   await expect(page.getByRole('heading', { level: 2, name: 'Open-Meteo' })).toBeVisible();
@@ -66,7 +66,7 @@ test('error: «We couldn\'t load the catalog. Try again in a moment.» and «Try
 // spec: add-pet-errands › Adapter catalog screen › success
 test('success: every entry with its address, the pet it came from and its tools, each with «Connect to Pixel\'s skill»; «Back to Pixel» in the header', async ({ page }) => {
   await openWith(page, '/adapters?pet=9', { auth: SIGNED_IN, worker: ownerWorker() });
-  const list = page.getByRole('list', { name: 'Adapters' });
+  const list = page.getByRole('list', { name: 'Data sources' });
   await expect(list.getByRole('heading', { level: 2 })).toHaveText(['Open-Meteo', 'Moon phases', 'Tide times']);
   await expect(list.getByText('from Sage')).toBeVisible();
   await expect(list.getByText('https://moon.example.com/mcp')).toBeVisible();
@@ -110,7 +110,7 @@ test('connect from the catalog: Adapter sheet with the entry\'s name and address
   const dialog = connectSheet(page);
   await expect(dialog).toBeVisible();
   await expect(dialog.getByLabel('Name it')).toHaveValue('Open-Meteo');
-  await expect(dialog.getByLabel('Address')).toHaveValue('https://mcp.open-meteo.example.com');
+  await expect(dialog.getByLabel('Link')).toHaveValue('https://mcp.open-meteo.example.com');
   await expect(dialog.getByRole('checkbox', { name: 'forecast' })).toBeChecked();
   await expect(dialog.getByRole('checkbox', { name: 'air_quality' })).toBeChecked();
   expect(await calls(page)).toContain('worker:checkSource');
@@ -127,7 +127,7 @@ test('saved × a connect from the catalog: «Save adapter» leads to Pixel\'s pa
   await openWith(page, '/adapters?pet=9', { auth: SIGNED_IN, worker: ownerWorker([], { checkSource: { tools: TOOLS } }) });
   await page.getByRole('button', { name: "Connect to Pixel's skill Moon phases" }).click();
   await connectSheet(page).getByRole('checkbox', { name: 'forecast' }).waitFor();
-  await connectSheet(page).getByRole('button', { name: 'Save adapter' }).click();
+  await connectSheet(page).getByRole('button', { name: 'Save data source' }).click();
   await expect(page).toHaveURL(/\/pet\/9$/);
   const dialog = skillSheet(page);
   await expect(dialog).toBeVisible();
@@ -151,10 +151,16 @@ test('success × the pet fell asleep meanwhile: «Back to Pixel» leads to its p
 test('browse only: a player with a pet of their own by the address — every entry without «Connect», and the line why', async ({ page }) => {
   await openWith(page, '/adapters', { auth: SIGNED_IN, worker: ownerWorker() });
   await expect(page.getByText(BROWSE_LINE)).toBeVisible();
+  await expect(page.getByRole('link', { name: 'Go to Pixel' })).toHaveAttribute('href', '/pet/9');
   await expect(page.getByRole('heading', { level: 2 })).toHaveCount(3);
   await expect(connectButtons(page)).toHaveCount(0);
   await expect(page.getByRole('link', { name: /^Back to/ })).toHaveCount(0);
   await expect(page.getByRole('button', { name: 'Account' })).toBeVisible();
+  await page.getByRole('button', { name: 'Account' }).click();
+  await expect(page.getByRole('menu', { name: 'Account' })).toBeVisible();
+  await page.keyboard.press('Escape');
+  await page.getByRole('link', { name: 'Go to Pixel' }).click();
+  await expect(page).toHaveURL(/\/pet\/9$/);
 });
 
 // spec: add-pet-errands › Adapter catalog screen › browse only
@@ -169,24 +175,37 @@ test('browse only: `?pet=` of a pet they don\'t own reads the same', async ({ pa
 test('browse only × the pet given away: the pet is not theirs any more — the next connect meets the refusal and the page reads as browse only', async ({ page }) => {
   await openWith(page, '/adapters?pet=9', { auth: SIGNED_IN, worker: ownerWorker() });
   await expect(connectButtons(page)).toHaveCount(3);
-  await setWorker(page, { owned: [], me: { ...ME, currentPet: null, ownedCount: 1 }, checkSource: { fail: { status: 403, code: 'not_owner' } } });
+  await setWorker(page, { owned: ['2'], me: { ...ME, currentPet: { tokenId: '2', name: 'Biscuit' }, ownedCount: 1 }, checkSource: { fail: { status: 403, code: 'not_owner' } } });
   await page.getByRole('button', { name: "Connect to Pixel's skill Open-Meteo" }).click();
   await expect(page.getByText(BROWSE_LINE)).toBeVisible();
   await expect(connectButtons(page)).toHaveCount(0);
   await expect(connectSheet(page)).toHaveCount(0);
   await expect(page.getByRole('link', { name: /^Back to/ })).toHaveCount(0);
+  await expect(page.getByRole('link', { name: 'Go to Biscuit' })).toHaveAttribute('href', '/pet/2');
 });
 
 // spec: add-pet-errands › Adapter catalog screen › browse only, no pet
-test('browse only, no pet: «Every adapter here is free. …» and «Get your own pet», which leads to hatching', async ({ page }) => {
+test('browse only, no pet: the data source line and «Get your own pet», which leads to hatching', async ({ page }) => {
   await openWith(page, '/adapters', { auth: SIGNED_IN, worker: { adapters: { entries: ENTRIES } } });
-  await expect(page.getByText("Every adapter here is free. To connect one, you'll need a pet of your own.")).toBeVisible();
+  await expect(page.getByText("Every data source here is free. To connect one, you'll need a pet of your own.")).toBeVisible();
+  await expect(page.locator('.ds-page > .ds-stack > .ds-stack').getByRole('link', { name: 'Get your own pet' })).toBeVisible();
   await expect(page.getByRole('heading', { level: 2 })).toHaveCount(3);
   await expect(connectButtons(page)).toHaveCount(0);
   await expect(page.getByText(BROWSE_LINE)).toHaveCount(0);
   await page.getByRole('link', { name: 'Get your own pet' }).click();
   await expect(page).toHaveURL(/\/hatch$/);
   await expect(page.getByLabel('Name your pet')).toBeVisible();
+});
+
+// spec: add-pet-errands › Adapter catalog screen › browse only, no pet
+test('failed ownership lookup never claims the player has no pet', async ({ page }) => {
+  await openWith(page, '/adapters', { auth: SIGNED_IN, worker: ownerWorker([], { me: { fail: { status: 503, code: 'unavailable' } } }) });
+  await expect(page.getByRole('heading', { level: 2 })).toHaveCount(3);
+  await expect(page.getByText("Every data source here is free. To connect one, you'll need a pet of your own.")).toHaveCount(0);
+  await expect(page.getByRole('link', { name: 'Get your own pet' })).toHaveCount(0);
+  await setWorker(page, { me: ME });
+  await page.getByRole('button', { name: 'Try again' }).click();
+  await expect(page.getByText(BROWSE_LINE)).toBeVisible();
 });
 
 // spec: add-pet-errands › Adapter catalog screen › signed-out
@@ -196,10 +215,20 @@ test('signed-out: a visitor sees every entry without «Connect», «Sign in to c
   await expect(page.getByRole('heading', { level: 2 })).toHaveCount(3);
   await expect(connectButtons(page)).toHaveCount(0);
   await expect(page.getByRole('button', { name: 'Sign in' })).toBeVisible();
+  await expect(page.locator('header').getByRole('button', { name: 'Sign in' })).toBeVisible();
+  await expect(page.locator('.ds-page > .ds-stack > .ds-stack').getByRole('link', { name: 'Get your own pet' })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Account' })).toHaveCount(0);
+  await expect(page.getByRole('link', { name: 'Go home' })).toHaveAttribute('href', '/');
   await page.getByRole('link', { name: 'Get your own pet' }).click();
   await expect(page).toHaveURL(/\/hatch$/);
   await expect(page.getByRole('button', { name: 'Sign in with Google to hatch your pet' })).toBeVisible();
+});
+
+// spec: add-pet-errands › Adapter catalog screen › signed-out
+test('signed-out: Go home leaves the catalog for Home', async ({ page }) => {
+  await openWith(page, '/adapters', { worker: { adapters: { entries: ENTRIES } } });
+  await page.getByRole('link', { name: 'Go home' }).click();
+  await expect(page).toHaveURL(/\/$/);
 });
 
 // spec: add-pet-errands › Adapter catalog screen › signed-out × sign-in
@@ -244,12 +273,12 @@ test('success × the session ends and sign-in returns: the sheet meets the ended
   await page.getByRole('button', { name: "Connect to Pixel's skill Open-Meteo" }).click();
   await connectSheet(page).getByRole('checkbox', { name: 'forecast' }).waitFor();
   await setWorker(page, { sessionExpired: true });
-  await connectSheet(page).getByRole('button', { name: 'Save adapter' }).click();
+  await connectSheet(page).getByRole('button', { name: 'Save data source' }).click();
   await expect(connectSheet(page).getByText(SESSION_LINE).first()).toBeVisible();
   await setWorker(page, { sessionExpired: false });
   await connectSheet(page).getByRole('button', { name: 'Sign in' }).click();
   await expect(page).toHaveURL(/\/adapters\?pet=9$/);
   await expect(connectSheet(page)).toBeVisible();
   await expect(connectSheet(page).getByLabel('Name it')).toHaveValue('Open-Meteo');
-  await expect(connectSheet(page).getByLabel('Address')).toHaveValue('https://mcp.open-meteo.example.com');
+  await expect(connectSheet(page).getByLabel('Link')).toHaveValue('https://mcp.open-meteo.example.com');
 });

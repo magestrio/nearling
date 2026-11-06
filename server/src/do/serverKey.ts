@@ -21,7 +21,19 @@ export class ServerKey extends DurableObject<Env> {
     return this.enqueue(async () => {
       this.keys ??= serverAccount(this.env);
       const { writes } = call;
-      return signAndSend(this.env, this.keys, call, writes === undefined ? undefined : (hash, bytes) => noteItemSend(this.env.DB, writes, hash, Date.now(), bytes));
+      return signAndSend(this.env, this.keys, call, writes === undefined ? undefined : async (hash, bytes) => {
+        if (writes.kind === 'shared_open') {
+          const noted = await this.env.DB.prepare("UPDATE shared_errands SET open_tx_hash = ?, open_signed_bytes = ? WHERE token_id = ? AND job_hash = ? AND state = 'opening'")
+            .bind(hash, bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength), writes.tokenId, writes.jobHash).run();
+          if (noted.meta.changes !== 1) throw new ChainUnreachable();
+        } else if (writes.kind === 'shared_debit') {
+          const noted = await this.env.DB.prepare('UPDATE debit_sessions SET tx_hash = ? WHERE id = ? AND debit_id = ?')
+            .bind(hash, writes.sessionId, writes.debitId).run();
+          if (noted.meta.changes !== 1) throw new ChainUnreachable();
+        } else {
+          await noteItemSend(this.env.DB, writes, hash, Date.now(), bytes);
+        }
+      });
     });
   }
 

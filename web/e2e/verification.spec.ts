@@ -1,10 +1,25 @@
 import { expect, test } from '@playwright/test';
 import { openWith, setWorker } from './helpers';
 import { MISSING_ID, OLD_ID, THINK_ID, TX_HASHES, verificationFakes } from './verification.fixtures';
+import { OWNER } from './helpers';
+import { sampleDiary } from '../src/seams/diary.sample';
 import type { FakeState } from '../src/seams/fakes';
 import type { VerificationThought } from '../src/seams/worker-types';
 
 const TOO_OLD = 'Too old to check here. This page can only read about a day back on NEAR — the explorer has the whole history.';
+
+// spec: add-verification › Verification flow › watch check receipt
+// spec: add-pet-errands › Daily watch flow › named content changed
+test('a changed watch Diary entry links its receipt and opens Verification', async ({ page }) => {
+  const proof = verificationFakes({ variant: 'errand' });
+  await page.clock.install({ time: new Date('2026-10-31T12:00:00.000Z') });
+  await openWith(page, '/pet/9/diary', { ...proof, worker: { ...proof.worker, ...OWNER,
+    diary: { ...sampleDiary(), watch: [{ target: 'NEAR price', change: 'The named price changed.', sources: ['https://near.org'], priceYocto: '1700000000000000000000', receiptId: THINK_ID }] } } });
+  const entry = page.getByText('Pixel checked NEAR price: The named price changed.');
+  await expect(entry).toBeVisible();
+  await page.getByRole('link', { name: 'Check this thought' }).last().click();
+  await expect(page).toHaveURL(new RegExp(`/pet/9/verify/${THINK_ID}$`));
+});
 
 // spec: add-verification › Verification screen › loading
 test('loading: the record is read from NEAR before a checked mark is drawn', async ({ page }) => {

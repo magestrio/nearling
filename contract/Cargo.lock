@@ -2518,6 +2518,7 @@ dependencies = [
  "anyhow",
  "cargo-near-build",
  "near-contract-standards",
+ "near-crypto",
  "near-sdk",
  "near-workspaces",
  "serde_json",

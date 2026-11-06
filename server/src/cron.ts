@@ -5,6 +5,9 @@
 import { accountBalance, ChainUnreachable, petView, txStatus } from './chain';
 import { closeAndDebit } from './debit';
 import { settleLateErrands } from './errands/late';
+import { startReadyShared } from './errands/sharedRun';
+import { finishDueShared } from './errands/sharedSettle';
+import { recoverDueSharedCloses } from './errands/sharedClose';
 import { utcDay } from './http';
 import { cleanJudgeCodes, JUDGE_DELETE_AT } from './judge';
 import { keyIsValid } from './nearai';
@@ -22,6 +25,8 @@ import { riddleTick } from './riddle/cron';
 import { cleanQuotes } from './work/quote';
 import { clearPause, gasReserve, lastProbe, noteProbe, pauseReason, setPause } from './servicePause';
 import { monthOf } from './signin';
+import { dueWatches, queueWatchIfMissing, recoverUnqueuedWatches } from './watch/day';
+import { finishDueWatches } from './watch/settle';
 
 /** At most this many calls to NEAR AI at once for the diary (the provider allows ~64 per model, volatile). */
 const DIARY_AT_ONCE = 8;
@@ -56,7 +61,22 @@ export async function tick(env: Env, nowMs: number = Date.now()): Promise<void> 
     ['ritual', () => ritual(env, nowMs)],
     ['growth', () => growth(env, nowMs)],
     ['feedings', () => settleStaleFeedings(env, nowMs)],
+    ['shared', () => startReadyShared(env)],
+    ['shared_settle', () => finishDueShared(env)],
+    ['shared_close', () => recoverDueSharedCloses(env)],
     ['errands', () => settleLateErrands(env, nowMs)],
+    ['watch_settle', () => finishDueWatches(env)],
+    ['watch_recover', async () => {
+      for (const tokenId of await recoverUnqueuedWatches(env, nowMs)) {
+        await desk(env, tokenId).arm(tokenId);
+        await desk(env, tokenId).process(tokenId);
+      }
+    }],
+    ['watch', () => dueWatches(env, nowMs, async ({ row }) => {
+      await queueWatchIfMissing(env.DB, row.token_id, utcDay(nowMs), row.revision, nowMs);
+      await desk(env, row.token_id).arm(row.token_id);
+      await desk(env, row.token_id).process(row.token_id);
+    })],
     ['clean', () => clean(env, nowMs)],
   ];
   for (const [name, part] of parts) {

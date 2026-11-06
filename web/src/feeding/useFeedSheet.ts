@@ -131,6 +131,10 @@ export function useFeedSheet(request: FeedRequest, close: () => void) {
           closeRef.current();
           return;
         }
+        if (end.status === 'funding_closed') {
+          closeRef.current();
+          return;
+        }
         // another pet's flight: its sheet only redraws
         if (flight.tokenId !== tokenId || end.status === 'reread') {
           dispatch({ type: 'reread' });
@@ -169,10 +173,10 @@ export function useFeedSheet(request: FeedRequest, close: () => void) {
       }
       const host = hostOf(authRef.current);
       const started =
-        what.kind === 'portion' ? startMeal(host, { tokenId, portion: what.portion, wasAsleep }) : startSnack(host, { tokenId, wasAsleep });
+        what.kind === 'portion' ? startMeal(host, { tokenId, portion: what.portion, wasAsleep, sharedCode: request.sharedCode }) : startSnack(host, { tokenId, wasAsleep, sharedCode: request.sharedCode });
       if (started) dispatch({ type: 'tap', what });
     },
-    [tokenId],
+    [tokenId, request.sharedCode],
   );
 
   const tap = useCallback(

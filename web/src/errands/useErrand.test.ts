@@ -7,6 +7,7 @@ import type { ErrandQuote } from '../seams/worker-types';
 const mocks = vi.hoisted(() => ({
   errand: vi.fn(),
   sendErrand: vi.fn(),
+  prepareSharedErrand: vi.fn(),
   track: vi.fn(),
   auth: { needSession: (): boolean => true, endSession: vi.fn() },
 }));
@@ -14,7 +15,7 @@ vi.mock('../seams/auth', () => ({ useAuth: () => mocks.auth }));
 vi.mock('../track', () => ({ track: mocks.track }));
 vi.mock('../seams/worker', async () => ({
   ...(await import('../seams/worker-types')),
-  workerApi: { errand: mocks.errand, sendErrand: mocks.sendErrand },
+  workerApi: { errand: mocks.errand, sendErrand: mocks.sendErrand, prepareSharedErrand: mocks.prepareSharedErrand },
 }));
 
 import { announceFed } from '../feeding/feedRequest';
@@ -30,6 +31,7 @@ const QUOTE: ErrandQuote = {
   search: { upTo: { yocto: '4330000000000000000000', cents: 2 }, full: true, short: false, searches: 3, allowance: 3 },
   block: null,
   labels: [],
+  sharedNeeded: { yocto: '4330000000000000000000', cents: 2 },
 };
 const FOOD = { reason: 'food' as const, need: { yocto: '2000000000000000000000', cents: 0.93 } };
 
@@ -57,7 +59,7 @@ const rerender = (watch: string) => act(async () => root!.render(createElement(H
 const run = (fn: () => void | Promise<void>) => act(async () => void (await fn()));
 
 beforeEach(() => {
-  for (const m of [mocks.errand, mocks.sendErrand, mocks.track, sent, away, refused, failed]) m.mockReset();
+  for (const m of [mocks.errand, mocks.sendErrand, mocks.prepareSharedErrand, mocks.track, sent, away, refused, failed]) m.mockReset();
   mocks.auth.needSession = () => true;
   mocks.errand.mockImplementation(async (_t: unknown, _id: string, form: string) => ({ ...QUOTE, form }));
 });
@@ -65,9 +67,40 @@ afterEach(async () => {
   await act(async () => root?.unmount());
   root = null;
   host.remove();
+  window.history.replaceState(null, '', '/');
 });
 
 describe('Errand sheet', () => {
+  // spec: add-pet-errands › Errand flow › can't pay
+  it('keeps a fresh asleep opening share-only but shows the food block when an errand is reopened', async () => {
+    mocks.errand.mockImplementation(async (_t: unknown, _id: string, form: string) => ({ ...QUOTE, form, block: FOOD }));
+    await mount();
+    await run(() => sheet.openSheet(undefined, true));
+    expect(sheet.shareOnly).toBe(true);
+    expect(sheet.block).toEqual(FOOD);
+    await run(() => sheet.close());
+    await run(() => sheet.openSheet({ form: 'find', job: 'When do the Leonids peak?' }, true));
+    expect(sheet.shareOnly).toBe(false);
+    expect(sheet.block).toEqual(FOOD);
+    expect(sheet.job).toBe('When do the Leonids peak?');
+  });
+  // spec: add-pet-errands › Friend-funded errand flow › owner shares a job
+  // spec: add-pet-errands › Friend-funded errand flow › another shared job is waiting
+  it('prepares one search link without sending an errand and keeps the draft on an active-link refusal', async () => {
+    await mount();
+    await run(() => sheet.openSheet());
+    await run(() => sheet.pick('find'));
+    await run(() => sheet.setJob('A question'));
+    const code = 'c'.repeat(64);
+    mocks.prepareSharedErrand.mockRejectedValueOnce(new WorkerError(409, 'shared_job_active', { url: `/pet/9/errand/${code}` }));
+    await run(() => sheet.prepareShared());
+    expect(sheet.job).toBe('A question');
+    expect(sheet.sharedLink).toBe(`/pet/9/errand/${code}`);
+    mocks.prepareSharedErrand.mockResolvedValueOnce({ url: `/pet/9/errand/${code}`, code, needed: QUOTE.sharedNeeded, form: 'find', job: 'A question' });
+    await run(() => sheet.prepareShared());
+    expect(window.location.pathname).toBe(`/pet/9/errand/${code}`);
+    expect(mocks.sendErrand).not.toHaveBeenCalled();
+  });
   // spec: add-pet-errands › Errand sheet screen › success
   it('opens on «Read this» with the typical read, «Send» off while the field is empty, and moves the price with the text', async () => {
     await mount();

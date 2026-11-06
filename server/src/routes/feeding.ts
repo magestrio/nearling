@@ -65,12 +65,12 @@ feedingRoutes.post('/api/pets/:id/feed', async (c) => {
   if (!TOKEN_ID.test(id)) return c.json({ code: 'no_pet' }, 404);
   const session = requireSession(c);
   if (session instanceof Response) return session;
-  const body = await c.req.json<{ portion?: unknown }>().catch(() => null);
+  const body = await c.req.json<{ portion?: unknown; code?: unknown }>().catch(() => null);
   const portion = FEED_PORTIONS.find((p) => p.near === body?.portion);
   if (portion === undefined) return c.json({ code: 'bad_request' }, 400);
   const rate = nearUsdRate(c.env.NEAR_USD_RATE);
   if (rate === null) return c.json({ code: 'rate_missing' }, 500);
-  return reply(c, await outlive(c, buildPortion(c.env, session, id, portion.near, rate)));
+  return reply(c, await outlive(c, buildPortion(c.env, session, id, portion.near, rate, body?.code)));
 });
 
 feedingRoutes.post('/api/pets/:id/feed/send', async (c) => {
@@ -78,7 +78,7 @@ feedingRoutes.post('/api/pets/:id/feed/send', async (c) => {
   if (!TOKEN_ID.test(id)) return c.json({ code: 'no_pet' }, 404);
   const session = requireSession(c);
   if (session instanceof Response) return session;
-  const body = await c.req.json<{ tx?: unknown; signature?: unknown }>().catch(() => null);
+  const body = await c.req.json<{ tx?: unknown; signature?: unknown; code?: unknown }>().catch(() => null);
   if (body === null) return c.json({ code: 'bad_request' }, 400);
   return reply(c, await outlive(c, sendPortion(c.env, session, id, body)));
 });
@@ -98,9 +98,10 @@ feedingRoutes.post('/api/pets/:id/snack', async (c) => {
   if (!TOKEN_ID.test(id)) return c.json({ code: 'no_pet' }, 404);
   const session = requireSession(c);
   if (session instanceof Response) return session;
+  const body = await c.req.json<{ code?: unknown }>().catch(() => null);
   const rate = nearUsdRate(c.env.NEAR_USD_RATE);
   if (rate === null) return c.json({ code: 'rate_missing' }, 500);
-  return reply(c, await outlive(c, giveSnack(c.env, session, id, rate)));
+  return reply(c, await outlive(c, giveSnack(c.env, session, id, rate, body?.code)));
 });
 
 // The player's game wallet (Add NEAR sheet): its address, shown to its own player only, the balance

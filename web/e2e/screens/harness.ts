@@ -77,6 +77,11 @@ export async function captureFrame(page: Page, frame: ManifestFrame, viewport: V
   // The pet module installs this hook (in the e2e mode only): the pet, held on its still, has drawn.
   await page.evaluate(() => (globalThis as { __nearlingFreeze?: () => void }).__nearlingFreeze?.());
   if ((frame.scroll ?? 'top') === 'end') await scrollToEnd(page);
+  else {
+    // A sheet still sliding in makes the document taller for a moment, and Playwright's click on a control inside it scrolls
+    // the page to bring that control into view (watch-empty-target came out 67 px down under load). The frame is at its top.
+    await page.evaluate(() => window.scrollTo(0, 0));
+  }
 
   const elsewhere = new Set([...(fixture.otherChange ?? []).map((o) => o.line), ...(fixture.staleCopy ?? [])]);
   for (const line of frame.copy ?? []) {
@@ -124,9 +129,18 @@ export async function captureFrame(page: Page, frame: ManifestFrame, viewport: V
 
   fs.mkdirSync(CMP_DIR, { recursive: true });
   const out = path.join(OUT_DIR, `${frame.id}.${viewport}.png`);
-  // Give the font glyph atlas and a software WebGL canvas one completed screenshot before the capture that is compared.
-  await page.screenshot({ type: 'jpeg', quality: 1 });
-  await page.screenshot({ path: out });
+  // The software rasterizer paints a page in tiles and the glyph atlas fills as text is first drawn: on a loaded machine a
+  // screenshot can catch a heading or a name half painted (a letter missing, a line absent). The pet is frozen and the
+  // fixtures leave nothing moving, so a settled page gives the same pixels twice in a row: the capture written is the first
+  // one that equals the one before it (the last, after six tries — a blinking caret or a canvas that never rests).
+  let previous = await page.screenshot();
+  for (let tries = 0; tries < 6; tries += 1) {
+    const next = await page.screenshot();
+    const settled = next.equals(previous);
+    previous = next;
+    if (settled) break;
+  }
+  fs.writeFileSync(out, previous);
   return out;
 }
 

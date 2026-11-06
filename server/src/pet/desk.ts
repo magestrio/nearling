@@ -7,6 +7,7 @@ import { DurableObject } from 'cloudflare:workers';
 import { utcDay } from '../http';
 import { petView } from '../chain';
 import { runErrand, type ErrandJob } from '../errands/run';
+import { runWatch, type WatchJob } from '../watch/run';
 import { run, type JobResult } from '../spend';
 import type { ThoughtJob } from '../prompt';
 import { runAdvice, type AdviceJob } from '../work/advice';
@@ -36,7 +37,7 @@ interface Claimed extends Row {
 
 /** What a desk runs: a thought of the pet, the advice it pays a friend's pet for (`work/advice.ts`), or the owner's
  * answer to a Manual offer and «Try again» of a lost own reply (`work/offer.ts`). */
-export type DeskJob = ThoughtJob | AdviceJob | OfferJob | ErrandJob;
+export type DeskJob = ThoughtJob | AdviceJob | OfferJob | ErrandJob | WatchJob;
 
 export function jobOf(row: Row): DeskJob {
   const data = row.payload === null ? {} : (JSON.parse(row.payload) as Record<string, unknown>);
@@ -49,6 +50,8 @@ export function jobOf(row: Row): DeskJob {
       return { kind: 'finish' };
     case 'errand':
       return { kind: 'errand' };
+    case 'watch':
+      return { kind: 'watch', day: Number(data.day ?? -1), revision: Number(data.revision ?? -1) };
     case 'advice':
       return { kind: 'advice', worker: String(data.worker ?? ''), text: String(data.text ?? ''), shown: String(data.shown ?? '0') };
     case 'reply':
@@ -77,6 +80,8 @@ export async function enqueueJob(db: D1Database, tokenId: string, job: DeskJob, 
         ? { cause: job.cause, friend: job.friend ?? null }
         : job.kind === 'diary'
           ? { day: job.day }
+          : job.kind === 'watch'
+            ? { day: job.day, revision: job.revision }
           : job.kind === 'advice'
             ? { worker: job.worker, text: job.text, shown: job.shown }
             : job.kind === 'hire'
@@ -216,6 +221,9 @@ export class PetDesk extends DurableObject<Env> {
             break;
           case 'errand':
             result = await runErrand(this.env, tokenId, row.epoch);
+            break;
+          case 'watch':
+            result = await runWatch(this.env, tokenId, job, row.epoch);
             break;
           default:
             result = await run(this.env, tokenId, job, row.epoch, { jobId: row.id, ownerAccount: row.owner_account ?? undefined });

@@ -28,6 +28,7 @@ import {
   type VerificationIndex,
   type VerificationThought,
   type SharedReceipt,
+  type SharedErrand,
   type PortionNear,
   type SessionResult,
   type SignInGate,
@@ -36,6 +37,7 @@ import {
   type ToolView,
   type WalletInfo,
   type WorkerApi,
+  type WatchRead,
 } from './worker-types';
 
 const state = (): FakeWorkerState => fakeState().worker ?? {};
@@ -70,6 +72,7 @@ const OWNER_DEFAULTS = {
   pendingText: null,
   lastThought: null,
   memoryEpoch: 0,
+  oldSharedReserve: null,
   wakes: 0,
   diaryUnread: false,
   pendingQuestion: false,
@@ -85,6 +88,12 @@ const OWNER_DEFAULTS = {
 
 const EMPTY_SKILL: SkillRead = { skill: null, sources: [], code: null };
 const EMPTY_CODE: CodeRead = { code: null, functions: [], testsLeft: 20 };
+const EMPTY_WATCH: WatchRead = { target: null, upTo: { yocto: '2400000000000000000000', cents: 1.1 } };
+function fakeNextCheck(hour: number): string {
+  const day = Math.floor(Date.now() / 86_400_000);
+  const at = day * 86_400_000 + hour * 3_600_000;
+  return new Date(Date.now() >= at ? at + 86_400_000 : at).toISOString();
+}
 
 /** Daybook's tools (the frames' sample data source, design/bundle/screens/adapter.js): one tickable, one that takes free text. */
 const SAMPLE_TOOLS: ToolView[] = [
@@ -108,6 +117,7 @@ function defaultQuote(form: ErrandForm): ErrandQuote {
     search: { upTo: { yocto: '4330000000000000000000', cents: 2 }, full: true, short: false, searches: 3, allowance: 3 },
     block: null,
     labels: [],
+    sharedNeeded: { yocto: '4330000000000000000000', cents: 2 },
   };
 }
 
@@ -415,7 +425,7 @@ export const fakeWorkerApi: WorkerApi = {
     return { ...defaultSheet(tokenId), ...configured };
   },
 
-  buildFeed: async (token, tokenId, portion) => {
+  buildFeed: async (token, tokenId, portion, code) => {
     if (token === null) throw new WorkerError(401, 'signed_out');
     needSession(token);
     recordCall(`worker:buildFeed:${portion}`);
@@ -429,7 +439,7 @@ export const fakeWorkerApi: WorkerApi = {
       publicKeyFromImplicitAccount(account),
       config.contractId,
       1n,
-      [actions.functionCall('pet_feed', { token_id: tokenId }, 5n * 10n ** 12n, PORTION_YOCTO[portion])],
+      [actions.functionCall('pet_feed', { token_id: tokenId, ...(code ? { job_hash: 'b'.repeat(64) } : {}) }, 5n * 10n ** 12n, PORTION_YOCTO[portion])],
       new Uint8Array(32).fill(1),
     );
     return { tx: toBase64(tx.encode()) };
@@ -482,6 +492,45 @@ export const fakeWorkerApi: WorkerApi = {
     if (isFail(configured)) throw new WorkerError(configured.fail.status, configured.fail.code);
     if (!(state().owned ?? []).includes(tokenId)) throw new WorkerError(403, 'not_owner');
     return { ...sampleDiary(), ...configured };
+  },
+
+  watch: async (token, tokenId) => {
+    needSession(token);
+    if (!token) throw new WorkerError(401, 'signed_out');
+    if (!(state().owned ?? []).includes(tokenId)) throw new WorkerError(403, 'not_owner');
+    return answer<WatchRead>('watch', state().watch, EMPTY_WATCH, state().watchDelayMs);
+  },
+  saveWatch: async (token, tokenId, target) => {
+    needSession(token);
+    if (!token) throw new WorkerError(401, 'signed_out');
+    if (!(state().owned ?? []).includes(tokenId)) throw new WorkerError(403, 'not_owner');
+    if ([...target].length > 500) throw new WorkerError(400, 'watch_too_long');
+    if (!target.trim()) throw new WorkerError(400, 'watch_blank');
+    const hour = new Date().getUTCHours();
+    const saved = await answer<WatchRead>('saveWatch', state().saveWatch, { ...EMPTY_WATCH, target: target.trim(), savedHourUtc: hour, nextCheck: fakeNextCheck(hour) });
+    state().watch = saved;
+    const pet = state().pets?.[tokenId];
+    if (pet) pet.watch = { target: saved.target!, kind: saved.kind ?? 'topic' };
+    return saved;
+  },
+  resumeWatch: async (token, tokenId) => {
+    needSession(token);
+    if (!token) throw new WorkerError(401, 'signed_out');
+    if (!(state().owned ?? []).includes(tokenId)) throw new WorkerError(403, 'not_owner');
+    const current = state().watch;
+    const resumed = await answer<WatchRead>('resumeWatch', state().resumeWatch, current && !isFail(current) ? { ...current, paused: false, nextCheck: fakeNextCheck(current.savedHourUtc ?? 0) } : EMPTY_WATCH);
+    state().watch = resumed;
+    return resumed;
+  },
+  stopWatch: async (token, tokenId) => {
+    needSession(token);
+    if (!token) throw new WorkerError(401, 'signed_out');
+    if (!(state().owned ?? []).includes(tokenId)) throw new WorkerError(403, 'not_owner');
+    const stopped = await answer<{ target: null }>('stopWatch', state().stopWatch, { target: null });
+    state().watch = { ...EMPTY_WATCH, ...stopped };
+    const pet = state().pets?.[tokenId];
+    if (pet) pet.watch = null;
+    return stopped;
   },
 
   readDiary: async (token, tokenId, day) => {
@@ -689,6 +738,53 @@ export const fakeWorkerApi: WorkerApi = {
     return { ...defaultQuote(form), ...configured, form };
   },
 
+  prepareSharedErrand: async (token, tokenId, body) => {
+    recordCall('worker:prepareSharedErrand');
+    if (token === null) throw new WorkerError(401, 'signed_out');
+    needSession(token);
+    if (!(state().owned ?? []).includes(tokenId)) throw new WorkerError(403, 'not_owner');
+    const code = 'c'.repeat(64);
+    const result = await answer('prepareSharedErrand', state().prepareSharedErrand,
+      { url: `/pet/${tokenId}/errand/${code}`, code, needed: defaultQuote(body.form).sharedNeeded, form: body.form, job: body.job });
+    const held = fakeState().worker;
+    if (held) held.sharedErrand = { tokenId, name: petsOf()[tokenId]?.name ?? 'Pixel', state: 'funding', form: body.form, job: body.job,
+      viewer: 'owner', funded: '1350000000000000000000', needed: result.needed.yocto, chainState: 'Funding', fullness: petsOf()[tokenId]?.fullness ?? PIXEL.fullness };
+    return result;
+  },
+  sharedErrand: async (token, tokenId) => {
+    needSession(token);
+    const name = petsOf()[tokenId]?.name ?? 'Pixel';
+    const fallback: SharedErrand = { tokenId, name, state: 'funding', form: 'find', job: 'When does the next NEAR protocol upgrade ship?',
+      viewer: token === null ? 'signed-out' : (state().owned ?? []).includes(tokenId) ? 'owner' : 'visitor',
+      funded: '1350000000000000000000', needed: '4330000000000000000000', chainState: 'Funding', fullness: petsOf()[tokenId]?.fullness ?? PIXEL.fullness };
+    const view = await answer('sharedErrand', state().sharedErrand, fallback, state().sharedErrandDelayMs);
+    if (view.state === 'empty') return view;
+    return { ...view, viewer: token === null ? 'signed-out' : (state().owned ?? []).includes(tokenId) ? 'owner' : view.viewer };
+  },
+  sharedErrandEvent: async () => { recordCall('worker:sharedErrandEvent'); },
+  closeSharedErrand: async (token, tokenId, _code, approval) => {
+    if (token === null) throw new WorkerError(401, 'signed_out');
+    needSession(token);
+    if (!(state().owned ?? []).includes(tokenId)) throw new WorkerError(403, 'not_owner');
+    if (approval.public_key !== fakeAccount() || !/^[0-9a-f]{128}$/.test(approval.signature)) throw new WorkerError(400, 'close_refused');
+    const result = await answer('closeSharedErrand', state().closeSharedErrand, { ok: true as const }, state().closeSharedErrandDelayMs);
+    if (fakeState().worker) fakeState().worker!.sharedErrand = { tokenId, name: petsOf()[tokenId]?.name ?? 'Pixel', state: 'empty' };
+    return result;
+  },
+  releaseSharedReserve: async (token, tokenId, approval) => {
+    if (token === null) throw new WorkerError(401, 'signed_out');
+    needSession(token);
+    if (!(state().owned ?? []).includes(tokenId)) throw new WorkerError(403, 'not_owner');
+    const pet = petsOf()[tokenId];
+    if (approval.public_key !== fakeAccount() || !/^[0-9a-f]{128}$/.test(approval.signature) || !pet?.owner?.oldSharedReserve)
+      throw new WorkerError(400, 'close_refused');
+    const result = await answer('releaseSharedReserve', state().releaseSharedReserve, { ok: true as const });
+    if ('ok' in result && fakeState().worker) {
+      fakeState().worker!.pets = { ...petsOf(), [tokenId]: { ...pet, owner: { ...pet.owner, oldSharedReserve: null } } };
+    }
+    return result;
+  },
+
   sendErrand: async (token, tokenId, body) => {
     recordCall(`worker:sendErrand:${body.form}`);
     if (token === null) throw new WorkerError(401, 'signed_out');
@@ -810,8 +906,13 @@ export const fakeWorkerApi: WorkerApi = {
     return result;
   },
 
-  clearMemory: async (token, tokenId) => {
+  clearMemory: async (token, tokenId, approval) => {
     if (token === null || state().sessionExpired) throw new WorkerError(401, 'signed_out');
+    const shared = state().sharedErrand;
+    if (shared && !isFail(shared) && shared.state !== 'empty' &&
+      (!approval || approval.public_key !== fakeAccount() || !/^[0-9a-f]{128}$/.test(approval.signature)))
+      throw new WorkerError(400, 'close_refused');
+    if (approval) recordCall('worker:clearMemoryApproval');
     recordCall(`worker:clearMemory:${tokenId}`);
     const result = await answer('clearMemory', state().clearMemory, { ok: true as const }, state().clearMemoryDelayMs);
     // what the real server holds from then on: an empty conversation, one more clear on the pet, no greeting to come
@@ -820,6 +921,8 @@ export const fakeWorkerApi: WorkerApi = {
     if (held) {
       held.conversation = { lines: [], more: false, before: null };
       held.greeting = { job: null };
+      if (held.sharedErrand && !isFail(held.sharedErrand) && held.sharedErrand.state !== 'empty')
+        held.sharedErrand = { tokenId, name: pet?.name ?? 'Pixel', state: 'empty' };
       // the failed errand (and a done one) and the words of one away go with the memory; the errand itself still ends or times out
       if (held.petState && !isFail(held.petState) && held.petState.errand) {
         held.petState = { ...held.petState, errand: held.petState.errand.state === 'away' ? { ...held.petState.errand, job: null } : null };

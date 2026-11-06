@@ -1,6 +1,7 @@
 import { useCallback, useRef, useState } from 'react';
 import { useAuth } from '../seams/auth';
 import { WorkerError, workerApi } from '../seams/worker';
+import { closeApproval, sharedJobOf } from '../errands/sharedApproval';
 
 // `Memory deletion flow` › «стирает», «стёр», «уже не владелец» and the errors of `Clear memory dialog screen`; what the dialog reads
 // from the answer is design.md › «What the dialog reads from the answer».
@@ -13,12 +14,13 @@ export type ClearPhase =
 /** The answer that says nothing was erased: the server read it all and refused or failed before the batch. */
 function nothingErased(e: WorkerError): boolean {
   if (e.status === 404) return true;
+  if (e.status === 400 || e.status === 409) return e.code === 'close_refused';
   if (e.status === 500) return e.code === 'clear_failed';
   if (e.status === 503) return e.code === 'chain_unreachable' || e.code === 'auth_unavailable';
   return false;
 }
 
-export function useClearMemory(tokenId: string, outcome: { done: () => void; notOwner: () => void; close: () => void }) {
+export function useClearMemory(tokenId: string, outcome: { done: () => void; retry: () => void; notOwner: () => void; close: () => void }) {
   const auth = useAuth();
   const authRef = useRef(auth);
   authRef.current = auth;
@@ -40,8 +42,18 @@ export function useClearMemory(tokenId: string, outcome: { done: () => void; not
     try {
       const token = await authRef.current.getIdentityToken();
       if (token === null) throw new WorkerError(401, 'signed_out');
-      await workerApi.clearMemory(token, tokenId);
-      out.current.done();
+      let chain;
+      try { chain = await sharedJobOf(tokenId); }
+      catch { throw new WorkerError(503, 'chain_unreachable'); }
+      if (chain === null) throw new WorkerError(503, 'chain_unreachable');
+      let approval;
+      if (chain.shared_job && chain.shared_job.state !== 'settled') {
+        try { approval = await closeApproval(tokenId, authRef.current.nearAccountId ?? '', authRef.current.signNearHash, chain.shared_job.hash); }
+        catch { throw new WorkerError(409, 'close_refused'); }
+      }
+      const result = await workerApi.clearMemory(token, tokenId, approval);
+      if ('code' in result && result.code === 'close_retry') out.current.retry();
+      else out.current.done();
     } catch (e) {
       const error = e instanceof WorkerError ? e : new WorkerError(0, 'unreachable');
       if (error.status === 401) {

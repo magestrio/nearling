@@ -46,6 +46,7 @@ async fn the_explorer_shows_the_owner_name_character_food_and_receipts_but_no_wo
             "owner_id",
             "owner_snack_at",
             "project_food",
+            "shared_job",
             "stage",
             "stage_day",
             "streak",
@@ -54,6 +55,7 @@ async fn the_explorer_shows_the_owner_name_character_food_and_receipts_but_no_wo
             "work_known",
         ]
     );
+    assert!(pet["shared_job"].is_null());
 
     // The birth event carries the character's hash, not its text.
     let pet_born: Value = serde_json::from_str(&birth_events[1])?;

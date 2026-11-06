@@ -31,6 +31,12 @@ export function ClearMemoryLayer({ children }: { children: ReactNode }) {
               closeClearMemory();
               request.onDone?.();
             }}
+            onRetry={() => {
+              cleared.current = true;
+              announceClear({ tokenId: request.tokenId, result: 'cleared_retry' });
+              closeClearMemory();
+              request.onDone?.();
+            }}
             onNotOwner={() => {
               announceClear({ tokenId: request.tokenId, result: 'not_owner' });
               closeClearMemory();

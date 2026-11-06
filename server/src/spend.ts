@@ -60,6 +60,7 @@ export type RefusalCode =
   | 'no_hire'
   // an errand ended without a report (`errands/run.ts`): its reason is on the errand row, which the page reads
   | 'errand_failed'
+  | 'watch_failed'
   // an advice whose worker's data source or code gave no data (`Adapter call rule`): no answer, no fee, the question is kept
   | 'data_failed';
 
@@ -127,17 +128,19 @@ export function planOf(env: Env, bound: number, fs: FoodState, fuse: number, set
   return { ceiling, cutKind, edge: false };
 }
 
-export async function openSession(env: Env, tokenId: string, now: number): Promise<string> {
-  const open = await env.DB.prepare("SELECT id FROM debit_sessions WHERE token_id = ? AND status = 'open' AND day = ?")
-    .bind(tokenId, utcDay(now))
+export async function openSession(env: Env, tokenId: string, now: number, sharedHash?: string): Promise<string> {
+  const open = await env.DB.prepare(sharedHash === undefined
+    ? "SELECT id FROM debit_sessions WHERE token_id = ? AND status = 'open' AND day = ? AND shared_job_hash IS NULL"
+    : "SELECT id FROM debit_sessions WHERE token_id = ? AND shared_job_hash = ?")
+    .bind(tokenId, ...(sharedHash === undefined ? [utcDay(now)] : [sharedHash]))
     .first<{ id: string }>();
   if (open !== null) {
     await env.DB.prepare('UPDATE debit_sessions SET last_at = ? WHERE id = ?').bind(now, open.id).run();
     return open.id;
   }
   const id = randomId();
-  await env.DB.prepare("INSERT INTO debit_sessions (id, token_id, day, opened_at, last_at, status) VALUES (?, ?, ?, ?, ?, 'open')")
-    .bind(id, tokenId, utcDay(now), now, now)
+  await env.DB.prepare("INSERT INTO debit_sessions (id, token_id, day, opened_at, last_at, status, shared_job_hash) VALUES (?, ?, ?, ?, ?, 'open', ?)")
+    .bind(id, tokenId, utcDay(now), now, now, sharedHash ?? null)
     .run();
   return id;
 }

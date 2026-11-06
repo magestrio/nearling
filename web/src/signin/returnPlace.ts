@@ -5,8 +5,8 @@
 // for it. The record lives in one tab only, for the time of a sign-in.
 const KEY = 'nearling.returnPlace';
 
-export type ReturnAction = 'signin' | 'feed' | 'skill' | 'errand' | 'adapter' | 'code' | 'giftAccept';
-const ACTIONS: readonly string[] = ['signin', 'feed', 'skill', 'errand', 'adapter', 'code', 'giftAccept'];
+export type ReturnAction = 'signin' | 'feed' | 'skill' | 'errand' | 'adapter' | 'code' | 'watch' | 'giftAccept';
+const ACTIONS: readonly string[] = ['signin', 'feed', 'skill', 'errand', 'adapter', 'code', 'watch', 'giftAccept'];
 
 export interface ReturnPlace {
   /** the path with its query, e.g. `/hatch?from=2` */
@@ -164,6 +164,7 @@ interface SheetFields {
   errand: ErrandFields;
   adapter: AdapterFields;
   code: CodeFields;
+  watch: { target: string };
 }
 let heldSheets: { [K in keyof SheetFields]?: { path: string; fields: SheetFields[K] } } = {};
 
@@ -174,11 +175,12 @@ function fieldsOf(action: keyof SheetFields, value: unknown): SheetFields[keyof 
   const v = value as Record<string, unknown>;
   if (action === 'errand') return (v.form === 'read' || v.form === 'find' || v.form === 'check') && isText(v.job) ? { form: v.form, job: v.job } : null;
   if (action === 'adapter') return isText(v.label) && isText(v.address) ? { label: v.label, address: v.address, ...(isText(v.sid) ? { sid: v.sid } : {}) } : null;
+  if (action === 'watch') return isText(v.target) ? { target: v.target } : null;
   return isText(v.code) && isText(v.fn) && isText(v.values) ? { code: v.code, fn: v.fn, values: v.values } : null;
 }
 
 /** `ReturnToPlace` hands the record's text to the sheet it belongs to. */
-export function holdReturnSheet(action: 'errand' | 'adapter' | 'code', path: string, text: string): void {
+export function holdReturnSheet(action: keyof SheetFields, path: string, text: string): void {
   try {
     const fields = fieldsOf(action, JSON.parse(text));
     if (fields) (heldSheets as Record<string, unknown>)[action] = { path, fields };

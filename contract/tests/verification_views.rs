@@ -104,7 +104,7 @@ async fn built_wasm_exposes_version_and_source_metadata() -> anyhow::Result<()> 
     let unique = SystemTime::now().duration_since(UNIX_EPOCH)?.as_nanos();
     let copy = std::env::temp_dir().join(format!("nearling-verification-upgrade-{unique}"));
     fs::create_dir_all(copy.join("src"))?;
-    for file in ["lib.rs", "pet.rs", "events.rs", "limits.rs"] {
+    for file in ["lib.rs", "pet.rs", "events.rs", "limits.rs", "shared_job.rs"] {
         fs::copy(source.join("src").join(file), copy.join("src").join(file))?;
     }
     fs::copy(source.join("rust-toolchain.toml"), copy.join("rust-toolchain.toml"))?;
@@ -129,8 +129,10 @@ async fn built_wasm_exposes_version_and_source_metadata() -> anyhow::Result<()> 
     let pool_before_migration = ctx.pool().await?;
     let state = ctx.read_state().await?;
     let counters = borsh::to_vec(&(1u64, 0u64, 0u128))?;
-    assert_eq!(&state[state.len() - 24 - counters.len()..state.len() - 24], counters);
-    let old_tail = state.len() - 24 - counters.len() - 5;
+    assert_eq!(&state[state.len() - 5..], &[1, 0, 0, 0, b'j']);
+    let old_end = state.len() - 5;
+    assert_eq!(&state[old_end - 24 - counters.len()..old_end - 24], counters);
+    let old_tail = old_end - 24 - counters.len() - 5;
     assert_eq!(&state[old_tail..old_tail + 5], &[1, 0, 0, 0, b'g']);
     ctx.worker.patch_state(ctx.contract.id(), b"STATE", &state[..old_tail]).await?;
     ctx.contract.as_account().deploy(&updated_wasm).await?.into_result()?;

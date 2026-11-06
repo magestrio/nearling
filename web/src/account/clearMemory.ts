@@ -20,7 +20,7 @@ export interface ClearRequest {
 export interface ClearOutcome {
   tokenId: string;
   /** `cleared`: «стёр»; `not_owner`: «уже не владелец» */
-  result: 'cleared' | 'not_owner';
+  result: 'cleared' | 'cleared_retry' | 'not_owner';
 }
 
 let current: ClearRequest | null = null;

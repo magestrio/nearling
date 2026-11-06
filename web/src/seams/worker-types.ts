@@ -91,6 +91,28 @@ export interface PetBase {
   worn: OutfitSlug | null;
   /** the public label of the pet's skill, for every viewer (`Skill rule` › «label on the pet's page»); null: none */
   skill: { label: string } | null;
+  /** Public target only; observations and receipts remain owner-only. */
+  watch?: { target: string; kind: 'topic' | 'release' | 'account' | 'page' } | null;
+}
+
+/** Owner-only GET /api/pets/:id/watch and the save/resume responses. */
+export interface WatchRead {
+  target: string | null;
+  kind?: 'topic' | 'release' | 'account' | 'page';
+  savedHourUtc?: number;
+  paused?: boolean;
+  /** Why today's scheduled check was skipped for this target (`Daily watch flow` › the pauses), or null. */
+  pause?: 'sleeping' | 'energy' | 'food' | 'cap' | 'services' | null;
+  nextCheck?: string | null;
+  lastStartedDay?: number | null;
+  latestResult?: 'first' | 'changed' | 'unchanged' | 'unreadable' | 'no_search' | 'failed' | null;
+  latestPriceYocto?: string | null;
+  latestReceiptId?: string | null;
+  /** Added in the client from the receipt pointer's saved rate, never from a fresh quote. */
+  latestNearUsdRate?: string | null;
+  /** Added from the owner-only receipt pointer for a changed check. */
+  latestChange?: string | null;
+  upTo: Price;
 }
 /** With a session only: the player's own meal or snack on its way for this pet (`Feeding transaction data` ›
  *  «outcome with the sheet closed»), `null` when none; a reloaded tab starts to watch its outcome from it. */
@@ -122,6 +144,8 @@ export type PetView =
       lastThought: string | null;
       /** how many times the memory was cleared: a tab with an older number reads the conversation again */
       memoryEpoch: number;
+      /** A word-free reserve after a cleared shared job crossed a gift. Owner only. */
+      oldSharedReserve: { jobHash: string; amountYocto: string } | null;
       /** how many times a meal woke the pet: a page sends its number to `/state?wakes=` and is told of a later wake */
       wakes: number;
       /** the traits as words, each once, in the order gained (`Pet life display rule`: the owner's only) */
@@ -475,6 +499,7 @@ export interface DiaryView {
   closedAt: string;
   until: string;
   entry: DiaryEntry;
+  watch?: Array<{ target: string; change: string; sources: string[]; priceYocto: string; receiptId: string }>;
   read: boolean;
   exchange: { answer: string; reply: string } | null;
   riddle: DiaryRiddle;
@@ -617,7 +642,25 @@ export interface ErrandQuote {
   block: ErrandBlock | null;
   /** the names of the skill's data sources */
   labels: string[];
+  sharedNeeded: Price;
 }
+
+/** The public link read. The Worker includes report fields only for the owner or a confirmed contributor. */
+export type SharedErrand = { tokenId: string; name: string; state: 'empty' } | {
+  tokenId: string;
+  name: string;
+  state: 'opening' | 'funding' | 'running' | 'reported' | 'failed' | 'closed';
+  form: 'find' | 'check';
+  job: string;
+  viewer: 'owner' | 'sponsor' | 'signed-out' | 'visitor';
+  funded: string;
+  needed: string;
+  chainState: 'Funding' | 'Running' | 'Transferred' | 'Settled' | 'Closed';
+  fullness: Fullness;
+  report?: string | null;
+  sources?: Array<{ label: string; url?: string }> | null;
+  receiptId?: string | null;
+};
 
 export interface WorkerApi {
   health(): Promise<Health>;
@@ -666,22 +709,26 @@ export interface WorkerApi {
   /** The state of the sign-in, read before Google. Sent with no token: a stale one would be a `401`. */
   signInState(): Promise<SignInGate>;
   /** The owner erases the pet's memory. */
-  clearMemory(token: Token, tokenId: string): Promise<{ ok: true }>;
+  clearMemory(token: Token, tokenId: string, approval?: { public_key: string; signature: string }): Promise<{ ok: true } | { code: 'close_retry' }>;
   /** Feed sheet's state, whole. Refusals: `401 signed_out`, `404 no_pet`, `500 rate_missing`. */
   feedSheet(token: Token, tokenId: string): Promise<FeedSheetAnswer>;
   /** The unsigned `pet_feed` as base64, for the browser to check and sign. Refusals: `409 pending`, `409 short` (body holds
    *  `sheet`), `502 feed_not_built`, `503 chain_unreachable`, `404 no_pet`. */
-  buildFeed(token: Token, tokenId: string, portion: PortionNear): Promise<{ tx: string }>;
+  buildFeed(token: Token, tokenId: string, portion: PortionNear, code?: string): Promise<{ tx: string }>;
   /** The signed portion (both base64). Holds up to `FEED_SEND_TIMEOUT_MS`. Refusals: `400 bad_tx`, `409 pending`, `503`. */
-  sendFeed(token: Token, tokenId: string, body: { tx: string; signature: string }): Promise<FeedOutcome>;
+  sendFeed(token: Token, tokenId: string, body: { tx: string; signature: string; code?: string }): Promise<FeedOutcome>;
   /** The outcome for a tab that has no signed bytes (a reload, a snack). */
   feedOutcome(token: Token, tokenId: string, body: { id: string; source: FeedSource }): Promise<FeedOutcome>;
   /** The free snack, sent by the server. Refusals: `409 snack_gone` (body holds `sheet`), `409 pending`, `503`. */
-  snack(token: Token, tokenId: string): Promise<FeedOutcome>;
+  snack(token: Token, tokenId: string, code?: string): Promise<FeedOutcome>;
   wallet(token: Token): Promise<WalletInfo>;
   /** The Diary screen's data. Marks nothing; also for an asleep pet. Refusals: `401 signed_out`, `403 not_owner`, `404 no_pet`,
    *  `429 rate_limited`, `503 chain_unreachable`. */
   diary(token: Token, tokenId: string): Promise<DiaryView>;
+  watch(token: Token, tokenId: string): Promise<WatchRead>;
+  saveWatch(token: Token, tokenId: string, target: string): Promise<WatchRead>;
+  resumeWatch(token: Token, tokenId: string): Promise<WatchRead>;
+  stopWatch(token: Token, tokenId: string): Promise<{ target: null }>;
   /** The Diary screen stood (`day` is the diary's): `{ ok: true }`, and nothing written for another day or for a sleeping pet with
    *  no opening today. */
   readDiary(token: Token, tokenId: string, day: number): Promise<{ ok: true }>;
@@ -722,6 +769,11 @@ export interface WorkerApi {
   // — add-pet-errands —
   /** The quote of Errand sheet for `form`. Refusals: `403 not_owner`, `404 no_pet`, `400 bad_request`, `401`, `503 chain_unreachable`. */
   errand(token: Token, tokenId: string, form: ErrandForm): Promise<ErrandQuote>;
+  prepareSharedErrand(token: Token, tokenId: string, body: { form: 'find' | 'check'; job: string }): Promise<{ url: string; code: string; needed: Price; form: 'find' | 'check'; job: string }>;
+  sharedErrand(token: Token, tokenId: string, code: string): Promise<SharedErrand>;
+  sharedErrandEvent(token: Token, tokenId: string, code: string, body: { kind: 'shared' } | { kind: 'opened'; device: 'desktop' | 'phone'; inApp: 'x' | 'telegram' | 'none' }): Promise<void>;
+  closeSharedErrand(token: Token, tokenId: string, code: string, approval: { public_key: string; signature: string }): Promise<{ ok: true }>;
+  releaseSharedReserve(token: Token, tokenId: string, approval: { public_key: string; signature: string }): Promise<{ ok: true } | { code: 'close_retry' }>;
   /** «Send»: the desk's job (`202`). Refusals: `409 blocked` (the body's `block`), `409 away`, `400 bad_request`. */
   sendErrand(token: Token, tokenId: string, body: { form: ErrandForm; job: string }): Promise<{ job: string }>;
   /** The catalog of adapters, anyone's. */

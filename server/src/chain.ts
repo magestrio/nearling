@@ -69,6 +69,14 @@ export interface PetRecord {
   jobs_today?: number;
   /** Incremented by every nft_transfer, even when the owner later receives the pet back. */
   transfer_generation: number;
+  /** Public active reserve from `pet_view`, absent before the shared-job contract upgrade. */
+  shared_job?: {
+    hash: string;
+    state: 'Funding' | 'Running' | 'Transferred' | 'Settled';
+    allowance: string;
+    linked_near: string;
+    linked_snack: string;
+  } | null;
 }
 
 /** `riddle_view(day)` of the contract: the commit filed for that day (64 hex characters, `null` when
@@ -119,6 +127,8 @@ export const PET_FEED_TGAS = 5n;
 
 /** Measured with a 64-character giver in contract/tests/gift_transfer.rs. */
 export const GIFT_TRANSFER_TGAS = 5n;
+/** 1.89 Tgas burnt by the longest open in contract/tests/shared_job.rs. */
+export const SHARED_JOB_OPEN_TGAS = 5n;
 export const GIFT_RESERVE_YOCTO = 6_000_000_000_000_000_000_001n;
 
 /** The send and execution fees of a `pet_feed` transaction, Tgas, rounded up: the wallet buys them up
@@ -254,6 +264,14 @@ export async function accountBalance(env: Pick<Env, 'NEAR_RPC_URL'>, accountId: 
   } catch {
     throw new ChainUnreachable();
   }
+}
+
+/** The public fields of a named account for a daily watch, with the same read timeout as other RPC views. */
+export async function publicAccountState(env: Pick<Env, 'NEAR_RPC_URL'>, accountId: string): Promise<{ amount: string; locked: string; code_hash: string; storage_usage: number }> {
+  try {
+    const account = await withTimeout(rpcProvider(env).viewAccount({ accountId }), READ_TIMEOUT_MS);
+    return { amount: String(account.amount), locked: String(account.locked), code_hash: String(account.code_hash), storage_usage: account.storage_usage };
+  } catch { throw new ChainUnreachable(); }
 }
 
 /** What the player's game wallet holds, yoctoNEAR. A wallet that does not exist is an empty one: a
@@ -455,7 +473,9 @@ export interface ServerCall {
   writes?:
     | { kind?: 'item'; tokenId: string; item: string; buy?: string }
     | { kind: 'growth'; tokenId: string; stage: 'teen' | 'adult' }
-    | { kind: 'birth'; receiver: string; startedAt: number };
+    | { kind: 'birth'; receiver: string; startedAt: number }
+    | { kind: 'shared_open'; tokenId: string; jobHash: string }
+    | { kind: 'shared_debit'; sessionId: string; debitId: number };
 }
 
 /** Called with the hash of a signed transaction before each broadcast. A throw means the hash could not be

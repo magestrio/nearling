@@ -525,6 +525,8 @@ pub struct PetView {
     pub jobs_today: u8,
     /// A monotonic count of ownership transfers; links published in an older generation expire.
     pub transfer_generation: u64,
+    /// The active shared errand's public reserve; its job words and link stay off chain.
+    pub shared_job: Option<crate::shared_job::SharedJobView>,
 }
 
 impl PetView {
@@ -534,6 +536,7 @@ impl PetView {
             work_known,
             jobs_today: pet.jobs_today_now(today),
             transfer_generation: 0,
+            shared_job: None,
             owner_id,
             name: pet.name.clone(),
             character: pet.character.clone(),

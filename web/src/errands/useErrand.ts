@@ -7,6 +7,8 @@ import type { ErrandBlock, ErrandForm, ErrandQuote, Token } from '../seams/worke
 import { track } from '../track';
 import { LIMIT } from './lines';
 import { sendPrice } from './price';
+import { go } from '../route';
+import { markPrepared } from './preparedShare';
 
 // The state machine of Errand sheet (`Errand sheet screen`, `Errand flow`). All of it is the tab's memory: the picked form, the text of
 // each form (switching back brings it), the quote last read, the line at the body's top. A reload throws the sheet and its draft away
@@ -39,6 +41,9 @@ export function useErrand(host: ErrandHost) {
   hostRef.current = host;
 
   const [open, setOpen] = useState(false);
+  // A fresh opening on an asleep pet offers sharing only. A failed errand reopened with its
+  // text still shows the food block and Feed, even if the pet is now asleep.
+  const [shareOnly, setShareOnly] = useState(false);
   const [form, setForm] = useState<ErrandForm>('read');
   const [jobs, setJobs] = useState<Record<ErrandForm, string>>(NO_TEXT);
   const [quotes, setQuotes] = useState<Partial<Record<ErrandForm, ErrandQuote>>>({});
@@ -46,6 +51,9 @@ export function useErrand(host: ErrandHost) {
   const [error, setError] = useState(false);
   const errorRef = useRef(false);
   const [sending, setSending] = useState(false);
+  const [preparing, setPreparing] = useState(false);
+  const [sharedLink, setSharedLink] = useState<string | null>(null);
+  const [shareError, setShareError] = useState(false);
   // a tap found the session ended: the line with «Sign in» at the body's top
   const [session, setSession] = useState(false);
   // «Send» found no network or a server error: the page's connection line says it, and so does the sheet's status — the page's
@@ -100,7 +108,8 @@ export function useErrand(host: ErrandHost) {
   /** Opens the sheet. `typed` — the form and text a sign-in or a «Try again» brings: that form is picked with that text, the other
    *  forms keep theirs. The quotes are read afresh. */
   const openSheet = useCallback(
-    (typed?: { form: ErrandForm; job: string }) => {
+    (typed?: { form: ErrandForm; job: string }, asleepAtOpen = false) => {
+      setShareOnly(asleepAtOpen && !typed);
       const which = typed?.form ?? formRef.current;
       if (typed) {
         setJobs((now) => ({ ...now, [typed.form]: typed.job }));
@@ -113,6 +122,8 @@ export function useErrand(host: ErrandHost) {
       setError(false);
       setSession(false);
       setSendFailed(false);
+      setShareError(false);
+      setSharedLink(null);
       reported.current = new Set();
       openRef.current = true;
       setOpen(true);
@@ -199,6 +210,33 @@ export function useErrand(host: ErrandHost) {
   const price = quote ? sendPrice(form, quote, job) : null;
   const canSend = open && quote !== null && block === null && filled && !error && !sending;
 
+  // spec: add-pet-errands › Friend-funded errand flow › owner shares a job
+  // spec: add-pet-errands › Friend-funded errand flow › another shared job is waiting
+  const prepareShared = useCallback(async () => {
+    const which = formRef.current;
+    const text = jobsRef.current[which];
+    if (which === 'read' || !hasVisible(text) || [...text].length > LIMIT[which] || preparing) return;
+    if (!authRef.current.needSession()) { setSession(true); return; }
+    setPreparing(true);
+    setShareError(false);
+    try {
+      const token = await hostRef.current.tokenOf();
+      const prepared = await workerApi.prepareSharedErrand(token, hostRef.current.tokenId, { form: which, job: text });
+      close();
+      markPrepared(prepared.code);
+      go(prepared.url);
+    } catch (e) {
+      if (statusOf(e) === 409 && codeOf(e) === 'shared_job_active') {
+        const body = (e as WorkerError).body as { url?: unknown } | null;
+        if (typeof body?.url === 'string' && body.url.startsWith(`/pet/${hostRef.current.tokenId}/errand/`)) setSharedLink(body.url);
+      } else if (statusOf(e) === 401) {
+        authRef.current.endSession(true, true);
+        setSession(true);
+      } else if (statusOf(e) === 403) { close(); hostRef.current.refused(e); }
+      else setShareError(true);
+    } finally { setPreparing(false); }
+  }, [close, preparing]);
+
   /** «Send · …». A session that ended meets the line of `Session expiry flow`; a block that holds now is told in «Send»'s place. */
   const send = useCallback(async () => {
     const which = formRef.current;
@@ -252,5 +290,5 @@ export function useErrand(host: ErrandHost) {
     }
   }, [close, read]);
 
-  return { open, form, job, jobs, quote, error, sending, session, sendFailed, blockedAtSend, block, price, canSend, openSheet, close, pick, setJob, refresh, send };
+  return { open, shareOnly, form, job, jobs, quote, error, sending, preparing, sharedLink, shareError, session, sendFailed, blockedAtSend, block, price, canSend, openSheet, close, pick, setJob, refresh, send, prepareShared };
 }

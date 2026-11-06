@@ -220,11 +220,14 @@ function FullnessHead({ fullness, elsewhere }: { fullness: FeedSheetData['fullne
 }
 
 /** The words of the outcome that stands: for the sheet's live region, and for the line the sheet draws. */
-function outcomeWords(phase: Phase, label: string): string {
+function outcomeWords(phase: Phase, label: string, shared: boolean): string {
   if (phase.kind === 'sending') return phase.checking ? STILL_CHECKING : `Feeding ${label}…`;
   if (phase.kind === 'failed') return phase.source === 'snack' ? `That snack didn't reach ${label}. Try again.` : `That meal didn't reach ${label}, so its NEAR stays in your wallet. Try again.`;
   if (phase.kind === 'yum') return `Yum! ${sentenceName(label)} is fuller now.`;
   if (phase.kind === 'thanks') {
+    if (shared) return phase.source === 'snack'
+      ? `You gave ${phase.sheet.name} a free snack. The project paid for it; its food is reserved for this errand.`
+      : `You fed ${phase.sheet.name}! Your NEAR is reserved for this errand.`;
     const name = phase.sheet.name;
     return `You fed ${name}! ${name} will remember you${phase.friend ? `, ${phase.friend}` : ''}.`;
   }
@@ -256,7 +259,7 @@ export function FeedSheet({ request, onClose, column, pageFullness }: { request:
   const failedRead = phase.kind === 'reading' && phase.failed;
   const noNetwork = phase.kind === 'open' && !phase.sheet.chain;
   const blind = phase.kind === 'sending' && phase.sheet === null;
-  const outcome = outcomeWords(phase, label);
+  const outcome = outcomeWords(phase, label, request.sharedCode !== undefined);
   // a sheet with no answer of its own (the read failed, the chain did not answer, a meal on its way before the first read) shows the
   // page's plate in its head, as the frame does
   const headFullness = sheet ? sheet.fullness : (failedRead || noNetwork || blind) && !elsewhere ? pageFullness : undefined;
@@ -349,12 +352,12 @@ export function FeedSheet({ request, onClose, column, pageFullness }: { request:
           <Block role="food" icon="feed">
             <Text variant="lead">{outcome}</Text>
           </Block>
-          {phase.kind === 'thanks' && !phase.hatched ? (
+          {phase.kind === 'thanks' && !phase.hatched && !request.sharedCode ? (
             <Button block href={hatchPath(tokenId)}>
               Get your own pet
             </Button>
           ) : (
-            <Button block onClick={done}>
+            <Button block onClick={() => { done(); request.onDone?.(); }}>
               Done
             </Button>
           )}

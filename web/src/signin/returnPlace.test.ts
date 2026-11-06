@@ -45,6 +45,17 @@ describe('return place', () => {
 describe('the record of a sign-in', () => {
   beforeEach(() => sessionStorage.clear());
 
+  // spec: add-pet-errands › Watch sheet screen › success × sign-in return
+  it('restores a Watch target once to the same pet after Google', () => {
+    rememberReturnPlace({ path: '/pet/9', action: 'watch', text: JSON.stringify({ target: 'NEAR price' }) });
+    const place = takeReturnPlace();
+    expect(place?.action).toBe('watch');
+    holdReturnSheet('watch', place!.path, place!.text!);
+    expect(takeReturnSheet('watch', '/pet/2')).toBeNull();
+    expect(takeReturnSheet('watch', '/pet/9')).toEqual({ target: 'NEAR price' });
+    expect(takeReturnSheet('watch', '/pet/9')).toBeNull();
+  });
+
   // spec: add-account › Sign-in return data › вход со ссылки подарка
   it('keeps the place, the action and the typed text, and the mark of a cancel', () => {
     rememberReturnPlace({ path: '/gift/abc', action: 'signin', text: 'And if they ask why?' });

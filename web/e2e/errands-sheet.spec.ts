@@ -25,6 +25,31 @@ const open = async (page: Page, worker: Record<string, unknown> = {}, pixel: Pet
   await expect(sheet(page)).toBeVisible();
 };
 
+// spec: add-pet-errands › Errand sheet screen › shared job funding amount
+// spec: add-pet-errands › Friend-funded errand flow › owner shares a job
+test('a filled search shows the full shared ceiling and prepares one link without sending an errand', async ({ page }) => {
+  await open(page);
+  await sheet(page).getByRole('radio', { name: 'Find out' }).check();
+  await field(page, 'What should Pixel find out?').fill(LEONIDS);
+  await expect(drawn(page, 'Friends need 2¢ of food for this job')).toBeVisible();
+  await sheet(page).getByRole('button', { name: 'Share a job for friends to fund' }).click();
+  await expect(page).toHaveURL(/\/pet\/9\/errand\/[0-9a-f]{64}$/);
+  await expect(page.getByText('Anyone with this link can read your job. Only you and friends who feed it can read the report.')).toBeVisible();
+  expect(await calls(page)).toContain('worker:prepareSharedErrand');
+  expect((await calls(page)).some((name) => name.startsWith('worker:sendErrand'))).toBe(false);
+});
+
+// spec: add-pet-errands › Friend-funded errand flow › another shared job is waiting
+test('another active shared job keeps the typed draft and links to that job', async ({ page }) => {
+  const code = 'c'.repeat(64);
+  await open(page, { prepareSharedErrand: { fail: { status: 409, code: 'shared_job_active', body: { url: `/pet/9/errand/${code}` } } } });
+  await sheet(page).getByRole('radio', { name: 'Find out' }).check();
+  await field(page, 'What should Pixel find out?').fill(LEONIDS);
+  await sheet(page).getByRole('button', { name: 'Share a job for friends to fund' }).click();
+  await expect(field(page, 'What should Pixel find out?')).toHaveValue(LEONIDS);
+  await expect(sheet(page).getByRole('link', { name: 'Open shared errand' })).toHaveAttribute('href', `/pet/9/errand/${code}`);
+});
+
 // spec: add-pet-errands › Errand sheet screen › success
 test('success: the three forms with «Read this» picked, the field «Paste a link or some text», «Send» off while it is empty, the price by the text', async ({ page }) => {
   await open(page);
@@ -94,10 +119,11 @@ test('food covers fewer searches: «Send · up to ≈ {price}» at what the food
 
 // spec: add-pet-errands › Errand sheet screen › a skill with outside data
 test('a skill with outside data: also the line that Pixel may look things up through its data sources', async ({ page }) => {
-  await open(page, { errand: { labels: ['Daybook', 'Open-Meteo'] } });
+  await open(page, { errand: { labels: ['Daybook', 'Open-Meteo'], search: { upTo: { yocto: '3790000000000000000000', cents: 1.75 }, full: true, short: false, searches: 2, allowance: 2 } } });
   await expect(drawn(page,/may look things up/)).toHaveCount(0);
   await sheet(page).getByRole('radio', { name: 'Find out' }).check();
   await expect(drawn(page,'Pixel may look things up through Daybook and Open-Meteo. Whoever runs them sees what Pixel looks up.')).toBeVisible();
+  await expect(send(page)).toContainText('up to ≈ 1.75¢');
 });
 
 // spec: add-pet-errands › Errand sheet screen › error

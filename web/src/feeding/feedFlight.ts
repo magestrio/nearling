@@ -3,6 +3,8 @@ import type { AuthApi } from '../seams/auth-context';
 import { WorkerError, workerApi, type FeedOutcome, type FeedSheetAnswer, type FeedSource, type PortionNear } from '../seams/worker';
 import { announceFed } from './feedRequest';
 import { checkFeedTx, sha256Hex, toBase64 } from './feedTx';
+import { nearRpc } from '../seams/rpc';
+import { config } from '../config';
 
 // The meal on its way (`Feeding outcome rule`, `Feeding transaction data` › «outcome with the sheet closed»). It belongs to the tab,
 // not to the sheet: a record started at the tap, before anything is sent, and the whole chain runs in it — build, check, sign, the
@@ -47,10 +49,12 @@ export interface Flight {
   id: string | null;
   /** the signed bytes, the tab's memory only */
   signed: { tx: string; signature: string } | null;
+  sharedCode?: string;
 }
 
 export type FlightEnd =
   | { status: 'ok'; friend?: string; hatched: boolean }
+  | { status: 'funding_closed' }
   | { status: 'failed' }
   /** the network said the sheet is not what was tapped (`409 short`, `409 snack_gone`, `503`): it is drawn from this answer */
   | { status: 'redraw'; sheet: FeedSheetAnswer }
@@ -245,12 +249,15 @@ async function runMeal(host: FlightHost, flight: Flight, portion: PortionNear): 
   if (token === null) return endedAtTap(host, flight);
   let built: { tx: string };
   try {
-    built = await workerApi.buildFeed(token, flight.tokenId, portion);
+    built = flight.sharedCode
+      ? await workerApi.buildFeed(token, flight.tokenId, portion, flight.sharedCode)
+      : await workerApi.buildFeed(token, flight.tokenId, portion);
   } catch (e) {
     const s = status(e);
     if (s === 401) return endedAtTap(host, flight);
     const sheet = sheetOf(e);
     if (s === 409 && codeOf(e) === 'short' && sheet !== null) return finish(flight, { status: 'redraw', sheet });
+    if (s === 409 && codeOf(e) === 'shared_funding_closed') return finish(flight, { status: 'funding_closed' });
     // another request of ours holds a meal (a second tab): it is the one being waited for
     if (s === 409 && codeOf(e) === 'pending') return followUp(host, flight, true);
     if (s === 503 && codeOf(e) === 'chain_unreachable') return finish(flight, { status: 'redraw', sheet: { chain: false } });
@@ -258,7 +265,15 @@ async function runMeal(host: FlightHost, flight: Flight, portion: PortionNear): 
     return finish(flight, { status: 'failed' });
   }
   // the browser signs only the one portion that was tapped (`Feeding transaction data` › «прислана не та порция»)
-  const checked = checkFeedTx(built.tx, { account: host.account ?? '', tokenId: flight.tokenId, portion });
+  let jobHash: string | undefined;
+  if (flight.sharedCode) {
+    try {
+      const pet = await nearRpc.viewFunction<{ shared_job?: { hash?: string } | null } | null>(config.contractId, 'pet_view', { token_id: flight.tokenId });
+      jobHash = pet?.shared_job?.hash;
+      if (!jobHash) return finish(flight, { status: 'failed' });
+    } catch { return finish(flight, { status: 'failed' }); }
+  }
+  const checked = checkFeedTx(built.tx, { account: host.account ?? '', tokenId: flight.tokenId, portion, linked: flight.sharedCode !== undefined, jobHash });
   if (!checked.ok) return finish(flight, { status: 'failed' });
   let signature: Uint8Array;
   try {
@@ -272,13 +287,14 @@ async function runMeal(host: FlightHost, flight: Flight, portion: PortionNear): 
     try {
       const t = await host.token();
       if (t === null) return stopped(host, flight);
-      const o = await workerApi.sendFeed(t, flight.tokenId, flight.signed);
+      const o = await workerApi.sendFeed(t, flight.tokenId, { ...flight.signed, ...(flight.sharedCode ? { code: flight.sharedCode } : {}) });
       if (o.hash) flight.id = o.hash;
       const end = endOf(o);
       if (end !== null) return finish(flight, end);
     } catch (e) {
       const s = status(e);
       if (s === 401) return stopped(host, flight);
+      if (s === 409 && codeOf(e) === 'shared_funding_closed') return finish(flight, { status: 'funding_closed' });
       if (s === 400) return finish(flight, { status: 'failed' });
       if (s === 409 && codeOf(e) === 'pending') return followUp(host, flight, true);
       // no answer, or 503: the same bytes go again
@@ -292,13 +308,16 @@ async function runSnack(host: FlightHost, flight: Flight): Promise<void> {
   if (token === undefined) return finish(flight, { status: 'failed' });
   if (token === null) return endedAtTap(host, flight);
   try {
-    const o = await workerApi.snack(token, flight.tokenId);
+    const o = flight.sharedCode
+      ? await workerApi.snack(token, flight.tokenId, flight.sharedCode)
+      : await workerApi.snack(token, flight.tokenId);
     const end = endOf(o);
     if (end !== null) return finish(flight, end);
     return followUp(host, flight);
   } catch (e) {
     const s = status(e);
     if (s === 401) return endedAtTap(host, flight);
+    if (s === 409 && codeOf(e) === 'shared_funding_closed') return finish(flight, { status: 'funding_closed' });
     const sheet = sheetOf(e);
     // `snack_gone` redraws with the sheet as it stands now (the snack was taken, the pool ran dry, the pet woke)
     if (s === 409 && codeOf(e) === 'snack_gone' && sheet !== null) return finish(flight, { status: 'redraw', sheet });
@@ -311,17 +330,19 @@ async function runSnack(host: FlightHost, flight: Flight): Promise<void> {
 }
 
 /** A tap on a portion. False when a flight stands: a second portion is never sent. */
-export function startMeal(host: FlightHost, input: { tokenId: string; portion: PortionNear; wasAsleep: boolean }): boolean {
+export function startMeal(host: FlightHost, input: { tokenId: string; portion: PortionNear; wasAsleep: boolean; sharedCode?: string }): boolean {
   if (current !== null) return false;
   const flight = begin(input.tokenId, 'near', input.wasAsleep, null, false);
+  flight.sharedCode = input.sharedCode;
   void runMeal(host, flight, input.portion);
   return true;
 }
 
 /** A tap on the free snack. */
-export function startSnack(host: FlightHost, input: { tokenId: string; wasAsleep: boolean }): boolean {
+export function startSnack(host: FlightHost, input: { tokenId: string; wasAsleep: boolean; sharedCode?: string }): boolean {
   if (current !== null) return false;
   const flight = begin(input.tokenId, 'snack', input.wasAsleep, null, false);
+  flight.sharedCode = input.sharedCode;
   void runSnack(host, flight);
   return true;
 }

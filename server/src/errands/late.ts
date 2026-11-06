@@ -44,7 +44,7 @@ async function settleRecorded(env: Env, row: ErrandRow, reason: 'timeout' | 'emp
     const fs = await foodState(env.DB, tokenId, pet, now);
     price = await cutPrice(env, fs, errandPrice(env, calls, row.searches_ran));
   }
-  const sessionId = price === null ? null : await openSession(env, tokenId, now);
+  const sessionId = price === null ? null : await openSession(env, tokenId, now, row.shared_job_hash ?? undefined);
 
   const ended = await env.DB.batch([
     env.DB

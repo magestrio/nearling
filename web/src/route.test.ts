@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { adaptersPath, diaryPath, hatchPath, parseRoute, petPath, wardrobePath, verifyPath } from './route';
+import { adaptersPath, diaryPath, hatchPath, parseRoute, petPath, sharedErrandPath, wardrobePath, verifyPath } from './route';
 
 describe('parseRoute', () => {
   it('reads the Pet screen and the Hatch screen with the friend in the address', () => {
@@ -61,6 +61,14 @@ describe('parseRoute', () => {
     expect(parseRoute('/adapters/9')).toEqual({ name: 'unknown' });
     expect(adaptersPath('9')).toBe('/adapters?pet=9');
     expect(adaptersPath()).toBe('/adapters');
+  });
+
+  // spec: add-pet-errands › Shared errand screen › success
+  it('reads only a full shared errand code and builds its public route', () => {
+    const code = 'a'.repeat(64);
+    expect(parseRoute(`/pet/9/errand/${code}`)).toEqual({ name: 'shared-errand', tokenId: '9', code });
+    expect(parseRoute('/pet/9/errand/short')).toEqual({ name: 'unknown' });
+    expect(sharedErrandPath('9', code)).toBe(`/pet/9/errand/${code}`);
   });
 
   // spec: add-verification › Verification screen › success

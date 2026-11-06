@@ -36,7 +36,7 @@ export interface SignInLinesOptions {
   text?: string;
   /** what the tap on «Sign in» carries back: the action the player was at (the sheet it was on: `skill`, `errand`, `adapter`,
    *  `code`), `signin` by default */
-  action?: 'signin' | 'skill' | 'errand' | 'adapter' | 'code' | 'giftAccept';
+  action?: 'signin' | 'skill' | 'errand' | 'adapter' | 'code' | 'watch' | 'giftAccept';
 }
 
 /** What a sign-in, a read of the gate at its tap, or the end of a session left on this screen, in the order they are read. An

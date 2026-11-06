@@ -211,6 +211,8 @@ describe('GET …/diary', () => {
       yesterday: null,
       streak: { days: 2, freezes: 1, done: false, line: null, n: 2, k: 1, missed: 0, note: [] },
       parts: ['question', 'riddle'],
+      // spec: add-pet-errands › Daily watch flow › quiet check
+      watch: [],
       complete: false,
     });
   });

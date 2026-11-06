@@ -113,7 +113,7 @@ export interface FakeWorkerState {
   /** `POST /api/judge/check`; default accepts the sample code. */
   judgeCheck?: { ok: true } | FakeFail;
   /** `POST …/memory/clear`; default `{ ok: true }` */
-  clearMemory?: { ok: true } | FakeFail;
+  clearMemory?: { ok: true } | { code: 'close_retry' } | FakeFail;
   clearMemoryDelayMs?: number;
   /** `GET …/feed`: fields laid over the sheet the fake builds from the pet and the viewer (default: three portions at 5¢ / 23¢ /
    *  92¢, 0.31 NEAR in the wallet, a free snack where `Snack rule` gives one); `{ chain: false }` or a refusal instead */
@@ -174,6 +174,17 @@ export interface FakeWorkerState {
   forgetSkill?: { skill: null } | FakeFail;
   /** `GET …/errand`: fields laid over the quote the fake builds (a typical read at 0.15¢, a search form up to 2¢, no block), or a refusal */
   errand?: Partial<ErrandQuote> | FakeFail;
+  watch?: import('./worker-types').WatchRead | FakeFail;
+  watchDelayMs?: number;
+  saveWatch?: import('./worker-types').WatchRead | FakeFail;
+  resumeWatch?: import('./worker-types').WatchRead | FakeFail;
+  stopWatch?: { target: null } | FakeFail;
+  sharedErrand?: import('./worker-types').SharedErrand | FakeFail;
+  sharedErrandDelayMs?: number;
+  prepareSharedErrand?: { url: string; code: string; needed: import('./worker-types').Price; form: 'find' | 'check'; job: string } | FakeFail;
+  closeSharedErrand?: { ok: true } | FakeFail;
+  closeSharedErrandDelayMs?: number;
+  releaseSharedReserve?: { ok: true } | { code: 'close_retry' } | FakeFail;
   /** `POST …/errand`; default `{ job: 'job-errand' }`. What the real route leaves behind: the pet is away (`petState.errand`) */
   sendErrand?: { job: string } | FakeFail;
   /** `GET /api/adapters`; default three entries */

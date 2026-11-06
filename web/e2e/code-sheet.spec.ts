@@ -61,7 +61,7 @@ test('success: «Pixel\'s code», a blank field with its hint, the two lines, «
   const dialog = codeSheet(page);
   await expect(dialog.getByRole('heading', { name: "Pixel's code" })).toBeVisible();
   await expect(codeField(page)).toHaveValue('');
-  await expect(dialog.getByText("Declare Pixel's functions in export const functions.")).toBeVisible();
+  await expect(codeField(page)).toHaveAccessibleName("JavaScript, up to 32 KB. Declare Pixel's functions in `export const functions`.");
   await expect(dialog.getByText("Your code can reach only this skill's data sources. It runs apart from the game, with a time limit.")).toBeVisible();
   await expect(dialog.getByText("Only you can see this code. It's never shown to other players or sent to NEAR AI.")).toBeVisible();
   await expect(valuesField(page)).toHaveAccessibleDescription('e.g. BTC, 7');
@@ -153,12 +153,24 @@ test('code error: «Your code stopped with an error:» and the error\'s text; «
   await expect(saveCode(page)).toBeDisabled();
 });
 
+// spec: add-pet-errands › Skill code flow › code error
+test('code error on a saved code: the console speaks and the save reminder steps aside; «Save code» stays inactive', async ({ page }) => {
+  await open(page, true, { testCode: { outcome: 'error', error: "TypeError: Cannot read properties of undefined (reading 'year')\n    at openerFor (code.js:5:24)" } });
+  const reminder = codeSheet(page).getByText('Changing which functions Pixel can call? Run one test first, then save.');
+  await expect(reminder).toBeVisible();
+  await codeField(page).fill(SAVED);
+  await runTest(page);
+  await expect(codeSheet(page).getByText('Your code stopped with an error:').first()).toBeVisible();
+  await expect(reminder).toHaveCount(0);
+  await expect(saveCode(page)).toBeDisabled();
+});
+
 // spec: add-pet-errands › Skill code flow › function not declared
 test('function not declared: «nope isn\'t in export const functions, so nothing ran. …»; «Save code» stays inactive and «Test run» stays live', async ({ page }) => {
   await open(page, false, { testCode: { outcome: 'undeclared', fn: 'nope' } });
   await codeField(page).fill(SAVED);
   await runTest(page, 'nope');
-  await expect(codeSheet(page).getByText("nope isn't in export const functions, so nothing ran. Declare it there and test again.").first()).toBeVisible();
+  await expect(codeSheet(page).getByText("nope isn't in `export const functions`, so nothing ran. Declare it there and test again.").first()).toBeVisible();
   await expect(saveCode(page)).toBeDisabled();
   await expect(testRun(page)).not.toHaveAttribute('aria-disabled', 'true');
 });
@@ -279,9 +291,18 @@ test('test from an earlier day: nothing is saved, «Save code» turns inactive w
 });
 
 // spec: add-pet-errands › Skill code flow › code removed
+// spec: add-pet-errands › Skill code flow › asked to remove code
 test('code removed: Skill sheet without the code and «Code removed. Pixel stops running it from its next job.»', async ({ page }) => {
   await open(page, true);
   await codeSheet(page).getByRole('button', { name: 'Remove code' }).click();
+  const confirm = page.getByRole('alertdialog', { name: "Remove Pixel's code?" });
+  await expect(confirm.getByText("Only this copy exists, so you can't get it back.")).toBeVisible();
+  await expect(confirm.getByRole('button', { name: 'Keep code' })).toBeFocused();
+  expect(await calls(page)).not.toContain('worker:removeCode');
+  await confirm.getByRole('button', { name: 'Keep code' }).click();
+  await expect(codeField(page)).toHaveValue(SAVED);
+  await codeSheet(page).getByRole('button', { name: 'Remove code' }).click();
+  await page.getByRole('alertdialog', { name: "Remove Pixel's code?" }).getByRole('button', { name: 'Remove code' }).click();
   await expect(codeSheet(page)).toHaveCount(0);
   await expect(skillSheet(page).getByText('Code removed. Pixel stops running it from its next job.').first()).toBeVisible();
   await expect(skillSheet(page).getByRole('button', { name: 'Add code' })).toBeVisible();

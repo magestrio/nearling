@@ -9,8 +9,10 @@ const mocks = vi.hoisted(() => ({
   feedOutcome: vi.fn(),
   snack: vi.fn(),
   pet: vi.fn(),
+  viewFunction: vi.fn(),
 }));
 vi.mock('../seams/worker', async () => ({ ...(await import('../seams/worker-types')), workerApi: mocks }));
+vi.mock('../seams/rpc', () => ({ nearRpc: { viewFunction: mocks.viewFunction } }));
 vi.mock('../config', () => ({ config: { contractId: 'nearling-dev.testnet' } }));
 // the digest runs off the main thread and would outlast the fake clock's turns; the hash itself is feedTx.test.ts's
 vi.mock('./feedTx', async (original) => ({ ...(await original<typeof import('./feedTx')>()), sha256Hex: async () => 'ab'.repeat(32) }));
@@ -23,8 +25,8 @@ const ACCOUNT = 'a1'.repeat(32);
 const BLOCK = Uint8Array.from({ length: 32 }, (_, i) => i + 1);
 
 /** The transaction as the Worker builds it for a portion of this pet. */
-function built(portion: keyof typeof PORTION_YOCTO = '0.05', tokenId = '9'): { tx: string } {
-  const call = actions.functionCall('pet_feed', { token_id: tokenId }, 5_000_000_000_000n, PORTION_YOCTO[portion]);
+function built(portion: keyof typeof PORTION_YOCTO = '0.05', tokenId = '9', jobHash?: string): { tx: string } {
+  const call = actions.functionCall('pet_feed', { token_id: tokenId, ...(jobHash ? { job_hash: jobHash } : {}) }, 5_000_000_000_000n, PORTION_YOCTO[portion]);
   return { tx: toBase64(createTransaction(ACCOUNT, publicKeyFromImplicitAccount(ACCOUNT), 'nearling-dev.testnet', 7n, [call], BLOCK).encode()) };
 }
 
@@ -51,6 +53,7 @@ beforeEach(() => {
   onFlight((e) => events.push(e));
   stopFed = onFed((e) => fed.push(e));
   mocks.buildFeed.mockResolvedValue(built());
+  mocks.viewFunction.mockResolvedValue({ shared_job: { hash: 'b'.repeat(64) } });
 });
 
 afterEach(() => {
@@ -63,6 +66,30 @@ const ended = () => events.filter((e): e is Extract<FlightEvent, { kind: 'ended'
 const meal = (over: Partial<Parameters<typeof startMeal>[1]> = {}) => startMeal(host, { tokenId: '9', portion: '0.05', wasAsleep: false, ...over });
 
 describe('the meal on its way', () => {
+  // spec: add-pet-errands › Friend-funded errand flow › friend adds a NEAR meal
+  it('checks the live job hash before signing a linked meal and sends its code with the same signed bytes', async () => {
+    const hash = 'b'.repeat(64);
+    const code = 'c'.repeat(64);
+    mocks.buildFeed.mockResolvedValue(built('0.05', '9', hash));
+    mocks.sendFeed.mockResolvedValue(ok());
+    expect(meal({ sharedCode: code })).toBe(true);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(mocks.buildFeed).toHaveBeenCalledWith('token', '9', '0.05', code);
+    expect(mocks.viewFunction).toHaveBeenCalledWith('nearling-dev.testnet', 'pet_view', { token_id: '9' });
+    expect(host.sign).toHaveBeenCalledTimes(1);
+    expect(mocks.sendFeed.mock.calls[0]?.[2]).toMatchObject({ code });
+    expect(ended()[0]?.end.status).toBe('ok');
+  });
+
+  // spec: add-pet-errands › Friend-funded errand flow › late friend cannot add food
+  it('refuses a closed linked meal before any wallet signature', async () => {
+    mocks.buildFeed.mockRejectedValue(refusal(409, 'shared_funding_closed'));
+    meal({ sharedCode: 'c'.repeat(64) });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(host.sign).not.toHaveBeenCalled();
+    expect(ended()[0]?.end).toEqual({ status: 'funding_closed' });
+  });
+
   // spec: add-feeding › Feeding outcome rule › отправлено
   it('builds, checks, signs and sends at the tap; a second portion is never started while one stands', async () => {
     mocks.sendFeed.mockResolvedValue(ok());

@@ -28,12 +28,12 @@
    height here (the margin is figured from it). */
 @media not all and (min-width: 768px) {
   .ds-stage--compact:not(.ds-stage--owner) .pet-figure--hero {
-    height: var(--size-pet-hero-max-height);
-    width: auto;
-    aspect-ratio: 1192 / 1423;
-    margin-block-start: calc(var(--size-pet-compact-max-height) - var(--size-pet-hero-max-height));
     pointer-events: none;
   }
+  /* The guest's frames (`advice-*`) draw the still inside the compact cap. The live box takes that room (`--pet-h` above), and
+     the picture in it is the size of the still at this scale, standing as high as the still does (measured on the Sage and
+     the Biscuit frames; the box's own 1.1 above, taken for the hero cap, makes a tall pet overrun the header). */
+  .ds-stage--compact:not(.ds-stage--owner) .pet-figure--hero .pet-figure__box { transform: translateY(-7%) scale(1.025); transform-origin: center bottom; }
 }
 /* the owner's phone (the stage with `owner`, awake or asleep): the pet a little smaller, as the DS's still (components.css › the same rule) */
 @media not all and (min-width: 768px) {

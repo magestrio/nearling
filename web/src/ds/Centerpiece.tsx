@@ -10,6 +10,8 @@ import { cx, useIsDesktop } from './util';
 export function Centerpiece({
   text,
   scroll,
+  compact,
+  immediate,
   labelledBy,
   actions,
   status,
@@ -17,6 +19,8 @@ export function Centerpiece({
 }: {
   text?: ReactNode;
   scroll?: boolean;
+  compact?: boolean;
+  immediate?: boolean;
   labelledBy?: string;
   actions?: ReactNode;
   status?: ReactNode;
@@ -26,7 +30,7 @@ export function Centerpiece({
   const region = hasText || scroll ? { role: 'region', 'aria-labelledby': labelledBy, tabIndex: 0 } : undefined;
   const desktop = useIsDesktop();
   return (
-    <div className={cx('ds-centerpiece', hasText && 'ds-centerpiece--text', scroll && 'ds-centerpiece--scroll')} {...(desktop && hasText ? region : undefined)}>
+    <div className={cx('ds-centerpiece', hasText && 'ds-centerpiece--text', scroll && 'ds-centerpiece--scroll', compact && 'ds-centerpiece--compact', immediate && 'ds-centerpiece--immediate')} {...(desktop && hasText ? region : undefined)}>
       <div className="ds-centerpiece__body" {...(desktop ? undefined : region)}>
         {text ? <div className="ds-centerpiece__object">{children}</div> : children}
         {text ? <div className="ds-centerpiece__text">{text}</div> : null}

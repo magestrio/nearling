@@ -110,10 +110,12 @@ async fn migrate_takes_the_previous_layout_of_a_deployed_contract() -> anyhow::R
     let pool_before = ctx.pool().await?;
     let state = ctx.read_state().await?;
     let counters = borsh::to_vec(&(1u64, 0u64, 0u128))?;
-    let new_totals = &state[state.len() - 24..];
+    assert_eq!(&state[state.len() - 5..], &[1, 0, 0, 0, b'j']);
+    let old_end = state.len() - 5;
+    let new_totals = &state[old_end - 24..old_end];
     assert_eq!(&new_totals[..16], &[0; 16]);
-    assert_eq!(&state[state.len() - 24 - counters.len()..state.len() - 24], counters);
-    let tail = state.len() - 24 - counters.len() - 15;
+    assert_eq!(&state[old_end - 24 - counters.len()..old_end - 24], counters);
+    let tail = old_end - 24 - counters.len() - 15;
     assert_eq!(&state[tail..tail + 15], &[1, 0, 0, 0, b'w', 1, 0, 0, 0, b'x', 1, 0, 0, 0, b'g']);
     ctx.worker
         .patch_state(ctx.contract.id(), b"STATE", &state[..tail])

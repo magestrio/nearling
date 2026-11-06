@@ -38,8 +38,8 @@ export async function hasOutsideData(db: D1Database, tokenId: string): Promise<b
 
 /** The first block that holds for `form` now, or none. `checkGas` also reads the server account's balance (the desk
  * does before spending; a quote does not). */
-export async function blocksOf(env: Env, tokenId: string, pet: PetRecord, form: ErrandForm, now: number, checkGas = false): Promise<Blocks> {
-  const food = await foodState(env.DB, tokenId, pet, now);
+export async function blocksOf(env: Env, tokenId: string, pet: PetRecord, form: ErrandForm, now: number, checkGas = false, sharedHash?: string): Promise<Blocks> {
+  const food = await foodState(env.DB, tokenId, pet, now, sharedHash);
   const hasData = await hasOutsideData(env.DB, tokenId);
   const today = utcDay(now);
   const until = new Date((today + 1) * 86_400_000).toISOString();

@@ -22,6 +22,7 @@ export interface ErrandRow {
   searches_ran: number;
   thought_id: string | null;
   price_yocto: string | null;
+  shared_job_hash?: string | null;
 }
 
 /** What `GET …/state` carries as `errand` (the owner's only). */
@@ -81,23 +82,27 @@ export async function errandView(db: D1Database, row: ErrandRow | null, consumeC
 
 /** The new errand and its desk job in one batch; null when an errand of the pet is away (a second tab, a stale
  * page). The failed or done row of the pet is replaced by the new one. */
-export async function sendErrand(db: D1Database, a: { tokenId: string; owner: string; form: ErrandForm; job: string; now: number; displayMax?: { yocto: string; cents: number } }): Promise<{ errand: string; job: string } | null> {
+export async function sendErrand(db: D1Database, a: { tokenId: string; owner: string; form: ErrandForm; job: string; now: number; displayMax?: { yocto: string; cents: number }; sharedHash?: string }): Promise<{ errand: string; job: string } | null> {
   const errand = randomId();
   const job = crypto.randomUUID().replaceAll('-', '');
   const written = await db.batch([
     db
       .prepare(
-        `INSERT INTO errands (token_id, id, owner, form, job, state, reason, cause, sent_at, reserve_yocto, searches_ran, thought_id, price_yocto, display_max_yocto, display_max_cents)
-         SELECT ?1, ?2, ?3, ?4, ?5, 'away', NULL, NULL, ?6, '0', 0, NULL, NULL, ?7, ?8 WHERE NOT EXISTS (SELECT 1 FROM errands WHERE token_id = ?1 AND state = 'away')
+        `INSERT INTO errands (token_id, id, owner, form, job, state, reason, cause, sent_at, reserve_yocto, searches_ran, thought_id, price_yocto, display_max_yocto, display_max_cents, shared_job_hash)
+         SELECT ?1, ?2, ?3, ?4, ?5, 'away', NULL, NULL, ?6, '0', 0, NULL, NULL, ?7, ?8, ?9 WHERE NOT EXISTS (SELECT 1 FROM errands WHERE token_id = ?1 AND state = 'away')
+         AND (?9 IS NULL OR EXISTS (SELECT 1 FROM shared_errands WHERE token_id = ?1 AND job_hash = ?9 AND state IN ('funding', 'running')))
+         AND (?9 IS NULL OR NOT EXISTS (SELECT 1 FROM errands WHERE token_id = ?1 AND shared_job_hash = ?9))
          ON CONFLICT (token_id) DO UPDATE SET id = excluded.id, owner = excluded.owner, form = excluded.form, job = excluded.job, state = 'away', reason = NULL, cause = NULL,
            sent_at = excluded.sent_at, reserve_yocto = '0', searches_ran = 0, thought_id = NULL, price_yocto = NULL,
-           display_max_yocto = excluded.display_max_yocto, display_max_cents = excluded.display_max_cents
+           display_max_yocto = excluded.display_max_yocto, display_max_cents = excluded.display_max_cents, shared_job_hash = excluded.shared_job_hash
          RETURNING id`,
       )
-      .bind(a.tokenId, errand, a.owner, a.form, a.job, a.now, a.displayMax?.yocto ?? null, a.displayMax?.cents ?? null),
+      .bind(a.tokenId, errand, a.owner, a.form, a.job, a.now, a.displayMax?.yocto ?? null, a.displayMax?.cents ?? null, a.sharedHash ?? null),
     db
       .prepare("INSERT INTO jobs (id, token_id, kind, mode, payload, status, created_at, owner_account) SELECT ?1, ?2, 'errand', NULL, '{}', 'queued', ?3, ?5 WHERE EXISTS (SELECT 1 FROM errands WHERE token_id = ?2 AND id = ?4)")
       .bind(job, a.tokenId, a.now, errand, a.owner),
+    ...(a.sharedHash === undefined ? [] : [db.prepare("UPDATE shared_errands SET state = 'running', updated_at = ? WHERE token_id = ? AND job_hash = ? AND state IN ('funding', 'running') AND EXISTS (SELECT 1 FROM errands WHERE token_id = ? AND id = ? AND shared_job_hash = ?)")
+      .bind(a.now, a.tokenId, a.sharedHash, a.tokenId, errand, a.sharedHash)]),
   ]);
   return (written[0]?.results.length ?? 0) === 0 ? null : { errand, job };
 }

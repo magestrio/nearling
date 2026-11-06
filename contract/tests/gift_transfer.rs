@@ -15,6 +15,108 @@ const GIFT_PREPAID_GAS: Gas = Gas::from_tgas(5);
 /// Sandbox transaction admission cost: 5 Tgas prepaid plus 0.919523854717 Tgas of fees.
 const GIFT_REQUIRED_GAS: u128 = 5_919_523_854_717_000_000_000;
 const GIFT_GAS_RESERVE: u128 = 6 * MILLI_NEAR;
+const SHARED_HASH: &str = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+
+async fn shared_open_and_meal(ctx: &Ctx) -> anyhow::Result<()> {
+    ctx.server
+        .call(ctx.contract.id(), "shared_job_open")
+        .args_json(json!({"token_id":"0", "job_hash":SHARED_HASH, "allowance_yocto":"1000"}))
+        .transact()
+        .await?
+        .into_result()?;
+    ctx.funder
+        .call(ctx.contract.id(), "pet_feed")
+        .args_json(json!({"token_id":"0", "job_hash":SHARED_HASH}))
+        .deposit(NearToken::from_yoctonear(
+            nearling_contract::limits::MIN_FEED,
+        ))
+        .transact()
+        .await?
+        .into_result()?;
+    Ok(())
+}
+
+// spec: add-gift › Pet transfer contract › waiting shared job on transfer
+#[tokio::test]
+async fn waiting_shared_job_releases_reserve_on_transfer() -> anyhow::Result<()> {
+    let ctx = setup(BIG_POOL).await?;
+    let alice = ctx.account("alice", 20).await?;
+    let bob = ctx.account("bob", 20).await?;
+    ctx.mint(alice.id().as_str(), "Pixel", "Curious forever")
+        .await?
+        .into_result()?;
+    shared_open_and_meal(&ctx).await?;
+    let pool_before_transfer = ctx.pool().await?;
+    let before = ctx.pet_view("0").await?;
+    assert_eq!(before["shared_job"]["state"], "funding");
+    let result = transfer(&ctx, &alice, bob.id().as_str(), "0", 1, None).await?;
+    let gas = result.outcomes()[1].gas_burnt.as_gas();
+    let logs = event_logs(&result);
+    result.into_result()?;
+    assert_eq!(logs.len(), 2);
+    assert_eq!(
+        serde_json::from_str::<Value>(&logs[0])?["event"],
+        "nft_transfer"
+    );
+    let released: Value = serde_json::from_str(&logs[1])?;
+    assert_eq!(released["event"], "shared_job_close");
+    assert_eq!(
+        released["data"]["linked_near_released"],
+        nearling_contract::limits::MIN_FEED.to_string()
+    );
+    let after = ctx.pet_view("0").await?;
+    assert!(after["shared_job"].is_null());
+    assert_eq!(after["given_food"], before["given_food"]);
+    assert_eq!(
+        ctx.pool().await?,
+        pool_before_transfer
+            + u128::from(nearling_contract::limits::SHARED_JOB_MAX_BYTES)
+                * 10_000_000_000_000_000_000
+    );
+    eprintln!("waiting shared gift gas burnt: {gas}");
+    Ok(())
+}
+
+// spec: add-gift › Pet transfer contract › running shared job on transfer
+#[tokio::test]
+async fn running_shared_job_keeps_only_its_linked_debit_after_transfer() -> anyhow::Result<()> {
+    let ctx = setup(BIG_POOL).await?;
+    let alice = ctx.account("alice", 20).await?;
+    let bob = ctx.account("bob", 20).await?;
+    ctx.mint(alice.id().as_str(), "Pixel", "Curious forever")
+        .await?
+        .into_result()?;
+    shared_open_and_meal(&ctx).await?;
+    ctx.server
+        .call(ctx.contract.id(), "shared_job_start")
+        .args_json(json!({"token_id":"0", "job_hash":SHARED_HASH}))
+        .transact()
+        .await?
+        .into_result()?;
+    let before = ctx.pet_view("0").await?;
+    let result = transfer(&ctx, &alice, bob.id().as_str(), "0", 1, None).await?;
+    let gas = result.outcomes()[1].gas_burnt.as_gas();
+    let logs = event_logs(&result);
+    result.into_result()?;
+    assert_eq!(logs.len(), 2);
+    let transferred: Value = serde_json::from_str(&logs[1])?;
+    assert_eq!(transferred["event"], "shared_job_transferred");
+    let after = ctx.pet_view("0").await?;
+    assert_eq!(after["shared_job"]["hash"], SHARED_HASH);
+    assert_eq!(after["shared_job"]["state"], "transferred");
+    assert_eq!(after["given_food"], before["given_food"]);
+    let mut thought = thought_json(1_000);
+    thought["job_hash"] = json!(SHARED_HASH);
+    ctx.debit("0", 1, vec![thought]).await?.into_result()?;
+    let settled = ctx.pet_view("0").await?;
+    assert_eq!(settled["shared_job"]["state"], "settled");
+    assert_eq!(
+        settled["given_food"].as_str().unwrap().parse::<u128>()?,
+        nearling_contract::limits::MIN_FEED - 1_000
+    );
+    eprintln!("running shared gift gas burnt: {gas}");
+    Ok(())
+}
 
 async fn transfer(
     ctx: &Ctx,

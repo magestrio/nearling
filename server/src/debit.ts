@@ -46,6 +46,7 @@ interface Session {
 
 interface ThoughtRow {
   id: string;
+  job_hash: string | null;
   /** How many calls the receipt holds: the batch is cut by the size of its logs, not by the thoughts alone. */
   calls: number;
   model: string;
@@ -147,12 +148,38 @@ export async function closeAndDebit(env: Env, nowMs: number): Promise<void> {
   }
 }
 
+/** The shared errand's own session is sent as soon as its paid outcome is stored. */
+export async function debitSharedNow(env: Env, tokenId: string, jobHash: string): Promise<void> {
+  const row = await env.DB.prepare('SELECT id FROM debit_sessions WHERE token_id = ? AND shared_job_hash = ?')
+    .bind(tokenId, jobHash).first<{ id: string }>();
+  if (row === null) return;
+  await env.DB.prepare("UPDATE debit_sessions SET status = 'sending' WHERE id = ? AND status = 'open'").bind(row.id).run();
+  const stamp = Date.now();
+  const session = await claim(env, row.id, stamp);
+  if (session === null) return;
+  const held: Claim = { stamp, clock: () => Date.now() };
+  try { await debitSession(env, session, held, new Map()); }
+  finally { await env.DB.prepare('UPDATE debit_sessions SET claimed_at = NULL WHERE id = ? AND claimed_at = ?').bind(row.id, held.stamp).run(); }
+}
+
+/** A watch owns one session, separate from the owner's conversation. Close it as soon as its
+ * signed call has been stored so a quiet check can expose a real receipt. */
+export async function debitWatchNow(env: Env, sessionId: string): Promise<void> {
+  await env.DB.prepare("UPDATE debit_sessions SET status = 'sending' WHERE id = ? AND status = 'open'").bind(sessionId).run();
+  const stamp = Date.now();
+  const session = await claim(env, sessionId, stamp);
+  if (session === null) return;
+  const held: Claim = { stamp, clock: () => Date.now() };
+  try { await debitSession(env, session, held, new Map()); }
+  finally { await env.DB.prepare('UPDATE debit_sessions SET claimed_at = NULL WHERE id = ? AND claimed_at = ?').bind(sessionId, held.stamp).run(); }
+}
+
 /** The next thoughts to debit. A worker's answer (kind `advice` or `hire_answer`, a hire question is the paying pet's
  * own thought) carries its worker whatever came of it; an unsettled hire of it rides along. */
 async function nextBatch(env: Env, sessionId: string): Promise<ThoughtRow[]> {
   const rows = (
     await env.DB.prepare(
-      `SELECT t.id, t.model, t.price_yocto, CASE WHEN t.kind IN ('advice', 'hire_answer') THEN t.worker_id END AS worker,
+      `SELECT t.id, t.model, t.price_yocto, t.shared_job_hash AS job_hash, CASE WHEN t.kind IN ('advice', 'hire_answer') THEN t.worker_id END AS worker,
               (SELECT COUNT(*) FROM thought_calls c WHERE c.thought_id = t.id) AS calls,
               h.id AS hire_id, h.kind AS hire_kind, h.mode AS hire_mode, h.skilled AS hire_skilled, h.fee_yocto AS hire_fee, (t.data_labels IS NOT NULL) AS hire_adapter
        FROM thoughts t LEFT JOIN hires h ON h.answer_thought_id = t.id AND h.status = 'unbilled'
@@ -166,7 +193,7 @@ async function nextBatch(env: Env, sessionId: string): Promise<ThoughtRow[]> {
   let bytes = 0;
   const batch: ThoughtRow[] = [];
   for (const row of rows) {
-    bytes += receiptBytes(row.calls, row.worker !== null, row.hire_id !== null);
+    bytes += receiptBytes(row.calls, row.worker !== null, row.hire_id !== null) + (row.job_hash === null ? 0 : 700);
     if (batch.length > 0 && bytes > MAX_LOG_BYTES_PER_DEBIT) break;
     batch.push(row);
   }
@@ -305,6 +332,7 @@ async function debitSession(env: Env, session: Session, held: Claim, accepted: M
       price: t.price_yocto,
       // The worker of an answer, and the hire it is the fee of: the contract writes `hire` right after the receipt.
       ...(t.worker !== null ? { worker: t.worker } : {}),
+      ...(t.job_hash === null ? {} : { job_hash: t.job_hash }),
       ...(t.worker !== null && t.hire_id !== null ? { hire: { kind: t.hire_kind, skill: t.hire_skilled === 1, fee: t.hire_fee } } : {}),
       calls: calls
         .filter((c) => c.thought_id === t.id)
@@ -328,10 +356,12 @@ async function debitSession(env: Env, session: Session, held: Claim, accepted: M
     if (kept.meta.changes !== 1) return false;
     held.stamp = signedAt;
     lastAt = signedAt;
+    const shared = batch.find((thought) => thought.job_hash !== null);
     const answer = await env.SERVER_KEY.get(env.SERVER_KEY.idFromName('server')).send({
       methodName: 'debit_session',
       args: { token_id: session.token_id, debit_id: debitId, thoughts },
       gas: gasFor(batch.length, thoughts.filter((t) => 'hire' in t).length, batch.filter((t, i) => t.calls > 2 && !('hire' in thoughts[i]!)).length),
+      ...(shared === undefined ? {} : { writes: { kind: 'shared_debit' as const, sessionId: session.id, debitId } }),
     });
     if (answer.status === 'unreachable') return false;
     if (answer.status === 'ok') {

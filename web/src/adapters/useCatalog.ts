@@ -10,8 +10,9 @@ import type { CatalogEntryView, Token } from '../seams/worker-types';
 
 export type CatalogRole =
   | { kind: 'visitor' }
-  | { kind: 'player' }
+  | { kind: 'player'; tokenId: string; name: string }
   | { kind: 'no-pet' }
+  | { kind: 'unavailable' }
   /** `sources` — how many data sources the pet's skill holds: with 3 every «Connect» is off */
   | { kind: 'owner'; tokenId: string; name: string; sources: number };
 
@@ -95,7 +96,10 @@ export function useCatalog(pet: string | null) {
           }
         }
         const me = await workerApi.me(token);
-        if (live) setRole(me.ownedCount > 0 ? { kind: 'player' } : { kind: 'no-pet' });
+        if (!live) return;
+        if (me.ownedCount === 0) { setRole({ kind: 'no-pet' }); return; }
+        const mine = me.currentPet ?? (await workerApi.myPets(token)).currentPet;
+        if (live) setRole(mine ? { kind: 'player', tokenId: mine.tokenId, name: mine.name } : { kind: 'unavailable' });
       } catch (e) {
         if (!live) return;
         if (statusOf(e) === 401) {
@@ -104,7 +108,7 @@ export function useCatalog(pet: string | null) {
           return;
         }
         // the viewer could not be told: the entries stand without a «Connect»
-        setRole({ kind: 'player' });
+        setRole({ kind: 'unavailable' });
       }
     })();
     return () => {
@@ -119,5 +123,5 @@ export function useCatalog(pet: string | null) {
   }, []);
 
   const view: CatalogView = list.kind === 'ready' && role === null ? { kind: 'loading' } : list;
-  return { view, role, tokenOf, refused, tryAgain: () => setAttempt((n) => n + 1) };
+  return { view, role, tokenOf, refused, tryAgain: () => { setAttempt((n) => n + 1); setRoleAttempt((n) => n + 1); } };
 }

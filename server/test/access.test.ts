@@ -28,6 +28,8 @@ describe('Conversation access data', () => {
       worn: null,
       // the label of the skill goes to every viewer (`add-pet-work` › `Skill rule` › «label on the pet's page»)
       skill: null,
+      // spec: add-pet-errands › Watch target data › viewer reads the target
+      watch: null,
     });
     // The owner-only fields are not in the answer, and the conversation route does not exist for them yet.
     for (const field of ['tired', 'paused', 'hello', 'ownedCount', 'pendingJob', 'pendingMode', 'events', 'traits', 'energy', 'outfits', 'notices', 'outfitPrice']) expect(res.body).not.toHaveProperty(field);
@@ -74,7 +76,7 @@ describe('Conversation access data', () => {
   it('shows a visitor with no session only the pet, the name, the stage and the fullness, from the shared copy', async () => {
     h.net().contract.addPet('9', OWNER);
     const first = await api('/api/pets/9');
-    expect(first.body).toEqual({ viewer: 'visitor', tokenId: '9', name: 'Pixel', stage: 'baby', fullness: { state: 'full', level: 1 }, mood: 'calm', worn: null, skill: null });
+    expect(first.body).toEqual({ viewer: 'visitor', tokenId: '9', name: 'Pixel', stage: 'baby', fullness: { state: 'full', level: 1 }, mood: 'calm', worn: null, skill: null, watch: null });
     // The second visitor within 15 s is served from the copy: the network is not read again.
     await api('/api/pets/9');
     await api('/api/pets/9');

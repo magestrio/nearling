@@ -12,7 +12,7 @@ const INSTRUCTION = 'Give one surprising opening line, then say in one sentence 
 const ADDRESS = 'https://daybook.example.com/mcp';
 const SESSION_LINE = "You've been signed out. Sign in to pick up where you left off.";
 const ERROR_LINE = "We couldn't save that. Nothing's lost — try again.";
-const NOT_WORKED = "That address didn't work. Use a plain https address that answers with no key. Nothing was saved.";
+const NOT_WORKED = "That link didn't work. Use a plain https link that answers with no key. Nothing was saved.";
 
 const TOOLS: ToolView[] = [
   { name: 'events_on', description: 'Notable events on a month and day.', params: [{ name: 'month', type: 'number', required: true }, { name: 'day', type: 'number', required: true }], tickable: true, ticked: true },
@@ -22,14 +22,15 @@ const source = (extra: Partial<SourceView> = {}): SourceView => ({ id: 's1', lab
 
 const sheet = (page: Page) => page.getByRole('dialog');
 const skillSheet = (page: Page) => page.getByRole('dialog', { name: "Pixel's skill" });
-const connectSheet = (page: Page) => page.getByRole('dialog', { name: "Connect data to Pixel's skill" });
+const connectSheet = (page: Page) => page.getByRole('dialog', { name: "Add a data source to Pixel's skill" });
 const connectedSheet = (page: Page) => page.getByRole('dialog', { name: "Daybook on Pixel's skill" });
 const badge = (page: Page) => page.getByRole('button', { name: `Pixel's skill: Good at ${LABEL}` });
 const socket = (page: Page, name: string) => skillSheet(page).getByRole('button', { name, exact: true });
 const nameField = (page: Page) => sheet(page).getByLabel('Name it');
-const addressField = (page: Page) => sheet(page).getByLabel('Address');
-const check = (page: Page) => sheet(page).getByRole('button', { name: 'Check address' });
-const saveAdapter = (page: Page) => sheet(page).getByRole('button', { name: 'Save adapter' });
+const addressField = (page: Page) => sheet(page).getByLabel('Link');
+const check = (page: Page) => sheet(page).getByRole('button', { name: 'Check link' });
+const saveAdapter = (page: Page) => sheet(page).getByRole('button', { name: 'Save data source' });
+const removeConfirm = (page: Page) => page.getByRole('alertdialog', { name: 'Remove Daybook?' });
 
 /** Pixel with a saved skill and `sources` on it; the Skill sheet is open. */
 const open = async (page: Page, sources: SourceView[] = [], extra: Record<string, unknown> = {}, pixel: typeof PIXEL | typeof ASLEEP_PIXEL = PIXEL) => {
@@ -55,7 +56,7 @@ test('success: «Add data» opens the sheet with «Name it», «Address», their
   await skillSheet(page).getByLabel('What is Pixel good at?').fill('plot twists');
   await connectNew(page);
   const dialog = connectSheet(page);
-  await expect(dialog.getByRole('heading', { name: "Connect data to Pixel's skill" })).toBeVisible();
+  await expect(dialog.getByRole('heading', { name: "Add a data source to Pixel's skill" })).toBeVisible();
   await expect(nameField(page)).toHaveValue('');
   await expect(dialog.getByText('Anyone asking Pixel for help sees this name')).toBeVisible();
   await expect(dialog.getByText('Only keyless public data works here. Never paste a key or a password.')).toBeVisible();
@@ -212,6 +213,7 @@ test('saved × Skill sheet sockets: the source is a socket that opens it; remove
   await socket(page, 'Daybook').click();
   await expect(connectedSheet(page)).toBeVisible();
   await connectedSheet(page).getByRole('button', { name: 'Remove' }).click();
+  await removeConfirm(page).getByRole('button', { name: 'Remove data source' }).click();
   await expect(skillSheet(page)).toBeVisible();
   await expect(drawn(page, 'Daybook removed. Pixel stops using it from its next job.')).toBeVisible();
   await expect(socket(page, 'Add data')).toHaveCount(3);
@@ -228,7 +230,7 @@ test('a connected source: its name, its tools with their ticks, «Save adapter»
   await expect(addressField(page)).toHaveCount(0);
   await expect(dialog.getByRole('checkbox', { name: 'events_on' })).toBeChecked();
   await expect(dialog.getByRole('checkbox', { name: 'births_on' })).toBeChecked();
-  await expect(dialog.getByText("Anyone will see this adapter's address and what its tools do, and can connect it to their pet's skill for free.")).toBeVisible();
+  await expect(dialog.getByText("Anyone will see this data source's link and what its tools do, and can connect it to their pet's skill for free.")).toBeVisible();
   await expect(dialog.getByRole('button', { name: 'Publish to the catalog' })).toBeVisible();
   await expect(dialog.getByRole('button', { name: 'Remove' })).toBeVisible();
   // an edit: unticking one tool and saving tests the source again and says it is connected
@@ -256,34 +258,54 @@ test('publish: «Publish to the catalog» lists it — «In the catalog.» and �
 });
 
 // spec: add-pet-errands › Catalog flow › publish refused
-test("publish refused: under the button «Some words in this adapter's address, tool names or descriptions can't go in the catalog. It still works for Pixel.»; nothing is published", async ({ page }) => {
+test("publish refused: under the button the data source's link, tool names or descriptions are refused; nothing is published", async ({ page }) => {
   await open(page, [source()], { publishSource: { fail: { status: 409, code: 'insult' } } });
   await socket(page, 'Daybook').click();
   await connectedSheet(page).getByRole('button', { name: 'Publish to the catalog' }).click();
-  await expect(drawn(page, "Some words in this adapter's address, tool names or descriptions can't go in the catalog. It still works for Pixel.")).toBeVisible();
+  await expect(drawn(page, "Some words in this data source's link, tool names or descriptions can't go in the catalog. It still works for Pixel.")).toBeVisible();
   await expect(connectedSheet(page).getByRole('button', { name: 'Publish to the catalog' })).toBeVisible();
   await expect(connectedSheet(page).getByRole('button', { name: 'Take it out' })).toHaveCount(0);
   await expect(connectedSheet(page).getByRole('button', { name: 'Publish to the catalog' })).toBeFocused();
 });
 
 // spec: add-pet-errands › Catalog flow › a source from a gift
-test("a source from a gift: in place of «Publish to the catalog» «This adapter came with Pixel as a gift, so it can't go in the catalog. It still works for Pixel.»", async ({ page }) => {
+test("a source from a gift: in place of Publish, the data source's gift restriction is explained", async ({ page }) => {
   await open(page, [source({ gift: true })]);
   await socket(page, 'Daybook').click();
-  await expect(drawn(page, "This adapter came with Pixel as a gift, so it can't go in the catalog. It still works for Pixel.")).toBeVisible();
+  await expect(drawn(page, "This data source came with Pixel as a gift, so it can't go in the catalog. It still works for Pixel.")).toBeVisible();
   await expect(connectedSheet(page).getByRole('button', { name: 'Publish to the catalog' })).toHaveCount(0);
   // a copy of a catalog entry has no publish control either
 });
 
 // spec: add-pet-errands › Adapter connect flow › removed
+// spec: add-pet-errands › Adapter connect flow › asked to remove an own source
 test('removed: «Remove» takes the source off the skill: «Daybook removed. Pixel stops using it from its next job.»', async ({ page }) => {
   await open(page, [source()]);
   await socket(page, 'Daybook').click();
   await connectedSheet(page).getByRole('button', { name: 'Remove' }).click();
+  await expect(removeConfirm(page)).toBeVisible();
+  await expect(removeConfirm(page).getByText("Its link isn't shown after saving, so you can't get it back.")).toBeVisible();
+  await expect(removeConfirm(page).getByRole('button', { name: 'Keep data source' })).toBeFocused();
+  expect(await calls(page)).not.toContain('worker:removeSource');
+  await removeConfirm(page).getByRole('button', { name: 'Keep data source' }).click();
+  await expect(connectedSheet(page)).toBeVisible();
+  await connectedSheet(page).getByRole('button', { name: 'Remove' }).click();
+  await removeConfirm(page).getByRole('button', { name: 'Remove data source' }).click();
   await expect(drawn(page, 'Daybook removed. Pixel stops using it from its next job.')).toBeVisible();
   await expect(socket(page, 'Add data')).toHaveCount(3);
   expect(await calls(page)).toContain('worker:removeSource');
   await expect(skillSheet(page).locator('.ds-note[tabindex="-1"]')).toBeFocused();
+});
+
+// spec: add-pet-errands › Adapter connect flow › asked to remove an own source
+test('asked to remove a published own source: confirmation names catalog removal and Keep preserves both', async ({ page }) => {
+  await open(page, [source({ published: true })]);
+  await socket(page, 'Daybook').click();
+  await connectedSheet(page).getByRole('button', { name: 'Remove' }).click();
+  await expect(removeConfirm(page).getByText("Its link isn't shown after saving, so you can't get it back. It leaves the catalog too.")).toBeVisible();
+  await removeConfirm(page).getByRole('button', { name: 'Keep data source' }).click();
+  await expect(connectedSheet(page).getByText('In the catalog.')).toBeVisible();
+  expect(await calls(page)).not.toContain('worker:removeSource');
 });
 
 // spec: add-pet-errands › Adapter connect flow › a fourth source

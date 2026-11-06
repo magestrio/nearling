@@ -11,6 +11,7 @@ const QUOTE: ErrandQuote = {
   search: { upTo: { yocto: '4330000000000000000000', cents: 2 }, full: true, short: false, searches: 3, allowance: 3 },
   block: null,
   labels: [],
+  sharedNeeded: { yocto: '4330000000000000000000', cents: 2 },
 };
 
 describe('the price Errand sheet shows before «Send»', () => {
@@ -51,6 +52,12 @@ describe('the price Errand sheet shows before «Send»', () => {
   it('says «up to ≈ {price}» at what the food covers when it covers fewer', () => {
     const short: ErrandQuote = { ...QUOTE, search: { upTo: { yocto: '2690000000000000000000', cents: 1.24 }, full: false, short: true, searches: 1, allowance: 3 } };
     expect(sendPrice('find', short, 'x')).toBe('up to ≈ 1.2¢');
+  });
+
+  // spec: add-pet-errands › Errand sheet screen › a skill with outside data
+  it('uses the data-source quote ceiling even when that quote is full', () => {
+    const withData: ErrandQuote = { ...QUOTE, search: { upTo: { yocto: '3790000000000000000000', cents: 1.75 }, full: true, short: false, searches: 2, allowance: 2 }, labels: ['Daybook'] };
+    expect(sendPrice('find', withData, 'x')).toBe('up to ≈ 1.75¢');
   });
 
   // spec: add-pet-errands › Read this flow › page can't be read

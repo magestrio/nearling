@@ -47,12 +47,14 @@ export interface FakePet {
   work_known?: string[];
   jobs_today?: number;
   transfer_generation: number;
+  shared_job?: { hash: string; state: 'Funding' | 'Running' | 'Transferred' | 'Settled'; allowance: string; linked_near: string; linked_snack: string } | null;
 }
 
 /** One thought of a `debit_session` batch as the Worker sends it (`ThoughtReceipt`). */
 export interface FakeThought {
   price: string;
   calls: unknown[];
+  job_hash?: string;
   worker?: string;
   hire?: { kind: 'player' | 'pet'; skill: boolean; fee: string };
 }
@@ -132,6 +134,9 @@ export class FakeContract {
   /** When set, `outfit_grant` / `outfit_buy` fail with this contract code even if their rules would pass. */
   grantFails: string | null = null;
   buyFails: string | null = null;
+  /** A chain refusal during `shared_job_open`, before any reserve is recorded. */
+  sharedOpenFails: string | null = null;
+  sharedCloseFails: string | null = null;
   /** Every accepted `outfit_grant` and `outfit_buy` (`outfit` events), and what the treasury got. */
   grants: { token_id: string }[] = [];
   buys: { token_id: string; item: number; price: string }[] = [];
@@ -184,6 +189,8 @@ export class FakeContract {
   /** A pet as it stood before each of its accepted debits, the oldest first. */
   private past = new Map<string, FakePet[]>();
   private applied = new Set<string>();
+  private sharedFunding = new Map<string, number>();
+  private sharedEntries = new Map<string, Array<{ feeder: string; kind: 'near' | 'snack'; amount: bigint; spent: bigint }>>();
   private nonce = 100;
   /** The nonce of a player's key after the transactions of it that executed (a project key's stays
    * at `nonce`: the Worker's own accounts keep their cache). */
@@ -273,6 +280,30 @@ export class FakeContract {
     return { tokenId: id };
   }
 
+  /** The contract's open invariant; its sandbox tests cover storage and caller checks. */
+  openShared(tokenId: string, jobHash: string, allowance: bigint): { code: string } | null {
+    const pet = this.pets.get(tokenId);
+    if (this.sharedOpenFails !== null) return { code: this.sharedOpenFails };
+    if (pet === undefined) return { code: 'no_pet' };
+    if (pet.shared_job !== null && pet.shared_job !== undefined) return { code: 'shared_job_active' };
+    if (allowance === 0n) return { code: 'zero_allowance' };
+    if (allowance > 5_000_000_000_000_000_000_000n) return { code: 'allowance_over_cap' };
+    pet.shared_job = { hash: jobHash, state: 'Funding', allowance: allowance.toString(), linked_near: '0', linked_snack: '0' };
+    this.sharedFunding.set(tokenId, 0);
+    this.sharedEntries.set(tokenId, []);
+    return null;
+  }
+
+  startShared(tokenId: string, jobHash: string): { code: string } | null {
+    const job = this.pets.get(tokenId)?.shared_job;
+    if (job === undefined || job === null) return { code: 'no_shared_job' };
+    if (job.hash !== jobHash) return { code: 'wrong_job_hash' };
+    if (job.state !== 'Funding') return { code: 'job_not_funding' };
+    if (BigInt(job.linked_near) + BigInt(job.linked_snack) < BigInt(job.allowance)) return { code: 'job_not_funded' };
+    job.state = 'Running';
+    return null;
+  }
+
   /** The contract's `debit_session`: a panic code, or nothing. Its rules are the ones the Scenarios of
    * `Session debit contract` name; the contract itself is proved by `contract/tests/`. */
   debit(tokenId: string, debitId: number, thoughts: FakeThought[]): { code: string } | null {
@@ -285,6 +316,17 @@ export class FakeContract {
     // The thoughts without a hire cost their price; a hire its fee, which holds the worker's answer. A refused hire
     // is `hire:<index>:<code>`, as the contract panics (`Hire debit contract`).
     let rest = 0n;
+    let linkedSpent = 0n;
+    let linkedNearSpent = 0n;
+    let linkedSnackSpent = 0n;
+    const linked = thoughts.filter((thought) => thought.job_hash !== undefined);
+    if (linked.length > 1) return { code: 'second_linked_debit' };
+    if (linked.length === 1) {
+      const job = pet.shared_job;
+      if (job === undefined || job === null) return { code: 'no_shared_job' };
+      if (job.hash !== linked[0]!.job_hash) return { code: 'wrong_job_hash' };
+      if (job.state !== 'Running' && job.state !== 'Transferred') return { code: 'job_not_running' };
+    }
     let fromGivenOnly = 0n;
     const hires: { worker: FakePet; workerId: string; fee: bigint; price: bigint }[] = [];
     const jobsGiven = new Map<string, number>();
@@ -313,16 +355,42 @@ export class FakeContract {
       }
       hires.push({ worker, workerId: t.worker, fee, price });
     }
-    const sum = rest + fromGivenOnly;
+    if (linked.length === 1) {
+      const job = pet.shared_job!;
+      const price = BigInt(linked[0]!.price);
+      linkedSpent = price < BigInt(job.linked_near) + BigInt(job.linked_snack) ? price : BigInt(job.linked_near) + BigInt(job.linked_snack);
+      if (job.state === 'Transferred' && linkedSpent < price) return { code: 'linked_short_after_gift' };
+      linkedNearSpent = linkedSpent < BigInt(job.linked_near) ? linkedSpent : BigInt(job.linked_near);
+      linkedSnackSpent = linkedSpent - linkedNearSpent;
+      rest -= linkedSpent;
+    }
+    const sum = rest + fromGivenOnly + linkedSpent;
     const already = pet.debit_day === this.day ? BigInt(pet.debited_today) : 0n;
     if (already + sum > 50_000_000_000_000_000_000_000n) return { code: 'daily_cap' };
     const project = BigInt(pet.project_food);
     const given = BigInt(pet.given_food) - fromGivenOnly;
-    if (rest > project + given) return { code: 'over_food' };
-    const fromProject = rest < project ? rest : project;
+    const ordinaryProject = project - BigInt(pet.shared_job?.linked_snack ?? '0');
+    const ordinaryGiven = given - BigInt(pet.shared_job?.linked_near ?? '0');
+    if (rest > ordinaryProject + ordinaryGiven) return { code: 'over_food' };
+    const fromProject = rest < ordinaryProject ? rest : ordinaryProject;
     this.past.set(tokenId, [...(this.past.get(tokenId) ?? []), { ...pet }]);
-    pet.project_food = (project - fromProject).toString();
-    pet.given_food = (given - (rest - fromProject)).toString();
+    pet.project_food = (project - fromProject - linkedSnackSpent).toString();
+    pet.given_food = (given - (rest - fromProject) - linkedNearSpent).toString();
+    if (linked.length === 1) {
+      const job = pet.shared_job!;
+      job.linked_near = (BigInt(job.linked_near) - linkedNearSpent).toString();
+      job.linked_snack = (BigInt(job.linked_snack) - linkedSnackSpent).toString();
+      let nearLeft = linkedNearSpent;
+      let snackLeft = linkedSnackSpent;
+      for (const entry of this.sharedEntries.get(tokenId) ?? []) {
+        const left = entry.kind === 'near' ? nearLeft : snackLeft;
+        const used = left < entry.amount ? left : entry.amount;
+        entry.spent = used;
+        if (entry.kind === 'near') nearLeft -= used;
+        else snackLeft -= used;
+      }
+      job.state = 'Settled';
+    }
     pet.debit_day = this.day;
     pet.debited_today = (already + sum).toString();
     pet.last_debit_id = debitId;
@@ -346,20 +414,41 @@ export class FakeContract {
   }
 
   /** The contract's `pet_feed`: a panic code, or whether an acquaintance was recorded. */
-  feed(feeder: string, tokenId: string, deposit: bigint): { code: string } | { wrote: boolean } {
+  feed(feeder: string, tokenId: string, deposit: bigint, jobHash?: string): { code: string } | { wrote: boolean; fundingIndex?: number } {
     if (deposit < BigInt(env.MIN_FEED)) return { code: 'feed_too_small' };
     const pet = this.pets.get(tokenId);
     if (!pet) return { code: 'no_pet' };
+    if (jobHash !== undefined) {
+      const job = pet.shared_job;
+      if (job === undefined || job === null) return { code: 'no_shared_job' };
+      if (job.hash !== jobHash) return { code: 'wrong_job_hash' };
+      if (feeder === pet.owner_id) return { code: 'owner_tag' };
+      if (job.state !== 'Funding') return { code: 'job_not_funding' };
+      if (BigInt(job.linked_near) + BigInt(job.linked_snack) >= BigInt(job.allowance)) return { code: 'job_funded' };
+      job.linked_near = (BigInt(job.linked_near) + deposit).toString();
+    }
     pet.given_food = (BigInt(pet.given_food) + deposit).toString();
     this.feeds.push({ token_id: tokenId, feeder, amount: deposit.toString() });
-    return { wrote: feeder !== pet.owner_id && this.introduce(tokenId, feeder, 0n) };
+    const wrote = feeder !== pet.owner_id && this.introduce(tokenId, feeder, 0n);
+    const fundingIndex = jobHash === undefined ? undefined : this.sharedFunding.get(tokenId) ?? 0;
+    if (fundingIndex !== undefined) this.sharedFunding.set(tokenId, fundingIndex + 1);
+    if (fundingIndex !== undefined) this.sharedEntries.get(tokenId)?.push({ feeder, kind: 'near', amount: deposit, spent: 0n });
+    return { wrote, ...(fundingIndex === undefined ? {} : { fundingIndex }) };
   }
 
   /** The contract's `pet_snack`, in its order of checks: caller, pet, the kind's cap, the pool. */
-  snack(caller: string, tokenId: string, feeder: string, kind: string): { code: string } | { wrote: boolean } {
+  snack(caller: string, tokenId: string, feeder: string, kind: string, jobHash?: string): { code: string } | { wrote: boolean; fundingIndex?: number } {
     if (caller !== env.SERVER_ACCOUNT_ID) return { code: 'not_server' };
     const pet = this.pets.get(tokenId);
     if (!pet) return { code: 'no_pet' };
+    if (jobHash !== undefined) {
+      const job = pet.shared_job;
+      if (job === undefined || job === null) return { code: 'no_shared_job' };
+      if (job.hash !== jobHash) return { code: 'wrong_job_hash' };
+      if (feeder === pet.owner_id) return { code: 'owner_tag' };
+      if (job.state !== 'Funding') return { code: 'job_not_funding' };
+      if (BigInt(job.linked_near) + BigInt(job.linked_snack) >= BigInt(job.allowance)) return { code: 'job_funded' };
+    }
     const amount = BigInt(env.SNACK_AMOUNT);
     if (kind === 'friend') {
       if (pet.friend_snack_day === this.day && pet.friend_snacks >= Number(env.FRIEND_SNACKS_PER_DAY)) return { code: 'snacks_today' };
@@ -371,6 +460,7 @@ export class FakeContract {
     if (this.pool < amount) return { code: 'pool_empty' };
     this.pool -= amount;
     pet.project_food = (BigInt(pet.project_food) + amount).toString();
+    if (jobHash !== undefined) pet.shared_job!.linked_snack = (BigInt(pet.shared_job!.linked_snack) + amount).toString();
     if (kind === 'friend') {
       pet.friend_snacks = pet.friend_snack_day === this.day ? pet.friend_snacks + 1 : 1;
       pet.friend_snack_day = this.day;
@@ -378,7 +468,11 @@ export class FakeContract {
       pet.owner_snack_at = (BigInt(Date.now()) * 1_000_000n).toString();
     }
     this.snacks.push({ token_id: tokenId, kind, ...(kind === 'friend' ? { friend: feeder } : {}) });
-    return { wrote: kind === 'friend' && this.introduce(tokenId, feeder, 0n) };
+    const wrote = kind === 'friend' && this.introduce(tokenId, feeder, 0n);
+    const fundingIndex = jobHash === undefined ? undefined : this.sharedFunding.get(tokenId) ?? 0;
+    if (fundingIndex !== undefined) this.sharedFunding.set(tokenId, fundingIndex + 1);
+    if (fundingIndex !== undefined) this.sharedEntries.get(tokenId)?.push({ feeder, kind: 'snack', amount, spent: 0n });
+    return { wrote, ...(fundingIndex === undefined ? {} : { fundingIndex }) };
   }
 
   /** The contract's `pet_grow`, in its order of checks: the caller, the pet, the next stage, the day.
@@ -560,8 +654,36 @@ export class FakeContract {
         status = refused
           ? { Failure: { ActionError: { index: 0, kind: { FunctionCallError: { ExecutionError: `Smart contract panicked: ${refused.code}` } } } } }
           : { SuccessValue: '' };
+      } else if (call.methodName === 'shared_job_open') {
+        const refused = this.openShared(String(args.token_id), String(args.job_hash), BigInt(String(args.allowance_yocto)));
+        status = refused
+          ? { Failure: { ActionError: { index: 0, kind: { FunctionCallError: { ExecutionError: `Smart contract panicked: ${refused.code}` } } } } }
+          : { SuccessValue: '' };
+      } else if (call.methodName === 'shared_job_start') {
+        const refused = this.startShared(String(args.token_id), String(args.job_hash));
+        status = refused
+          ? { Failure: { ActionError: { index: 0, kind: { FunctionCallError: { ExecutionError: `Smart contract panicked: ${refused.code}` } } } } }
+          : { SuccessValue: '' };
+      } else if (call.methodName === 'shared_job_close') {
+        const pet = this.pets.get(String(args.token_id));
+        let approvalRefusal: string | null = null;
+        if (pet?.shared_job != null && pet.shared_job.state !== 'Settled') {
+          const approval = args.owner_approval as { public_key?: string; signature?: string } | null;
+          if (approval === null || approval === undefined) approvalRefusal = 'owner_approval_required';
+          else if (approval.public_key !== pet.owner_id || !/^[0-9a-f]{128}$/.test(approval.signature ?? '')) approvalRefusal = 'not_current_owner';
+          else {
+            const message = `nearling:shared-job-close:v1:${env.CONTRACT_ID}:${args.token_id}:${args.job_hash}:close`;
+            const digest = new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(message)));
+            const key = await crypto.subtle.importKey('raw', Uint8Array.from(approval.public_key.match(/../g)!, (part) => Number.parseInt(part, 16)), 'Ed25519', false, ['verify']);
+            const signature = Uint8Array.from(approval.signature!.match(/../g)!, (part) => Number.parseInt(part, 16));
+            if (!await crypto.subtle.verify('Ed25519', key, signature, digest)) approvalRefusal = 'bad_owner_approval';
+          }
+        }
+        const refused = this.sharedCloseFails ?? (pet?.shared_job?.hash !== String(args.job_hash) ? 'no_shared_job' : approvalRefusal);
+        if (refused !== null) status = { Failure: { ActionError: { index: 0, kind: { FunctionCallError: { ExecutionError: `Smart contract panicked: ${refused}` } } } } };
+        else { pet!.shared_job = null; status = { SuccessValue: '' }; }
       } else if (call.methodName === 'pet_feed') {
-        const result = this.feed(tx.signerId, String(args.token_id), call.deposit);
+        const result = this.feed(tx.signerId, String(args.token_id), call.deposit, typeof args.job_hash === 'string' ? args.job_hash : undefined);
         if ('code' in result) {
           status = { Failure: { ActionError: { index: 0, kind: { FunctionCallError: { ExecutionError: `Smart contract panicked: ${result.code}` } } } } };
         } else {
@@ -578,11 +700,14 @@ export class FakeContract {
           status = { Failure: { ActionError: { index: 0, kind: { FunctionCallError: { ExecutionError: `Smart contract panicked: ${refused}` } } } } };
         } else {
           pet!.owner_id = receiver;
+          pet!.transfer_generation += 1;
+          if (pet!.shared_job?.state === 'Funding') pet!.shared_job = null;
+          else if (pet!.shared_job?.state === 'Running') pet!.shared_job.state = 'Transferred';
           this.balances.set(tx.signerId, (this.balances.get(tx.signerId) ?? 0n) - 1n);
           status = { SuccessValue: '' };
         }
       } else if (call.methodName === 'pet_snack') {
-        const result = this.snack(tx.signerId, String(args.token_id), String(args.feeder), String(args.kind));
+        const result = this.snack(tx.signerId, String(args.token_id), String(args.feeder), String(args.kind), typeof args.job_hash === 'string' ? args.job_hash : undefined);
         status =
           'code' in result
             ? { Failure: { ActionError: { index: 0, kind: { FunctionCallError: { ExecutionError: `Smart contract panicked: ${result.code}` } } } } }
@@ -623,11 +748,20 @@ export class FakeContract {
         status = { SuccessValue: '' };
       }
       const logs: string[] = [];
+      if ((call.methodName === 'pet_feed' || call.methodName === 'pet_snack') && typeof status === 'object' && status !== null && 'SuccessValue' in status) {
+        const fundingIndex = typeof args.job_hash === 'string' ? (this.sharedFunding.get(String(args.token_id)) ?? 1) - 1 : undefined;
+        const data = call.methodName === 'pet_feed'
+          ? { token_id: String(args.token_id), feeder: tx.signerId, amount: call.deposit.toString(), ...(args.job_hash === undefined ? {} : { job_hash: args.job_hash, funding_index: fundingIndex }) }
+          : { token_id: String(args.token_id), amount: env.SNACK_AMOUNT, kind: args.kind, ...(String(args.kind) === 'friend' ? { friend: args.feeder } : {}), ...(args.job_hash === undefined ? {} : { job_hash: args.job_hash, funding_index: fundingIndex }) };
+        logs.push(`EVENT_JSON:${JSON.stringify({ standard: 'nearling', version: '1.0.0', event: call.methodName === 'pet_feed' ? 'feed' : 'snack', data: [data] })}`);
+      }
       if (call.methodName === 'debit_session' && typeof status === 'object' && status !== null && 'SuccessValue' in status) {
         for (const thought of args.thoughts as FakeThought[]) {
           const receipt = { token_id: String(args.token_id), debit_id: Number(args.debit_id),
             model: (thought as FakeThought & { model: string }).model, price: thought.price,
-            calls: thought.calls, ...(thought.worker === undefined ? {} : { worker: thought.worker }) };
+            calls: thought.calls, ...(thought.worker === undefined ? {} : { worker: thought.worker }),
+            ...(thought.job_hash === undefined ? {} : { job_hash: thought.job_hash,
+              funding: (this.sharedEntries.get(String(args.token_id)) ?? []).flatMap((entry, index) => entry.spent === 0n ? [] : [{ index, kind: entry.kind, amount: entry.spent.toString() }]) }) };
           logs.push(`EVENT_JSON:${JSON.stringify({ standard: 'nearling', version: '1.0.0', event: 'receipt', data: [receipt] })}`);
           if (thought.hire !== undefined) {
             logs.push(`EVENT_JSON:${JSON.stringify({ standard: 'nearling', version: '1.0.0', event: 'hire', data: [{
@@ -1102,7 +1236,7 @@ export function installNetwork(): Network {
 
 /** A player whose game wallet has a real key: the account id is the 64 hex characters of the public
  * key (an implicit account), and `sign` does what Privy does in the browser: signs `sha256(tx)`. */
-export function keyedPlayer(): { account: string; sign: (tx: string) => Promise<{ tx: string; signature: string }> } {
+export function keyedPlayer(): { account: string; sign: (tx: string) => Promise<{ tx: string; signature: string }>; closeApproval: (tokenId: string, jobHash: string) => Promise<{ public_key: string; signature: string }> } {
   const pair = KeyPairEd25519.fromRandom();
   const publicKey = pair.getPublicKey();
   const account = [...publicKey.ed25519Key!.data].map((b) => b.toString(16).padStart(2, '0')).join('');
@@ -1112,6 +1246,11 @@ export function keyedPlayer(): { account: string; sign: (tx: string) => Promise<
       const bytes = Uint8Array.from(atob(tx), (ch) => ch.charCodeAt(0));
       const digest = new Uint8Array(await crypto.subtle.digest('SHA-256', bytes));
       return { tx, signature: btoa(String.fromCharCode(...pair.sign(digest).signature)) };
+    },
+    async closeApproval(tokenId, jobHash) {
+      const message = `nearling:shared-job-close:v1:${env.CONTRACT_ID}:${tokenId}:${jobHash}:close`;
+      const digest = new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(message)));
+      return { public_key: account, signature: [...pair.sign(digest).signature].map((part) => part.toString(16).padStart(2, '0')).join('') };
     },
   };
 }

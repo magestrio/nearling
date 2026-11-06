@@ -6,7 +6,7 @@ import { petView } from '../src/chain';
 import { sealText, writeSkill } from '../src/work/skill';
 import { until } from './helpers/work';
 import { api, harness, say } from './helpers/api';
-import { NEAR_ACCOUNT, token } from './helpers/network';
+import { keyedPlayer, NEAR_ACCOUNT, token } from './helpers/network';
 
 const h = harness();
 const PET = '94';
@@ -29,6 +29,71 @@ async function thought(id: string, at: number, player: string | null, reply: str
 }
 
 describe('ownership at the gift boundary', () => {
+  // spec: add-gift › Gift ownership data › cleared running job survives gift
+  it('shows the new owner a word-free reserve and takes only their Release approval', async () => {
+    const first = keyedPlayer();
+    h.net().contract.addPet(PET, first.account);
+    const firstToken = await token(`did:privy:${first.account}`, first.account);
+    const made = await api(`/api/pets/${PET}/shared-errands`, { token: firstToken, body: { form: 'find', job: 'Secret named job' } });
+    expect(made.status).toBe(201);
+    const pet = h.net().contract.pets.get(PET)!;
+    const hash = pet.shared_job!.hash;
+    pet.shared_job!.state = 'Running';
+    pet.shared_job!.linked_near = '123';
+    await env.DB.prepare("UPDATE shared_errands SET state = 'running' WHERE token_id = ?").bind(PET).run();
+    h.net().contract.sharedCloseFails = 'temporarily_unavailable';
+    expect((await api(`/api/pets/${PET}/memory/clear`, { token: firstToken, body: { approval: await first.closeApproval(PET, hash) } })).body.code).toBe('close_retry');
+    h.net().contract.sharedCloseFails = null;
+    const next = keyedPlayer();
+    pet.owner_id = next.account;
+    pet.transfer_generation += 1;
+    pet.shared_job!.state = 'Transferred';
+    const nextToken = await token(`did:privy:${next.account}`, next.account);
+    const oldView = await api(`/api/pets/${PET}`, { token: firstToken });
+    expect(oldView.body).not.toHaveProperty('oldSharedReserve');
+    const view = await api(`/api/pets/${PET}`, { token: nextToken });
+    expect(view.body.oldSharedReserve).toEqual({ jobHash: hash, amountYocto: '123' });
+    expect(JSON.stringify(view.body)).not.toContain('Secret named job');
+    expect((await api(`/api/pets/${PET}/shared-errands`, { token: nextToken, body: { form: 'find', job: 'Another job' } })).body.code).toBe('shared_job_active');
+    const released = await api(`/api/pets/${PET}/shared-close`, { token: nextToken, body: { approval: await next.closeApproval(PET, hash) } });
+    expect(released).toMatchObject({ status: 200, body: { ok: true } });
+    expect((await api(`/api/pets/${PET}`, { token: nextToken })).body.oldSharedReserve).toBeNull();
+  });
+  // spec: add-pet-errands › Shared errand access data › gift during a running shared job
+  // spec: add-pet-errands › Friend-funded errand flow › gifted while away
+  it('revokes the sponsor link at transfer while the old shared job spends linked food once for the new owner', async () => {
+    const { old, next } = await seed();
+    const made = await api(`/api/pets/${PET}/shared-errands`, { token: old,
+      body: { form: 'find', job: 'When does the meteor shower peak?' } });
+    expect(made.status).toBe(201);
+    const friend = keyedPlayer();
+    h.net().contract.balances.set(friend.account, 10n ** 24n);
+    const friendToken = await token(`did:privy:${friend.account}`, friend.account);
+    const built = await api(`/api/pets/${PET}/feed`, { token: friendToken,
+      body: { portion: '0.01', code: made.body.code } });
+    const fed = await api(`/api/pets/${PET}/feed/send`, { token: friendToken,
+      body: { ...await friend.sign(built.body.tx), code: made.body.code } });
+    expect(fed.body.status).toBe('ok');
+    const before = h.net().contract.pets.get(PET)!;
+    const ordinary = before.project_food;
+    h.net().ai.push({ stream: { searches: 1 }, during: async () => {
+      const pet = h.net().contract.pets.get(PET)!;
+      pet.owner_id = RECEIVER;
+      pet.transfer_generation += 1;
+      pet.shared_job!.state = 'Transferred';
+      await env.DB.prepare('UPDATE pets SET last_gift_block_at = ? WHERE token_id = ?').bind(Date.now() + 1, PET).run();
+    } }, { content: 'It peaks in November [1].' });
+    await desk(env, PET).process(PET);
+    expect((await api(`/api/pets/${PET}/errand/${made.body.code}`, { token: friendToken })).body.state).toBe('empty');
+    const thought = await env.DB.prepare("SELECT status, price_yocto FROM thoughts WHERE token_id = ? AND kind = 'errand'")
+      .bind(PET).first<{ status: string; price_yocto: string }>();
+    expect(thought?.status).toBe('billed');
+    expect(h.net().contract.pets.get(PET)!.project_food).toBe(ordinary);
+    expect(h.net().contract.pets.get(PET)!.shared_job).toBeNull();
+    expect(h.net().contract.debits).toHaveLength(1);
+    const lines = (await api(`/api/pets/${PET}/conversation`, { token: next })).body.lines;
+    expect(lines.find((line: any) => line.text === 'It peaks in November.')).toMatchObject({ previousOwner: true });
+  }, 15_000);
   // spec: add-gift › Gift rule › дарящий после подарка
   // spec: add-gift › Gift ownership data › открытая вкладка дарящего × second owner action
   it('rejects the giver on every owner route, including Wear and mode changes', async () => {

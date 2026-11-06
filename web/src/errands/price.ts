@@ -36,5 +36,10 @@ export function readEstimate(quote: ErrandQuote, field: string): Price {
 /** The words after «Send · »: «≈ 0.15¢» for a read, «up to ≈ 2¢» for a search form (what the food covers when it covers fewer). */
 export function sendPrice(form: ErrandForm, quote: ErrandQuote, field: string): string {
   if (form === 'read') return `≈ ${formatCents(readEstimate(quote, field).cents)}`;
-  return `up to ≈ ${quote.search.full ? FULL_SEARCH : formatCents(quote.search.upTo.cents)}`;
+  const cents = quote.search.full && quote.search.allowance === 2 && quote.labels.length > 0
+    ? `${quote.search.upTo.cents.toFixed(2)}¢`
+    : quote.search.full && quote.search.allowance === 3 && quote.search.upTo.cents === 2
+      ? FULL_SEARCH
+      : formatCents(quote.search.upTo.cents);
+  return `up to ≈ ${cents}`;
 }

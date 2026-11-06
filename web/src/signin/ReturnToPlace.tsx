@@ -114,7 +114,7 @@ export function ReturnToPlace() {
         queueAction(place.action && place.action !== 'signin' ? place.action : undefined);
         if (place.text) {
           if (place.action === 'skill') holdReturnSkill(place.path, place.text);
-          else if (place.action === 'errand' || place.action === 'adapter' || place.action === 'code') holdReturnSheet(place.action, place.path, place.text);
+          else if (place.action === 'errand' || place.action === 'adapter' || place.action === 'code' || place.action === 'watch') holdReturnSheet(place.action, place.path, place.text);
           else holdReturnText(place.path, place.text);
         }
       }

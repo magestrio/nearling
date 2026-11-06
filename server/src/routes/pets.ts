@@ -7,6 +7,7 @@ import { wornOf } from '../pet/outfits';
 import { fullnessOf, moodFor, ownerFields } from '../pet/view';
 import { pauseReason } from '../servicePause';
 import { skillLabel } from '../work/skill';
+import { syncedWatch } from '../watch/target';
 
 export const petRoutes = new Hono<AppEnv>();
 
@@ -35,6 +36,7 @@ petRoutes.get('/api/pets/:id', async (c) => {
   if (pet === null) return c.json({ code: 'no_pet' }, 404);
 
   const state = await fullnessOf(c.env.DB, id, pet);
+  const watched = await syncedWatch(c.env.DB, id, pet);
   // The model's stage and the face's mood go to everyone; the stage as a word, the traits and the
   // energy only to the owner (`Pet life display rule`). The worn item and the skill's label go to everyone, read
   // from D1 on each request (`Outfit rule`, `Skill data` › «the label for any viewer»): the shared copy holds only
@@ -47,6 +49,7 @@ petRoutes.get('/api/pets/:id', async (c) => {
     mood: await moodFor(c.env.DB, id, state.state, Date.now()),
     worn: await wornOf(c.env.DB, id),
     skill: await skillLabel(c.env.DB, id),
+    watch: watched === null ? null : { target: watched.target, kind: watched.kind },
   };
   if (session === null) return c.json({ viewer: 'visitor', ...base });
   // The player's own meal or snack on its way for this pet, nobody else's (`Feeding transaction data` ›

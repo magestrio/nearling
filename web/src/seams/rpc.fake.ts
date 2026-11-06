@@ -9,12 +9,17 @@ export const fakeNearRpc: NearRpc = {
     if (methodName === 'pet_view') {
       const id = String(args.token_id ?? '9');
       const pet = fakeState().worker?.pets?.[id];
+      const shared = fakeState().worker?.sharedErrand;
+      const oldReserve = pet?.owner?.oldSharedReserve;
       return { owner_id: 'a'.repeat(64), name: pet?.name ?? 'Pixel',
         character: id === '9' ? 'Curious and a little dramatic; counts things when nervous, loves small rituals.'
           : id === '5' ? 'Calm and precise; answers in short lines and finishes one thought before starting the next.'
             : `Curious ${pet?.name ?? 'pet'}.`,
         born_at: 1793034180000000000, stage: pet?.stage === 'baby' ? 'Baby' : pet?.stage === 'teen' ? 'Teen' : 'Adult',
-        traits: [], outfits: [], } as T;
+        traits: [], outfits: [], shared_job: oldReserve
+          ? { hash: oldReserve.jobHash, state: 'transferred', linked_near: oldReserve.amountYocto, linked_snack: '0' }
+          : shared && 'state' in shared && shared.state !== 'empty'
+            ? { hash: 'b'.repeat(64), state: 'funding', linked_near: shared.funded ?? '0', linked_snack: '0' } : null, } as T;
     }
     if (methodName === 'contract_source_metadata') return { version: '0.1.0', link: 'https://github.com/magestrio/nearling' } as T;
     return (fakeState().rpc?.viewResult ?? '0.1.0') as T;

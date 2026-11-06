@@ -45,9 +45,11 @@ import { useNotice } from '../../wardrobe/useNotice';
 import { useWardrobe } from '../../wardrobe/useWardrobe';
 import { WardrobePage } from '../../wardrobe/WardrobePage';
 import { ErrandSheet } from '../../errands/ErrandSheet';
+import { OldReserveNotice } from '../../errands/OldReserveNotice';
 import { FORM_WORD, sentLine } from '../../errands/lines';
 import { ReportMessage } from '../../errands/reportLines';
 import { useErrand } from '../../errands/useErrand';
+import { WatchSheet } from '../../watch/WatchSheet';
 import { VerdictCard } from '../../errands/VerdictCard';
 import { closeVerdict, useVerdictRequest } from '../../errands/verdictRequest';
 import { closeFeed, feedOpenNow, openFeed, useAddNearRequest, useFeedRequest } from '../../feeding/feedRequest';
@@ -132,10 +134,11 @@ function sealLine(name: string, state: SealState): string {
 
 /** `start`: the phone owner's intro card, where the line is left-aligned and a mismatch or an unreadable seal is said by the
  *  banner above the page instead (the frames' `checkLink(pet, true)`). */
-function CheckLink({ tokenId, name, seal, start }: { tokenId: string; name: string; seal: ReturnType<typeof useSeal>; start?: boolean }) {
+function CheckLink({ tokenId, name, seal, start, watching }: { tokenId: string; name: string; seal: ReturnType<typeof useSeal>; start?: boolean; watching?: string | null }) {
   const align = start ? undefined : 'center';
   return (
     <Stack gap={1} align={align}>
+      {watching ? <Text variant="small" tone="secondary" align={align}>{`Watching: ${watching}`}</Text> : null}
       <TextLink href={`/pet/${tokenId}/verify`} tone="trust" icon="verify">{`Check it's really ${name}`}</TextLink>
       {seal.state.kind === 'checked' ? <Text variant="small" tone="secondary" align={align}>{sealLine(name, seal.state)}</Text> : null}
       {seal.state.kind === 'mismatch' && !start ? <Note tone="error" silent>{sealLine(name, seal.state)}</Note> : null}
@@ -316,9 +319,22 @@ function OwnerPage({ pet, s, seal }: { pet: OwnerView; s: ReturnType<typeof useP
     away: () => void s.look(),
     watch: `${pet.fullness.state}|${pet.energy}|${pet.tired}|${pet.paused}|${pet.until ?? ''}`,
   });
+  const [watchOpen, setWatchOpen] = useState(false);
+  const [watchDraft, setWatchDraft] = useState('');
   // the sheets cover the page the same way: the one that is open takes the column
-  const cover = { ...feedCover, open: feedCover.open || skillShown || errand.open };
+  const cover = { ...feedCover, open: feedCover.open || skillShown || errand.open || watchOpen };
   const here = useLocation();
+  useEffect(() => {
+    if (peekPendingAction() !== 'watch') return;
+    takePendingAction();
+    setWatchDraft(takeReturnSheet('watch', here)?.target ?? '');
+    setWatchOpen(true);
+  }, []);
+  const openWatch = () => {
+    if (!auth.needSession()) return;
+    closeFeed(); skill.close(); adapter.close(); code.close(); errand.close();
+    setWatchOpen(true);
+  };
   // Back from the sign-in of Errand sheet's ended-session line: the sheet opens again with the form and the text as typed
   useEffect(() => {
     if (peekPendingAction() !== 'errand') return;
@@ -353,7 +369,7 @@ function OwnerPage({ pet, s, seal }: { pet: OwnerView; s: ReturnType<typeof useP
     skill.close();
     adapter.close();
     code.close();
-    errand.openSheet();
+    errand.openSheet(undefined, pet.fullness.state === 'asleep');
   };
   // Back from the sign-in of Adapter sheet's ended-session line: Skill sheet opens, and over it the sheet with the name and the typed
   // address (unchecked), or the connected source it was on
@@ -545,7 +561,7 @@ function OwnerPage({ pet, s, seal }: { pet: OwnerView; s: ReturnType<typeof useP
       <Cluster gap={3}>
         <Slot slot="growth" {...slot} />
       </Cluster>
-      <CheckLink tokenId={tokenId} name={name} seal={seal} start />
+      <CheckLink tokenId={tokenId} name={name} seal={seal} watching={pet.watch?.target} start />
       {asleep ? null : <Slot slot="hiring" {...slot} />}
     </Stack>
   );
@@ -685,7 +701,11 @@ function OwnerPage({ pet, s, seal }: { pet: OwnerView; s: ReturnType<typeof useP
                 // the walker of the errand moves on a flat page too (no WebGL, the context lost): «Pause motion» stops it (DS › Away)
                 motion={s.away ? figure.toggle : figure.motion}
                 rail={
-                  asleep ? <Rail>{share.entry}</Rail> : (
+                  asleep ? <Rail>
+                    <RailItem icon="share" label="Ask friends to fund an errand" haspopup="dialog" expanded={errand.open || undefined} onClick={openErrand} />
+                    <RailItem icon="watch" label={pet.watch ? 'Edit watch' : 'Watch something'} haspopup="dialog" expanded={watchOpen || undefined} onClick={openWatch} />
+                    {share.entry}
+                  </Rail> : (
                     <Rail>
                       <RailItem icon="today" label="Today" href={`/pet/${tokenId}/diary`} role="food" />
                       <RailItem icon="hanger" label="Wardrobe" href={`/pet/${tokenId}/wardrobe`} />
@@ -699,6 +719,7 @@ function OwnerPage({ pet, s, seal }: { pet: OwnerView; s: ReturnType<typeof useP
                         describedBy={s.away ? 'errand-away' : undefined}
                         onClick={openErrand}
                       />
+                      <RailItem icon="watch" label={pet.watch ? 'Edit watch' : 'Watch something'} haspopup="dialog" expanded={watchOpen || undefined} onClick={openWatch} />
                       {share.entry}
                       <RailItem icon="gift" label={`Give ${name} away`} haspopup="dialog" expanded={giftOpen && !giftRequest?.self} onClick={() => act('gift')} />
                     </Rail>
@@ -723,7 +744,10 @@ function OwnerPage({ pet, s, seal }: { pet: OwnerView; s: ReturnType<typeof useP
                     <Slot slot="energy" {...slot} />
                   </PetPlate>
                 }
-                foot={<CheckLink tokenId={tokenId} name={name} seal={seal} />}
+                foot={<Stack gap={2} align="center">
+                  <CheckLink tokenId={tokenId} name={name} seal={seal} watching={pet.watch?.target} />
+                  <OldReserveNotice tokenId={tokenId} name={name} reserve={pet.oldSharedReserve} onReleased={s.reread} />
+                </Stack>}
               />
             </Inert>
           }
@@ -762,8 +786,9 @@ function OwnerPage({ pet, s, seal }: { pet: OwnerView; s: ReturnType<typeof useP
               </Inert>
               {/* Feed sheet stands over this one: the errand's sheet is out of reach while it is open, and keeps its form and text */}
               <Inert on={feedCover.open}>
-                <ErrandSheet name={name} errand={errand} onFeed={() => openFeed({ tokenId, name, label: name, elsewhere: false })} />
+                <ErrandSheet name={name} errand={errand} asleep={pet.fullness.state === 'asleep'} onFeed={() => openFeed({ tokenId, name, label: name, elsewhere: false })} />
               </Inert>
+              <WatchSheet tokenId={tokenId} name={name} open={watchOpen} draft={watchDraft} onDraft={setWatchDraft} onClose={() => setWatchOpen(false)} tokenOf={s.tokenOf} onOwnerLost={s.reread} onChanged={s.reread} />
               <FeedLayer column pageFullness={pet.fullness} />
               <GiftSheet tokenId={tokenId} name={name} stage={pet.stage} worn={pet.worn} onGiven={s.reread} />
               <SkillSheet
@@ -902,7 +927,7 @@ function OutsiderPage({ pet, s, seal }: { pet: Exclude<PetView, { viewer: 'owner
       onStatus: onAdviceStatus,
       look: () => void s.look(),
       covered: cover.open,
-      check: <CheckLink tokenId={tokenId} name={name} seal={seal} />,
+      check: <CheckLink tokenId={tokenId} name={name} seal={seal} watching={pet.watch?.target} />,
       offline: offlineLine(name),
       carried: s.carried,
       takeCarried: s.takeCarried,
@@ -929,7 +954,7 @@ function OutsiderPage({ pet, s, seal }: { pet: Exclude<PetView, { viewer: 'owner
                   foot={
                     <Stack gap={2} align="center">
                       {feedBeside(false)}
-                      <CheckLink tokenId={tokenId} name={name} seal={seal} />
+                      <CheckLink tokenId={tokenId} name={name} seal={seal} watching={pet.watch?.target} />
                     </Stack>
                   }
                 />
@@ -979,7 +1004,7 @@ function OutsiderPage({ pet, s, seal }: { pet: Exclude<PetView, { viewer: 'owner
               pet={<PetFigure tokenId={tokenId} name={name} state={state} stage={pet.stage} mood={asleep ? null : pet.mood} size="hero" lost={figure.lost} onLost={figure.onLost} hub={figure.hub} {...wearProps(pet.worn)} />}
               motion={figure.motion}
               plate={<PetPlate name={name} seal={seal.state.hash ?? undefined} badge={skillBadge} fullness={{ state: pet.fullness.state, level: pet.fullness.state === 'hungry' ? pet.fullness.level : undefined }} />}
-              foot={<CheckLink tokenId={tokenId} name={name} seal={seal} />}
+              foot={<CheckLink tokenId={tokenId} name={name} seal={seal} watching={pet.watch?.target} />}
             />
           </Centerpiece>
         </Page>

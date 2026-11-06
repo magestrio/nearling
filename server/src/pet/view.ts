@@ -83,13 +83,17 @@ export async function heldYocto(db: D1Database, tokenId: string): Promise<bigint
   return rows.results.reduce((sum, row) => sum + BigInt(row.price_yocto), 0n);
 }
 
-export async function foodState(db: D1Database, tokenId: string, pet: PetRecord, nowMs: number): Promise<FoodState> {
+export async function foodState(db: D1Database, tokenId: string, pet: PetRecord, nowMs: number, sharedHash?: string): Promise<FoodState> {
   const unbilled = await unbilledYocto(db, tokenId);
   const held = await heldYocto(db, tokenId);
   const debitedToday = pet.debit_day === utcDay(nowMs) ? BigInt(pet.debited_today) : 0n;
   const left = DAILY_CAP_YOCTO - debitedToday - unbilled - held;
   const eff = effectiveFood(pet, unbilled);
-  return { eff, unbilled, held, room: eff > held ? eff - held : 0n, capLeft: left < 0n ? 0n : left };
+  const linked = pet.shared_job == null ? 0n : BigInt(pet.shared_job.linked_near) + BigInt(pet.shared_job.linked_snack);
+  const ordinary = eff > held + linked ? eff - held - linked : 0n;
+  const room = sharedHash !== undefined && pet.shared_job?.hash === sharedHash ?
+    (pet.shared_job.state === 'Transferred' ? linked : ordinary + linked) : ordinary;
+  return { eff, unbilled, held, room, capLeft: left < 0n ? 0n : left };
 }
 
 /** «Устал» holds to 00:00 UTC of the day it was written. It is written when a reply is refused or
@@ -145,6 +149,8 @@ export interface OwnerFields {
   lastThought: string | null;
   /** How many times the memory was cleared: a tab whose number is older reads the conversation again. */
   memoryEpoch: number;
+  /** A word-free reserve left after Clear memory; the current owner can sign Release for its hash. */
+  oldSharedReserve: { jobHash: string; amountYocto: string } | null;
   /** How many times a meal woke the pet: a page that sends a smaller number to `/state?wakes=` is told
    * of the wake (`Sleep and wake flow`); a page learns the number at load and never replays an old wake. */
   wakes: number;
@@ -254,6 +260,13 @@ export async function ownerFields(env: Env, tokenId: string, pet: PetRecord, pau
     pendingText: pendingLine(pending),
     lastThought: last?.id ?? null,
     memoryEpoch: await memoryEpoch(env.DB, tokenId),
+    oldSharedReserve: await (async () => {
+      const job = pet.shared_job;
+      if (job == null) return null;
+      const recovery = await env.DB.prepare('SELECT 1 AS found FROM shared_job_close_recovery WHERE token_id = ? AND job_hash = ?')
+        .bind(tokenId, job.hash).first();
+      return recovery === null ? null : { jobHash: job.hash, amountYocto: (BigInt(job.linked_near) + BigInt(job.linked_snack)).toString() };
+    })(),
     wakes: (await wakeState(env.DB, tokenId)).wakes,
     mood: moodOf(state.state, life.moodDay, today),
     traits: [...new Set(pet.traits)].map((t) => TRAIT_WORD[t]),

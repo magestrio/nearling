@@ -19,6 +19,7 @@ import { thoughtRoutes } from './routes/thoughts';
 import { wardrobeRoutes } from './routes/wardrobe';
 import { verificationRoutes } from './routes/verification';
 import { workRoutes } from './routes/work';
+import { watchRoutes } from './routes/watch';
 
 const app = new Hono<AppEnv>();
 
@@ -49,6 +50,7 @@ app.route('/', feedingRoutes);
 app.route('/', giftRoutes);
 app.route('/', wardrobeRoutes);
 app.route('/', workRoutes);
+app.route('/', watchRoutes);
 app.route('/', errandRoutes);
 app.route('/', sourceRoutes);
 app.route('/', catalogRoutes);

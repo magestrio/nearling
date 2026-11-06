@@ -44,6 +44,7 @@ export type Route =
   | { name: 'hire' }
   | { name: 'hatch'; from: string | null }
   | { name: 'pet'; tokenId: string; from: string | null }
+  | { name: 'shared-errand'; tokenId: string; code: string }
   | { name: 'gift'; code: string }
   /** Diary screen: the ritual of the day, inside the Pet screen's own state (`add-daily-ritual` › `Diary screen`) */
   | { name: 'diary'; tokenId: string }
@@ -82,6 +83,8 @@ export function parseRoute(location: string): Route {
   if (receipt) return { name: 'receipt', code: receipt[1]! };
   const verify = /^\/pet\/(\d{1,20})\/verify(?:\/([0-9a-f]{24}))?$/.exec(path);
   if (verify) return { name: 'verify', tokenId: verify[1]!, thoughtId: verify[2] ?? null };
+  const shared = /^\/pet\/(\d{1,20})\/errand\/([0-9a-f]{64})$/.exec(path);
+  if (shared) return { name: 'shared-errand', tokenId: shared[1]!, code: shared[2]! };
   const pet = /^\/pet\/(\d{1,20})$/.exec(path);
   if (pet) return { name: 'pet', tokenId: pet[1]!, from: friend };
   const diary = /^\/pet\/(\d{1,20})\/diary$/.exec(path);
@@ -93,6 +96,7 @@ export function parseRoute(location: string): Route {
 }
 
 export const petPath = (tokenId: string, from?: string | null) => `/pet/${tokenId}${from ? `?from=${from}` : ''}`;
+export const sharedErrandPath = (tokenId: string, code: string) => `/pet/${tokenId}/errand/${code}`;
 export const diaryPath = (tokenId: string) => `/pet/${tokenId}/diary`;
 export const wardrobePath = (tokenId: string) => `/pet/${tokenId}/wardrobe`;
 export const verifyPath = (tokenId: string, thoughtId?: string | null) => `/pet/${tokenId}/verify${thoughtId ? `/${thoughtId}` : ''}`;

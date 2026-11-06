@@ -130,7 +130,9 @@ export async function reloadHolding(page: Page): Promise<void> {
 }
 
 /** A line as the screen draws it: the page's live region says it too, visually hidden, once it came while the screen stood. */
-export const drawn = (page: Page, text: string | RegExp, options?: { exact?: boolean }) => page.getByText(text, options).and(page.locator(':not(.ds-hidden)'));
+/** The line as drawn: not the visually hidden live region that repeats it, and not the copy of a layout the width hides
+ *  (the DS `Only` draws both the phone and the desktop variant, one of them `display: none`). */
+export const drawn = (page: Page, text: string | RegExp, options?: { exact?: boolean }) => page.getByText(text, options).and(page.locator(':not(.ds-hidden)')).filter({ visible: true });
 
 /** The privy and worker calls the fakes were asked, without the rest. */
 export const privyCalls = async (page: Page): Promise<string[]> => (await calls(page)).filter((c) => c.startsWith('privy:'));

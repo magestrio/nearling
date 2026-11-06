@@ -99,6 +99,16 @@ diaryRoutes.get('/api/pets/:id/diary', async (c) => {
     if (said?.player_text != null && said.reply_text != null) exchange = { answer: said.player_text, reply: said.reply_text };
   }
 
+  // A changed watch belongs to this UTC day's Diary, independently of the ritual's read mark.
+  // Stopping a target keeps past entries; Clear memory removes the words from their thoughts.
+  const watch = await c.env.DB.prepare(`SELECT t.id, t.player_text AS target, t.reply_text AS change,
+      t.sources, t.price_yocto AS priceYocto
+    FROM watch_checks c JOIN thoughts t ON t.id = c.receipt_id
+    WHERE c.token_id = ? AND c.day = ? AND c.status = 'paid' AND c.changed = 1
+      AND t.erased_at IS NULL AND t.player_text IS NOT NULL AND t.reply_text IS NOT NULL
+    ORDER BY c.started_at`)
+    .bind(id, today).all<{ id: string; target: string; change: string; sources: string | null; priceYocto: string }>();
+
   return c.json({
     day: today,
     closedAt: new Date(today * DAY_MS).toISOString(),
@@ -107,6 +117,9 @@ diaryRoutes.get('/api/pets/:id/diary', async (c) => {
     entry: entry.kind === 'text' ? { kind: 'text', id: entry.id, lines: entry.lines, question: entry.question, work: await workOfDay(c.env.DB, id, today - 1), ...(previousOwner ? { previousOwner: true } : {}) } : { kind: entry.kind },
     read: facts.read,
     exchange,
+    watch: watch.results.map((item) => ({ target: item.target, change: item.change,
+      sources: item.sources === null ? [] : JSON.parse(item.sources), priceYocto: item.priceYocto,
+      receiptId: item.id })),
     riddle,
     yesterday,
     streak: await streakOf(c.env, id, pet, today, complete),

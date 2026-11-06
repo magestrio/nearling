@@ -1,6 +1,7 @@
 pub mod events;
 pub mod limits;
 pub mod pet;
+pub mod shared_job;
 
 use near_contract_standards::non_fungible_token::core::NonFungibleTokenCore;
 use near_contract_standards::non_fungible_token::enumeration::NonFungibleTokenEnumeration;
@@ -13,11 +14,17 @@ use near_sdk::store::{LookupMap, LookupSet};
 use near_sdk::{AccountId, NearToken, PanicOnDefault, Promise, env, near};
 use std::collections::HashMap;
 
-use crate::events::{HireKind, NearlingEvent, OutfitVia, SnackKind, ThoughtReceipt, hex, unhex32};
+use crate::events::{
+    FundingSpend, HireKind, NearlingEvent, OutfitVia, SnackKind, ThoughtReceipt, hex, unhex32,
+};
 use crate::limits::*;
 use crate::pet::{
     HatchView, Pet, PetView, RiddleView, Stage, THINKING_CAP, Trait, VersionedPet, is_bought,
     next_streak, streak_item, token_extra,
+};
+use crate::shared_job::{
+    FundingKind, OwnerCloseApproval, SharedFunding, SharedJob, SharedJobState, SharedJobView,
+    close_intent_message,
 };
 
 /// The state layout before `add-pet-work`, which `migrate` reads on the dev account: the same
@@ -104,6 +111,33 @@ pub struct ContractV6 {
     spent: u128,
 }
 
+/// The deployed layout immediately before the bounded shared-job map.
+#[near(serializers = [borsh])]
+pub struct ContractV7 {
+    owner_id: AccountId,
+    server_id: AccountId,
+    treasury_id: AccountId,
+    tokens: NonFungibleToken,
+    pets: LookupMap<TokenId, VersionedPet>,
+    hatched: LookupMap<AccountId, TokenId>,
+    births_day: u64,
+    births_today: u32,
+    next_token_id: u64,
+    pool: u128,
+    known: LookupSet<(TokenId, AccountId), Sha256>,
+    riddle_commits: LookupMap<u64, [u8; 32]>,
+    riddle_reserve: u128,
+    work_pairs: LookupSet<(TokenId, TokenId), Sha256>,
+    work_index: LookupMap<u64, Vec<u64>>,
+    transfer_generation: LookupMap<TokenId, u64>,
+    pets_hatched: u64,
+    thoughts_paid: u64,
+    spent: u128,
+    hires_completed: u64,
+    friend_snacks: u64,
+    counted_since: u64,
+}
+
 #[near(serializers = [json])]
 pub struct ShowcaseView {
     pub pets_hatched: u64,
@@ -153,6 +187,7 @@ pub struct Contract {
     hires_completed: u64,
     friend_snacks: u64,
     counted_since: u64,
+    shared_jobs: LookupMap<TokenId, SharedJob>,
 }
 
 fn fail(code: &str) -> ! {
@@ -179,12 +214,28 @@ fn pair_key(a: &str, b: &str) -> Option<(TokenId, TokenId)> {
     })
 }
 
-/// Takes `amount` out of the pet's food: the project's first, then the given one, and counts it
-/// into the UTC day's total. The one money rule of `debit_session` and `outfit_buy`: refuses with
-/// `daily_cap` when the day's total would pass `DAILY_CAP`, then with `over_food` when the food
-/// is short. The caller writes the record only after both pass.
-fn take_food(pet: &mut Pet, amount: u128) {
-    take_food_split(pet, 0, amount);
+/// Keep an active job's food out of every ordinary spend path.
+fn take_ordinary_food(pet: &mut Pet, from_given: u128, rest: u128, job: Option<&SharedJob>) {
+    let (reserved_given, reserved_project) = job
+        .map(|job| (job.linked_near, job.linked_snack))
+        .unwrap_or((0, 0));
+    pet.given_food = pet
+        .given_food
+        .checked_sub(reserved_given)
+        .unwrap_or_else(|| fail("over_food"));
+    pet.project_food = pet
+        .project_food
+        .checked_sub(reserved_project)
+        .unwrap_or_else(|| fail("over_food"));
+    take_food_split(pet, from_given, rest);
+    pet.given_food = pet
+        .given_food
+        .checked_add(reserved_given)
+        .unwrap_or_else(|| fail("overflow"));
+    pet.project_food = pet
+        .project_food
+        .checked_add(reserved_project)
+        .unwrap_or_else(|| fail("overflow"));
 }
 
 /// `take_food` for a batch with hires of kind `pet`: `from_given` comes out of the given food
@@ -288,6 +339,7 @@ impl Contract {
             hires_completed: 0,
             friend_snacks: 0,
             counted_since: env::block_timestamp(),
+            shared_jobs: LookupMap::new(b"j".to_vec()),
         }
     }
 
@@ -417,6 +469,7 @@ impl Contract {
             hires_completed: 0,
             friend_snacks: 0,
             counted_since: env::block_timestamp(),
+            shared_jobs: LookupMap::new(b"j".to_vec()),
         }
     }
 
@@ -448,6 +501,7 @@ impl Contract {
             hires_completed: 0,
             friend_snacks: 0,
             counted_since: env::block_timestamp(),
+            shared_jobs: LookupMap::new(b"j".to_vec()),
         };
         contract.reserve_legacy_generations();
         contract
@@ -492,6 +546,7 @@ impl Contract {
             hires_completed: 0,
             friend_snacks: 0,
             counted_since: env::block_timestamp(),
+            shared_jobs: LookupMap::new(b"j".to_vec()),
         }
     }
 
@@ -523,6 +578,39 @@ impl Contract {
             hires_completed: 0,
             friend_snacks: 0,
             counted_since: env::block_timestamp(),
+            shared_jobs: LookupMap::new(b"j".to_vec()),
+        }
+    }
+
+    /// Upgrade the deployed Showcase layout without resetting pets or counters.
+    #[init(ignore_state)]
+    #[private]
+    pub fn migrate_shared_jobs() -> Self {
+        let old: ContractV7 = env::state_read().unwrap_or_else(|| fail("no_state"));
+        Self {
+            owner_id: old.owner_id,
+            server_id: old.server_id,
+            treasury_id: old.treasury_id,
+            tokens: old.tokens,
+            pets: old.pets,
+            hatched: old.hatched,
+            births_day: old.births_day,
+            births_today: old.births_today,
+            next_token_id: old.next_token_id,
+            pool: old.pool,
+            known: old.known,
+            riddle_commits: old.riddle_commits,
+            riddle_reserve: old.riddle_reserve,
+            work_pairs: old.work_pairs,
+            work_index: old.work_index,
+            transfer_generation: old.transfer_generation,
+            pets_hatched: old.pets_hatched,
+            thoughts_paid: old.thoughts_paid,
+            spent: old.spent,
+            hires_completed: old.hires_completed,
+            friend_snacks: old.friend_snacks,
+            counted_since: old.counted_since,
+            shared_jobs: LookupMap::new(b"j".to_vec()),
         }
     }
 
@@ -544,6 +632,145 @@ impl Contract {
             friend_snacks: self.friend_snacks,
             counted_since: self.counted_since,
         }
+    }
+
+    /// One active public hash per pet. The words and link code never enter contract state.
+    // spec: add-pet-errands › Shared job open contract › open a job
+    pub fn shared_job_open(&mut self, token_id: TokenId, job_hash: String, allowance_yocto: U128) {
+        self.assert_server();
+        let allowance = allowance_yocto.0;
+        if allowance == 0 {
+            fail("zero_allowance");
+        }
+        if allowance > MAX_THOUGHT_PRICE {
+            fail("allowance_over_cap");
+        }
+        let hash = unhex32(&job_hash).unwrap_or_else(|| fail("bad_job_hash"));
+        if self.pets.get(&token_id).is_none() {
+            fail("no_pet");
+        }
+        if self.shared_jobs.get(&token_id).is_some() {
+            fail("shared_job_active");
+        }
+        let stake = u128::from(SHARED_JOB_MAX_BYTES)
+            .checked_mul(env::storage_byte_cost().as_yoctonear())
+            .unwrap_or_else(|| fail("overflow"));
+        self.pool = self
+            .pool
+            .checked_sub(stake)
+            .unwrap_or_else(|| fail("pool_empty"));
+        self.shared_jobs.insert(
+            token_id.clone(),
+            SharedJob {
+                hash,
+                allowance,
+                state: SharedJobState::Funding,
+                linked_near: 0,
+                linked_snack: 0,
+                funding: Vec::new(),
+            },
+        );
+        NearlingEvent::SharedJobOpen {
+            token_id,
+            job_hash: hex(&hash),
+            allowance: U128(allowance),
+            state: SharedJobState::Funding,
+        }
+        .emit();
+    }
+
+    // spec: add-pet-errands › Shared job start contract › funded job starts
+    pub fn shared_job_start(&mut self, token_id: TokenId, job_hash: String) {
+        self.assert_server();
+        let hash = unhex32(&job_hash).unwrap_or_else(|| fail("bad_job_hash"));
+        let mut job = self
+            .shared_jobs
+            .get(&token_id)
+            .cloned()
+            .unwrap_or_else(|| fail("no_shared_job"));
+        if job.hash != hash {
+            fail("wrong_job_hash");
+        }
+        if job.state != SharedJobState::Funding {
+            fail("job_not_funding");
+        }
+        let linked = job
+            .linked_near
+            .checked_add(job.linked_snack)
+            .unwrap_or_else(|| fail("overflow"));
+        if linked < job.allowance {
+            fail("job_unfunded");
+        }
+        job.state = SharedJobState::Running;
+        self.shared_jobs.insert(token_id.clone(), job);
+        NearlingEvent::SharedJobStart {
+            token_id,
+            job_hash: hex(&hash),
+            state: SharedJobState::Running,
+        }
+        .emit();
+    }
+
+    /// A settled job closes by the server; otherwise the current implicit owner must sign.
+    // spec: add-pet-errands › Shared job close contract › owner closes a waiting job
+    pub fn shared_job_close(
+        &mut self,
+        token_id: TokenId,
+        job_hash: String,
+        owner_approval: Option<OwnerCloseApproval>,
+    ) {
+        self.assert_server();
+        let hash = unhex32(&job_hash).unwrap_or_else(|| fail("bad_job_hash"));
+        let job = self
+            .shared_jobs
+            .get(&token_id)
+            .cloned()
+            .unwrap_or_else(|| fail("no_shared_job"));
+        if job.hash != hash {
+            fail("wrong_job_hash");
+        }
+        if job.state != SharedJobState::Settled {
+            let approval = owner_approval.unwrap_or_else(|| fail("owner_approval_required"));
+            let key = unhex32(&approval.public_key).unwrap_or_else(|| fail("bad_owner_approval"));
+            let owner = self
+                .tokens
+                .owner_by_id
+                .get(&token_id)
+                .unwrap_or_else(|| fail("no_pet"));
+            if owner.as_str() != hex(&key) {
+                fail("not_current_owner");
+            }
+            let signature: [u8; 64] = decode_hex(&approval.signature)
+                .and_then(|bytes| bytes.try_into().ok())
+                .unwrap_or_else(|| fail("bad_owner_approval"));
+            let message =
+                close_intent_message(env::current_account_id().as_str(), &token_id, &hash);
+            let digest = env::sha256(message.as_bytes());
+            if !env::ed25519_verify(&signature, &digest, &key) {
+                fail("bad_owner_approval");
+            }
+        }
+        self.release_shared_job(token_id, job);
+    }
+
+    fn release_shared_job(&mut self, token_id: TokenId, job: SharedJob) {
+        self.shared_jobs.remove(&token_id);
+        let stake = u128::from(SHARED_JOB_MAX_BYTES)
+            .checked_mul(env::storage_byte_cost().as_yoctonear())
+            .unwrap_or_else(|| fail("overflow"));
+        self.pool = self
+            .pool
+            .checked_add(stake)
+            .unwrap_or_else(|| fail("overflow"));
+        // Linked food was already credited to the pet at feed/snack time. Removing the
+        // reservation makes it ordinary without writing to the pet record again.
+        NearlingEvent::SharedJobClose {
+            token_id,
+            job_hash: hex(&job.hash),
+            linked_near_released: U128(job.linked_near),
+            linked_snack_released: U128(job.linked_snack),
+        }
+        .emit();
     }
 
     /// Anyone adds NEAR to the project's pool.
@@ -692,6 +919,22 @@ impl Contract {
         }
         self.tokens
             .nft_transfer(receiver_id, token_id.clone(), approval_id, None);
+        if let Some(mut job) = self.shared_jobs.get(&token_id).cloned() {
+            match job.state {
+                SharedJobState::Funding => self.release_shared_job(token_id.clone(), job),
+                SharedJobState::Running => {
+                    job.state = SharedJobState::Transferred;
+                    self.shared_jobs.insert(token_id.clone(), job.clone());
+                    NearlingEvent::SharedJobTransferred {
+                        token_id: token_id.clone(),
+                        job_hash: hex(&job.hash),
+                        state: job.state,
+                    }
+                    .emit();
+                }
+                SharedJobState::Transferred | SharedJobState::Settled => {}
+            }
+        }
         let next = self
             .transfer_generation
             .get(&token_id)
@@ -738,6 +981,8 @@ impl Contract {
         // The thoughts without a hire cost their price; a hire costs its fee, which holds the
         // worker's answer, so an answer's price is never counted twice.
         let mut plain: u128 = 0;
+        let mut linked_price: u128 = 0;
+        let mut claimed_hash: Option<[u8; 32]> = None;
         let mut hires: Vec<PlannedHire> = Vec::new();
         // The workers touched, read once, and the jobs this batch already gives each.
         let mut workers: HashMap<TokenId, VersionedPet> = HashMap::new();
@@ -748,6 +993,20 @@ impl Contract {
             }
             if thought.price.0 > MAX_THOUGHT_PRICE {
                 fail("price_over_cap");
+            }
+            if let Some(hash) = &thought.job_hash {
+                let parsed = unhex32(hash).unwrap_or_else(|| fail("bad_job_hash"));
+                if claimed_hash.is_some_and(|previous| previous != parsed) {
+                    fail("wrong_job_hash");
+                }
+                claimed_hash = Some(parsed);
+                linked_price = linked_price
+                    .checked_add(thought.price.0)
+                    .unwrap_or_else(|| fail("overflow"));
+                if thought.hire.is_some() {
+                    fail("linked_hire");
+                }
+                continue;
             }
             let Some(hire) = &thought.hire else {
                 plain = plain
@@ -815,7 +1074,12 @@ impl Contract {
                     from_given = from_given
                         .checked_add(hire.fee)
                         .unwrap_or_else(|| fail("overflow"));
-                    if from_given > pet.given_food {
+                    let reserved = self
+                        .shared_jobs
+                        .get(&token_id)
+                        .map(|job| job.linked_near)
+                        .unwrap_or(0);
+                    if from_given > pet.given_food.saturating_sub(reserved) {
                         fail_hire(hire.thought, "given_short");
                     }
                 }
@@ -826,13 +1090,123 @@ impl Contract {
                 }
             }
         }
-        take_food_split(pet, from_given, rest);
+        let mut job = self.shared_jobs.get(&token_id).cloned();
+        if let Some(hash) = claimed_hash {
+            let active = job.as_ref().unwrap_or_else(|| fail("no_shared_job"));
+            if active.hash != hash {
+                fail("wrong_job_hash");
+            }
+            if active.state != SharedJobState::Running
+                && active.state != SharedJobState::Transferred
+            {
+                fail("job_not_running");
+            }
+            if thoughts.len() != 1 || thoughts[0].job_hash.is_none() {
+                fail("shared_one_thought");
+            }
+            if linked_price > active.allowance {
+                fail("shared_allowance");
+            }
+        }
+        let mut receipt_funding: Vec<Vec<FundingSpend>> = vec![Vec::new(); thoughts.len()];
+        let mut linked_spent: u128 = 0;
+        if claimed_hash.is_some() {
+            let active = job.as_mut().unwrap_or_else(|| fail("no_shared_job"));
+            for (index, thought) in thoughts.iter().enumerate() {
+                if thought.job_hash.is_none() {
+                    continue;
+                }
+                let mut left = thought.price.0;
+                for kind in [FundingKind::Near, FundingKind::Snack] {
+                    for (funding_index, funding) in active
+                        .funding
+                        .iter_mut()
+                        .enumerate()
+                        .filter(|(_, entry)| entry.kind == kind)
+                    {
+                        let available = funding
+                            .amount
+                            .checked_sub(funding.spent)
+                            .unwrap_or_else(|| fail("overflow"));
+                        let spent = left.min(available);
+                        if spent == 0 {
+                            continue;
+                        }
+                        funding.spent = funding
+                            .spent
+                            .checked_add(spent)
+                            .unwrap_or_else(|| fail("overflow"));
+                        linked_spent = linked_spent
+                            .checked_add(spent)
+                            .unwrap_or_else(|| fail("overflow"));
+                        match kind {
+                            FundingKind::Near => {
+                                active.linked_near = active
+                                    .linked_near
+                                    .checked_sub(spent)
+                                    .unwrap_or_else(|| fail("overflow"));
+                                pet.given_food = pet
+                                    .given_food
+                                    .checked_sub(spent)
+                                    .unwrap_or_else(|| fail("over_food"));
+                            }
+                            FundingKind::Snack => {
+                                active.linked_snack = active
+                                    .linked_snack
+                                    .checked_sub(spent)
+                                    .unwrap_or_else(|| fail("overflow"));
+                                pet.project_food = pet
+                                    .project_food
+                                    .checked_sub(spent)
+                                    .unwrap_or_else(|| fail("over_food"));
+                            }
+                        }
+                        receipt_funding[index].push(FundingSpend {
+                            index: u8::try_from(funding_index).unwrap_or_else(|_| fail("overflow")),
+                            kind,
+                            amount: U128(spent),
+                        });
+                        left = left.checked_sub(spent).unwrap_or_else(|| fail("overflow"));
+                        if left == 0 {
+                            break;
+                        }
+                    }
+                    if left == 0 {
+                        break;
+                    }
+                }
+                if active.state == SharedJobState::Transferred && left != 0 {
+                    fail("linked_short_after_gift");
+                }
+                rest = rest.checked_add(left).unwrap_or_else(|| fail("overflow"));
+            }
+            active.state = SharedJobState::Settled;
+        }
+        let day = day_of(env::block_timestamp());
+        let already = if pet.debit_day == day {
+            pet.debited_today
+        } else {
+            0
+        };
+        pet.debited_today = already
+            .checked_add(linked_spent)
+            .filter(|amount| *amount <= DAILY_CAP)
+            .unwrap_or_else(|| fail("daily_cap"));
+        pet.debit_day = day;
+        take_ordinary_food(pet, from_given, rest, job.as_ref());
         pet.last_debit_id = debit_id;
         self.pets.insert(token_id.clone(), record);
+        if let Some(active) = job {
+            if claimed_hash.is_some() {
+                self.shared_jobs.insert(token_id.clone(), active);
+            }
+        }
 
         // What the treasury gets: the thoughts without a hire and the worker answers' prices; the
         // rest of each fee stays in the contract as the worker's given food.
-        let mut to_treasury = plain;
+        let mut to_treasury = plain
+            .checked_add(linked_price)
+            .unwrap_or_else(|| fail("overflow"));
         for hire in &hires {
             let record = workers
                 .get_mut(&hire.worker)
@@ -880,6 +1254,8 @@ impl Contract {
                 price: thought.price,
                 calls: thought.calls,
                 worker: thought.worker,
+                job_hash: thought.job_hash,
+                funding: std::mem::take(&mut receipt_funding[i]),
             }
             .emit();
             if let Some(hire) = planned.next_if(|h| h.thought == i) {
@@ -904,7 +1280,7 @@ impl Contract {
     /// Works for an asleep pet and at the daily cap. A feeder who is not the owner and is new to
     /// the pet becomes known when the pool covers the record. Returns whether a record was written.
     #[payable]
-    pub fn pet_feed(&mut self, token_id: TokenId) -> bool {
+    pub fn pet_feed(&mut self, token_id: TokenId, job_hash: Option<String>) -> bool {
         let deposit = env::attached_deposit().as_yoctonear();
         if deposit < MIN_FEED {
             fail("feed_too_small");
@@ -914,6 +1290,34 @@ impl Contract {
             .get(&token_id)
             .cloned()
             .unwrap_or_else(|| fail("no_pet"));
+        let feeder = env::predecessor_account_id();
+        let is_owner = self.tokens.owner_by_id.get(&token_id).as_ref() == Some(&feeder);
+        let mut job = job_hash.as_ref().map(|hash| {
+            let parsed = unhex32(hash).unwrap_or_else(|| fail("bad_job_hash"));
+            let active = self
+                .shared_jobs
+                .get(&token_id)
+                .cloned()
+                .unwrap_or_else(|| fail("no_shared_job"));
+            if active.hash != parsed {
+                fail("wrong_job_hash");
+            }
+            if is_owner {
+                fail("owner_tag");
+            }
+            if active.state != SharedJobState::Funding {
+                fail("job_not_funding");
+            }
+            if active
+                .linked_near
+                .checked_add(active.linked_snack)
+                .unwrap_or_else(|| fail("overflow"))
+                >= active.allowance
+            {
+                fail("job_funded");
+            }
+            active
+        });
         let pet = record.current_mut();
         pet.given_food = pet
             .given_food
@@ -921,14 +1325,30 @@ impl Contract {
             .unwrap_or_else(|| fail("overflow"));
         self.pets.insert(token_id.clone(), record);
 
-        let feeder = env::predecessor_account_id();
-        let is_owner = self.tokens.owner_by_id.get(&token_id).as_ref() == Some(&feeder);
+        let mut funding_index = None;
+        if let Some(active) = job.as_mut() {
+            active.linked_near = active
+                .linked_near
+                .checked_add(deposit)
+                .unwrap_or_else(|| fail("overflow"));
+            funding_index =
+                Some(u8::try_from(active.funding.len()).unwrap_or_else(|_| fail("overflow")));
+            active.funding.push(SharedFunding {
+                feeder: feeder.clone(),
+                kind: FundingKind::Near,
+                amount: deposit,
+                spent: 0,
+            });
+            self.shared_jobs.insert(token_id.clone(), active.clone());
+        }
         let introduced = !is_owner && self.introduce(&token_id, &feeder, 0);
 
         NearlingEvent::Feed {
             token_id,
             feeder,
             amount: U128(deposit),
+            job_hash,
+            funding_index,
         }
         .emit();
         introduced
@@ -938,8 +1358,42 @@ impl Contract {
     /// at most `FRIEND_SNACKS_PER_DAY` a UTC day; to the owner, at most once in 72 hours, and only
     /// when `feeder` is the current owner. A friend new to the pet becomes known when the pool
     /// covers the record on top of the snack. Returns whether a record was written.
-    pub fn pet_snack(&mut self, token_id: TokenId, feeder: AccountId, kind: SnackKind) -> bool {
+    pub fn pet_snack(
+        &mut self,
+        token_id: TokenId,
+        feeder: AccountId,
+        kind: SnackKind,
+        job_hash: Option<String>,
+    ) -> bool {
         self.assert_server();
+        let mut job = job_hash.as_ref().map(|hash| {
+            let parsed = unhex32(hash).unwrap_or_else(|| fail("bad_job_hash"));
+            let active = self
+                .shared_jobs
+                .get(&token_id)
+                .cloned()
+                .unwrap_or_else(|| fail("no_shared_job"));
+            if active.hash != parsed {
+                fail("wrong_job_hash");
+            }
+            if self.tokens.owner_by_id.get(&token_id).as_ref() == Some(&feeder)
+                || kind != SnackKind::Friend
+            {
+                fail("owner_tag");
+            }
+            if active.state != SharedJobState::Funding {
+                fail("job_not_funding");
+            }
+            if active
+                .linked_near
+                .checked_add(active.linked_snack)
+                .unwrap_or_else(|| fail("overflow"))
+                >= active.allowance
+            {
+                fail("job_funded");
+            }
+            active
+        });
         let mut record = self
             .pets
             .get(&token_id)
@@ -987,6 +1441,22 @@ impl Contract {
         let introduced =
             kind == SnackKind::Friend && self.introduce(&token_id, &feeder, SNACK_AMOUNT);
         self.pool -= SNACK_AMOUNT;
+        let mut funding_index = None;
+        if let Some(active) = job.as_mut() {
+            active.linked_snack = active
+                .linked_snack
+                .checked_add(SNACK_AMOUNT)
+                .unwrap_or_else(|| fail("overflow"));
+            funding_index =
+                Some(u8::try_from(active.funding.len()).unwrap_or_else(|_| fail("overflow")));
+            active.funding.push(SharedFunding {
+                feeder: feeder.clone(),
+                kind: FundingKind::Snack,
+                amount: SNACK_AMOUNT,
+                spent: 0,
+            });
+            self.shared_jobs.insert(token_id.clone(), active.clone());
+        }
         if kind == SnackKind::Friend {
             self.friend_snacks = self
                 .friend_snacks
@@ -999,6 +1469,8 @@ impl Contract {
             amount: U128(SNACK_AMOUNT),
             kind,
             friend: (kind == SnackKind::Friend).then_some(feeder),
+            job_hash,
+            funding_index,
         }
         .emit();
         introduced
@@ -1138,7 +1610,8 @@ impl Contract {
         if pet.has(item) {
             fail("outfit_owned");
         }
-        take_food(pet, OUTFIT_PRICE);
+        let job = self.shared_jobs.get(&token_id);
+        take_ordinary_food(pet, 0, OUTFIT_PRICE, job);
         pet.give(item);
         self.pets.insert(token_id.clone(), record);
 
@@ -1250,6 +1723,13 @@ impl Contract {
             .get(&token_id)
             .copied()
             .unwrap_or(0);
+        view.shared_job = self.shared_jobs.get(&token_id).map(|job| SharedJobView {
+            hash: hex(&job.hash),
+            state: job.state,
+            allowance: U128(job.allowance),
+            linked_near: U128(job.linked_near),
+            linked_snack: U128(job.linked_snack),
+        });
         Some(view)
     }
 
@@ -1285,6 +1765,24 @@ impl Contract {
     pub fn nft_supply_for_owner(&self, account_id: AccountId) -> U128 {
         self.tokens.nft_supply_for_owner(account_id)
     }
+}
+
+fn decode_hex(text: &str) -> Option<Vec<u8>> {
+    if text.len() % 2 != 0 {
+        return None;
+    }
+    text.as_bytes()
+        .chunks_exact(2)
+        .map(|pair| {
+            let digit = |ch: u8| match ch {
+                b'0'..=b'9' => Some(ch - b'0'),
+                b'a'..=b'f' => Some(ch - b'a' + 10),
+                b'A'..=b'F' => Some(ch - b'A' + 10),
+                _ => None,
+            };
+            Some((digit(pair[0])? << 4) | digit(pair[1])?)
+        })
+        .collect()
 }
 
 #[cfg(test)]
@@ -1499,14 +1997,15 @@ mod tests {
         let last_ns = 5 * NS_PER_DAY - 1;
         testing_env!(context(server(), last_ns, 0).build());
         for n in 1..=3 {
-            contract.pet_snack("0".into(), player(n), SnackKind::Friend);
+            contract.pet_snack("0".into(), player(n), SnackKind::Friend, None);
         }
-        let text = panic_text(|| contract.pet_snack("0".into(), player(4), SnackKind::Friend));
+        let text =
+            panic_text(|| contract.pet_snack("0".into(), player(4), SnackKind::Friend, None));
         assert!(text.contains("snacks_today"), "{text}");
         assert_eq!(contract.pet_view("0".into()).unwrap().friend_snacks, 3);
 
         testing_env!(context(server(), 5 * NS_PER_DAY, 0).build());
-        contract.pet_snack("0".into(), player(4), SnackKind::Friend);
+        contract.pet_snack("0".into(), player(4), SnackKind::Friend, None);
         let view = contract.pet_view("0".into()).unwrap();
         assert_eq!(
             view.friend_snacks, 1,
@@ -1521,14 +2020,14 @@ mod tests {
         let mut contract = contract_with_pet(HUGE_POOL);
         let first = 10 * NS_PER_DAY;
         testing_env!(context(server(), first, 0).build());
-        contract.pet_snack("0".into(), player(0), SnackKind::Owner);
+        contract.pet_snack("0".into(), player(0), SnackKind::Owner, None);
         assert_eq!(
             contract.pet_view("0".into()).unwrap().owner_snack_at.0,
             first
         );
 
         testing_env!(context(server(), first + OWNER_SNACK_EVERY_NS - 1, 0).build());
-        let text = panic_text(|| contract.pet_snack("0".into(), player(0), SnackKind::Owner));
+        let text = panic_text(|| contract.pet_snack("0".into(), player(0), SnackKind::Owner, None));
         assert!(text.contains("snack_too_soon"), "{text}");
         assert_eq!(
             contract.pet_view("0".into()).unwrap().owner_snack_at.0,
@@ -1537,7 +2036,7 @@ mod tests {
 
         let again = first + OWNER_SNACK_EVERY_NS;
         testing_env!(context(server(), again, 0).build());
-        contract.pet_snack("0".into(), player(0), SnackKind::Owner);
+        contract.pet_snack("0".into(), player(0), SnackKind::Owner, None);
         assert_eq!(
             contract.pet_view("0".into()).unwrap().owner_snack_at.0,
             again
@@ -1548,7 +2047,7 @@ mod tests {
     fn the_snack_and_feed_events_carry_the_spec_fields() {
         let mut contract = contract_with_pet(HUGE_POOL);
         testing_env!(context(server(), 2_000, 0).build());
-        contract.pet_snack("0".into(), player(0), SnackKind::Owner);
+        contract.pet_snack("0".into(), player(0), SnackKind::Owner, None);
         let logs = get_logs();
         assert_eq!(logs.len(), 1, "{logs:?}");
         assert!(logs[0].contains("\"standard\":\"nearling\""), "{}", logs[0]);
@@ -1561,13 +2060,13 @@ mod tests {
         );
 
         testing_env!(context(server(), 3_000, 0).build());
-        contract.pet_snack("0".into(), player(3), SnackKind::Friend);
+        contract.pet_snack("0".into(), player(3), SnackKind::Friend, None);
         let logs = get_logs();
         assert!(logs[0].contains("\"kind\":\"friend\""), "{}", logs[0]);
         assert!(logs[0].contains("player3.near"), "{}", logs[0]);
 
         testing_env!(context(player(3), 4_000, MIN_FEED).build());
-        contract.pet_feed("0".into());
+        contract.pet_feed("0".into(), None);
         let logs = get_logs();
         assert!(logs[0].contains("\"event\":\"feed\""), "{}", logs[0]);
         assert!(
@@ -1723,6 +2222,7 @@ mod tests {
             calls: vec![call.clone()],
             worker: None,
             hire: None,
+            job_hash: None,
         };
         testing_env!(context(server(), 2_000, 0).build());
         // 2.5e21 from the project's 2e21 and 0.5e21 of the given food
@@ -2467,6 +2967,7 @@ mod tests {
                 skill: false,
                 fee: U128(fee),
             }),
+            job_hash: None,
         }
     }
 

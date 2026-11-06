@@ -1,6 +1,6 @@
 import { expect, test, type Page } from '@playwright/test';
 import type { ConversationLine, ErrandReport, ErrandState } from '../src/seams/worker-types';
-import { BISCUIT, calls, drawn, HISTORY, lookAgain, openWith, OWNER, PIXEL, reloadHolding, setWorker, SIGNED_IN } from './helpers';
+import { ASLEEP_PIXEL, BISCUIT, calls, drawn, HISTORY, lookAgain, openWith, OWNER, PIXEL, reloadHolding, setWorker, SIGNED_IN } from './helpers';
 
 // The errand's outing and its report (add-pet-errands › Errand flow, Read this flow, Find out flow, Is it true flow): the pet is away
 // — the stage empty, the job under «You», the Composer busy, the rail's errand item off — and comes back with a report, or with the
@@ -16,6 +16,20 @@ const AWAY_LINE = 'Pixel is off on your errand — back soon, usually within a m
 const AWAY: ErrandState = { state: 'away', form: 'find', job: LEONIDS, sentAt: 1_700_000_000_000 };
 /** the paid errand that came back empty, as the owner's state keeps it for «Try again» until the next errand */
 const EMPTY_KEPT: ErrandState = { state: 'failed', form: 'find', job: LEONIDS, reason: 'empty', priceCents: 0.62 };
+
+// spec: add-pet-errands › Errand flow › can't pay
+test('a failed errand reopened while asleep keeps its food block and Feed action', async ({ page }) => {
+  await open(page, {
+    pets: { '9': { ...ASLEEP_PIXEL, owner: {} }, '2': BISCUIT },
+    petState: { errand: EMPTY_KEPT },
+    conversation: conversation(job('find', LEONIDS), empty(0.62)),
+    errand: { block: { reason: 'asleep', need: { yocto: '2000000000000000000000', cents: 0.93 } } },
+  });
+  await log(page).getByRole('button', { name: 'Try again' }).click();
+  await expect(sheet(page).getByLabel('What should Pixel find out?')).toHaveValue(LEONIDS);
+  await expect(drawn(page, 'This errand needs up to 0.93¢ of food — more than Pixel has. Feed Pixel and your errand will wait here.')).toBeVisible();
+  await expect(sheet(page).getByRole('button', { name: 'Feed Pixel' })).toBeVisible();
+});
 
 const job = (form: 'read' | 'find' | 'check', text: string): ConversationLine => ({ id: 'e1:you', who: 'player', kicker: form, text, at: 1_700_000_000_100 });
 const report = (r: Partial<ErrandReport>, text = FIND_SAYS): ConversationLine => ({
@@ -201,14 +215,15 @@ test('a read: its source is the link, the price line says «Read · {price}»; p
   await open(page, {
     conversation: conversation(
       job('read', DREAMS),
-      report({ form: 'read', sources: [{ label: 'example.com/dreams', url: DREAMS }], searches: 0, priceCents: 0.14 }, 'The piece says most dreams fade within minutes.'),
+      report({ form: 'read', sources: [{ label: 'example.com', url: DREAMS }], searches: 0, priceCents: 0.14 }, 'The piece says most dreams fade within minutes.'),
       { ...job('read', 'Our lease says sixty days.'), id: 'e2:you' },
       { ...report({ form: 'read', sources: [{ label: 'Your text' }], searches: 0, priceCents: 0.11 }, 'Two dates matter.'), id: 'e2' },
     ),
   });
   const cards = log(page).locator('.ds-message--report');
   await expect(cards.first().getByText('Read · 0.14¢')).toBeVisible();
-  await expect(cards.first().getByRole('link', { name: 'example.com/dreams' })).toHaveAttribute('target', '_blank');
+  await expect(cards.first().getByRole('link', { name: 'example.com' })).toHaveAttribute('target', '_blank');
+  await expect(cards.first().getByRole('link', { name: 'example.com' })).toHaveAttribute('href', DREAMS);
   await expect(cards.last().getByText('Read · 0.11¢')).toBeVisible();
   await expect(cards.last().getByText('Your text')).toBeVisible();
   await expect(cards.last().getByRole('link')).toHaveCount(1);

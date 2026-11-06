@@ -321,6 +321,223 @@ fn errand_thought(price: u128) -> Value {
     json!({ "model": "Qwen/Qwen3.8-27B", "price": price.to_string(), "calls": errand_calls() })
 }
 
+const SHARED_HASH: &str = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+const WRONG_HASH: &str = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+
+fn linked_thought(price: u128, hash: &str) -> Value {
+    let mut thought = errand_thought(price);
+    thought["job_hash"] = json!(hash);
+    thought
+}
+
+async fn open_shared(ctx: &Ctx, allowance: u128) -> anyhow::Result<()> {
+    ctx.server.call(ctx.contract.id(), "shared_job_open")
+        .args_json(json!({"token_id":"0", "job_hash":SHARED_HASH, "allowance_yocto":allowance.to_string()}))
+        .transact().await?.into_result()?;
+    Ok(())
+}
+
+async fn start_shared(ctx: &Ctx) -> anyhow::Result<()> {
+    ctx.server
+        .call(ctx.contract.id(), "shared_job_start")
+        .args_json(json!({"token_id":"0", "job_hash":SHARED_HASH}))
+        .transact()
+        .await?
+        .into_result()?;
+    Ok(())
+}
+
+async fn tagged_snack(ctx: &Ctx, feeder: &str) -> anyhow::Result<()> {
+    ctx.server
+        .call(ctx.contract.id(), "pet_snack")
+        .args_json(
+            json!({"token_id":"0", "feeder":feeder, "kind":"friend", "job_hash":SHARED_HASH}),
+        )
+        .transact()
+        .await?
+        .into_result()?;
+    Ok(())
+}
+
+async fn tagged_meal(ctx: &Ctx) -> anyhow::Result<()> {
+    let bob = ctx.account("bob", 10).await?;
+    bob.call(ctx.contract.id(), "pet_feed")
+        .args_json(json!({"token_id":"0", "job_hash":SHARED_HASH}))
+        .deposit(near_workspaces::types::NearToken::from_yoctonear(
+            nearling_contract::limits::MIN_FEED,
+        ))
+        .transact()
+        .await?
+        .into_result()?;
+    Ok(())
+}
+
+// spec: add-pet-errands › Shared errand funding data › completed job settles
+#[tokio::test]
+async fn shared_debit_requires_one_thought_within_its_allowance() -> anyhow::Result<()> {
+    let ctx = setup(BIG_POOL).await?;
+    ctx.pet_with_food(2 * MAX_THOUGHT_PRICE, 0).await?;
+    open_shared(&ctx, 1).await?;
+    tagged_meal(&ctx).await?;
+    start_shared(&ctx).await?;
+    let before = debit_state(&ctx).await?;
+    let treasury = ctx.balance_of(ctx.treasury.id()).await?;
+    assert_refused(&ctx.debit("0", 1, vec![linked_thought(2, SHARED_HASH)]).await?, "shared_allowance");
+    assert_refused(&ctx.debit("0", 1, vec![linked_thought(1, SHARED_HASH), linked_thought(1, SHARED_HASH)]).await?, "shared_one_thought");
+    assert_refused(&ctx.debit("0", 1, vec![linked_thought(1, SHARED_HASH), errand_thought(1)]).await?, "shared_one_thought");
+    assert_eq!(debit_state(&ctx).await?, before);
+    assert_eq!(ctx.balance_of(ctx.treasury.id()).await?, treasury);
+    Ok(())
+}
+
+// spec: add-pet-errands › Errand debit contract › linked food pays first
+#[tokio::test]
+async fn linked_debit_attributes_spent_near_without_exposing_sponsor() -> anyhow::Result<()> {
+    let ctx = setup(BIG_POOL).await?;
+    ctx.pet_with_food(2 * MAX_THOUGHT_PRICE, 0).await?;
+    open_shared(&ctx, MAX_THOUGHT_PRICE).await?;
+    tagged_snack(&ctx, "sponsor.near").await?;
+    tagged_meal(&ctx).await?;
+    start_shared(&ctx).await?;
+    let treasury = ctx.balance_of(ctx.treasury.id()).await?;
+    let price = MAX_THOUGHT_PRICE;
+    let result = ctx.debit("0", 1, vec![linked_thought(price, SHARED_HASH)]).await?;
+    let events = event_logs(&result);
+    result.into_result()?;
+    assert_eq!(
+        ctx.balance_of(ctx.treasury.id()).await?,
+        treasury + price
+    );
+    let after = ctx.pet_view("0").await?;
+    assert_eq!(after["shared_job"]["state"], "settled");
+    assert_eq!(amount(&after["shared_job"], "linked_near"), nearling_contract::limits::MIN_FEED - price);
+    assert_eq!(amount(&after["shared_job"], "linked_snack"), nearling_contract::limits::SNACK_AMOUNT);
+    let receipts: Vec<Value> = events
+        .iter()
+        .map(|line| serde_json::from_str(line))
+        .collect::<Result<_, _>>()?;
+    assert_eq!(receipts.len(), 1);
+    assert_eq!(receipts[0]["data"]["funding"][0]["kind"], "near");
+    assert_eq!(receipts[0]["data"]["funding"][0]["index"], 1);
+    assert_eq!(
+        receipts[0]["data"]["funding"][0]["amount"],
+        price.to_string()
+    );
+    assert!(receipts[0]["data"]["funding"][0].get("feeder").is_none());
+    assert_eq!(receipts[0]["data"]["job_hash"], SHARED_HASH);
+    Ok(())
+}
+
+// spec: add-pet-errands › Errand debit contract › unrelated debit cannot use reserved food
+// spec: add-pet-errands › Errand debit contract › forged job hash refused
+// spec: add-pet-errands › Errand debit contract › linked debit before start refused
+// spec: add-pet-errands › Errand debit contract › second linked debit refused
+#[tokio::test]
+async fn reserved_food_rejects_ordinary_forged_early_and_replayed_debits() -> anyhow::Result<()> {
+    let ctx = setup(BIG_POOL).await?;
+    ctx.pet_with_food(0, 0).await?;
+    open_shared(&ctx, MAX_THOUGHT_PRICE).await?;
+    tagged_meal(&ctx).await?;
+    let before = debit_state(&ctx).await?;
+    let early = ctx
+        .debit("0", 1, vec![linked_thought(1, SHARED_HASH)])
+        .await?;
+    assert_refused(&early, "job_not_running");
+    assert_refused(
+        &ctx.debit("0", 1, vec![linked_thought(1, WRONG_HASH)])
+            .await?,
+        "wrong_job_hash",
+    );
+    assert_refused(
+        &ctx.debit("0", 1, vec![errand_thought(1)]).await?,
+        "over_food",
+    );
+    assert_eq!(debit_state(&ctx).await?, before);
+    start_shared(&ctx).await?;
+    let paid = ctx
+        .debit("0", 1, vec![linked_thought(1, SHARED_HASH)])
+        .await?;
+    paid.into_result()?;
+    let accepted = debit_state(&ctx).await?;
+    let replay = ctx
+        .debit("0", 2, vec![linked_thought(1, SHARED_HASH)])
+        .await?;
+    assert_refused(&replay, "job_not_running");
+    assert_eq!(debit_state(&ctx).await?, accepted);
+    Ok(())
+}
+
+// spec: add-pet-errands › Errand debit contract › running job settles after gift
+#[tokio::test]
+async fn transferred_job_uses_only_linked_food() -> anyhow::Result<()> {
+    use nearling_contract::shared_job::SharedJobState;
+    let ctx = setup(BIG_POOL).await?;
+    ctx.pet_with_food(MAX_THOUGHT_PRICE, 0).await?;
+    open_shared(&ctx, nearling_contract::limits::SNACK_AMOUNT).await?;
+    tagged_snack(&ctx, "friend.near").await?;
+    start_shared(&ctx).await?;
+    ctx.set_shared_job_state("0", SharedJobState::Transferred)
+        .await?;
+    let before = debit_state(&ctx).await?;
+    let refused = ctx
+        .debit("0", 1, vec![linked_thought(MAX_THOUGHT_PRICE, SHARED_HASH)])
+        .await?;
+    assert_refused(&refused, "shared_allowance");
+    assert_eq!(debit_state(&ctx).await?, before);
+    let paid = ctx
+        .debit(
+            "0",
+            1,
+            vec![linked_thought(
+                nearling_contract::limits::SNACK_AMOUNT,
+                SHARED_HASH,
+            )],
+        )
+        .await?;
+    paid.into_result()?;
+    let after = ctx.pet_view("0").await?;
+    assert_eq!(
+        amount(&after, "project_food"),
+        amount(&before["pet"], "project_food") - nearling_contract::limits::SNACK_AMOUNT
+    );
+    assert_eq!(after["shared_job"]["state"], "settled");
+    Ok(())
+}
+
+// spec: add-pet-errands › Errand debit contract › quiet watch recorded
+#[tokio::test]
+async fn a_quiet_watch_debits_ordinary_food_and_emits_receipt() -> anyhow::Result<()> {
+    let ctx = setup(BIG_POOL).await?;
+    ctx.pet_with_food(MAX_THOUGHT_PRICE, 0).await?;
+    let result = ctx.debit("0", 1, vec![errand_thought(1_000)]).await?;
+    let logs = event_logs(&result);
+    result.into_result()?;
+    let receipt: Value = serde_json::from_str(&logs[0])?;
+    assert_eq!(receipt["event"], "receipt");
+    assert_eq!(receipt["data"]["price"], "1000");
+    assert!(receipt["data"].get("funding").is_none());
+    assert_eq!(
+        amount(&ctx.pet_view("0").await?, "project_food"),
+        MAX_THOUGHT_PRICE - 1_000
+    );
+    Ok(())
+}
+
+// spec: add-pet-errands › Errand debit contract › debit after new owner releases old reserve
+#[tokio::test]
+async fn a_late_linked_debit_with_no_active_job_cannot_spend_released_food() -> anyhow::Result<()> {
+    let ctx = setup(BIG_POOL).await?;
+    ctx.pet_with_food(MAX_THOUGHT_PRICE, 0).await?;
+    let before = debit_state(&ctx).await?;
+    let result = ctx
+        .debit("0", 1, vec![linked_thought(1_000, SHARED_HASH)])
+        .await?;
+    assert_refused(&result, "no_shared_job");
+    assert!(event_logs(&result).is_empty());
+    assert_eq!(debit_state(&ctx).await?, before);
+    Ok(())
+}
+
 // spec: add-pet-errands › Errand debit contract › errand recorded
 #[tokio::test]
 async fn an_errand_thought_with_four_calls_is_recorded_whole() -> anyhow::Result<()> {

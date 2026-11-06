@@ -50,6 +50,11 @@ export function forgetStatements(db: D1Database, tokenId: string, now: number): 
     db.prepare('DELETE FROM data_sources WHERE token_id = ?').bind(tokenId),
     db.prepare('DELETE FROM catalog_entries WHERE token_id = ?').bind(tokenId),
     db.prepare('DELETE FROM skill_code WHERE token_id = ?').bind(tokenId),
+    // The link owns contributor access; its delete trigger removes every sponsor in this batch.
+    // Receipts and the word-free close recovery live outside pet memory.
+    db.prepare('DELETE FROM shared_errands WHERE token_id = ?').bind(tokenId),
+    db.prepare('DELETE FROM watch_targets WHERE token_id = ?').bind(tokenId),
+    db.prepare('UPDATE watch_checks SET pending_content = NULL, pending_sources = NULL, pending_result = NULL WHERE token_id = ?').bind(tokenId),
   ];
 }
 

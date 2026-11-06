@@ -18,10 +18,15 @@ import {
   Surface,
   Text,
   TextField,
+  TextLink,
   Thinking,
   type Accent,
 } from '../ds';
 import { hasVisible } from '../lib/nameClean';
+import { formatCents } from '../lib/price';
+import { workerApi } from '../seams/worker';
+import { centsAtRate } from '../verification/checkMachine';
+import { nearPrice } from '../watch/view';
 import { PetFigure } from '../pet/PetFigure';
 import { petPath } from '../route';
 import { wearProps } from '../wardrobe/catalogue';
@@ -176,6 +181,23 @@ export function DiaryPage({
   // the diary on screen: the answer, or the last known one under the error line
   const load = d.load;
   const view: DiaryView | null = load.kind === 'ready' ? load.diary : load.kind === 'error' ? load.last : null;
+  const [watchRates, setWatchRates] = useState<Record<string, string>>({});
+  const watchIds = view?.watch?.map((item) => item.receiptId).join('|') ?? '';
+  useEffect(() => {
+    if (!watchIds || !auth.authenticated || auth.sessionEnded) return;
+    let live = true;
+    void auth.getIdentityToken().then(async (token) => {
+      if (!token) return;
+      const rates = await Promise.all((view?.watch ?? []).map(async (item) => {
+        try {
+          const pointer = await workerApi.verificationThought(token, tokenId, item.receiptId);
+          return [item.receiptId, pointer.nearUsdRate ?? ''] as const;
+        } catch { return [item.receiptId, ''] as const; }
+      }));
+      if (live) setWatchRates(Object.fromEntries(rates));
+    }).catch(() => undefined);
+    return () => { live = false; };
+  }, [watchIds, tokenId, auth.authenticated, auth.sessionEnded]);
 
   // The answer to the question: on its way or landed, drawn under the question until the diary itself holds the exchange
   const asked = view !== null && view.exchange === null && s.asked !== null && (s.asked.day === null || s.asked.day === view.day) ? s.asked : null;
@@ -314,6 +336,16 @@ export function DiaryPage({
     const end = endNote(asked !== null ? { ...view, parts: view.parts.filter((p) => p !== 'question') } : view);
     const askable = view.entry.kind === 'text' && view.entry.question !== null;
     const note = tired ? tiredLine(name, pet.until) : paused ? pausedLine(name) : null;
+    const watchLines = view.watch?.map((item) => {
+      const hundredths = centsAtRate(item.priceYocto, watchRates[item.receiptId] || null);
+      const price = hundredths === null ? nearPrice(item.priceYocto) : hundredths >= 1 && hundredths <= 9 ? `0.0${hundredths}¢` : formatCents(hundredths / 100);
+      return <Surface key={item.receiptId}><Stack gap={2}>
+        <Text>{`${name} checked ${item.target}: ${item.change}`}</Text>
+        {item.sources.map((source) => <TextLink key={source} href={source} external>{source}</TextLink>)}
+        <Text variant="small" tone="secondary">{price}</Text>
+        <TextLink href={`/pet/${tokenId}/verify/${item.receiptId}`} icon="verify">Check this thought</TextLink>
+      </Stack></Surface>;
+    }) ?? [];
 
     const exchange = view.exchange ?? (asked !== null ? { answer: asked.text, reply: asked.reply } : null);
     parts = partLines(streak, entry, riddle, exchange?.reply != null ? `${name}: ${exchange.reply}` : null, end?.text ?? null);
@@ -403,6 +435,7 @@ export function DiaryPage({
         <Streak {...streak} />
         <Stack gap={3}>
           <Entry pet={pet} today={entry} previousOwner={view.entry.kind === 'text' && view.entry.previousOwner} />
+          {watchLines}
           {exchanged}
           <Stack gap={3}>
             <Text id={HANDOFF_ID} tabIndex={-1}>
@@ -426,6 +459,7 @@ export function DiaryPage({
         <Streak {...streak} />
         <Stack gap={3}>
           <Entry pet={pet} today={entry} previousOwner={view.entry.kind === 'text' && view.entry.previousOwner} />
+          {watchLines}
           {exchanged}
           {exchanged === null && askable && view.entry.kind === 'text' ? (
             <Composer

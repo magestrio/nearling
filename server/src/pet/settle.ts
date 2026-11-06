@@ -11,6 +11,8 @@ import { track } from '../track';
 import { noteFriend, noteMood } from './life';
 import { DIARY_WINDOW_MS } from './ritual';
 import { afterWake, wakeDue, wakeIfFed } from './wake';
+import { confirmedFunding } from '../errands/funding';
+import { startShared } from '../errands/sharedRun';
 
 export interface FeedingRow {
   id: string;
@@ -24,6 +26,7 @@ export interface FeedingRow {
   deposit_yocto: string | null;
   tx_hash: string | null;
   created_at: number;
+  job_hash?: string | null;
 }
 
 export type Outcome = { status: 'ok'; value?: string | null; burnt?: string } | { status: 'failed'; code: string };
@@ -34,12 +37,25 @@ const SECOND_READ_MS = 1_000;
 
 const pause = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 
-export const FEEDINGS_COLUMNS = 'id, sub, account, token_id, source, via, deposit_yocto, tx_hash, created_at';
+export const FEEDINGS_COLUMNS = 'id, sub, account, token_id, source, via, deposit_yocto, tx_hash, created_at, job_hash';
 
 /** Settles `row` with the outcome the network gave. `false`: another flow had already claimed it. */
 export async function settleFeeding(env: Env, row: FeedingRow, outcome: Outcome): Promise<boolean> {
   const claim = [env.DB.prepare('DELETE FROM feedings WHERE id = ? RETURNING id').bind(row.id)];
+  if (outcome.status === 'ok' && row.job_hash != null) {
+    const funding = await confirmedFunding(env, row);
+    claim.unshift(env.DB.prepare(
+      `INSERT INTO shared_funding_evidence (job_hash, funding_index, tx_hash, token_id, source, amount_yocto)
+       VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT (job_hash, funding_index) DO NOTHING`,
+    ).bind(row.job_hash, funding.index, funding.txHash, row.token_id, row.source, funding.amount));
+    claim.unshift(env.DB.prepare(
+      `INSERT INTO shared_errand_contributions (tx_hash, token_id, job_hash, contributor_account, source, amount_yocto, confirmed_at, funding_index)
+       SELECT ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8 FROM shared_errands
+       WHERE token_id = ?2 AND job_hash = ?3 ON CONFLICT (tx_hash) DO NOTHING`,
+    ).bind(funding.txHash, row.token_id, row.job_hash, row.account, row.source, funding.amount, Date.now(), funding.index));
+  }
   let name = '';
+  let wakeClaimed = false;
   if (outcome.status === 'ok' && row.via === 'link') {
     const player = await env.DB.prepare('SELECT first_name FROM players WHERE sub = ?').bind(row.sub).first<{ first_name: string | null }>();
     // '' is a nameless friend: the pet and the owner say «a friend».
@@ -47,6 +63,7 @@ export async function settleFeeding(env: Env, row: FeedingRow, outcome: Outcome)
     // The owner's poll leaves the wake to this flow while the row stands, so the row and the friend's
     // wake end in one write: a poll finds the row or the awake pet, never the sleep without the row.
     if (await friendWakeDue(env, row.token_id)) {
+      wakeClaimed = true;
       claim.unshift(
         // As `wakeIfFed`: a wake after the diary window notes the day without a diary.
         env.DB.prepare(
@@ -57,7 +74,7 @@ export async function settleFeeding(env: Env, row: FeedingRow, outcome: Outcome)
   }
   const written = await env.DB.batch(claim);
   if (written.at(-1)!.results.length === 0) return false;
-  const friendWoke = written.length === 2 && written[0]!.meta.changes > 0;
+  const friendWoke = wakeClaimed && written[0]!.meta.changes > 0;
 
   if (outcome.status === 'failed') {
     console.log(`${row.source === 'snack' ? 'snack' : 'feed'}_failed:${outcome.code}`);
@@ -112,6 +129,7 @@ export async function settleFeeding(env: Env, row: FeedingRow, outcome: Outcome)
     await unlessUnread(wakeIfFed(env, row.token_id, 'owner'));
   }
   track('pet_fed', { via: row.via, source: row.source });
+  if (row.job_hash != null) await startShared(env, row.token_id).catch(() => console.log('shared_start_failed'));
   return true;
 }
 

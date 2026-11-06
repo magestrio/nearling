@@ -62,6 +62,16 @@ pub struct ThoughtReceipt {
     pub worker: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub hire: Option<HireEntry>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub job_hash: Option<String>,
+}
+
+#[near(serializers = [json])]
+#[derive(Clone, Debug)]
+pub struct FundingSpend {
+    pub index: u8,
+    pub kind: crate::shared_job::FundingKind,
+    pub amount: U128,
 }
 
 /// Whose snack it is (`Pet snack contract`): the owner's own, or a friend's.
@@ -87,6 +97,32 @@ pub enum OutfitVia {
 #[near(event_json(standard = "nearling"))]
 pub enum NearlingEvent {
     #[event_version("1.0.0")]
+    SharedJobOpen {
+        token_id: String,
+        job_hash: String,
+        allowance: U128,
+        state: crate::shared_job::SharedJobState,
+    },
+    #[event_version("1.0.0")]
+    SharedJobStart {
+        token_id: String,
+        job_hash: String,
+        state: crate::shared_job::SharedJobState,
+    },
+    #[event_version("1.0.0")]
+    SharedJobClose {
+        token_id: String,
+        job_hash: String,
+        linked_near_released: U128,
+        linked_snack_released: U128,
+    },
+    #[event_version("1.0.0")]
+    SharedJobTransferred {
+        token_id: String,
+        job_hash: String,
+        state: crate::shared_job::SharedJobState,
+    },
+    #[event_version("1.0.0")]
     PetBorn {
         token_id: String,
         owner_id: AccountId,
@@ -103,6 +139,10 @@ pub enum NearlingEvent {
         /// The token id of the pet whose answer this receipt is; `token_id` stays the payer's.
         #[serde(skip_serializing_if = "Option::is_none")]
         worker: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        job_hash: Option<String>,
+        #[serde(skip_serializing_if = "Vec::is_empty")]
+        funding: Vec<FundingSpend>,
     },
 
     /// A hire was recorded, right after the receipt of the worker's answer (`Hire debit
@@ -124,6 +164,10 @@ pub enum NearlingEvent {
         token_id: String,
         feeder: AccountId,
         amount: U128,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        job_hash: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        funding_index: Option<u8>,
     },
 
     /// A snack from the pool into the pet's project food. `friend` only for a friend's snack.
@@ -134,6 +178,10 @@ pub enum NearlingEvent {
         kind: SnackKind,
         #[serde(skip_serializing_if = "Option::is_none")]
         friend: Option<AccountId>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        job_hash: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        funding_index: Option<u8>,
     },
 
     /// A pet grew into `stage` and got `trait` (`Pet growth contract`). The Rust field is

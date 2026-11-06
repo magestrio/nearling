@@ -3,6 +3,7 @@ import { ChainUnreachable, petView, type PetRecord } from '../chain';
 import { TOKEN_ID, requireSession, type AppEnv } from '../http';
 import { wornOf } from '../pet/outfits';
 import { callBytes, intactCallHashes, matchingReceipt, type ReceiptThought, type StoredCall } from '../verification/receipt';
+import { readSharedReceiptFunding } from '../errands/sharedSettle';
 
 export const verificationRoutes = new Hono<AppEnv>();
 const THOUGHT_ID = /^[0-9a-f]{24}$/;
@@ -27,6 +28,7 @@ interface Pointer {
   form: string | null;
   searches: number | null;
   data_labels: string | null;
+  shared_job_hash: string | null;
 }
 
 export function publicPointer(row: Pointer) {
@@ -226,8 +228,8 @@ verificationRoutes.get('/api/verification/pets/:id', async (c) => {
   const id = c.req.param('id');
   if (!TOKEN_ID.test(id)) return c.json({ code: 'no_pet' }, 404);
   const [thoughts, transactions, worn] = await Promise.all([
-    c.env.DB.prepare("SELECT id, receipt_token_id, paying_token_id, created_at, status, debit_tx_hash, without_reply, erased_at, model, price_yocto, near_usd_rate FROM thoughts WHERE receipt_token_id = ? AND kind NOT IN ('growth', 'hire_event') ORDER BY created_at DESC, id DESC LIMIT 20")
-      .bind(id).all<Pick<Pointer, 'id' | 'receipt_token_id' | 'paying_token_id' | 'created_at' | 'status' | 'debit_tx_hash' | 'without_reply' | 'erased_at' | 'model' | 'price_yocto' | 'near_usd_rate'>>(),
+    c.env.DB.prepare("SELECT id, receipt_token_id, paying_token_id, created_at, status, debit_tx_hash, without_reply, erased_at, model, price_yocto, near_usd_rate, shared_job_hash FROM thoughts WHERE receipt_token_id = ? AND kind NOT IN ('growth', 'hire_event') ORDER BY created_at DESC, id DESC LIMIT 20")
+      .bind(id).all<Pick<Pointer, 'id' | 'receipt_token_id' | 'paying_token_id' | 'created_at' | 'status' | 'debit_tx_hash' | 'without_reply' | 'erased_at' | 'model' | 'price_yocto' | 'near_usd_rate' | 'shared_job_hash'>>(),
     c.env.DB.prepare('SELECT kind, ref, tx_hash, at FROM pet_transactions WHERE token_id = ? ORDER BY at, kind, ref')
       .bind(id).all<{ kind: string; ref: string; tx_hash: string; at: number }>(),
     wornOf(c.env.DB, id),
@@ -251,6 +253,7 @@ verificationRoutes.get('/api/verification/pets/:id', async (c) => {
     worn,
     transactions: transactions.results.map((row) => ({ kind: row.kind, ref: row.ref, txHash: row.tx_hash, at: row.at })),
     thoughts: thoughts.results.map((row) => ({ id: row.id, tokenId: row.receipt_token_id, at: row.created_at,
+      shared: row.shared_job_hash !== null,
       status: row.status, erased: row.erased_at !== null, withoutReply: row.without_reply === 1,
       model: (row.status === 'billed' && row.debit_tx_hash !== null) || (row.paying_token_id !== null && ownerOf.get(row.paying_token_id)) ? row.model : '',
       priceYocto: (row.status === 'billed' && row.debit_tx_hash !== null) || (row.paying_token_id !== null && ownerOf.get(row.paying_token_id)) ? row.price_yocto : '',
@@ -269,7 +272,23 @@ verificationRoutes.get('/api/verification/pets/:id/thoughts/:thought', async (c)
     .bind(thoughtId).all();
   const fee = row.worker_id === null ? null : await c.env.DB.prepare('SELECT fee_yocto, fee_usd_micros FROM hires WHERE answer_thought_id = ?')
     .bind(thoughtId).first<{ fee_yocto: string; fee_usd_micros: number }>();
-  const publicPart = { ...publicPointer(row), calls: row.status === 'billed' && row.debit_tx_hash !== null ? calls.results : [], fee };
+  let linkedFunding: Array<{ txHash: string; source: string; amountYocto: string }> = [];
+  if (row.shared_job_hash !== null && row.status === 'billed' && row.debit_tx_hash !== null) {
+    try {
+      const spent = await readSharedReceiptFunding(c.env, row.debit_tx_hash, row.shared_job_hash);
+      const evidence = await c.env.DB.prepare('SELECT funding_index, tx_hash, source FROM shared_funding_evidence WHERE job_hash = ?')
+        .bind(row.shared_job_hash).all<{ funding_index: number; tx_hash: string; source: string }>();
+      linkedFunding = spent.map((entry) => {
+        const pointer = evidence.results.find((one) => one.funding_index === entry.index && one.source === entry.kind);
+        if (pointer === undefined) throw new ChainUnreachable();
+        return { txHash: pointer.tx_hash, source: entry.kind, amountYocto: entry.amount };
+      });
+    } catch (error) {
+      if (error instanceof ChainUnreachable) return c.json({ code: 'chain_unreachable' }, 503);
+      throw error;
+    }
+  }
+  const publicPart = { ...publicPointer(row), calls: row.status === 'billed' && row.debit_tx_hash !== null ? calls.results : [], fee, linkedFunding };
   const session = c.get('session');
   if (session === null) return c.json({ ...publicPart, viewer: 'visitor' });
   const paying = row.paying_token_id;

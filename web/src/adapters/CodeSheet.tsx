@@ -1,5 +1,5 @@
-import { useLayoutEffect, useRef } from 'react';
-import { Button, Cluster, Console, Divider, Note, Sheet, Stack, Text, TextField, ToolList, ToolRow } from '../ds';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { Button, Cluster, Console, Divider, Inert, Note, Sheet, Stack, Text, TextField, ToolList, ToolRow } from '../ds';
 import { useReveal } from '../ds/reveal';
 import { useMarkErrandSurface } from '../errands/surfaces';
 import { resetTime } from '../lib/time';
@@ -12,14 +12,17 @@ import {
   CODE_PRIVATE,
   changingFunctionsLine,
   CODE_REACH,
-  codeFieldHint,
+  codeFieldLabel,
   codeSocket,
   freeTextNote,
   FN_FIELD,
   FUNCTIONS_LABEL,
   gameCapLine,
+  KEEP_CODE,
   notDeclaredLine,
   REMOVE_CODE,
+  REMOVE_CODE_WARNING,
+  removeCodeTitle,
   SAMPLE_FIELD,
   SAMPLE_HINT,
   SAVE_CODE,
@@ -60,6 +63,8 @@ function consoleOf(outcome: CodeOutcome): { title?: string; tone?: 'error'; out?
 
 export function CodeSheet({ name, sheet, onClose }: { name: string; sheet: ReturnType<typeof useCode>; onClose: () => void }) {
   const { open, loaded, outcome, top, busy, functions } = sheet;
+  const [confirmRemove, setConfirmRemove] = useState(false);
+  useEffect(() => { if (!open) setConfirmRemove(false); }, [open]);
   const topRef = useRef<HTMLDivElement>(null);
   const capRef = useRef<HTMLDivElement>(null);
   useReveal(capRef, sheet.testsLeft === 0 && sheet.fresh && outcome?.kind !== 'cap');
@@ -118,8 +123,9 @@ export function CodeSheet({ name, sheet, onClose }: { name: string; sheet: Retur
       </Cluster>
     ) : null;
 
-  // under a saved code «Save code» waits for one test of the day; a save the server refused for a test of an earlier day says that instead
-  const saveNote = sheet.stale ? STALE_TEST_LINE : sheet.written && !sheet.canSave ? changingFunctionsLine(name) : null;
+  // under a saved code «Save code» waits for one test of the day; a save the server refused for a test of an earlier day says that instead.
+  // Once a run has put its result in the console (error, limit, cap) the console says what is wrong: the frames leave the reminder out.
+  const saveNote = sheet.stale ? STALE_TEST_LINE : sheet.written && !sheet.canSave && !shown ? changingFunctionsLine(name) : null;
   const foot = (
     <Stack gap={3}>
       {saveNote ? (
@@ -129,7 +135,7 @@ export function CodeSheet({ name, sheet, onClose }: { name: string; sheet: Retur
       ) : null}
       <Cluster gap={3} justify={sheet.written ? 'space-between' : 'flex-end'}>
         {sheet.written ? (
-          <Button variant="ghost" size="compact" busy={busy === 'remove'} off={busy !== null && busy !== 'remove'} onClick={() => void sheet.remove()}>
+          <Button variant="ghost" size="compact" busy={busy === 'remove'} off={busy !== null && busy !== 'remove'} onClick={() => setConfirmRemove(true)}>
             {REMOVE_CODE}
           </Button>
         ) : null}
@@ -141,10 +147,12 @@ export function CodeSheet({ name, sheet, onClose }: { name: string; sheet: Retur
   );
 
   return (
+    <>
+    <Inert on={confirmRemove}>
     <Sheet title={codeSocket(name)} centered wide status={status ?? ''} busy={busy === 'save' || busy === 'remove'} foot={foot} onClose={onClose}>
       <Stack gap={5}>
         {topLine ? <div ref={topRef}>{topLine}</div> : null}
-        <TextField label={CODE_FIELD} hint={codeFieldHint(name)} error={sheet.tooLong ? `${CODE_FIELD}.` : undefined} value={sheet.code} onChange={sheet.setCode} multiline grow mono rows={6} readOnly={!loaded} />
+        <TextField label={codeFieldLabel(name)} error={sheet.tooLong ? `${CODE_FIELD}.` : undefined} value={sheet.code} onChange={sheet.setCode} multiline grow mono rows={6} readOnly={!loaded} />
         <Stack gap={2}>
           <Text variant="small" tone="secondary">
             {CODE_REACH}
@@ -186,5 +194,18 @@ export function CodeSheet({ name, sheet, onClose }: { name: string; sheet: Retur
         {listed ? <ToolList label={FUNCTIONS_LABEL} reveal={sheet.fresh && outcome?.kind === 'ok' && !capped}>{rows}</ToolList> : null}
       </Stack>
     </Sheet>
+    </Inert>
+    {confirmRemove ? <Sheet title={removeCodeTitle(name)} centered alert busy={busy === 'remove'} onClose={() => setConfirmRemove(false)} status={top?.kind === 'failed' ? ADAPTER_ERROR : top?.kind === 'session' ? session?.text : ''}>
+      <Stack gap={4}>
+        <Text>{REMOVE_CODE_WARNING}</Text>
+        {top?.kind === 'failed' ? <Stack gap={2}><Note tone="error">{ADAPTER_ERROR}</Note><Button variant="secondary" size="compact" onClick={sheet.again}>Try again</Button></Stack> : null}
+        {top?.kind === 'session' ? <Stack gap={2}><Note tone="error">{session?.text}</Note>{session?.action ? <Button variant="secondary" size="compact" onClick={session.action.onClick}>{session.action.label}</Button> : null}</Stack> : null}
+        <Stack gap={2}>
+          <Button block focusOnOpen off={busy === 'remove'} onClick={() => setConfirmRemove(false)}>{KEEP_CODE}</Button>
+          <Button block variant="danger" busy={busy === 'remove'} onClick={() => void sheet.remove()}>{REMOVE_CODE}</Button>
+        </Stack>
+      </Stack>
+    </Sheet> : null}
+    </>
   );
 }

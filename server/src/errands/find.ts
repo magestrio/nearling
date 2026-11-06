@@ -158,7 +158,7 @@ async function noSearchTwice(c: Ctx, calls: Finished[]): Promise<JobResult> {
   const price = await cutPrice(env, c.fs, usage);
   const paid = paidOf(c, price, calls, 0);
   const thoughtId = randomId();
-  const sessionId = await openSession(env, c.tokenId, c.now);
+  const sessionId = await openSession(env, c.tokenId, c.now, c.row.shared_job_hash ?? undefined);
   const written = await env.DB.batch([
     env.DB
       .prepare(
@@ -212,7 +212,7 @@ async function reportFrom(c: Ctx, call: Finished | Cut, signed: Signed | null): 
 
   // 1. The search call is stored as soon as it is signed, status `away`, so a timeout can bill what ran.
   const thoughtId = randomId();
-  const sessionId = await openSession(env, c.tokenId, c.now);
+  const sessionId = await openSession(env, c.tokenId, c.now, c.row.shared_job_hash ?? undefined);
   const stored = await env.DB.batch([
     env.DB.prepare("UPDATE errands SET thought_id = ?3, searches_ran = ?4 WHERE token_id = ?1 AND id = ?2 AND state = 'away' RETURNING id").bind(c.tokenId, c.row.id, thoughtId, ran),
     thoughtInsert(c, thoughtId, sessionId, { status: 'away', price: 0n, text: null, reply: null, searches: ran, sources: null, verdict: null, cut: null, reasked: false }),
@@ -367,11 +367,11 @@ interface ThoughtFields {
 function thoughtInsert(c: Ctx, id: string, sessionId: string, f: ThoughtFields): D1PreparedStatement {
   return c.env.DB
     .prepare(
-      `INSERT INTO thoughts (id, token_id, created_at, kind, player_text, reply_text, model, price_yocto, price_usd_micros, cut, reasked, payer, session_id, status, skilled, recall, form, sources, verdict, searches, near_usd_rate)
-       SELECT ?1, ?2, ?3, 'errand', ?4, ?5, ?6, ?7, ?8, ?9, ?10, 'pet', ?11, ?12, ?13, 0, ?14, ?15, ?16, ?17, ?18
+      `INSERT INTO thoughts (id, token_id, created_at, kind, player_text, reply_text, model, price_yocto, price_usd_micros, cut, reasked, payer, session_id, status, skilled, recall, form, sources, verdict, searches, near_usd_rate, shared_job_hash)
+       SELECT ?1, ?2, ?3, 'errand', ?4, ?5, ?6, ?7, ?8, ?9, ?10, 'pet', ?11, ?12, ?13, 0, ?14, ?15, ?16, ?17, ?18, ?19
        WHERE EXISTS (SELECT 1 FROM errands WHERE token_id = ?2 AND thought_id = ?1)`,
     )
-    .bind(id, c.tokenId, c.now, f.text, f.reply, c.env.MODEL_ID, f.price.toString(), yoctoMicros(c.env, f.price), f.cut, f.reasked ? 1 : 0, sessionId, f.status, c.skill === null ? 0 : 1, c.form, f.sources, f.verdict, f.searches, c.env.NEAR_USD_RATE);
+    .bind(id, c.tokenId, c.now, f.text, f.reply, c.env.MODEL_ID, f.price.toString(), yoctoMicros(c.env, f.price), f.cut, f.reasked ? 1 : 0, sessionId, f.status, c.skill === null ? 0 : 1, c.form, f.sources, f.verdict, f.searches, c.env.NEAR_USD_RATE, c.row.shared_job_hash ?? null);
 }
 
 /** The search call's row: its bytes are kept (it holds only the job). A cut call is unsigned, has no tokens, and is
@@ -399,7 +399,7 @@ async function came(
 ): Promise<JobResult> {
   const paidCalls = [...searchTokens, ...report.map((r) => r.answer)];
   const price = await cutPrice(c.env, c.fs, errandPrice(c.env, paidCalls, ran));
-  const sessionId = await openSession(c.env, c.tokenId, c.now);
+  const sessionId = await openSession(c.env, c.tokenId, c.now, c.row.shared_job_hash ?? undefined);
   const landed = await land(c, thoughtId, {
     state: 'failed',
     reason,
@@ -430,7 +430,7 @@ async function shown(
 ): Promise<JobResult> {
   const answers = report.map((r) => r.answer);
   const price = await cutPrice(c.env, c.fs, errandPrice(c.env, [...searchTokens, ...answers], ran));
-  const sessionId = await openSession(c.env, c.tokenId, c.now);
+  const sessionId = await openSession(c.env, c.tokenId, c.now, c.row.shared_job_hash ?? undefined);
   const last = answers[answers.length - 1]!;
   const reportCut = last.finishReason === 'length' ? (ceiling < (reasked ? REASK_FUSE : REPORT_FUSE) ? 'food' : 'fuse') : null;
   const landed = await land(c, thoughtId, {

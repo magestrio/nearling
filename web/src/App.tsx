@@ -14,6 +14,7 @@ import { GiftPage } from './gift/GiftPage';
 import { HireBoardPage } from './work/HireBoardPage';
 import { VerificationPage } from './verification/VerificationPage';
 import { ReturnToPlace } from './signin/ReturnToPlace';
+import { SharedErrandPage } from './errands/SharedErrandPage';
 import { SignInLayer } from './signin/signIn';
 
 // The day-1 route exists in dev builds only: with VITE_DEV_ROUTE not 'true' the branch is dead code and the
@@ -73,6 +74,7 @@ export function App() {
         {!unreachable && route.name === 'gift' ? <GiftPage key={route.code} code={route.code} /> : null}
         {!unreachable && route.name === 'verify' ? <VerificationPage key={route.tokenId} tokenId={route.tokenId} thoughtId={route.thoughtId} /> : null}
         {!unreachable && route.name === 'receipt' ? <VerificationPage key={route.code} code={route.code} /> : null}
+        {!unreachable && route.name === 'shared-errand' ? <SharedErrandPage key={route.code} tokenId={route.tokenId} code={route.code} /> : null}
         {/* one element for the three: the Diary and the Wardrobe open over the Pet screen's own state (the pet, the poll, the line being typed) */}
         {!unreachable && (route.name === 'pet' || route.name === 'diary' || route.name === 'wardrobe') ? (
           <PetScreen

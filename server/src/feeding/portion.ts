@@ -21,6 +21,7 @@ import { settleFeeding } from '../pet/settle';
 import { outcomeAnswer, rowOfPlayer, askNetwork } from './inflight';
 import { readSheet } from './read';
 import { claimGasTopUp, readWallet, releaseGasTopUp } from './wallet';
+import { fundingTag } from '../errands/funding';
 
 /** A route's answer: the body and the HTTP status. */
 export interface Reply {
@@ -48,10 +49,12 @@ export function implicitKey(accountId: string): PublicKey | null {
 const unreachable: Reply = { status: 503, body: { code: 'chain_unreachable' } };
 const GAS_PER_TGAS = 1_000_000_000_000n;
 
-export async function buildPortion(env: Env, session: Session, tokenId: string, portion: PortionNear, rate: number): Promise<Reply> {
+export async function buildPortion(env: Env, session: Session, tokenId: string, portion: PortionNear, rate: number, code?: unknown): Promise<Reply> {
   try {
     const pet = await petView(env, tokenId);
     if (pet === null) return { status: 404, body: { code: 'no_pet' } };
+    const tag = await fundingTag(env, tokenId, session, code, pet);
+    if (tag.error !== undefined) return { status: 409, body: { code: tag.error } };
     if ((await rowOfPlayer(env.DB, session.accountId)) !== null) return { status: 409, body: { code: 'pending' } };
     const chosen = FEED_PORTIONS.find((p) => p.near === portion)!;
 
@@ -100,7 +103,7 @@ export async function buildPortion(env: Env, session: Session, tokenId: string, 
       publicKey,
       env.CONTRACT_ID,
       nonce + 1n,
-      [actions.functionCall('pet_feed', { token_id: tokenId }, PET_FEED_TGAS * GAS_PER_TGAS, chosen.yocto)],
+      [actions.functionCall('pet_feed', { token_id: tokenId, ...(tag.hash === null ? {} : { job_hash: tag.hash }) }, PET_FEED_TGAS * GAS_PER_TGAS, chosen.yocto)],
       blockHash,
     );
     return { status: 200, body: { tx: toBase64(tx.encode()) } };
@@ -112,7 +115,7 @@ export async function buildPortion(env: Env, session: Session, tokenId: string, 
 
 /** What the server accepts to send for the player: one `pet_feed` of this pet from the session's
  * account, with one of the three portions, signed by that account's key. Anything else is `null`. */
-function checkedPortion(env: Env, session: Session, tokenId: string, tx: Transaction, bytes: Uint8Array, signature: Uint8Array): bigint | null {
+function checkedPortion(env: Env, session: Session, tokenId: string, tx: Transaction, bytes: Uint8Array, signature: Uint8Array): { deposit: bigint; jobHash: string | null } | null {
   if (tx.signerId !== session.accountId || tx.receiverId !== env.CONTRACT_ID) return null;
   if (tx.nonceIndex !== undefined || tx.nonceMode !== undefined) return null;
   // The game wallet is an implicit account: its key is the account id itself.
@@ -127,13 +130,17 @@ function checkedPortion(env: Env, session: Session, tokenId: string, tx: Transac
   } catch {
     return null;
   }
-  if (typeof args !== 'object' || args === null || Object.keys(args).join() !== 'token_id' || (args as { token_id: unknown }).token_id !== tokenId) return null;
+  if (typeof args !== 'object' || args === null || (args as { token_id: unknown }).token_id !== tokenId) return null;
+  const keys = Object.keys(args);
+  if (keys.join() !== 'token_id' && keys.join() !== 'token_id,job_hash') return null;
+  const jobHash = (args as { job_hash?: unknown }).job_hash;
+  if (jobHash !== undefined && (typeof jobHash !== 'string' || !/^[0-9a-f]{64}$/.test(jobHash))) return null;
   if (!FEED_PORTIONS.some((p) => p.yocto === call.deposit)) return null;
   if (signature.length !== 64 || bytes.length === 0) return null;
-  return call.deposit;
+  return { deposit: call.deposit, jobHash: jobHash ?? null };
 }
 
-export async function sendPortion(env: Env, session: Session, tokenId: string, input: { tx?: unknown; signature?: unknown }): Promise<Reply> {
+export async function sendPortion(env: Env, session: Session, tokenId: string, input: { tx?: unknown; signature?: unknown; code?: unknown }): Promise<Reply> {
   const bad: Reply = { status: 400, body: { code: 'bad_tx' } };
   if (typeof input.tx !== 'string' || typeof input.signature !== 'string' || input.tx.length > 2_800 || input.signature.length > 200) {
     return { status: 400, body: { code: 'bad_request' } };
@@ -150,8 +157,8 @@ export async function sendPortion(env: Env, session: Session, tokenId: string, i
   }
   // Nothing may trail the transaction, and the signature must be this account's over exactly these bytes.
   if (toBase64(tx.encode()) !== input.tx) return bad;
-  const deposit = checkedPortion(env, session, tokenId, tx, bytes, signatureBytes);
-  if (deposit === null) return bad;
+  const checked = checkedPortion(env, session, tokenId, tx, bytes, signatureBytes);
+  if (checked === null) return bad;
   const digest = new Uint8Array(await crypto.subtle.digest('SHA-256', bytes));
   if (!tx.publicKey.verify(digest, signatureBytes)) return bad;
   const hash = baseEncode(digest);
@@ -160,6 +167,9 @@ export async function sendPortion(env: Env, session: Session, tokenId: string, i
   try {
     const pet = await petView(env, tokenId);
     if (pet === null) return { status: 404, body: { code: 'no_pet' } };
+    const tag = await fundingTag(env, tokenId, session, input.code, pet);
+    if (tag.error !== undefined) return { status: 409, body: { code: tag.error } };
+    if (tag.hash !== checked.jobHash) return bad;
     // Read before the send, so a network that stops answering after the meal costs nothing.
     const hatched = (await hatchView(env, session.accountId)).token_id !== null;
     const via = pet.owner_id === session.accountId ? 'owner' : 'link';
@@ -180,9 +190,9 @@ export async function sendPortion(env: Env, session: Session, tokenId: string, i
         return answer((await sendSigned(env, signed)).status);
       }
       const inserted = await env.DB.prepare(
-        'INSERT INTO feedings (id, sub, account, token_id, source, via, deposit_yocto, tx_hash, created_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?1, ?8) ON CONFLICT (account) DO NOTHING',
+        'INSERT INTO feedings (id, sub, account, token_id, source, via, deposit_yocto, tx_hash, created_at, job_hash) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?1, ?8, ?9) ON CONFLICT (account) DO NOTHING',
       )
-        .bind(hash, session.sub, session.accountId, tokenId, 'near', via, deposit.toString(), Date.now())
+        .bind(hash, session.sub, session.accountId, tokenId, 'near', via, checked.deposit.toString(), Date.now(), checked.jobHash)
         .run();
       row = await rowOfPlayer(env.DB, session.accountId);
       // Another tab put its row in between: a different hash is refused, the same one is the repeat.

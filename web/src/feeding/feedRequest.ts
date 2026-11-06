@@ -15,6 +15,10 @@ export interface FeedRequest {
   label: string;
   /** the sheet's pet is not the page's: the own pet over a friend's page. Its fullness stands in the sheet's head on the desktop too */
   elsewhere: boolean;
+  /** A shared errand's validated public code; every meal/snack request carries it. */
+  sharedCode?: string;
+  /** Done returns to the shared link after the thank-you has been shown. */
+  onDone?: () => void;
 }
 
 /** What the sheet and the tab's flight tell the page. `fullness`: each answer of the open sheet, so the plate and the sheet's head

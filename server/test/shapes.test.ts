@@ -45,6 +45,10 @@ const OWNER_VIEW: Record<keyof OwnerView, 'always' | 'sometimes'> = {
   hiresSeen: 'always',
   // only `GET …/state` carries the errand (`Errand flow`): the pet's own page does not
   errand: 'sometimes',
+  // the public watch target for every viewer, or null (`Daily watch flow` › «target on Pet screen»)
+  watch: 'always',
+  // the food an old shared job still holds, or null (`Friend-funded errand flow` › «old reserve after memory clear and gift»)
+  oldSharedReserve: 'always',
 };
 const STATE: Record<keyof PetState, 'always' | 'sometimes'> = {
   tokenId: 'always',
@@ -81,6 +85,8 @@ const STATE: Record<keyof PetState, 'always' | 'sometimes'> = {
   hiresSeen: 'always',
   // the errand away or kept after a failure, or null (`add-pet-errands` › `Errand flow`)
   errand: 'always',
+  watch: 'sometimes',
+  oldSharedReserve: 'always',
   // the giver's open gift link, or null (`add-gift` › `Gift flow`)
   gift: 'always',
   events: 'always',
@@ -130,8 +136,8 @@ describe('the answers the client is typed against', () => {
     const visitor = await api('/api/pets/5');
     // a signed-in viewer also gets `myFeed` (their own meal on its way for this pet); a visitor has none
     // and the mood of the day, which every viewer's face shows (`add-pet-life` › `Pet life display rule`)
-    expect(Object.keys(guest.body).sort()).toEqual(['fullness', 'mood', 'myFeed', 'name', 'skill', 'stage', 'tokenId', 'viewer', 'worn']);
-    expect(Object.keys(visitor.body).sort()).toEqual(['fullness', 'mood', 'name', 'skill', 'stage', 'tokenId', 'viewer', 'worn']);
+    expect(Object.keys(guest.body).sort()).toEqual(['fullness', 'mood', 'myFeed', 'name', 'skill', 'stage', 'tokenId', 'viewer', 'watch', 'worn']);
+    expect(Object.keys(visitor.body).sort()).toEqual(['fullness', 'mood', 'name', 'skill', 'stage', 'tokenId', 'viewer', 'watch', 'worn']);
     for (const { body } of [guest, visitor]) expect(body.stage).toBe('baby');
   });
 

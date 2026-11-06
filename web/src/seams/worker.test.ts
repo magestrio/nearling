@@ -6,6 +6,30 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
+describe('shared errand Worker seam', () => {
+  // spec: add-pet-errands › Friend-funded errand flow › owner shares a job
+  // spec: add-pet-errands › Shared errand screen › success
+  // spec: add-pet-errands › Friend-funded errand flow › owner confirms closing an unsettled job
+  it('prepares, reads publicly, records sharing, and sends only the signed close approval', async () => {
+    const code = 'c'.repeat(64);
+    const fetchMock = vi.fn(async (_url: string, init: RequestInit) => init.method === 'POST' && String(_url).endsWith('/events')
+      ? new Response(null, { status: 204 }) : Response.json({ ok: true }));
+    vi.stubGlobal('fetch', fetchMock);
+    await workerApi.prepareSharedErrand('t', '9', { form: 'find', job: 'A question' });
+    await workerApi.sharedErrand(null, '9', code);
+    await workerApi.sharedErrandEvent('t', '9', code, { kind: 'shared' });
+    await workerApi.closeSharedErrand('t', '9', code, { public_key: 'a'.repeat(64), signature: 'b'.repeat(128) });
+    const seen = fetchMock.mock.calls.map(([path, init]) => [path, init.method, init.body ? JSON.parse(init.body as string) : null]);
+    expect(seen).toEqual([
+      ['/api/pets/9/shared-errands', 'POST', { form: 'find', job: 'A question' }],
+      [`/api/pets/9/errand/${code}`, 'GET', null],
+      [`/api/pets/9/errand/${code}/events`, 'POST', { kind: 'shared' }],
+      [`/api/pets/9/errand/${code}/close`, 'POST', { approval: { public_key: 'a'.repeat(64), signature: 'b'.repeat(128) } }],
+    ]);
+    expect(fetchMock.mock.calls[1]![1].headers).toEqual({});
+  });
+});
+
 /** A network that holds a request until its signal ends it, and a deadline the test ends by hand. */
 function blackHole() {
   const deadline = new AbortController();
@@ -178,6 +202,29 @@ describe('the Worker seam of the session', () => {
     vi.stubGlobal('fetch', fetchMock);
     expect(await workerApi.clearMemory('t', '9')).toEqual({ ok: true });
     expect(calls(fetchMock)[0]).toMatchObject(['/api/pets/9/memory/clear', { method: 'POST', headers: { 'privy-id-token': 't' } }]);
+  });
+
+  // spec: add-account › Memory deletion flow › unsettled shared job
+  // spec: add-account › Memory deletion flow › close retry after memory clear
+  it('sends only the signed close approval and preserves a confirmed-clear retry response', async () => {
+    const approval = { public_key: 'a'.repeat(64), signature: 'b'.repeat(128) };
+    const fetchMock = vi.fn(async () => Response.json({ code: 'close_retry' }, { status: 202 }));
+    vi.stubGlobal('fetch', fetchMock);
+    expect(await workerApi.clearMemory('t', '9', approval)).toEqual({ code: 'close_retry' });
+    const [url, init] = calls(fetchMock)[0]!;
+    expect(url).toBe('/api/pets/9/memory/clear');
+    expect(JSON.parse(String(init.body))).toEqual({ approval });
+  });
+
+  // spec: add-pet-errands › Friend-funded errand flow › new owner releases old reserve
+  it('sends the new owner approval to the word-free reserve route', async () => {
+    const approval = { public_key: 'a'.repeat(64), signature: 'b'.repeat(128) };
+    const fetchMock = vi.fn(async () => Response.json({ ok: true }));
+    vi.stubGlobal('fetch', fetchMock);
+    expect(await workerApi.releaseSharedReserve('t', '9', approval)).toEqual({ ok: true });
+    const [url, init] = calls(fetchMock)[0]!;
+    expect(url).toBe('/api/pets/9/shared-close');
+    expect(JSON.parse(String(init.body))).toEqual({ approval });
   });
 
   // spec: add-account › Clear memory dialog screen › error

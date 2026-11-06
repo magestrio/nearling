@@ -16,6 +16,8 @@ use nearling_contract::limits::DAY_NS;
 #[allow(unused_imports)]
 pub use nearling_contract::limits::STARTER_FOOD;
 use nearling_contract::pet::{Pet, VersionedPet};
+use nearling_contract::shared_job::SharedJob;
+use nearling_contract::shared_job::SharedJobState;
 use serde_json::{Value, json};
 
 pub const NEAR: u128 = 1_000_000_000_000_000_000_000_000;
@@ -59,6 +61,7 @@ struct StateMirror {
     hires_completed: u64,
     friend_snacks: u64,
     counted_since: u64,
+    shared_jobs: LookupMap<String, SharedJob>,
 }
 
 pub struct Ctx {
@@ -325,6 +328,23 @@ impl Ctx {
         let value = borsh::to_vec(&record)?;
         self.worker
             .patch_state(self.contract.id(), &key, &value)
+            .await?;
+        Ok(())
+    }
+
+    /// A transfer-state fixture until the gift hook is built in the next contract stage.
+    pub async fn set_shared_job_state(
+        &self,
+        token_id: &str,
+        state: SharedJobState,
+    ) -> anyhow::Result<()> {
+        let mut key = b"j".to_vec();
+        key.extend(borsh::to_vec(&token_id.to_string())?);
+        let bytes = self.read_key(&key).await?.expect("shared job record");
+        let mut job: SharedJob = borsh::from_slice(&bytes)?;
+        job.state = state;
+        self.worker
+            .patch_state(self.contract.id(), &key, &borsh::to_vec(&job)?)
             .await?;
         Ok(())
     }
@@ -612,7 +632,9 @@ impl Ctx {
     pub async fn restore_v5_state(&self) -> anyhow::Result<()> {
         let mut state = self.read_state().await?;
         let _: StateMirror = borsh::from_slice(&state)?;
-        state.truncate(state.len() - 56);
+        let shared_len =
+            borsh::to_vec(&borsh::from_slice::<StateMirror>(&state)?.shared_jobs)?.len();
+        state.truncate(state.len() - 56 - shared_len);
         let _: nearling_contract::ContractV5 = borsh::from_slice(&state)?;
         self.worker
             .patch_state(self.contract.id(), b"STATE", &state)
@@ -624,8 +646,23 @@ impl Ctx {
     pub async fn restore_v6_state(&self) -> anyhow::Result<()> {
         let mut state = self.read_state().await?;
         let _: StateMirror = borsh::from_slice(&state)?;
-        state.truncate(state.len() - 24);
+        let shared_len =
+            borsh::to_vec(&borsh::from_slice::<StateMirror>(&state)?.shared_jobs)?.len();
+        state.truncate(state.len() - 24 - shared_len);
         let _: nearling_contract::ContractV6 = borsh::from_slice(&state)?;
+        self.worker
+            .patch_state(self.contract.id(), b"STATE", &state)
+            .await?;
+        Ok(())
+    }
+
+    /// Recreate the deployed V7 state immediately before the shared-job map was appended.
+    pub async fn restore_v7_state(&self) -> anyhow::Result<()> {
+        let mut state = self.read_state().await?;
+        let mirror: StateMirror = borsh::from_slice(&state)?;
+        let shared_len = borsh::to_vec(&mirror.shared_jobs)?.len();
+        state.truncate(state.len() - shared_len);
+        let _: nearling_contract::ContractV7 = borsh::from_slice(&state)?;
         self.worker
             .patch_state(self.contract.id(), b"STATE", &state)
             .await?;

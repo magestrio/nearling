@@ -2,6 +2,8 @@ import { useEffect, useId, useRef } from 'react';
 import { Button, Note, Sheet, Stack, Text } from '../ds';
 import { resetTime } from '../lib/time';
 import { useClearMemory } from './useClearMemory';
+import { sharedJobOf } from '../errands/sharedApproval';
+import { useState } from 'react';
 
 // Clear memory dialog screen (add-account) built from design/bundle/screens/account.js › clearDialog: a centred alert dialog
 // whose focus lands on «Keep memory», never on the destructive «Clear memory». The words are the Scenarios'. The error line
@@ -22,6 +24,7 @@ export function ClearMemoryDialog({
   name,
   onClose,
   onDone,
+  onRetry,
   onNotOwner,
   returnFocusTo,
   unsettledSharedJob = false,
@@ -30,11 +33,20 @@ export function ClearMemoryDialog({
   name: string;
   onClose: () => void;
   onDone: () => void;
+  onRetry: () => void;
   onNotOwner: () => void;
   returnFocusTo: () => HTMLElement | null;
   unsettledSharedJob?: boolean;
 }) {
-  const { phase, clear } = useClearMemory(tokenId, { done: onDone, notOwner: onNotOwner, close: onClose });
+  const { phase, clear } = useClearMemory(tokenId, { done: onDone, retry: onRetry, notOwner: onNotOwner, close: onClose });
+  const [hasSharedJob, setHasSharedJob] = useState(unsettledSharedJob);
+  useEffect(() => {
+    let live = true;
+    void sharedJobOf(tokenId).then((pet) => {
+      if (live) setHasSharedJob(Boolean(pet?.shared_job && pet.shared_job.state !== 'settled'));
+    }).catch(() => {});
+    return () => { live = false; };
+  }, [tokenId]);
   const busy = phase.kind === 'clearing';
   const failure = phase.kind === 'error' ? phase.why : null;
   const lineId = useId();
@@ -81,7 +93,7 @@ export function ClearMemoryDialog({
         </Note>
       ) : null}
       <Text>{forgets(name)}</Text>
-      {unsettledSharedJob ? <Note tone="plain">{SHARED_JOB(name)}</Note> : null}
+      {hasSharedJob ? <Note tone="plain">{SHARED_JOB(name)}</Note> : null}
       <Text>{stays(name, resetTime())}</Text>
       <div ref={actions}>
         <Stack gap={2}>

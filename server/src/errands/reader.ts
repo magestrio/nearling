@@ -4,7 +4,7 @@
 // the host again itself (a rebinding the check cannot see), and Cloudflare's egress reaches no private network of ours.
 import { READ_LIMIT_TOKENS } from './price';
 
-export type ReadResult = { kind: 'ok'; text: string } | { kind: 'unreadable' } | { kind: 'too_long' };
+export type ReadResult = { kind: 'ok'; text: string } | { kind: 'unreadable' } | { kind: 'too_long' } | { kind: 'blocked' };
 
 const TIMEOUT_MS = 10_000;
 const MAX_REDIRECTS = 3;
@@ -202,16 +202,17 @@ async function bodyText(res: Response): Promise<string | 'too_long'> {
   return new TextDecoder().decode(all);
 }
 
-/** Fetches `url` by the rules above and gives its text. `unreadable`: no answer, a refusal, not text, a private
- * address or a scheme other than http(s); `too_long`: more than the pet reads in one go. */
-export async function readPage(url: string): Promise<ReadResult> {
+/** Fetches `url` by the rules above and gives its text. For a watch, `blocked` distinguishes a
+ * private address or forbidden scheme from an unreadable page; the ordinary errand still uses
+ * `unreadable` for both. `too_long`: more than the pet reads in one go. */
+export async function readPage(url: string, mainOnly = false): Promise<ReadResult> {
   const signal = AbortSignal.timeout(TIMEOUT_MS);
   let target = url;
   try {
     for (let hop = 0; hop <= MAX_REDIRECTS; hop += 1) {
       const parsed = new URL(target);
-      if ((parsed.protocol !== 'http:' && parsed.protocol !== 'https:') || parsed.username !== '' || parsed.password !== '') return { kind: 'unreadable' };
-      if (!(await publicHost(parsed.hostname, signal))) return { kind: 'unreadable' };
+      if ((parsed.protocol !== 'http:' && parsed.protocol !== 'https:') || parsed.username !== '' || parsed.password !== '') return { kind: mainOnly ? 'blocked' : 'unreadable' };
+      if (!(await publicHost(parsed.hostname, signal))) return { kind: mainOnly ? 'blocked' : 'unreadable' };
       // No cookie, referrer or player id: the code sets none of them, and Workers' fetch adds none.
       const res = await fetch(parsed.href, { method: 'GET', redirect: 'manual', headers: { accept: 'text/html, text/plain;q=0.9' }, signal });
       if (res.status >= 300 && res.status < 400) {
@@ -232,7 +233,11 @@ export async function readPage(url: string): Promise<ReadResult> {
       }
       const raw = await bodyText(res);
       if (raw === 'too_long') return { kind: 'too_long' };
-      const text = type === 'text/html' || type === 'application/xhtml+xml' ? await htmlToText(raw) : tidy(raw);
+      const selected = mainOnly ? (raw.match(/<main\b[^>]*>[\s\S]*?<\/main\s*>/i)?.[0]
+        ?? raw.match(/<article\b[^>]*>[\s\S]*?<\/article\s*>/i)?.[0]
+        ?? raw) : raw;
+      const content = mainOnly ? selected.replace(/<(?:header|footer|nav|aside|time)\b[^>]*>[\s\S]*?<\/(?:header|footer|nav|aside|time)\s*>/gi, '') : selected;
+      const text = type === 'text/html' || type === 'application/xhtml+xml' ? await htmlToText(content) : tidy(raw);
       if (text === '') return { kind: 'unreadable' };
       return tokensOf(text) > READ_LIMIT_TOKENS ? { kind: 'too_long' } : { kind: 'ok', text };
     }

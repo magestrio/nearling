@@ -25,6 +25,8 @@ import {
   connectTo,
   FOURTH_SOURCE,
   GET_OWN_PET,
+  GO_HOME,
+  goTo,
   NO_PET_LINE,
   SIGNED_OUT_LINE,
 } from './lines';
@@ -55,32 +57,13 @@ function BackLink({ tokenId, name }: { tokenId: string; name: string }) {
   );
 }
 
-function lineFor(role: CatalogRole, signIn: () => void): ReactNode {
+function lineFor(role: CatalogRole): ReactNode {
   if (role.kind === 'visitor') {
-    return (
-      <Cluster gap={3} justify="space-between">
-        <Text>{SIGNED_OUT_LINE}</Text>
-        <Cluster gap={2}>
-          <Button size="compact" onClick={signIn}>
-            Sign in
-          </Button>
-          <Button variant="secondary" size="compact" href={hatchPath()}>
-            {GET_OWN_PET}
-          </Button>
-        </Cluster>
-      </Cluster>
-    );
+    return <Text>{SIGNED_OUT_LINE}</Text>;
   }
   if (role.kind === 'player') return <Text>{BROWSE_ONLY}</Text>;
   if (role.kind === 'no-pet') {
-    return (
-      <Cluster gap={3} justify="space-between">
-        <Text>{NO_PET_LINE}</Text>
-        <Button variant="secondary" size="compact" href={hatchPath()}>
-          {GET_OWN_PET}
-        </Button>
-      </Cluster>
-    );
+    return <Text>{NO_PET_LINE}</Text>;
   }
   return null;
 }
@@ -149,10 +132,9 @@ export function CatalogPage({ pet }: { pet: string | null }) {
     role === null ? (
       <Header />
     ) : role.kind === 'visitor' ? (
-      // a visitor keeps the header band, empty, so the page stands where it stands for a signed-in player
-      <Header />
+      <Header start={<Button variant="ghost" size="compact" icon="back" href="/">{GO_HOME}</Button>} end={<Button variant="secondary" size="compact" onClick={() => begin('signin')}>Sign in</Button>} />
     ) : (
-      <Header start={owner ? <BackLink tokenId={owner.tokenId} name={owner.name} /> : undefined} end={<AccountControl />} />
+      <Header start={owner ? <BackLink tokenId={owner.tokenId} name={owner.name} /> : role.kind === 'player' ? <Button variant="ghost" size="compact" icon="back" href={petPath(role.tokenId)}>{goTo(role.name)}</Button> : undefined} end={<AccountControl />} />
     );
 
   let body: ReactNode;
@@ -221,14 +203,18 @@ export function CatalogPage({ pet }: { pet: string | null }) {
     );
   }
 
-  const line = view.kind !== 'loading' && role !== null ? lineFor(role, () => begin('signin')) : null;
+  const line = view.kind !== 'loading' && role !== null ? lineFor(role) : null;
 
   return (
     <Shell accent="none" header={<Inert on={adapter.open}>{header}</Inert>}>
       <Inert on={adapter.open}>
         <Page width="default">
           <Stack gap={5}>
-            <Heading level={1}>{CATALOG_TITLE}</Heading>
+            <Stack gap={2}>
+              <Heading level={1}>{CATALOG_TITLE}</Heading>
+              {role?.kind === 'visitor' || role?.kind === 'no-pet' ? <Cluster><Button variant="secondary" size="compact" href={hatchPath()}>{GET_OWN_PET}</Button></Cluster> : null}
+              {role?.kind === 'unavailable' ? <Cluster><Button variant="secondary" size="compact" onClick={catalog.tryAgain}>Try again</Button></Cluster> : null}
+            </Stack>
             {line}
             {full ? <Text id={COLLAPSE}>{FOURTH_SOURCE}</Text> : null}
             <SignInOutcome />

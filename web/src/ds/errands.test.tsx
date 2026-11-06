@@ -3,6 +3,7 @@ import { act, useState, type ReactNode } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { Away } from './Away';
+import { Button } from './Button';
 import { Console } from './Console';
 import { Message } from './Conversation';
 import { Missions } from './Missions';
@@ -167,5 +168,18 @@ describe('the DS parts of the errands', () => {
     expect(host.querySelector('.ds-console--error')).not.toBeNull();
     expect(host.querySelector('#why')?.textContent).toBe('Your code stopped with an error:');
     expect(host.querySelector('.ds-console__out')?.textContent).toContain('TypeError');
+  });
+
+  // spec: add-pet-errands › Errand sheet screen › shared job funding amount
+  it('keeps the label of a nowrap button on one line and the button at its width', async () => {
+    await show(
+      <>
+        <Button nowrap>Send</Button>
+        <Button>Share</Button>
+      </>,
+    );
+    const [nowrap, plain] = [...host.querySelectorAll('button')].map((b) => b.className);
+    expect(nowrap).toContain('ds-button--nowrap');
+    expect(plain).not.toContain('ds-button--nowrap');
   });
 });

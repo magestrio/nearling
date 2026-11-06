@@ -1,8 +1,12 @@
 import { env } from 'cloudflare:workers';
 import { describe, expect, it } from 'vitest';
-import { harness } from './helpers/api';
-import { addPet, dreamsPage, errand, foodForSearches, owner, PAGE_URL, richPet, thoughtsOf } from './helpers/errands';
+import { api, harness } from './helpers/api';
+import { addPet, dreamsPage, errand, foodForSearches, noEnergy, owner, OWNER, PAGE_URL, PET, richPet, thoughtsOf } from './helpers/errands';
 import { costUsd12 } from '../src/pricing';
+import { claimWatch } from '../src/watch/day';
+import { runWatch } from '../src/watch/run';
+import { utcDay } from '../src/http';
+import { vi } from 'vitest';
 
 const h = harness();
 const JOB = 'When is the Leonids meteor shower?';
@@ -14,6 +18,43 @@ const clean = (words: string[]) => {
 };
 
 describe('Errand events data', () => {
+  // spec: add-pet-errands › Errand events data › daily watch check
+  it('logs only outcome and costs for a paused and a paid quiet check', async () => {
+    richPet(h);
+    const tk = await owner();
+    const target = 'https://science.example.com/meteor';
+    await api(`/api/pets/${PET}/watch`, { token: tk, method: 'PUT', body: { target } });
+    await noEnergy();
+    expect((await claimWatch(env, PET, Date.now())).kind).toBe('skipped');
+    expect(named('watch_checked')[0]!.props).toEqual({ outcome: 'paused', cost_usd: 0, price_usd: 0 });
+    vi.setSystemTime(new Date(Date.now() + 86_400_000));
+    h.net().web.page(target, { body: '<main><p>The peak is in November.</p></main>' });
+    h.net().ai.push({ stream: { searches: 1 } }, { content: 'The peak is in November.' });
+    expect((await claimWatch(env, PET, Date.now())).kind).toBe('started');
+    await runWatch(env, PET, { kind: 'watch', day: utcDay(Date.now()), revision: 1 }, 0);
+    expect(named('watch_checked')[1]!.props).toMatchObject({ outcome: 'unchanged', cost_usd: expect.any(Number), price_usd: expect.any(Number) });
+    expect(named('watch_checked')[1]!.props.cost_usd as number).toBeGreaterThan(0);
+    expect(named('watch_checked')[1]!.props.price_usd as number).toBeGreaterThan(0);
+    clean([target, 'The peak is in November']);
+  });
+  // spec: add-pet-errands › Errand events data › shared job link sent
+  // spec: add-pet-errands › Errand events data › shared job link opened
+  it('records only form and device dimensions when the browser shares and opens a live link', async () => {
+    addPet(h);
+    const tk = await owner();
+    const made = await api(`/api/pets/${PET}/shared-errands`, { token: tk, body: { form: 'find', job: JOB } });
+    expect(made.status).toBe(201);
+    const path = `/api/pets/${PET}/errand/${made.body.code}/events`;
+    expect((await api(path, { token: tk, body: { kind: 'shared' } })).status).toBe(204);
+    expect((await api(path, { body: { kind: 'opened', device: 'phone', inApp: 'telegram' } })).status).toBe(204);
+    expect(named('errand_link_shared')).toEqual([{ name: 'errand_link_shared', props: { form: 'find' } }]);
+    expect(named('errand_link_opened')).toEqual([{ name: 'errand_link_opened', props: { device: 'phone', in_app: 'telegram' } }]);
+    clean([JOB, made.body.code, made.body.url, OWNER]);
+    for (const line of h.logs()) {
+      for (const privateValue of [JOB, made.body.code, made.body.url, OWNER]) expect(line).not.toContain(privateValue);
+    }
+  });
+
   // spec: add-pet-errands › Errand events data › errand sent
   it('logs errand_given with the form of each errand', async () => {
     richPet(h);

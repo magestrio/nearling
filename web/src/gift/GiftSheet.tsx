@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Block, Button, Cluster, Note, Sheet, Stack, Text, TextField } from '../ds';
 import { openClearMemory } from '../account/clearMemory';
+import { sharedJobOf } from '../errands/sharedApproval';
 import { feedOpenNow, openAddNear, showFeedToast, useAddNearRequest } from '../feeding/feedRequest';
 import { currentFlight } from '../feeding/feedFlight';
 import { sha256Hex, toBase64 } from '../feeding/feedTx';
@@ -42,6 +43,9 @@ export function GiftSheet({ tokenId, name, stage, worn, onGiven }: { tokenId: st
   const opener = useRef<HTMLElement | null>(null);
   const clearButton = useRef<HTMLElement | null>(null);
   const active = request?.tokenId === tokenId && addNear === null;
+  const activeRef = useRef(active);
+  activeRef.current = active;
+  useEffect(() => { return () => { activeRef.current = false; }; }, []);
   const friend = link.acceptedName || request?.friend || 'a friend';
   const unnamed = friend === 'a friend';
 
@@ -264,7 +268,16 @@ export function GiftSheet({ tokenId, name, stage, worn, onGiven }: { tokenId: st
   if (!active) return null;
   const accepted = ['accepted', 'sending', 'checking', 'given', 'failed', 'gas', 'short', 'paused'].includes(phase);
   const pending = phase === 'sending' || phase === 'checking';
-  const clear = () => { clearButton.current = document.activeElement instanceof HTMLElement ? document.activeElement : null; openClearMemory({ tokenId, name, returnFocusTo: () => clearButton.current, onDone: () => openGift({ tokenId, name }) }); };
+  const clear = () => {
+    clearButton.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    void sharedJobOf(tokenId).then((pet) => {
+      if (!activeRef.current) return;
+      openClearMemory({ tokenId, name, unsettledSharedJob: Boolean(pet?.shared_job && pet.shared_job.state !== 'settled'), returnFocusTo: () => clearButton.current, onDone: () => openGift({ tokenId, name }) });
+    }).catch(() => {
+      if (!activeRef.current) return;
+      openClearMemory({ tokenId, name, returnFocusTo: () => clearButton.current, onDone: () => openGift({ tokenId, name }) });
+    });
+  };
   const add = () => { closeGift(); openAddNear({ from: 'gift', onBack: () => openGift({ tokenId, name }) }); };
   const start = <>
     <Text>{`${name} goes to them whole: its name, character, food, growth and traits, streak and freezes, outfits — and its chats, its memories, the advice it paid for and any skill you taught it. Its new owner can read them.`}</Text>

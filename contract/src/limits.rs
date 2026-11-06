@@ -91,3 +91,7 @@ pub const MAX_JOBS_PER_DAY: u8 = 10;
 /// first index entry of each of the two pets (9 key bytes, 12 value bytes, 40). The pool must hold
 /// it before the pair is written. The unit test `a_pair_costs_the_measured_bytes` measures it.
 pub const PAIR_MAX_BYTES: u64 = 194;
+
+/// Maximum shared-job trie record: 25-byte key (prefix + Borsh 20-digit token id),
+/// 388-byte value (three 64-byte account ids), and 40 bytes of trie overhead.
+pub const SHARED_JOB_MAX_BYTES: u64 = 453;

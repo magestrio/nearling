@@ -10,6 +10,8 @@ export interface ButtonProps {
   role?: 'food' | 'mind' | 'trust';
   size?: 'md' | 'compact';
   block?: boolean;
+  /** the label never wraps and the button never shrinks (a foot that shares its row) */
+  nowrap?: boolean;
   icon?: IconName;
   iconEnd?: IconName;
   /** shown after the label as «Label · {price}» */
@@ -64,6 +66,7 @@ export function Button(p: ButtonProps) {
     `ds-button--${p.variant ?? 'primary'}`,
     'type-label',
     p.size === 'compact' && 'ds-button--compact',
+    p.nowrap && 'ds-button--nowrap',
     p.block && 'ds-button--block',
     p.busy ? 'ds-button--busy' : pending && 'ds-button--pending',
     held && 'ds-button--off',

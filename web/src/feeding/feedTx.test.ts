@@ -34,6 +34,16 @@ function build(v: Variant = {}): string {
 }
 
 describe('the check before signing', () => {
+  // spec: add-feeding › Feed by link flow › friend opens feeding from a shared errand
+  it('accepts one linked pet_feed and refuses its unlinked form or unrelated args', () => {
+    const job_hash = 'b'.repeat(64);
+    const linked = build({ args: { token_id: '9', job_hash } });
+    expect(checkFeedTx(linked, { ...WANT, linked: true, jobHash: job_hash }).ok).toBe(true);
+    expect(checkFeedTx(linked, { ...WANT, linked: true, jobHash: 'c'.repeat(64) })).toEqual({ ok: false, why: 'args' });
+    expect(checkFeedTx(linked, WANT)).toEqual({ ok: false, why: 'args' });
+    expect(checkFeedTx(build(), { ...WANT, linked: true })).toEqual({ ok: false, why: 'args' });
+    expect(checkFeedTx(build({ args: { token_id: '9', job_hash, receiver: 'thief' } }), { ...WANT, linked: true })).toEqual({ ok: false, why: 'args' });
+  });
   // spec: add-feeding › Feeding transaction data › прислана не та порция
   it('accepts the bytes the Worker builds, and the transaction made the same way', () => {
     const served = checkFeedTx(SERVER_BUILT, WANT);

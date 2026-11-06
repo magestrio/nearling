@@ -1,5 +1,5 @@
-import { useEffect, useRef } from 'react';
-import { Button, Cluster, Divider, Note, Sheet, Stack, Text, TextField, TextLink, ToolList, ToolRow } from '../ds';
+import { useEffect, useRef, useState } from 'react';
+import { Button, Cluster, Divider, Inert, Note, Sheet, Stack, Text, TextField, TextLink, ToolList, ToolRow } from '../ds';
 import { focusButton, sheetTitled } from '../errands/focus';
 import { useMarkErrandSurface } from '../errands/surfaces';
 import { useSignInLines } from '../signin/SignInOutcome';
@@ -13,9 +13,11 @@ import {
   BROWSE_CATALOG,
   CHECK_ADDRESS,
   connectedTitle,
+  CONFIRM_REMOVE_SOURCE,
   freeTextNote,
   giftLine,
   IN_CATALOG,
+  KEEP_SOURCE,
   NAME_FIELD,
   nameHint,
   noneFitLine,
@@ -23,6 +25,9 @@ import {
   PUBLISH_NOTE,
   publishRefusedLine,
   REMOVE,
+  REMOVE_SOURCE_PUBLISHED,
+  REMOVE_SOURCE_WARNING,
+  removeSourceTitle,
   SAVE_ADAPTER,
   TAKE_OUT,
   TOOLS_LABEL,
@@ -38,6 +43,8 @@ import type { useAdapter } from './useAdapter';
 
 export function AdapterSheet({ name, adapter, tokenId, onClose }: { name: string; adapter: ReturnType<typeof useAdapter>; tokenId: string; onClose: () => void }) {
   const { open, source, tools: checked, ticks, top, busy, variant } = adapter;
+  const [confirmRemove, setConfirmRemove] = useState(false);
+  useEffect(() => { if (!open) setConfirmRemove(false); }, [open]);
   // a session that ended meets the line of `Session expiry flow`: «Sign in» brings the sheet back with the name and the typed address
   const [session] = useSignInLines({ text: JSON.stringify({ label: adapter.label, address: adapter.address, ...(source ? { sid: source.id } : {}) }), action: 'adapter' });
   useMarkErrandSurface(open);
@@ -149,7 +156,10 @@ export function AdapterSheet({ name, adapter, tokenId, onClose }: { name: string
 
   const foot = connected ? (
     <Cluster gap={3} justify="space-between">
-      <Button variant="ghost" size="compact" busy={busy === 'remove'} off={busy !== null && busy !== 'remove'} onClick={() => void adapter.remove()}>
+      <Button variant="ghost" size="compact" busy={busy === 'remove'} off={busy !== null && busy !== 'remove'} onClick={() => {
+        if (!source.gift && source.publicAddress === undefined) setConfirmRemove(true);
+        else void adapter.remove();
+      }}>
         {REMOVE}
       </Button>
       <Button size="compact" disabled={!canSave} busy={busy === 'save'} onClick={() => void adapter.save()}>
@@ -165,6 +175,8 @@ export function AdapterSheet({ name, adapter, tokenId, onClose }: { name: string
   ) : undefined;
 
   return (
+    <>
+    <Inert on={confirmRemove}>
     <Sheet
       title={title}
       column={step}
@@ -220,5 +232,20 @@ export function AdapterSheet({ name, adapter, tokenId, onClose }: { name: string
         {publishBlock}
       </Stack>
     </Sheet>
+    </Inert>
+    {confirmRemove && source ? (
+      <Sheet title={removeSourceTitle(source.label)} centered alert busy={busy === 'remove'} onClose={() => setConfirmRemove(false)} status={top?.kind === 'failed' ? ADAPTER_ERROR : top?.kind === 'session' ? session?.text : ''}>
+        <Stack gap={4}>
+          <Text>{REMOVE_SOURCE_WARNING}{source.published ? ` ${REMOVE_SOURCE_PUBLISHED}` : ''}</Text>
+          {top?.kind === 'failed' ? <Stack gap={2}><Note tone="error">{ADAPTER_ERROR}</Note><Button variant="secondary" size="compact" onClick={adapter.again}>Try again</Button></Stack> : null}
+          {top?.kind === 'session' ? <Stack gap={2}><Note tone="error">{session?.text}</Note>{session?.action ? <Button variant="secondary" size="compact" onClick={session.action.onClick}>{session.action.label}</Button> : null}</Stack> : null}
+          <Stack gap={2}>
+            <Button block focusOnOpen off={busy === 'remove'} onClick={() => setConfirmRemove(false)}>{KEEP_SOURCE}</Button>
+            <Button block variant="danger" busy={busy === 'remove'} onClick={() => void adapter.remove()}>{CONFIRM_REMOVE_SOURCE}</Button>
+          </Stack>
+        </Stack>
+      </Sheet>
+    ) : null}
+    </>
   );
 }

@@ -10,16 +10,19 @@ import { gasIsLow } from '../servicePause';
 import { askNetwork, outcomeAnswer, rowOfPlayer } from './inflight';
 import type { Reply } from './portion';
 import { readSheet } from './read';
+import { fundingTag } from '../errands/funding';
 
 /** The contract's refusals that the sheet already has a line for: the snack is gone, the sheet redraws. */
 const SHEET_CODES = new Set(['snacks_today', 'snack_too_soon', 'pool_empty', 'feeder_not_owner']);
 
 const randomId = () => [...crypto.getRandomValues(new Uint8Array(12))].map((b) => b.toString(16).padStart(2, '0')).join('');
 
-export async function giveSnack(env: Env, session: Session, tokenId: string, rate: number): Promise<Reply> {
+export async function giveSnack(env: Env, session: Session, tokenId: string, rate: number, code?: unknown): Promise<Reply> {
   try {
     const pet = await petView(env, tokenId);
     if (pet === null) return { status: 404, body: { code: 'no_pet' } };
+    const tag = await fundingTag(env, tokenId, session, code, pet);
+    if (tag.error !== undefined) return { status: 409, body: { code: tag.error } };
     if ((await rowOfPlayer(env.DB, session.accountId)) !== null) return { status: 409, body: { code: 'pending' } };
 
     // The balance of the server's gas is read before a snack: a low one pauses the services now.
@@ -37,9 +40,9 @@ export async function giveSnack(env: Env, session: Session, tokenId: string, rat
     const via = kind === 'owner' ? 'owner' : 'link';
     const id = randomId();
     const placed = await env.DB.prepare(
-      "INSERT INTO feedings (id, sub, account, token_id, source, via, deposit_yocto, tx_hash, created_at) VALUES (?1, ?2, ?3, ?4, 'snack', ?5, NULL, NULL, ?6) ON CONFLICT (account) DO NOTHING",
+      "INSERT INTO feedings (id, sub, account, token_id, source, via, deposit_yocto, tx_hash, created_at, job_hash) VALUES (?1, ?2, ?3, ?4, 'snack', ?5, NULL, NULL, ?6, ?7) ON CONFLICT (account) DO NOTHING",
     )
-      .bind(id, session.sub, session.accountId, tokenId, via, now)
+      .bind(id, session.sub, session.accountId, tokenId, via, now, tag.hash)
       .run();
     if (placed.meta.changes === 0) return { status: 409, body: { code: 'pending' } };
     const row = (await rowOfPlayer(env.DB, session.accountId))!;
@@ -59,7 +62,7 @@ export async function giveSnack(env: Env, session: Session, tokenId: string, rat
 
     const answer = await env.SERVER_KEY.get(env.SERVER_KEY.idFromName('server')).send({
       methodName: 'pet_snack',
-      args: { token_id: tokenId, feeder: session.accountId, kind },
+      args: { token_id: tokenId, feeder: session.accountId, kind, ...(tag.hash === null ? {} : { job_hash: tag.hash }) },
       gas: (PET_SNACK_TGAS * 1_000_000_000_000n).toString(),
     });
     const hatched = read.hatch.token_id !== null;
@@ -75,6 +78,7 @@ export async function giveSnack(env: Env, session: Session, tokenId: string, rat
     }
     if (answer.status === 'failed') {
       await settleFeeding(env, row, { status: 'failed', code: answer.code });
+      if (tag.hash !== null && answer.code === 'job_funded') return { status: 409, body: { code: 'shared_funding_closed' } };
       if (SHEET_CODES.has(answer.code)) return gone();
       return { status: 200, body: await outcomeAnswer(env.DB, session.sub, 'failed', null, hatched, false) };
     }
