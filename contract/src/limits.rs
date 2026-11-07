@@ -95,3 +95,7 @@ pub const PAIR_MAX_BYTES: u64 = 194;
 /// Maximum shared-job trie record: 25-byte key (prefix + Borsh 20-digit token id),
 /// 388-byte value (three 64-byte account ids), and 40 bytes of trie overhead.
 pub const SHARED_JOB_MAX_BYTES: u64 = 453;
+
+/// Hashed map key (32), two u64 counters (16), and trie record overhead (40).
+/// The experience sandbox test measures this first-write bound.
+pub const EXPERIENCE_COUNT_BYTES: u64 = 88;

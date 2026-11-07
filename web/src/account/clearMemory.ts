@@ -21,6 +21,7 @@ export interface ClearOutcome {
   tokenId: string;
   /** `cleared`: «стёр»; `not_owner`: «уже не владелец» */
   result: 'cleared' | 'cleared_retry' | 'not_owner';
+  hadExperience?: boolean;
 }
 
 let current: ClearRequest | null = null;

@@ -76,13 +76,15 @@ export function App() {
         {!unreachable && route.name === 'receipt' ? <VerificationPage key={route.code} code={route.code} /> : null}
         {!unreachable && route.name === 'shared-errand' ? <SharedErrandPage key={route.code} tokenId={route.tokenId} code={route.code} /> : null}
         {/* one element for the three: the Diary and the Wardrobe open over the Pet screen's own state (the pet, the poll, the line being typed) */}
-        {!unreachable && (route.name === 'pet' || route.name === 'diary' || route.name === 'wardrobe') ? (
+        {!unreachable && (route.name === 'pet' || route.name === 'diary' || route.name === 'wardrobe' || route.name === 'experience' || route.name === 'work-record') ? (
           <PetScreen
             key={route.tokenId}
             tokenId={route.tokenId}
             from={route.name === 'pet' ? route.from : null}
             diary={route.name === 'diary'}
             wardrobe={route.name === 'wardrobe'}
+            experience={route.name === 'experience'}
+            workRecord={route.name === 'work-record'}
           />
         ) : null}
         {!unreachable && route.name === 'pet-broken' ? <PetNotFound /> : null}

@@ -32,6 +32,12 @@ afterEach(async () => {
 
 // The DS parts of add-pet-errands (design/ds/README.md, DS 0.29): what a person reaches by keyboard and what a screen reader is told.
 describe('the DS parts of the errands', () => {
+  // spec: add-pet-experience › Experience capture flow › eligible report
+  it('keeps the report outcome in the DS foot beside the report price', async () => {
+    await show(<Message from="report" meta="3 searches · 1.4¢" foot="New work note" verify={{ href: '/verify', label: 'Check this thought' }}>Report</Message>);
+    expect(host.querySelector('.ds-message--has-foot .ds-message__foot--with-extra .ds-message__extra')?.textContent).toBe('New work note');
+    expect(host.querySelector('.ds-message__meta')?.textContent).toBe('3 searches · 1.4¢');
+  });
   // spec: add-pet-errands › Errand flow › sent × the rail's errand item while away
   it('keeps the focus on an off rail item and does nothing on Enter or a click', async () => {
     const onClick = vi.fn();

@@ -41,6 +41,12 @@ export interface FakeFail {
 }
 
 export interface FakeWorkerState {
+  workRecord?: import('./worker-types').WorkRecord | FakeFail;
+  workRecordDelayMs?: number;
+  experience?: import('./worker-types').ExperienceNotes | FakeFail;
+  experienceDelayMs?: number;
+  approveExperience?: { noteId: string; approved: boolean; generation: number } | FakeFail;
+  publishExperienceField?: { noteId: string; published: true } | FakeFail;
   cardLines?: { lines: Array<{ id: string; text: string }> } | FakeFail;
   cardSource?: import('./worker-types').CardSource | FakeFail;
   cardSourceOnce?: FakeFail;

@@ -17,6 +17,8 @@ import {
   type CodeTestResult,
   type ErrandForm,
   type ErrandQuote,
+  type ExperienceNotes,
+  type WorkRecord,
   type FeedOutcome,
   type FeedSheetData,
   type GiftLink,
@@ -197,6 +199,42 @@ function confirmGift(tokenId: string) {
 }
 
 export const fakeWorkerApi: WorkerApi = {
+  workRecord: async (tokenId) => {
+    const pet = petsOf()[tokenId];
+    if (!pet) throw new WorkerError(404, 'no_pet');
+    return answer<WorkRecord>('workRecord', state().workRecord, {
+      tokenId, counts: { paidHires: 0, completedErrands: 0, countedSince: Date.UTC(2026, 10, 7) * 1_000_000 },
+      field: null, receipts: [],
+    }, state().workRecordDelayMs);
+  },
+  experience: async (token, tokenId) => {
+    needSession(token);
+    if (!token) throw new WorkerError(401, 'signed_out');
+    if (!(state().owned ?? []).includes(tokenId)) throw new WorkerError(403, 'not_owner');
+    return answer<ExperienceNotes>('experience', state().experience, { tokenId, generation: 0, notes: [], field: null }, state().experienceDelayMs);
+  },
+  approveExperience: async (token, tokenId, noteId, approved, generation) => {
+    needSession(token);
+    if (!token) throw new WorkerError(401, 'signed_out');
+    if (!(state().owned ?? []).includes(tokenId)) throw new WorkerError(403, 'not_owner');
+    const result = await answer('approveExperience', state().approveExperience, { noteId, approved, generation });
+    const held = state().experience;
+    if (held && !isFail(held) && held.generation === generation) {
+      held.notes = held.notes.map((note) => note.id === noteId ? { ...note, approved } : note);
+      if (!approved && held.field?.noteId === noteId) held.field = null;
+    }
+    return result;
+  },
+  publishExperienceField: async (token, tokenId, noteId, generation) => {
+    needSession(token);
+    if (!token) throw new WorkerError(401, 'signed_out');
+    if (!(state().owned ?? []).includes(tokenId)) throw new WorkerError(403, 'not_owner');
+    const result = await answer('publishExperienceField', state().publishExperienceField, { noteId, published: true as const });
+    const held = state().experience;
+    const note = held && !isFail(held) && held.generation === generation ? held.notes.find((item) => item.id === noteId && item.approved) : null;
+    if (note && held && !isFail(held)) held.field = { noteId, wording: note.proposedField, sourceReportId: note.sourceReportId };
+    return result;
+  },
   async health() {
     return { ok: true, version: state().version ?? 'fake-version', env: 'e2e' };
   },
@@ -313,6 +351,11 @@ export const fakeWorkerApi: WorkerApi = {
   cardShared: (token) => {
     needSession(token);
     return answer('cardShared', undefined, undefined);
+  },
+
+  experienceRecordOpened: (ids) => {
+    recordCall(`worker:experienceRecordOpened:${Object.keys(ids).sort().join(',')}`);
+    return Promise.resolve();
   },
 
   async verificationIndex(tokenId) {

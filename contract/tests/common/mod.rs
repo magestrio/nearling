@@ -62,6 +62,8 @@ struct StateMirror {
     friend_snacks: u64,
     counted_since: u64,
     shared_jobs: LookupMap<String, SharedJob>,
+    experience_counts: LookupMap<String, nearling_contract::ExperienceCounts, Sha256>,
+    experience_counted_since: u64,
 }
 
 pub struct Ctx {
@@ -634,7 +636,7 @@ impl Ctx {
         let _: StateMirror = borsh::from_slice(&state)?;
         let shared_len =
             borsh::to_vec(&borsh::from_slice::<StateMirror>(&state)?.shared_jobs)?.len();
-        state.truncate(state.len() - 56 - shared_len);
+        state.truncate(state.len() - 56 - shared_len - 13);
         let _: nearling_contract::ContractV5 = borsh::from_slice(&state)?;
         self.worker
             .patch_state(self.contract.id(), b"STATE", &state)
@@ -648,7 +650,7 @@ impl Ctx {
         let _: StateMirror = borsh::from_slice(&state)?;
         let shared_len =
             borsh::to_vec(&borsh::from_slice::<StateMirror>(&state)?.shared_jobs)?.len();
-        state.truncate(state.len() - 24 - shared_len);
+        state.truncate(state.len() - 24 - shared_len - 13);
         let _: nearling_contract::ContractV6 = borsh::from_slice(&state)?;
         self.worker
             .patch_state(self.contract.id(), b"STATE", &state)
@@ -661,8 +663,20 @@ impl Ctx {
         let mut state = self.read_state().await?;
         let mirror: StateMirror = borsh::from_slice(&state)?;
         let shared_len = borsh::to_vec(&mirror.shared_jobs)?.len();
-        state.truncate(state.len() - shared_len);
+        state.truncate(state.len() - shared_len - 13);
         let _: nearling_contract::ContractV7 = borsh::from_slice(&state)?;
+        self.worker
+            .patch_state(self.contract.id(), b"STATE", &state)
+            .await?;
+        Ok(())
+    }
+
+    /// Recreate the exact state deployed before the experience fields.
+    pub async fn restore_v8_state(&self) -> anyhow::Result<()> {
+        let mut state = self.read_state().await?;
+        let _: StateMirror = borsh::from_slice(&state)?;
+        state.truncate(state.len() - 13);
+        let _: nearling_contract::ContractV8 = borsh::from_slice(&state)?;
         self.worker
             .patch_state(self.contract.id(), b"STATE", &state)
             .await?;

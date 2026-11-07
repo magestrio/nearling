@@ -18,6 +18,7 @@ export { CopyField } from './CopyField';
 export { Disclosure } from './Disclosure';
 export { Dots } from './Dots';
 export { Fullness, litCells, type FullnessState } from './Fullness';
+export { Facts } from './Facts';
 export { Icon, type IconName } from './Icon';
 export { IconButton } from './IconButton';
 export { ItemGrid, ItemNote, ItemTile } from './ItemGrid';

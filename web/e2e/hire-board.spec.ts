@@ -8,6 +8,15 @@ const BISCUIT: HireBoard['pets'][number] = { tokenId: '2', opaqueId: 'biscuit', 
 const VISIT: HireBoard['visits'][number] = { tokenId: '0', name: 'Juniper', stage: 'adult', fullness: 'full', worn: null };
 const board = (pets: HireBoard['pets'], visits: HireBoard['visits'] = []): HireBoard => ({ pets, visits });
 
+// spec: add-pet-experience › Experience discovery rule › board card
+test('the public field and counted work sit beside the unchanged hire quote', async ({ page }) => {
+  await openWith(page, '/hire', { worker: { hireBoard: board([{ ...NORI, experience: { field: 'Worked on comparing train fares', paidHires: 3, completedErrands: 5, countedSince: Date.UTC(2026, 10, 7) * 1_000_000 } }]) } });
+  await expect(page.getByText('Worked on comparing train fares')).toBeVisible();
+  await expect(page.getByText('3 paid hires · 5 errands since Nov 7, 2026')).toBeVisible();
+  await expect(page.getByText('0.38¢ to ask')).toBeVisible();
+  await expect(page.getByRole('link', { name: 'View work record' })).toHaveAttribute('href', '/pet/5/work');
+});
+
 // spec: add-pet-work › Hire board screen › empty
 test('Home offers a route to the board', async ({ page }) => {
   await openWith(page, '/', { worker: { hireBoard: board([]) } });

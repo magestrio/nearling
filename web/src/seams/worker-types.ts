@@ -13,7 +13,8 @@ export interface Health {
 /** Public Hire board snapshot. Search words never leave the browser. */
 export interface HireBoard {
   pets: Array<{ tokenId: string; opaqueId: string; name: string; label: string; price: Price;
-    status: 'available' | 'asleep' | 'resting' | 'paused'; until?: string; yours: boolean }>;
+    status: 'available' | 'asleep' | 'resting' | 'paused'; until?: string; yours: boolean;
+    experience?: { field: string | null; paidHires: number; completedErrands: number; countedSince: number } }>;
   visits: Array<{ tokenId: string; name: string; stage: Stage; fullness: Fullness['state']; worn: OutfitSlug | null }>;
 }
 
@@ -47,6 +48,11 @@ export interface VerificationThought extends ThoughtPointer {
   viewer: 'visitor' | 'guest' | 'owner';
   kind: string;
   withoutReply: boolean;
+  paidWork?: boolean;
+  containsWorkNote?: boolean;
+  billing?: 'refused';
+  code?: string;
+  publicationWarning?: string | null;
   playerText?: string | null;
   replyText?: string | null;
 }
@@ -515,6 +521,22 @@ export type RiddleStatus = 'accepted' | 'already' | 'late';
 /** The identity token of the player, or null for a visitor. */
 export type Token = string | null;
 
+/** The owner's current-generation, bounded notes. The Worker has already checked chain ownership. */
+export interface ExperienceNotes {
+  tokenId: string;
+  generation: number;
+  notes: Array<{ id: string; text: string; proposedField: string; sourceReportId: string; sourceForm?: ErrandForm; at: number; approved: boolean }>;
+  field: { noteId: string; wording: string; sourceReportId: string | null } | null;
+}
+
+/** Public Worker facts; the client independently reads the count from the NEAR RPC seam. */
+export interface WorkRecord {
+  tokenId: string;
+  counts: { paidHires: number; completedErrands: number; countedSince: number };
+  field: { wording: string; sourceReportId: string } | null;
+  receipts: Array<{ thoughtId: string; tokenId: string | null; debitTxHash: string; at: number; kind: string }>;
+}
+
 /** `GET /api/pets/:id/wardrobe`: what Wardrobe screen draws, whole. `owned` and `worn` are the owner's view's, repeated so that
  *  one answer draws a screen. `buying` is the pet's oldest purchase on its way, `outcome` its newest settled one of the last
  *  minutes (`code` of a `failed` one: `owned`, `short`, `cap`, `error`, or a chain code). */
@@ -663,6 +685,11 @@ export type SharedErrand = { tokenId: string; name: string; state: 'empty' } | {
 };
 
 export interface WorkerApi {
+  workRecord(tokenId: string): Promise<WorkRecord>;
+  experienceRecordOpened(ids: { tabId: string; playerId: string; petId: string }): Promise<void>;
+  experience(token: Token, tokenId: string): Promise<ExperienceNotes>;
+  approveExperience(token: Token, tokenId: string, noteId: string, approved: boolean, generation: number): Promise<{ noteId: string; approved: boolean; generation: number }>;
+  publishExperienceField(token: Token, tokenId: string, noteId: string, generation: number): Promise<{ noteId: string; published: true }>;
   health(): Promise<Health>;
   showcase(): Promise<ShowcaseCopy>;
   hireBoard(token: Token): Promise<HireBoard>;

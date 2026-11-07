@@ -6,7 +6,7 @@ const field = (page: Page) => page.getByRole('textbox');
 const FORGETS =
   'Pixel will forget your chats, diary, skill with its data sources and code, and what it knows about you, its feeders and the pets it helped. Your published data sources leave the catalog. A backup may keep a copy up to 30 days; NEAR AI may keep what it received.';
 const STAYS =
-  /Pixel's name, character, growth, streak, outfits and food stay, and what's public about Pixel stays public forever\. An answer to today's riddle is cleared too and won't be checked at \d\d:\d\d\. Old thought receipts can't be fully checked after this\. This can't be undone\./;
+  /Pixel's name, character, growth, streak, outfits and food stay, and what's on the chain about Pixel stays public forever\. An answer to today's riddle is cleared too and won't be checked at \d\d:\d\d\. Old thought receipts can't be fully checked after this\. This can't be undone\./;
 const FAILED = "We couldn't clear Pixel's memory. Nothing was erased — try again.";
 const UNKNOWN = "We couldn't confirm whether Pixel's memory was cleared. Reload to see where things stand.";
 const BUSY = 'Lots of visitors right now. Try again in a minute.';

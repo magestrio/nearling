@@ -37,6 +37,8 @@ import {
   type Accent,
 } from '../../ds';
 import { DiaryPage } from '../../diary/DiaryPage';
+import { ExperienceNotesPage } from '../../experience/ExperienceNotesPage';
+import { WorkRecordPage } from '../../experience/WorkRecordPage';
 import { useDiary } from '../../diary/useDiary';
 import { useSelfOpen } from '../../diary/useSelfOpen';
 import { wearProps } from '../../wardrobe/catalogue';
@@ -72,7 +74,7 @@ import { useCode } from '../../adapters/useCode';
 import { useAdapter } from '../../adapters/useAdapter';
 import { formatCents } from '../../lib/price';
 import { resetTime } from '../../lib/time';
-import { hatchPath, navigate, petPath, useLocation } from '../../route';
+import { experiencePath, workRecordPath, hatchPath, navigate, petPath, useLocation } from '../../route';
 import { canUseWebGL } from '../../pet/flat';
 import { makePet } from '../../pet/proto/generator.js';
 import { useMotionPaused } from '../../pet/motion';
@@ -134,7 +136,7 @@ function sealLine(name: string, state: SealState): string {
 
 /** `start`: the phone owner's intro card, where the line is left-aligned and a mismatch or an unreadable seal is said by the
  *  banner above the page instead (the frames' `checkLink(pet, true)`). */
-function CheckLink({ tokenId, name, seal, start, watching }: { tokenId: string; name: string; seal: ReturnType<typeof useSeal>; start?: boolean; watching?: string | null }) {
+function CheckLink({ tokenId, name, seal, start, watching, owner }: { tokenId: string; name: string; seal: ReturnType<typeof useSeal>; start?: boolean; watching?: string | null; owner?: boolean }) {
   const align = start ? undefined : 'center';
   return (
     <Stack gap={1} align={align}>
@@ -143,6 +145,10 @@ function CheckLink({ tokenId, name, seal, start, watching }: { tokenId: string; 
       {seal.state.kind === 'checked' ? <Text variant="small" tone="secondary" align={align}>{sealLine(name, seal.state)}</Text> : null}
       {seal.state.kind === 'mismatch' && !start ? <Note tone="error" silent>{sealLine(name, seal.state)}</Note> : null}
       {seal.state.kind === 'unavailable' && !start ? <Cluster gap={3}><Note tone="error" silent>{sealLine(name, seal.state)}</Note><Button variant="secondary" size="compact" onClick={seal.retry}>Try again</Button></Cluster> : null}
+      <Cluster gap={3} justify={start ? undefined : 'center'}>
+        <TextLink href={workRecordPath(tokenId)} tone="quiet" iconEnd="chevron">View work record</TextLink>
+        {owner ? <TextLink href={experiencePath(tokenId)} tone="quiet" iconEnd="chevron">Review experience</TextLink> : null}
+      </Cluster>
     </Stack>
   );
 }
@@ -536,7 +542,7 @@ function OwnerPage({ pet, s, seal }: { pet: OwnerView; s: ReturnType<typeof useP
       ) : line.who === 'worker' ? (
         <WorkerMessage key={line.id} line={line} />
       ) : line.report ? (
-        <ReportMessage key={line.id} line={line} name={name} tokenId={tokenId} reveal={Boolean(line.fresh) && i === all.length - 1} />
+        <ReportMessage key={line.id} line={line} name={name} tokenId={tokenId} tokenOf={s.tokenOf} reveal={Boolean(line.fresh) && i === all.length - 1} />
       ) : (
         <Message
           key={line.id}
@@ -561,7 +567,7 @@ function OwnerPage({ pet, s, seal }: { pet: OwnerView; s: ReturnType<typeof useP
       <Cluster gap={3}>
         <Slot slot="growth" {...slot} />
       </Cluster>
-      <CheckLink tokenId={tokenId} name={name} seal={seal} watching={pet.watch?.target} start />
+      <CheckLink tokenId={tokenId} name={name} seal={seal} watching={pet.watch?.target} start owner />
       {asleep ? null : <Slot slot="hiring" {...slot} />}
     </Stack>
   );
@@ -745,7 +751,7 @@ function OwnerPage({ pet, s, seal }: { pet: OwnerView; s: ReturnType<typeof useP
                   </PetPlate>
                 }
                 foot={<Stack gap={2} align="center">
-                  <CheckLink tokenId={tokenId} name={name} seal={seal} watching={pet.watch?.target} />
+                  <CheckLink tokenId={tokenId} name={name} seal={seal} watching={pet.watch?.target} owner />
                   <OldReserveNotice tokenId={tokenId} name={name} reserve={pet.oldSharedReserve} onReleased={s.reread} />
                 </Stack>}
               />
@@ -1090,12 +1096,16 @@ function PetView({
   w,
   diary,
   wardrobe,
+  experience,
+  workRecord,
 }: {
   s: ReturnType<typeof usePetScreen>;
   d: ReturnType<typeof useDiary>;
   w: ReturnType<typeof useWardrobe>;
   diary: boolean;
   wardrobe: boolean;
+  experience: boolean;
+  workRecord: boolean;
 }) {
   const { page } = s;
   if (page.kind === 'loading') return <LoadingView tokenId={s.tokenId} />;
@@ -1110,6 +1120,8 @@ function PetView({
       </Gone>
     );
   }
+  if (experience) return <ExperienceNotesPage pet={page.pet} tokenOf={s.tokenOf} reread={s.reread} />;
+  if (workRecord) return <WorkRecordPage pet={page.pet} />;
   if (page.pet.viewer !== 'owner') return <SealPet pet={page.pet} s={s} />;
   if (wardrobe) return <WardrobeOwner pet={page.pet} w={w} s={s} />;
   return diary ? <DiaryOwner pet={page.pet} d={d} s={s} /> : <SealPet pet={page.pet} s={s} />;
@@ -1117,7 +1129,7 @@ function PetView({
 
 /** `diary`: the address is the Diary's (`/pet/<token_id>/diary`). Its page is the owner's awake pet's; a guest or a visitor on it gets
  *  the Pet screen's page for them, the address kept; an asleep pet's address is the Pet screen (`Diary screen` › entry point). */
-export function PetScreen({ tokenId, from, diary = false, wardrobe = false }: { tokenId: string; from: string | null; diary?: boolean; wardrobe?: boolean }) {
+export function PetScreen({ tokenId, from, diary = false, wardrobe = false, experience = false, workRecord = false }: { tokenId: string; from: string | null; diary?: boolean; wardrobe?: boolean; experience?: boolean; workRecord?: boolean }) {
   const s = usePetScreen(tokenId, from, diary);
   useEffect(() => closeGift, [tokenId]);
   useEffect(() => closeMyPets, [tokenId]);
@@ -1148,7 +1160,7 @@ export function PetScreen({ tokenId, from, diary = false, wardrobe = false }: { 
     tokenId,
     diaryUnread: owner?.diaryUnread ?? false,
     diary: standing,
-    wardrobe: standingWardrobe,
+    wardrobe: standingWardrobe || experience || workRecord,
     asleep,
     typing: s.draft !== '',
     notice: notice.due,
@@ -1208,7 +1220,7 @@ export function PetScreen({ tokenId, from, diary = false, wardrobe = false }: { 
     <>
       <Live>{outcomeLine(s.page, s.notice)}</Live>
       <Inert on={noticeSlug !== null || cardShown}>
-        <PetView s={s} d={d} w={w} diary={standing} wardrobe={standingWardrobe} />
+        <PetView s={s} d={d} w={w} diary={standing} wardrobe={standingWardrobe} experience={experience} workRecord={workRecord} />
       </Inert>
       {owner !== null && verdict !== null ? (
         <div className="ds-only" data-accent={accentOf(tokenId)} style={{ color: 'var(--color-text-primary)', fontFamily: 'var(--font-sans)' }}>

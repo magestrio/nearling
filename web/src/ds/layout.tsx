@@ -93,8 +93,8 @@ export function Divider() {
 }
 
 /** A raised area — never inside another one. tone: `raised-2` for the lighter step. */
-export function Surface({ as: Tag = 'div', tone, children }: { as?: ElementType; tone?: 'raised-2'; children?: ReactNode }) {
-  return <Tag className={cx('ds-surface', tone === 'raised-2' && 'ds-surface--raised-2')}>{children}</Tag>;
+export function Surface({ as: Tag = 'div', tone, selected, children }: { as?: ElementType; tone?: 'raised-2'; selected?: boolean; children?: ReactNode }) {
+  return <Tag className={cx('ds-surface', tone === 'raised-2' && 'ds-surface--raised-2', selected && 'ds-surface--selected')}>{children}</Tag>;
 }
 
 /** DS 0.44 Grid: equal cards in a list, matching design/ds/components.js. Cards are list items. */

@@ -132,8 +132,8 @@ function RecordPanel({ tokenId, ready, onRetry }: { tokenId: string; ready: Read
   const checked = record.character !== 'mismatch' && !ready.unread;
   return <Stack gap={4}>
     <Stack gap={3}>
-      <PetFigure tokenId={tokenId} name={record.name} stage={pet.stage} state={pet.fullness.state}
-        outfit={pet.worn ?? undefined} size="md" decorative still />
+      <Cluster justify="center"><PetFigure tokenId={tokenId} name={record.name} stage={pet.stage} state={pet.fullness.state}
+        outfit={pet.worn ?? undefined} size="md" decorative still /></Cluster>
       <Cluster gap={3} align="center"><Heading level={1} variant="title-2">{record.name}</Heading>
         {checked ? <Seal hash={record.characterHash} size="sm" /> : null}</Cluster>
       {ready.unread
@@ -259,6 +259,7 @@ export function ReceiptPanel({ thought, proof, record, payerName, footer, intro,
   return <Receipt title={title} label={title ? undefined : date(thought.at, true)} marks={publicMarks}
     foot={footer ? <Stack gap={2}>{foot ?? detailFoot}{footer}</Stack> : foot ?? detailFoot}>
     {intro}
+    {thought.paidWork ? <Text variant="small">A receipt records paid work. It does not prove the answer was correct.</Text> : null}
     <Text variant={(thought.erased && (proof?.kind === 'pending' || hasReceipt)) || (owner && thought.kind === 'deep' && thought.replyText && !thought.erased) ? 'lead' : undefined}>{thought.erased && proof?.kind === 'pending'
       ? `This receipt is still being recorded on NEAR, and these words were cleared. You can check ${record.name}'s pet record now; after the receipt lands, only its public hashes and signature can be checked.`
       : thought.erased && hasReceipt
@@ -575,6 +576,7 @@ export function VerificationPage({ tokenId, thoughtId, code, shared }: { tokenId
         <Button block variant="secondary" onClick={() => setDialog(null)}>Close</Button>
       </Stack> : <Stack gap={2}>
         <Text>{`Anyone with this link can download the exact request and reply, including your words, ${name}'s memory and text not shown in the chat. Giving ${name} away or clearing its memory ends access, but cannot erase files a visitor already downloaded.`}</Text>
+        {selected?.publicationWarning ? <Text>{selected.publicationWarning}</Text> : null}
         <Button block pending={dialog.status === 'publishing'} onClick={() => { void publish(); }}>Publish receipt link</Button>
         <Button block variant="secondary" focusOnOpen off={dialog.status === 'publishing'} onClick={() => setDialog(null)}>Cancel</Button>
       </Stack>}

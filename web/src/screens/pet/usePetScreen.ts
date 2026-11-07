@@ -1318,7 +1318,7 @@ export function usePetScreen(tokenId: string, from: string | null, diary = false
         // the entry is erased: a Diary that waited to open has nothing to open (`Daily ritual flow` › «сначала действие»)
         setPage((p) => (p.kind === 'pet' && p.pet.viewer === 'owner' ? { kind: 'pet', pet: { ...p.pet, diaryUnread: false, pendingQuestion: false } } : p));
         const id = `event-${(localLine.current += 1)}`;
-        setLines([{ id, who: 'event', text: o.result === 'cleared_retry' ? "Memory cleared. This job's food is still reserved while we retry closing it." : `${shown}'s memory is clear — same ${shown}, fresh start.`, fresh: true }, ...(hired ? [hireClearedLineOf()] : [])]);
+        setLines([{ id, who: 'event', text: o.result === 'cleared_retry' ? "Memory cleared. This job's food is still reserved while we retry closing it." : o.hadExperience ? 'Experience notes cleared. Public work history remains.' : `${shown}'s memory is clear — same ${shown}, fresh start.`, fresh: true }, ...(hired ? [hireClearedLineOf()] : [])]);
       }),
     [tokenId, forgetConversation, hireClearedLineOf],
   );

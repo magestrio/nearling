@@ -187,13 +187,13 @@ async fn populated_v5_state_migrates_once_without_losing_pets_or_food() -> anyho
         .await?
         .into_result()?;
 
-    assert_eq!(ctx.read_state().await?.len(), old_state_len + 61);
+    assert_eq!(ctx.read_state().await?.len(), old_state_len + 74);
     let added_bytes = ctx.storage_usage().await? - old_storage;
-    assert_eq!(added_bytes, 61);
-    // The current layout also appends the 5-byte shared-job map prefix.
+    assert_eq!(added_bytes, 74);
+    // The current layout appends the 5-byte shared-job map and 13-byte experience tail.
     assert_eq!(
         u128::from(added_bytes) * 10_000_000_000_000_000_000,
-        610_000_000_000_000_000_000
+        740_000_000_000_000_000_000
     );
     let migrated = totals(&ctx).await?;
     assert_eq!(migrated["pets_hatched"], 2);
@@ -314,8 +314,8 @@ async fn v6_upgrade_preserves_existing_totals_and_measures_storage() -> anyhow::
     assert!(gas < 300_000_000_000_000);
     migrated.into_result()?;
     let added = ctx.storage_usage().await? - old_storage;
-    assert_eq!(ctx.read_state().await?.len(), old_len + 29);
-    assert_eq!(added, 29);
+    assert_eq!(ctx.read_state().await?.len(), old_len + 42);
+    assert_eq!(added, 42);
     eprintln!("showcase V6 migration: {added} bytes, {} yocto stake, {gas} gas", u128::from(added) * 10_000_000_000_000_000_000);
     let after = totals(&ctx).await?;
     for key in ["pets_hatched", "thoughts_paid", "spent"] {

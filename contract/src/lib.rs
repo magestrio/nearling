@@ -138,6 +138,49 @@ pub struct ContractV7 {
     counted_since: u64,
 }
 
+/// The deployed state before per-pet experience, byte-for-byte through `shared_jobs`.
+#[near(serializers = [borsh])]
+pub struct ContractV8 {
+    owner_id: AccountId,
+    server_id: AccountId,
+    treasury_id: AccountId,
+    tokens: NonFungibleToken,
+    pets: LookupMap<TokenId, VersionedPet>,
+    hatched: LookupMap<AccountId, TokenId>,
+    births_day: u64,
+    births_today: u32,
+    next_token_id: u64,
+    pool: u128,
+    known: LookupSet<(TokenId, AccountId), Sha256>,
+    riddle_commits: LookupMap<u64, [u8; 32]>,
+    riddle_reserve: u128,
+    work_pairs: LookupSet<(TokenId, TokenId), Sha256>,
+    work_index: LookupMap<u64, Vec<u64>>,
+    transfer_generation: LookupMap<TokenId, u64>,
+    pets_hatched: u64,
+    thoughts_paid: u64,
+    spent: u128,
+    hires_completed: u64,
+    friend_snacks: u64,
+    counted_since: u64,
+    shared_jobs: LookupMap<TokenId, SharedJob>,
+}
+
+#[near(serializers = [borsh])]
+#[derive(Clone, Default)]
+pub struct ExperienceCounts {
+    paid_hires: u64,
+    completed_errands: u64,
+}
+
+#[near(serializers = [json])]
+pub struct ExperienceView {
+    pub token_id: TokenId,
+    pub paid_hires: u64,
+    pub completed_errands: u64,
+    pub counted_since: u64,
+}
+
 #[near(serializers = [json])]
 pub struct ShowcaseView {
     pub pets_hatched: u64,
@@ -188,6 +231,8 @@ pub struct Contract {
     friend_snacks: u64,
     counted_since: u64,
     shared_jobs: LookupMap<TokenId, SharedJob>,
+    experience_counts: LookupMap<TokenId, ExperienceCounts, Sha256>,
+    experience_counted_since: u64,
 }
 
 fn fail(code: &str) -> ! {
@@ -340,6 +385,8 @@ impl Contract {
             friend_snacks: 0,
             counted_since: env::block_timestamp(),
             shared_jobs: LookupMap::new(b"j".to_vec()),
+            experience_counts: LookupMap::with_hasher(b"c".to_vec()),
+            experience_counted_since: env::block_timestamp(),
         }
     }
 
@@ -470,6 +517,8 @@ impl Contract {
             friend_snacks: 0,
             counted_since: env::block_timestamp(),
             shared_jobs: LookupMap::new(b"j".to_vec()),
+            experience_counts: LookupMap::with_hasher(b"c".to_vec()),
+            experience_counted_since: env::block_timestamp(),
         }
     }
 
@@ -502,6 +551,8 @@ impl Contract {
             friend_snacks: 0,
             counted_since: env::block_timestamp(),
             shared_jobs: LookupMap::new(b"j".to_vec()),
+            experience_counts: LookupMap::with_hasher(b"c".to_vec()),
+            experience_counted_since: env::block_timestamp(),
         };
         contract.reserve_legacy_generations();
         contract
@@ -547,6 +598,8 @@ impl Contract {
             friend_snacks: 0,
             counted_since: env::block_timestamp(),
             shared_jobs: LookupMap::new(b"j".to_vec()),
+            experience_counts: LookupMap::with_hasher(b"c".to_vec()),
+            experience_counted_since: env::block_timestamp(),
         }
     }
 
@@ -579,6 +632,8 @@ impl Contract {
             friend_snacks: 0,
             counted_since: env::block_timestamp(),
             shared_jobs: LookupMap::new(b"j".to_vec()),
+            experience_counts: LookupMap::with_hasher(b"c".to_vec()),
+            experience_counted_since: env::block_timestamp(),
         }
     }
 
@@ -611,7 +666,62 @@ impl Contract {
             friend_snacks: old.friend_snacks,
             counted_since: old.counted_since,
             shared_jobs: LookupMap::new(b"j".to_vec()),
+            experience_counts: LookupMap::with_hasher(b"c".to_vec()),
+            experience_counted_since: env::block_timestamp(),
         }
+    }
+
+    /// Upgrade the exact shared-jobs layout without backfilling earlier work.
+    #[init(ignore_state)]
+    #[private]
+    pub fn migrate_experience() -> Self {
+        let old: ContractV8 = env::state_read().unwrap_or_else(|| fail("no_state"));
+        Self {
+            owner_id: old.owner_id,
+            server_id: old.server_id,
+            treasury_id: old.treasury_id,
+            tokens: old.tokens,
+            pets: old.pets,
+            hatched: old.hatched,
+            births_day: old.births_day,
+            births_today: old.births_today,
+            next_token_id: old.next_token_id,
+            pool: old.pool,
+            known: old.known,
+            riddle_commits: old.riddle_commits,
+            riddle_reserve: old.riddle_reserve,
+            work_pairs: old.work_pairs,
+            work_index: old.work_index,
+            transfer_generation: old.transfer_generation,
+            pets_hatched: old.pets_hatched,
+            thoughts_paid: old.thoughts_paid,
+            spent: old.spent,
+            hires_completed: old.hires_completed,
+            friend_snacks: old.friend_snacks,
+            counted_since: old.counted_since,
+            shared_jobs: old.shared_jobs,
+            experience_counts: LookupMap::with_hasher(b"c".to_vec()),
+            experience_counted_since: env::block_timestamp(),
+        }
+    }
+
+    // spec: add-pet-experience › Experience view contract › public read
+    // spec: add-pet-experience › Experience view contract › unknown pet
+    pub fn experience_view(&self, token_id: TokenId) -> Option<ExperienceView> {
+        if self.tokens.owner_by_id.get(&token_id).is_none() {
+            return None;
+        }
+        let counts = self
+            .experience_counts
+            .get(&token_id)
+            .cloned()
+            .unwrap_or_default();
+        Some(ExperienceView {
+            token_id,
+            paid_hires: counts.paid_hires,
+            completed_errands: counts.completed_errands,
+            counted_since: self.experience_counted_since,
+        })
     }
 
     pub fn owner_id(&self) -> AccountId {
@@ -984,10 +1094,21 @@ impl Contract {
         let mut linked_price: u128 = 0;
         let mut claimed_hash: Option<[u8; 32]> = None;
         let mut hires: Vec<PlannedHire> = Vec::new();
+        let mut experience_delta: HashMap<TokenId, (u64, u64)> = HashMap::new();
         // The workers touched, read once, and the jobs this batch already gives each.
         let mut workers: HashMap<TokenId, VersionedPet> = HashMap::new();
         let mut batch_jobs: HashMap<TokenId, u8> = HashMap::new();
         for (i, thought) in thoughts.iter().enumerate() {
+            if thought.completed_errand {
+                if thought.worker.is_some() || thought.hire.is_some() {
+                    fail("errand_with_worker");
+                }
+                if thought.price.0 == 0 {
+                    fail("errand_without_payment");
+                }
+                let delta = experience_delta.entry(token_id.clone()).or_default();
+                delta.1 = delta.1.checked_add(1).unwrap_or_else(|| fail("overflow"));
+            }
             if thought.calls.is_empty() || thought.calls.len() > MAX_CALLS_PER_THOUGHT {
                 fail("bad_calls");
             }
@@ -1056,12 +1177,14 @@ impl Contract {
             }
             hires.push(PlannedHire {
                 thought: i,
-                worker,
+                worker: worker.clone(),
                 kind: hire.kind,
                 skill: hire.skill,
                 fee: hire.fee.0,
                 price: thought.price.0,
             });
+            let delta = experience_delta.entry(worker).or_default();
+            delta.0 = delta.0.checked_add(1).unwrap_or_else(|| fail("overflow"));
         }
 
         // The money: a pet's own hire is paid from the food given to it only, the rest from the
@@ -1194,6 +1317,21 @@ impl Contract {
             .unwrap_or_else(|| fail("daily_cap"));
         pet.debit_day = day;
         take_ordinary_food(pet, from_given, rest, job.as_ref());
+        // Keep existing food and daily-cap refusals ahead of the new storage check. A
+        // short pool still rolls the entire transaction back before any payout.
+        let new_records = experience_delta
+            .keys()
+            .filter(|id| self.experience_counts.get(*id).is_none())
+            .count();
+        let reserve = u128::try_from(new_records)
+            .unwrap_or_else(|_| fail("overflow"))
+            .checked_mul(u128::from(EXPERIENCE_COUNT_BYTES))
+            .and_then(|bytes| bytes.checked_mul(env::storage_byte_cost().as_yoctonear()))
+            .unwrap_or_else(|| fail("overflow"));
+        self.pool = self
+            .pool
+            .checked_sub(reserve)
+            .unwrap_or_else(|| fail("pool_empty"));
         pet.last_debit_id = debit_id;
         self.pets.insert(token_id.clone(), record);
         if let Some(active) = job {
@@ -1230,6 +1368,33 @@ impl Contract {
         for hire in &hires {
             self.introduce_pair(&token_id, &hire.worker);
         }
+        let before_counts = env::storage_usage();
+        for (id, (hires, errands)) in experience_delta {
+            let mut counts = self.experience_counts.get(&id).cloned().unwrap_or_default();
+            counts.paid_hires = counts
+                .paid_hires
+                .checked_add(hires)
+                .unwrap_or_else(|| fail("overflow"));
+            counts.completed_errands = counts
+                .completed_errands
+                .checked_add(errands)
+                .unwrap_or_else(|| fail("overflow"));
+            self.experience_counts.insert(id, counts);
+        }
+        self.experience_counts.flush();
+        let written = env::storage_usage()
+            .checked_sub(before_counts)
+            .unwrap_or_else(|| fail("overflow"));
+        let cost = u128::from(written)
+            .checked_mul(env::storage_byte_cost().as_yoctonear())
+            .unwrap_or_else(|| fail("overflow"));
+        if cost > reserve {
+            fail("experience_storage_bound");
+        }
+        self.pool = self
+            .pool
+            .checked_add(reserve - cost)
+            .unwrap_or_else(|| fail("overflow"));
 
         self.thoughts_paid = self
             .thoughts_paid
@@ -1256,6 +1421,7 @@ impl Contract {
                 worker: thought.worker,
                 job_hash: thought.job_hash,
                 funding: std::mem::take(&mut receipt_funding[i]),
+                completed_errand: thought.completed_errand,
             }
             .emit();
             if let Some(hire) = planned.next_if(|h| h.thought == i) {
@@ -2223,6 +2389,7 @@ mod tests {
             worker: None,
             hire: None,
             job_hash: None,
+            completed_errand: false,
         };
         testing_env!(context(server(), 2_000, 0).build());
         // 2.5e21 from the project's 2e21 and 0.5e21 of the given food
@@ -2968,6 +3135,7 @@ mod tests {
                 fee: U128(fee),
             }),
             job_hash: None,
+            completed_errand: false,
         }
     }
 

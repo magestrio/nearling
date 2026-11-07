@@ -34,6 +34,12 @@
 .ds-text--measure { max-width: var(--size-measure); }
 .ds-tabular { font-variant-numeric: tabular-nums; }
 
+/* Facts: a semantic list with the Work record's inline, word-wrapping count line. */
+.ds-facts { margin: var(--space-0); }
+.ds-facts__pair, .ds-facts dt, .ds-facts dd { display: inline; margin: var(--space-0); }
+.ds-facts__pair + .ds-facts__pair::before { content: " · "; white-space: pre-wrap; }
+.ds-facts dd::before { content: " "; white-space: pre-wrap; }
+
 .ds-heading { margin: var(--space-0); text-wrap: balance; }
 .ds-heading--wide { font-stretch: var(--font-width-display); }
 .ds-heading--center { text-align: center; }
@@ -138,12 +144,16 @@
 }
 
 .ds-surface {
-  border: var(--stroke-hairline) solid transparent;
+  border: var(--stroke-selected) solid transparent;
   border-radius: var(--radius-lg);
   background: var(--color-bg-raised);
   padding: var(--space-5);
 }
 .ds-surface--raised-2 { background: var(--color-bg-raised-2); }
+.ds-surface--selected { border-color: var(--color-selected); }
+@media (forced-colors: active) {
+  .ds-surface--selected { border-color: Highlight; }
+}
 
 /* the bottom of a fill page: its full content height remains in the page's flow */
 .ds-dock { flex: none; padding-block: var(--space-3) max(var(--space-3), env(safe-area-inset-bottom)); }
@@ -1074,6 +1084,16 @@
 .ds-message__foot { display: flex; align-items: flex-start; gap: var(--space-1); color: var(--color-text-secondary); }
 .ds-message__foot .ds-message__meta { padding-block-start: calc((var(--size-target) - var(--size-line)) / 2); }
 .ds-message__meta { display: flex; flex-direction: column; gap: var(--space-1); }
+/* The report's outcome shares its price row on desktop and follows it at the left on a phone. */
+.ds-message--report.ds-message--has-foot { width: 100%; }
+.ds-message--report.ds-message--has-foot .ds-message__bubble { box-sizing: border-box; width: 100%; }
+.ds-message--report.ds-message--has-foot .ds-message__foot { box-sizing: border-box; width: 100%; flex-wrap: wrap; align-items: center; }
+.ds-message--report.ds-message--has-foot .ds-message__foot .ds-message__meta { padding-block-start: var(--space-0); }
+.ds-message__extra { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-1); min-height: var(--size-target); min-width: var(--space-0); margin-inline-start: auto; }
+.ds-message--report.ds-message--has-foot .ds-message__foot--with-extra .ds-message__extra { flex-basis: 100%; margin-inline-start: var(--space-0); }
+@media (min-width: 768px) {
+  .ds-message--report.ds-message--has-foot .ds-message__foot--with-extra .ds-message__extra { flex-basis: auto; margin-inline-start: auto; }
+}
 .ds-message__verify {
   display: inline-grid;
   flex: none;

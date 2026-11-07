@@ -54,6 +54,7 @@ export interface FakePet {
 export interface FakeThought {
   price: string;
   calls: unknown[];
+  completed_errand?: boolean;
   job_hash?: string;
   worker?: string;
   hire?: { kind: 'player' | 'pet'; skill: boolean; fee: string };
@@ -87,6 +88,7 @@ const unknownAccount = (account: string) => ({
 
 /** A storage record of an acquaintance, 72 bytes (`KNOWN_RECORD_BYTES`), in yoctoNEAR. */
 const KNOWN_COST = 720_000_000_000_000_000_000n;
+const EXPERIENCE_COUNT_COST = 880_000_000_000_000_000_000n;
 
 /** The storage of one riddle commit, 81 bytes (`RIDDLE_COMMIT_BYTES`), in yoctoNEAR. */
 const RIDDLE_COMMIT_COST = 810_000_000_000_000_000_000n;
@@ -148,6 +150,7 @@ export class FakeContract {
   debitFails: string | null = null;
   bornToday = 0;
   pool = 1_000_000_000_000_000_000_000_000n; // 1 NEAR
+  experienceCounts = new Map<string, { paid_hires: number; completed_errands: number }>();
   nextId = 0;
   serverBalance = 10_000_000_000_000_000_000_000_000n;
   /** Every contract view call the Worker made, as `method:args`. */
@@ -242,6 +245,11 @@ export class FakeContract {
       }
       case 'showcase_view':
         return this.showcaseNumbers;
+      case 'experience_view': {
+        const id = String(args.token_id);
+        if (!this.pets.has(id)) return null;
+        return { token_id: id, ...(this.experienceCounts.get(id) ?? { paid_hires: 0, completed_errands: 0 }), counted_since: 0 };
+      }
       case 'hatch_view':
         return {
           token_id: this.hatchedBy.get(String(args.account_id)) ?? null,
@@ -365,6 +373,14 @@ export class FakeContract {
       rest -= linkedSpent;
     }
     const sum = rest + fromGivenOnly + linkedSpent;
+    const countedIds = new Set<string>();
+    if (thoughts.some((thought) => thought.completed_errand)) countedIds.add(tokenId);
+    for (const thought of thoughts) {
+      if (thought.completed_errand && (thought.worker !== undefined || thought.hire !== undefined)) return { code: 'errand_with_worker' };
+      if (thought.hire !== undefined && thought.worker !== undefined) countedIds.add(thought.worker);
+    }
+    const countCost = BigInt([...countedIds].filter((id) => !this.experienceCounts.has(id)).length) * EXPERIENCE_COUNT_COST;
+    if (this.pool < countCost) return { code: 'pool_empty' };
     const already = pet.debit_day === this.day ? BigInt(pet.debited_today) : 0n;
     if (already + sum > 50_000_000_000_000_000_000_000n) return { code: 'daily_cap' };
     const project = BigInt(pet.project_food);
@@ -394,6 +410,14 @@ export class FakeContract {
     pet.debit_day = this.day;
     pet.debited_today = (already + sum).toString();
     pet.last_debit_id = debitId;
+    this.pool -= countCost;
+    for (const id of countedIds) {
+      const prior = this.experienceCounts.get(id) ?? { paid_hires: 0, completed_errands: 0 };
+      this.experienceCounts.set(id, {
+        paid_hires: prior.paid_hires + thoughts.filter((thought) => thought.hire !== undefined && thought.worker === id).length,
+        completed_errands: prior.completed_errands + (id === tokenId ? thoughts.filter((thought) => thought.completed_errand).length : 0),
+      });
+    }
     for (const { worker, workerId, fee, price } of hires) {
       worker.given_food = (BigInt(worker.given_food) + fee - price).toString();
       worker.jobs_today = (worker.jobs_today ?? 0) + 1;
@@ -759,7 +783,8 @@ export class FakeContract {
         for (const thought of args.thoughts as FakeThought[]) {
           const receipt = { token_id: String(args.token_id), debit_id: Number(args.debit_id),
             model: (thought as FakeThought & { model: string }).model, price: thought.price,
-            calls: thought.calls, ...(thought.worker === undefined ? {} : { worker: thought.worker }),
+            calls: thought.calls, completed_errand: thought.completed_errand ?? false,
+            ...(thought.worker === undefined ? {} : { worker: thought.worker }),
             ...(thought.job_hash === undefined ? {} : { job_hash: thought.job_hash,
               funding: (this.sharedEntries.get(String(args.token_id)) ?? []).flatMap((entry, index) => entry.spent === 0n ? [] : [{ index, kind: entry.kind, amount: entry.spent.toString() }]) }) };
           logs.push(`EVENT_JSON:${JSON.stringify({ standard: 'nearling', version: '1.0.0', event: 'receipt', data: [receipt] })}`);

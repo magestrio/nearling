@@ -234,7 +234,7 @@ describe('Hire food data', () => {
     expect(record).toMatchObject({ worker_id: WORKER, hirer_id: PAYER, hirer_name: 'Pixel', fee_yocto: FEE.toString(), answer_yocto: price.toString(), kind: 'player', day: chainDay });
     expect(record.earned_usd_micros).toBeGreaterThan(0);
     expect(record.hire_id).toBe((await rows('SELECT id FROM hires'))[0].id);
-    expect(h.events().filter((e) => e.name === 'pet_hired')).toEqual([{ name: 'pet_hired', props: { by: 'player', skill: false, adapter: false } }]);
+    expect(h.events().filter((e) => e.name === 'pet_hired')).toEqual([{ name: 'pet_hired', props: { by: 'player', skill: false, adapter: false, experience: false } }]);
     // the fee is out of the hirer's food once: the fullness did not move when the batch landed
     expect(await unbilledYocto(env.DB, PAYER)).toBe(0n);
     expect(await level(tk)).toBeCloseTo(before, 9);
@@ -256,7 +256,7 @@ describe('Hire food data', () => {
     const [hire] = await rows('SELECT * FROM hires');
     expect(hire).toMatchObject({ kind: 'pet', mode: 'auto', status: 'recorded' });
     expect((await rows('SELECT kind, hirer_name FROM work_records'))).toEqual([{ kind: 'pet', hirer_name: 'Pixel' }]);
-    expect(h.events().filter((e) => e.name === 'pet_hired')).toEqual([{ name: 'pet_hired', props: { by: 'pet', mode: 'auto', skill: false, adapter: false } }]);
+    expect(h.events().filter((e) => e.name === 'pet_hired')).toEqual([{ name: 'pet_hired', props: { by: 'pet', mode: 'auto', skill: false, adapter: false, experience: false } }]);
     // the pair is written in the network, and the worker's day has one more job
     expect(fake(PAYER).work_known).toEqual([WORKER]);
     expect(fake(WORKER).jobs_today).toBe(1);

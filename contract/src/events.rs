@@ -3,6 +3,10 @@ use near_sdk::{AccountId, near};
 
 use crate::pet::{Stage, Trait};
 
+fn is_false(value: &bool) -> bool {
+    !*value
+}
+
 /// How the signature of a call was produced (`near-ai` › signatures).
 #[near(serializers = [json])]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -64,6 +68,8 @@ pub struct ThoughtReceipt {
     pub hire: Option<HireEntry>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub job_hash: Option<String>,
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub completed_errand: bool,
 }
 
 #[near(serializers = [json])]
@@ -143,6 +149,8 @@ pub enum NearlingEvent {
         job_hash: Option<String>,
         #[serde(skip_serializing_if = "Vec::is_empty")]
         funding: Vec<FundingSpend>,
+        #[serde(default, skip_serializing_if = "is_false")]
+        completed_errand: bool,
     },
 
     /// A hire was recorded, right after the receipt of the worker's answer (`Hire debit

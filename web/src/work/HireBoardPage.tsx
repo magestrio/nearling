@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { AccountControl } from '../account/AccountControl';
-import { Button, Cluster, Grid, Header, Heading, Live, Note, Page, Shell, Skeleton, SkillBadge, Stack, Surface, Text, TextField } from '../ds';
+import { Button, Cluster, Grid, Header, Heading, Live, Note, Page, Shell, Skeleton, SkillBadge, Stack, Surface, Text, TextField, TextLink } from '../ds';
 import { resetTime } from '../lib/time';
 import { PetFigure } from '../pet/PetFigure';
 import { useAuth } from '../seams/auth';
@@ -8,6 +8,8 @@ import { WorkerError, workerApi } from '../seams/worker';
 import type { HireBoard } from '../seams/worker-types';
 import { useSignIn } from '../signin/signIn';
 import { boardMatches } from './board';
+import { workRecordPath } from '../route';
+import { countedDate } from '../experience/recordState';
 import './hireBoard.css';
 
 const FRESH = 'Availability may have changed. We check again before your question is sent.';
@@ -35,9 +37,14 @@ function Card({ pet }: { pet: HireBoard['pets'][number] }) {
     <Picture tokenId={pet.tokenId} name={pet.name} state={pet.status === 'asleep' ? 'asleep' : 'full'} />
     <Heading level={2} variant="title-3">{pet.name}</Heading>
     <SkillBadge name={pet.name} label={pet.label} />
+    {pet.experience?.field || (pet.experience && (pet.experience.paidHires > 0 || pet.experience.completedErrands > 0)) ? <Stack gap={1}>
+      {pet.experience.field ? <Text>{pet.experience.field}</Text> : null}
+      <Text variant="small" tone="secondary">{`${pet.experience.paidHires} paid hires · ${pet.experience.completedErrands} errands since ${countedDate(pet.experience.countedSince)}`}</Text>
+    </Stack> : null}
     <Text variant="small" tone="secondary">{pet.yours ? 'Yours' : `${pet.price.cents}¢ to ask`}</Text>
     <Note tone="plain">{statusLine(pet)}</Note>
     <Button variant="secondary" href={`/pet/${pet.tokenId}`} block>{`Visit ${pet.name}`}</Button>
+    {pet.experience?.field || (pet.experience && (pet.experience.paidHires > 0 || pet.experience.completedErrands > 0)) ? <TextLink href={workRecordPath(pet.tokenId)} tone="quiet" iconEnd="chevron">View work record</TextLink> : null}
   </Stack></Surface>;
 }
 

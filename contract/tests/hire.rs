@@ -2,7 +2,8 @@ mod common;
 
 use common::*;
 use nearling_contract::limits::{
-    DAY_NS, HIRE_FEE_MAX, HIRE_FEE_MIN, MAX_JOBS_PER_DAY, MIN_FEED, PAIR_MAX_BYTES,
+    DAY_NS, EXPERIENCE_COUNT_BYTES, HIRE_FEE_MAX, HIRE_FEE_MIN, MAX_JOBS_PER_DAY, MIN_FEED,
+    PAIR_MAX_BYTES,
 };
 use serde_json::{Value, json};
 
@@ -82,6 +83,7 @@ async fn today(ctx: &Ctx) -> anyhow::Result<u64> {
 
 // spec: add-pet-work › Hire debit contract › найм записан
 // spec: add-pet-work › Known pets rule › совет знакомит
+// spec: add-pet-experience › Experience record contract › paid work accepted
 #[tokio::test]
 async fn a_hire_is_recorded_with_its_money_its_counter_its_pair_and_its_events_in_order()
 -> anyhow::Result<()> {
@@ -146,15 +148,23 @@ async fn a_hire_is_recorded_with_its_money_its_counter_its_pair_and_its_events_i
         2 * PLAIN + PRICE
     );
 
-    // The pair: one record, both pets list the other, the pool paid the bytes written.
+    // The pair and the worker's first experience count both stake bytes from the pool.
     assert_eq!(hirer["work_known"], json!(["1"]));
     assert_eq!(worker["work_known"], json!(["0"]));
+    let experience: Value = ctx
+        .contract
+        .view("experience_view")
+        .args_json(json!({"token_id": "1"}))
+        .await?
+        .json()?;
+    assert_eq!(experience["paid_hires"], 1);
     let written = ctx.storage_usage().await? - storage_before;
     let byte = 10_000_000_000_000_000_000u128;
     assert_eq!(pool_before - ctx.pool().await?, u128::from(written) * byte);
     assert_eq!(
-        written, PAIR_MAX_BYTES,
-        "two pets with no index entry: the worst pair"
+        written,
+        PAIR_MAX_BYTES + EXPERIENCE_COUNT_BYTES,
+        "the first hire stakes the pair and the worker's first count"
     );
     Ok(())
 }
@@ -379,10 +389,13 @@ async fn an_advice_makes_the_two_pets_known_both_ways() -> anyhow::Result<()> {
 }
 
 // spec: add-pet-work › Known pets contract › пул не покрывает знакомство
+// spec: add-pet-experience › Experience record contract › paid work accepted
 #[tokio::test]
 async fn a_pool_below_the_pairs_bytes_accepts_the_hire_and_writes_no_pair() -> anyhow::Result<()> {
     let Pair { ctx, .. } = pair(STARTER_FOOD, 4 * FEE).await?;
-    let short = u128::from(PAIR_MAX_BYTES) * 10_000_000_000_000_000_000u128 - 1;
+    let byte = 10_000_000_000_000_000_000u128;
+    let count_cost = u128::from(EXPERIENCE_COUNT_BYTES) * byte;
+    let short = u128::from(PAIR_MAX_BYTES) * byte - 1;
     ctx.set_pool(short).await?;
     let treasury_before = ctx.balance_of(ctx.treasury.id()).await?;
     let storage = ctx.storage_usage().await?;
@@ -397,8 +410,19 @@ async fn a_pool_below_the_pairs_bytes_accepts_the_hire_and_writes_no_pair() -> a
         ctx.balance_of(ctx.treasury.id()).await? - treasury_before,
         PRICE
     );
-    assert_eq!(ctx.pool().await?, short, "the pool is as it was");
-    assert_eq!(ctx.storage_usage().await?, storage, "no byte written");
+    assert_eq!(
+        ctx.pool().await?,
+        short - count_cost,
+        "only the count is staked"
+    );
+    assert_eq!(ctx.storage_usage().await?, storage + EXPERIENCE_COUNT_BYTES);
+    let experience: Value = ctx
+        .contract
+        .view("experience_view")
+        .args_json(json!({"token_id": "1"}))
+        .await?
+        .json()?;
+    assert_eq!(experience["paid_hires"], 1);
     assert!(worker["work_known"].as_array().unwrap().is_empty());
     assert!(
         ctx.pet_view("0").await?["work_known"]
@@ -413,6 +437,13 @@ async fn a_pool_below_the_pairs_bytes_accepts_the_hire_and_writes_no_pair() -> a
         .await?
         .into_result()?;
     assert_eq!(ctx.pet_view("1").await?["work_known"], json!(["0"]));
+    let experience: Value = ctx
+        .contract
+        .view("experience_view")
+        .args_json(json!({"token_id": "1"}))
+        .await?
+        .json()?;
+    assert_eq!(experience["paid_hires"], 2);
     assert_eq!(ctx.pool().await?, 0);
     Ok(())
 }

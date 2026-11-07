@@ -212,6 +212,13 @@ export function showcaseView(env: Pick<Env, 'NEAR_RPC_URL' | 'CONTRACT_ID'>): Pr
   return view<ShowcaseNumbers>(env, 'showcase_view', {});
 }
 
+/** Word-free permanent paid-work counts, or null for an unknown NFT. */
+export function experienceView(env: Pick<Env, 'NEAR_RPC_URL' | 'CONTRACT_ID'>, tokenId: string): Promise<{
+  token_id: string; paid_hires: number; completed_errands: number; counted_since: number;
+} | null> {
+  return view(env, 'experience_view', { token_id: tokenId });
+}
+
 /** The chain's UTC day now: the contract's own `day_of(block_timestamp)`, which `hatch_view` returns
  * whichever account is asked (`pet-life` design.md › Chain time). One caller reads it for the counted
  * day; `ChainUnreachable` when it cannot be read, and the caller takes the Worker's clock. */

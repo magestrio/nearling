@@ -9,6 +9,7 @@ import { energyLeft, readLife } from '../pet/life';
 import { foodState, type FoodState } from '../pet/view';
 import { fullness, HIRE_AUTO_LIMIT_YOCTO, minCallPrice, TYPICAL_IN } from '../pricing';
 import type { CandidateLine } from '../prompt';
+import { publicFields, publicWorkLabels } from '../experience/publicFacts';
 import { priceOf } from './quote';
 import type { HireMode } from './mode';
 
@@ -130,6 +131,7 @@ async function readCandidates(env: Env, hirer: Hirer, mode: HireMode, now: numbe
     const fromFeeders = (await Promise.all(confirmed.map((a) => tokenIdsOf(env, a, READ_LIMIT)))).flat();
     ids = [...new Set([...fromFeeders, ...(hirer.pet.work_known ?? [])])].filter((id) => id !== hirer.tokenId).slice(0, READ_LIMIT);
     // Read and checked side by side: a turn with a hire to weigh waits no longer than the slowest of them.
+    const fields = await publicFields(env.DB);
     const checked = await Promise.all(
       ids.map(async (id) => {
         const pet = await petView(env, id);
@@ -138,7 +140,11 @@ async function readCandidates(env: Env, hirer: Hirer, mode: HireMode, now: numbe
     );
     const fit: Candidate[] = [];
     for (const { id, pet, check } of checked) {
-      if (check.ok && pet !== null) fit.push({ tokenId: id, name: pet.name, pet, character: pet.character, label: check.label, skilled: check.skilled, price: check.price });
+      if (check.ok && pet !== null) {
+        const experience = await publicWorkLabels(env, id, pet, fields);
+        fit.push({ tokenId: id, name: pet.name, pet, character: pet.character, label: check.label,
+          skilled: check.skilled, price: check.price, experience });
+      }
     }
     return [...shuffled(fit.filter((c) => c.skilled)), ...shuffled(fit.filter((c) => !c.skilled))].slice(0, OFFER_LIMIT);
   } catch (e) {

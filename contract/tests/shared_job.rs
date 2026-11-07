@@ -589,6 +589,7 @@ fn max_record_serialization_fits_reserved_stake() {
     assert_eq!(key_bytes + value_bytes + 40, SHARED_JOB_MAX_BYTES as usize);
 }
 
+// spec: add-account › Showcase view contract › upgrade of a contract with pets
 #[tokio::test]
 async fn v7_migration_keeps_pets_and_showcase_totals() -> anyhow::Result<()> {
     let ctx = setup(BIG_POOL).await?;
@@ -612,7 +613,8 @@ async fn v7_migration_keeps_pets_and_showcase_totals() -> anyhow::Result<()> {
         .transact()
         .await?
         .into_result()?;
-    assert_eq!(ctx.read_state().await?.len(), old_bytes + 5);
+    // The shared-job map adds 5 bytes; experience adds its 5-byte map and 8-byte date.
+    assert_eq!(ctx.read_state().await?.len(), old_bytes + 5 + 13);
     assert_eq!(ctx.pet_view("0").await?, pet);
     let after: Value = ctx.contract.view("showcase_view").await?.json()?;
     assert_eq!(after, showcase);

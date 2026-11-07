@@ -129,8 +129,15 @@ async fn built_wasm_exposes_version_and_source_metadata() -> anyhow::Result<()> 
     let pool_before_migration = ctx.pool().await?;
     let state = ctx.read_state().await?;
     let counters = borsh::to_vec(&(1u64, 0u64, 0u128))?;
-    assert_eq!(&state[state.len() - 5..], &[1, 0, 0, 0, b'j']);
-    let old_end = state.len() - 5;
+    assert_eq!(
+        &state[state.len() - 13..state.len() - 8],
+        &[1, 0, 0, 0, b'c']
+    );
+    assert_eq!(
+        &state[state.len() - 18..state.len() - 13],
+        &[1, 0, 0, 0, b'j']
+    );
+    let old_end = state.len() - 18;
     assert_eq!(&state[old_end - 24 - counters.len()..old_end - 24], counters);
     let old_tail = old_end - 24 - counters.len() - 5;
     assert_eq!(&state[old_tail..old_tail + 5], &[1, 0, 0, 0, b'g']);

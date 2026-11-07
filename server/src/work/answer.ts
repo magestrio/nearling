@@ -20,6 +20,7 @@ import { setPause } from '../servicePause';
 import { DATA_MAX_TOKENS, loadOffer, numbered, runDataStep, sourceLabelsOf, type Read } from '../sources/step';
 import { callsUsd12, CHAT_TIMEOUT_MS, countEmpty, FREE_EMPTY_ANSWERS, hex, projectPays, randomId, refusalOf, yoctoMicros, type Answer, type SignedCall } from '../spend';
 import { track } from '../track';
+import { approvedWorkNotes, workNoteData } from '../experience/use';
 import { quotesInstruction } from './leak';
 import { answered, release } from './quote';
 import { readSkill, SkillUnreadable } from './skill';
@@ -50,6 +51,8 @@ export interface WorkerAsk {
 export interface WithData {
   /** The worker's data call, signed, when one was made: call `n = 0` of the receipt, label `data`. */
   data: SignedCall | null;
+  /** A private approved note entered this request; its request bytes must never leave the Worker. */
+  experience?: boolean;
 }
 
 export type WorkerOutcome =
@@ -107,6 +110,8 @@ export async function workerCall(env: Env, ask: WorkerAsk): Promise<WorkerOutcom
   const life = await readLife(env.DB, worker.id);
   const food = await foodState(env.DB, worker.id, worker.pet, start);
   const layers = { mood: moodOf(fullness(food.eff).state, life.moodDay, today), energyPercent: energyLeft(life, today) * 10, outfit: await wornOf(env.DB, worker.id) };
+  const notes = await approvedWorkNotes(env.DB, worker.id, worker.pet);
+  const noteData = workNoteData(notes);
 
   // The data step: the worker's data call and the tools it asks for, run by the server. The call is cheaper than the fee
   // by construction, like the answer; a worker with no data to read makes none (`Adapter call rule`).
@@ -114,7 +119,7 @@ export async function workerCall(env: Env, ask: WorkerAsk): Promise<WorkerOutcom
   let reads: Read[] = [];
   const offer = skill === null ? null : await loadOffer(env, worker.id);
   if (offer !== null && skill !== null) {
-    const dataMessages = workerMessages(worker.pet, ask.question, layers, skill.instruction, [DATA_CALL_LINE], ask.prior ?? null);
+    const dataMessages = workerMessages(worker.pet, ask.question + noteData, layers, skill.instruction, [DATA_CALL_LINE], ask.prior ?? null);
     const dataBound = inputBound(dataMessages) + offer.toolsBytes;
     const dataTokens = ceilingFor(env, dataBound, ask.fee - 1n, DATA_MAX_TOKENS);
     if (dataTokens < 1) return back({ kind: 'failed', code: 'ai_unavailable' });
@@ -135,7 +140,7 @@ export async function workerCall(env: Env, ask: WorkerAsk): Promise<WorkerOutcom
 
   const messages = workerMessages(
     worker.pet,
-    ask.question,
+    ask.question + noteData,
     layers,
     skill?.instruction ?? null,
     reads.length === 0 ? [] : [RETELL_LINE, MARKET_LINE],
@@ -169,7 +174,8 @@ export async function workerCall(env: Env, ask: WorkerAsk): Promise<WorkerOutcom
   const call: SignedCall = { answer, signed };
 
   const reply = replyOf(answer.content).trim();
-  const stopped = skill !== null && quotesInstruction(skill.instruction, reply);
+  const stopped = (skill !== null && quotesInstruction(skill.instruction, reply))
+    || notes.some((note) => quotesInstruction(note, reply));
   const empty = stopped || !hasVisible(reply);
   const skilled = skill !== null;
   // By usage, and never as high as the fee: what the answer cost above it was the project's.
@@ -191,21 +197,24 @@ export async function workerCall(env: Env, ask: WorkerAsk): Promise<WorkerOutcom
     // The fourth: the pet pays the call by usage, but nothing reached the asker, so the worker's place goes back and
     // its count and price stay (`Hire quote data` › «no answer»; §8 › Ответы работника за день counts shown answers).
     console.log(stopped ? 'worker_stopped' : 'worker_empty_paid');
-    return back({ kind: 'empty', call, data, price, skilled, stopped });
+    return back({ kind: 'empty', call, data, price, skilled, stopped,
+      ...(notes.length > 0 ? { experience: true } : {}) });
   }
 
   // The paying pet's memory was cleared since its job was claimed: nobody keeps this answer, so the worker did no
   // work worth a place, a step of energy or a deed (`Hire quote data` › «no answer»).
   if (ask.payerEpoch !== undefined && (await memoryEpoch(env.DB, ask.payerId)) !== ask.payerEpoch) {
     console.log('worker_cleared');
-    return back({ kind: 'cleared', call, data, price, skilled });
+    return back({ kind: 'cleared', call, data, price, skilled,
+      ...(notes.length > 0 ? { experience: true } : {}) });
   }
 
   // The work itself: a step of energy, a better mood, a deed of the day, never a counted day (`Worker rule`).
   await spendEnergy(env.DB, worker.id, 'work', Date.now());
   await env.DB.batch([...noteMood(env.DB, worker.id, utcDay(Date.now())), ...noteDeed(env.DB, worker.id, 'work')]);
   await answered(env, worker.id, ask.day);
-  return { kind: 'answer', reply, call, data, price, skilled, labels };
+  return { kind: 'answer', reply, call, data, price, skilled, labels,
+    ...(notes.length > 0 ? { experience: true } : {}) };
 }
 
 const thoughtPriceOf = (env: Env, calls: { tokensIn: number; tokensOut: number }[]): bigint => (calls.length === 0 ? 0n : thoughtPrice(env, calls));
@@ -292,7 +301,7 @@ export function answerStatements(env: Env, a: StoredAnswer): { statements: D1Pre
         a.thoughtId,
         n,
         // No request bytes for a skilled answer: only the hash (`Skilled answer data` › «no request bytes»).
-        outcome.skilled || outcome.kind === 'cleared' ? new Uint8Array(0) : answer.reqBytes,
+        outcome.skilled || outcome.experience || outcome.kind === 'cleared' ? new Uint8Array(0) : answer.reqBytes,
         // A worker's data call can quote the skill too; its content is never needed after the answer call.
         stopped || outcome.kind === 'cleared' || label === 'data' ? new Uint8Array(0) : answer.resBytes,
         answer.reqSha,
@@ -314,7 +323,7 @@ export function answerStatements(env: Env, a: StoredAnswer): { statements: D1Pre
     hireAt = statements.length;
     statements.push(
       env.DB.prepare(
-        "INSERT INTO hires (id, turn_id, hirer_id, worker_id, worker_name, kind, mode, skilled, fee_yocto, fee_usd_micros, answer_thought_id, session_id, status, created_at) SELECT ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, 'unbilled', ?13 WHERE COALESCE((SELECT memory_epoch FROM pets WHERE token_id = ?3), 0) = ?14 RETURNING id",
+        "INSERT INTO hires (id, turn_id, hirer_id, worker_id, worker_name, kind, mode, skilled, fee_yocto, fee_usd_micros, answer_thought_id, session_id, status, created_at, experience) SELECT ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, 'unbilled', ?13, ?15 WHERE COALESCE((SELECT memory_epoch FROM pets WHERE token_id = ?3), 0) = ?14 RETURNING id",
       ).bind(
         randomId(),
         a.turnId,
@@ -330,6 +339,7 @@ export function answerStatements(env: Env, a: StoredAnswer): { statements: D1Pre
         a.sessionId,
         a.stored,
         a.epoch,
+        outcome.experience ? 1 : 0,
       ),
     );
   }

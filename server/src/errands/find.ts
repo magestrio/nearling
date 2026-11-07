@@ -18,6 +18,7 @@ import { setPause } from '../servicePause';
 import { track } from '../track';
 import { readSkill, SkillUnreadable } from '../work/skill';
 import { afterThought } from './after';
+import { captureWorkNote, stageNote, type CapturedNote } from '../experience/capture';
 import { cutBoundUsd, cutPrice, errandPrice, REASK_FUSE, REPORT_FUSE, SEARCH_IN, SEARCH_OUT_BOUND, searchQuote } from './price';
 import { numberResults, readReport, searchCallMessages, type Report } from './search';
 import { announceFailed, failErrand, tokensCostUsd, type ErrandRow, type FailReason, type Paid } from './store';
@@ -281,7 +282,8 @@ async function reportFrom(c: Ctx, call: Finished | Cut, signed: Signed | null): 
 
   // 4. A report that did not come: the pet pays the searches that ran, whatever happened to the report.
   if (broken) return came(c, thoughtId, searchTokens, ran, [], 'empty', cut);
-  const report = readReport(reply, items, c.form);
+  const captured = captureWorkNote(reply, answers[answers.length - 1]!.finishReason);
+  const report = readReport(captured.report, items, c.form);
   if (!hasVisible(report.text)) {
     // An empty report is free among the pet's first three failed calls of the UTC day, the pet's own from the fourth.
     const n = await countEmpty(env, c.tokenId, c.today);
@@ -293,7 +295,7 @@ async function reportFrom(c: Ctx, call: Finished | Cut, signed: Signed | null): 
     console.log('empty_paid');
     return came(c, thoughtId, searchTokens, ran, signedReport, 'empty', cut);
   }
-  return shown(c, thoughtId, searchTokens, ran, signedReport, report, reasked, ceiling, cut);
+  return shown(c, thoughtId, searchTokens, ran, signedReport, report, captured.note, reasked, ceiling, cut);
 }
 
 /** The data step of a pet whose skill has data sources or code (`Errand request data`, `Adapter call rule` › «data failed in
@@ -424,6 +426,7 @@ async function shown(
   ran: number,
   report: { answer: Answer; signed: Signed }[],
   text: Report,
+  note: CapturedNote | null,
   reasked: boolean,
   ceiling: number,
   cut: boolean,
@@ -439,6 +442,7 @@ async function shown(
     price,
     sessionId,
     report,
+    note,
     fields: { status: 'unbilled', price, text: c.job, reply: text.text, searches: ran, sources: JSON.stringify(text.sources), verdict: text.verdict, cut: reportCut, reasked },
   });
   if (!landed) return late(c, answers, c.dataCall === null ? [] : [c.dataCall.answer], 0);
@@ -459,7 +463,7 @@ const labelsJson = (labels: ReadonlyArray<string | { code: true }>): string | nu
 async function land(
   c: Ctx,
   thoughtId: string,
-  a: { state: 'done' | 'failed'; reason: FailReason | null; price: bigint; sessionId: string; report: { answer: Answer; signed: Signed }[]; fields: ThoughtFields },
+  a: { state: 'done' | 'failed'; reason: FailReason | null; price: bigint; sessionId: string; report: { answer: Answer; signed: Signed }[]; fields: ThoughtFields; note?: CapturedNote | null },
 ): Promise<boolean> {
   const { env } = c;
   const mine = `EXISTS (SELECT 1 FROM errands WHERE token_id = ?1 AND thought_id = ?2 AND state = ?3 AND reason IS ?4)`;
@@ -472,7 +476,7 @@ async function land(
       .bind(c.tokenId, c.row.id, a.state, a.reason, a.price.toString()),
     env.DB
       .prepare(
-        `UPDATE thoughts SET player_text = ?5, reply_text = ?6, price_yocto = ?7, price_usd_micros = ?8, cut = ?9, reasked = ?10, session_id = ?11, status = 'unbilled', sources = ?12, verdict = ?13, searches = ?14, data_labels = ?15, data_missed = ?16, near_usd_rate = ?17
+        `UPDATE thoughts SET player_text = ?5, reply_text = ?6, price_yocto = ?7, price_usd_micros = ?8, cut = ?9, reasked = ?10, session_id = ?11, status = 'unbilled', sources = ?12, verdict = ?13, searches = ?14, data_labels = ?15, data_missed = ?16, near_usd_rate = ?17, completed_errand = CASE WHEN ?3 = 'done' THEN 1 ELSE 0 END
          WHERE id = ?2 AND status = 'away' AND ${mine}`,
       )
       .bind(
@@ -526,6 +530,7 @@ async function land(
         ),
     ),
     ...eraseIfCleared(env.DB, c.tokenId, thoughtId, c.epoch, c.now),
+    ...stageNote(env.DB, { thoughtId, tokenId: c.tokenId, note: a.note ?? null, at: c.now, epoch: c.epoch, owner: c.pet.owner_id, generation: c.pet.transfer_generation }),
   ]);
   return (written[0]?.results.length ?? 0) > 0;
 }

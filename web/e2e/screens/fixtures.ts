@@ -1,6 +1,6 @@
 import type { Page } from '@playwright/test';
 import type { FakeState, FakeWorkerState } from '../../src/seams/fakes';
-import type { AdviceRead, CatalogEntryView, ConversationLine, ErrandForm, ErrandReport, ErrandState, FeedSheetData, Fullness, HireMeta, OutfitSlug, SheetPortion, SourceView, ToolView, VerificationThought } from '../../src/seams/worker-types';
+import type { AdviceRead, CatalogEntryView, ConversationLine, ErrandForm, ErrandReport, ErrandState, ExperienceNotes, FeedSheetData, Fullness, HireMeta, OutfitSlug, SheetPortion, SourceView, ToolView, VerificationIndex, VerificationThought, WorkRecord } from '../../src/seams/worker-types';
 import { SAMPLE_DAY, sampleDiary } from '../../src/seams/diary.sample';
 import type { DiaryView } from '../../src/seams/worker-types';
 import type { HireBoard } from '../../src/seams/worker-types';
@@ -853,7 +853,61 @@ function hireBoardSample(kind: 'own' | 'three' | 'asleep' | 'resting' | 'paused'
   return { pets: BOARD_PETS.slice(0, kind === 'own' ? 5 : kind === 'three' ? 3 : 4), visits: [] };
 }
 
+const EXP_A = 'a'.repeat(24);
+const EXP_B = 'b'.repeat(24);
+const EXPERIENCE: ExperienceNotes = { tokenId: '9', generation: 1, field: null, notes: [
+  { id: EXP_A, text: 'Rail operators often sell cheaper fares on their own sites than aggregators show.', proposedField: 'Worked on comparing train fares', sourceReportId: EXP_A, sourceForm: 'find', at: Date.parse('2026-11-11T12:00:00Z'), approved: true },
+  { id: EXP_B, text: 'Is it true? checks go faster when the claim names a date and a place.', proposedField: 'Worked on checking claims', sourceReportId: EXP_B, sourceForm: 'check', at: Date.parse('2026-11-11T11:00:00Z'), approved: false },
+] };
+const expNote = (n: number, text: string, form: 'find' | 'check', day: number, approved: boolean): ExperienceNotes['notes'][number] =>
+  ({ id: `${n}`.repeat(24), text, proposedField: 'Worked on comparing train fares', sourceReportId: `${n}`.repeat(24), sourceForm: form, at: Date.parse(`2026-11-${String(day).padStart(2, '0')}T12:00:00Z`), approved });
+const SIX_NOTES = [
+  EXPERIENCE.notes[0]!, EXPERIENCE.notes[1]!,
+  expNote(3, 'Checking an operator fare calendar can reveal cheaper midweek trains.', 'find', 10, true),
+  expNote(4, 'A claim is easier to check when its original source and publication date are available.', 'check', 9, false),
+  expNote(5, 'Moving a return trip off Sunday can lower a weekend train fare.', 'find', 8, true),
+  expNote(6, 'Comparing headline fares alone can miss booking fees.', 'find', 7, true),
+];
+const REPLACEMENT_NOTE = expNote(7, 'Weekend fares on the Berlin–Prague line rise after Thursday.', 'find', 12, false);
+const experienceFixture = (experience: ExperienceNotes | { fail: { status: number; code: string } } = EXPERIENCE, extras: Partial<FakeWorkerState> = {}): ScreenFixture => ({
+  route: '/pet/9/experience', fakes: { auth: SIGNED_IN, worker: { owned: ['9'], pets: { '9': { ...PIXEL, worn: 'thinking-cap' } }, experience, toastHeld: true, ...extras } },
+});
+
+const RECORD_DATE = Date.UTC(2026, 10, 7) * 1_000_000;
+const WORK_RECORD: WorkRecord = { tokenId: '9', counts: { paidHires: 3, completedErrands: 5, countedSince: RECORD_DATE },
+  field: { wording: 'Worked on comparing train fares', sourceReportId: EXP_A }, receipts: [
+    { thoughtId: 'c'.repeat(24), tokenId: '9', debitTxHash: 'tx-hire', at: Date.parse('2026-11-12T12:00:00Z'), kind: 'hire_answer' },
+    { thoughtId: EXP_A, tokenId: '9', debitTxHash: 'tx-errand', at: Date.parse('2026-11-11T12:00:00Z'), kind: 'errand_find' },
+  ] };
+const recordFixture = (record: WorkRecord | { fail: { status: number; code: string } } = WORK_RECORD, extras: Partial<FakeWorkerState> = {}): ScreenFixture => ({
+  route: '/pet/9/work', fakes: { auth: SIGNED_IN, worker: { pets: { '9': { ...PIXEL, worn: 'thinking-cap' } }, workRecord: record, ...extras } },
+});
+const reportExperienceFixture = (hasNote: boolean): ScreenFixture => {
+  const proof = verificationFakes({ variant: 'errand' }).worker!.verificationThoughts![THINK_ID] as VerificationThought;
+  return { route: '/pet/9', fakes: { auth: SIGNED_IN, worker: errandOwner(REPORT_TAIL, {
+    fullness: ERRAND_LOWER,
+    extra: { verificationThoughts: { e1: { ...proof, id: 'e1', paidWork: true, containsWorkNote: hasNote } } },
+  }) }, prepare: async (page) => { await page.getByText(hasNote ? 'New work note' : 'No work note this time').waitFor(); await errandLines(page, '3 searches · 1.4¢'); } };
+};
+
 export const fixtures: Record<string, ScreenFixture> = {
+  // spec: add-pet-experience › Work record screen › success
+  'record': { ...recordFixture(), hiddenCopy: ['Paid hires: {n} · Completed errands: {m} · Counted since {date}'] },
+  // spec: add-pet-experience › Work record screen › empty
+  'record-empty': recordFixture({ ...WORK_RECORD, counts: { ...WORK_RECORD.counts, paidHires: 0, completedErrands: 0 }, field: null, receipts: [] }),
+  // spec: add-pet-experience › Work record screen › loading
+  'record-loading': recordFixture(WORK_RECORD, { workRecordDelayMs: FOREVER }),
+  // spec: add-pet-experience › Work record screen › error
+  'record-error': recordFixture({ fail: { status: 503, code: 'chain_unreachable' } }),
+  // spec: add-pet-experience › Work record screen › signed-out
+  'record-signed-out': { ...recordFixture(), fakes: { worker: { pets: { '9': { ...PIXEL, worn: 'thinking-cap' } }, workRecord: WORK_RECORD } } },
+  // spec: add-pet-experience › Work record screen › asleep
+  'record-asleep': recordFixture(WORK_RECORD, { pets: { '9': { ...PIXEL, worn: 'thinking-cap', fullness: { state: 'asleep', level: 0 } } } }),
+  // spec: add-pet-experience › Experience discovery rule › board card
+  'hire-experience': { route: '/hire', fakes: { auth: SIGNED_IN, worker: { hireBoard: { ...hireBoardSample('own'),
+    pets: hireBoardSample('own').pets.map((pet) => pet.tokenId === '9' ? { ...pet,
+      yours: false, experience: { field: WORK_RECORD.field!.wording, ...WORK_RECORD.counts } } : pet) } } },
+    prepare: async (page) => { await page.getByText(WORK_RECORD.field!.wording).waitFor(); } },
   // spec: add-pet-errands › Watch sheet screen › success
   'watch-success': { route: '/pet/9', fakes: { auth: SIGNED_IN, worker: ACTIVE_WATCH }, beforeLoad: (page) => page.clock.install({ time: new Date('2026-11-11T12:00:00.000Z') }), prepare: async (page) => { await page.getByRole('button', { name: 'Watch something' }).click(); await page.getByRole('dialog', { name: 'Watch something' }).getByLabel('What should Pixel watch?').waitFor(); } },
   // spec: add-pet-errands › Watch sheet screen › error
@@ -3703,4 +3757,99 @@ export const fixtures: Record<string, ScreenFixture> = {
   'hatch-no-pets': { route: '/hatch', fakes: { auth: SIGNED_IN, worker: { hatchStatus: { open: true, noPets: true, lastGifted: PIXEL_REF } } } },
   // spec: add-gift › Several pets rule › питомцев не осталось, рождения закрыты
   'hatch-no-pets-closed': { route: '/hatch?from=2', fakes: { auth: SIGNED_IN, worker: { hatchStatus: { open: false, reason: 'daily', until: MIDNIGHT_UTC, noPets: true, lastGifted: PIXEL_REF }, pets: { '2': BISCUIT } } } },
+  // spec: add-pet-experience › Experience notes screen › success
+  'exp-notes': experienceFixture(),
+  // spec: add-pet-experience › Experience notes screen › empty
+  'exp-notes-empty': experienceFixture({ ...EXPERIENCE, notes: [] }),
+  // spec: add-pet-experience › Experience notes screen › loading
+  'exp-notes-loading': experienceFixture(EXPERIENCE, { experienceDelayMs: FOREVER }),
+  // spec: add-pet-experience › Experience notes screen › error
+  'exp-notes-error': experienceFixture({ fail: { status: 503, code: 'chain_unreachable' } }),
+  // spec: add-pet-experience › Experience notes screen › signed-out
+  'exp-notes-signed-out': { route: '/pet/9/experience', fakes: { worker: { pets: { '9': { ...PIXEL, worn: 'thinking-cap' } }, experience: EXPERIENCE } } },
+  // spec: add-pet-experience › Experience notes screen › asleep
+  'exp-notes-asleep': experienceFixture(EXPERIENCE, { pets: { '9': { ...PIXEL, worn: 'thinking-cap', fullness: { state: 'asleep', level: 0 } } } }),
+  // spec: add-pet-experience › Experience transfer flow › gift confirmed
+  'exp-notes-new-owner': experienceFixture({ ...EXPERIENCE, notes: EXPERIENCE.notes.map((note) => ({ ...note, approved: false })) }),
+  // spec: add-pet-experience › Experience approval flow › approve note
+  'exp-note-approved': { ...experienceFixture(), prepare: async (page) => {
+    await page.getByRole('button', { name: /Use in outside answers for/ }).click();
+    await page.getByText('Used in outside answers').first().waitFor();
+    await page.mouse.move(0, 0);
+  } },
+  // spec: add-pet-experience › Experience approval flow › revoke note
+  'exp-note-revoked': { ...experienceFixture(), prepare: async (page) => {
+    await page.getByRole('button', { name: /Stop using for/ }).click();
+    await page.getByText('Private again').first().waitFor();
+    await page.mouse.move(0, 0);
+  } },
+  // spec: add-pet-experience › Experience approval flow › publish field
+  'exp-field-published': { ...experienceFixture(), prepare: async (page) => {
+    await page.getByRole('button', { name: 'Publish field' }).click();
+    await page.getByRole('dialog', { name: 'Publish field' }).getByRole('button', { name: 'Publish field' }).click();
+    await page.getByText('Field published').first().waitFor();
+    await page.mouse.move(0, 0);
+  } },
+  // spec: add-pet-experience › Experience approval flow › lost ownership
+  'exp-lost-ownership': { ...experienceFixture(), prepare: async (page) => {
+    await page.getByText(EXPERIENCE.notes[0]!.text).first().waitFor();
+    await setWorker(page, { owned: [] });
+    await lookAgain(page);
+    await page.getByText('Pixel belongs to someone else now.').first().waitFor();
+  } },
+  // spec: add-pet-experience › Field sheet screen › success
+  'field-sheet': { ...experienceFixture(), prepare: async (page) => { await page.getByRole('button', { name: 'Publish field' }).click(); await settle(page); } },
+  // spec: add-pet-experience › Field sheet screen › error
+  'field-sheet-error': { ...experienceFixture(), prepare: async (page) => {
+    // opened by keyboard: the h1 the closing sheet hands focus to then shows its ring, as the frame draws it
+    await page.getByRole('button', { name: 'Publish field' }).focus();
+    await page.keyboard.press('Enter');
+    await setWorker(page, { owned: [] });
+    await lookAgain(page);
+    await page.getByText('Pixel belongs to someone else now.').first().waitFor();
+  } },
+  // spec: add-pet-experience › Experience capture flow › eligible report
+  'errand-report-note': reportExperienceFixture(true),
+  // spec: add-pet-experience › Experience capture flow › output budget leaves no note
+  'errand-report-no-note': reportExperienceFixture(false),
+  // spec: add-pet-experience › Experience capture flow › seventh note
+  'exp-notes-replaced': { ...experienceFixture({ ...EXPERIENCE, notes: SIX_NOTES }), prepare: async (page) => {
+    await page.getByText(SIX_NOTES[5]!.text).first().waitFor();
+    await setWorker(page, { experience: { ...EXPERIENCE, notes: [REPLACEMENT_NOTE, ...SIX_NOTES.slice(0, 5)] } });
+    await lookAgain(page);
+    await page.getByText('Oldest note replaced').first().waitFor();
+  } },
+  // spec: add-pet-experience › Experience clear flow › clear warning
+  'clear-memory-experience': { route: '/pet/9', fakes: { auth: SIGNED_IN, worker: { ...owner(), experience: EXPERIENCE, workRecord: WORK_RECORD } }, prepare: async (page) => {
+    await ownerReady(page); await openClearDialog(page);
+    await page.getByText('Work notes and the public field will be erased. Paid work counts and receipts stay public forever.').waitFor();
+    await settle(page);
+  } },
+  // spec: add-pet-experience › Experience clear flow › memory cleared
+  'clear-memory-done-experience': { route: '/pet/9', fakes: { auth: SIGNED_IN, worker: { ...owner(), experience: EXPERIENCE, workRecord: WORK_RECORD } }, prepare: async (page) => {
+    await ownerReady(page);
+    await typeLine(page, TYPED);
+    await openClearDialog(page);
+    await page.getByText('Work notes and the public field will be erased. Paid work counts and receipts stay public forever.').waitFor();
+    await page.getByRole('button', { name: 'Clear memory' }).click();
+    await page.getByText('Experience notes cleared. Public work history remains.').waitFor();
+    await page.mouse.move(0, 0);
+    await settle(page);
+  } },
+  // spec: add-pet-experience › Experience claim rule › public proof opened
+  'verify-work-receipt': (() => { const proof = verificationFakes({ signedOut: true, variant: 'worker' });
+    const row = proof.worker!.verificationThoughts![THINK_ID] as VerificationThought;
+    const answeredAt = Date.UTC(2026, 9, 30, 13, 57);
+    proof.worker!.verificationThoughts![THINK_ID] = { ...row, paidWork: true, at: answeredAt };
+    // Nori's list in the frame: the ringed receipt at 13:57 and five more (design/bundle/screens/verify.js › ROWS.Nori)
+    const index = proof.worker!.verificationIndex as VerificationIndex;
+    index.thoughts[0]!.at = answeredAt;
+    const more: Array<[string, number, number, number, string]> = [
+      ['1', 30, 11, 20, '190000000000000000000'], ['2', 29, 18, 5, '170000000000000000000'], ['3', 22, 10, 14, '170000000000000000000'],
+      ['4', 21, 9, 40, '150000000000000000000'], ['5', 20, 18, 2, '170000000000000000000'],
+    ];
+    index.thoughts.push(...more.map(([key, day, hour, minute, priceYocto]) => ({ ...index.thoughts[0]!, id: key.repeat(24),
+      at: Date.UTC(2026, 9, day, hour, minute), priceYocto })));
+    return { route: `/pet/5/verify/${THINK_ID}`, fakes: proof };
+  })(),
 };

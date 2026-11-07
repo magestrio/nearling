@@ -263,6 +263,7 @@ export async function clean(env: Env, nowMs: number): Promise<void> {
   await cleanJudgeCodes(env.DB, nowMs);
   await env.EVENTS.prepare('DELETE FROM showcase_event_counts WHERE expires_at <= ?').bind(nowMs).run();
   if (nowMs >= JUDGE_DELETE_AT) await env.EVENTS.prepare('DELETE FROM showcase_card_shared').run();
+  if (nowMs >= JUDGE_DELETE_AT) await env.EVENTS.prepare('DELETE FROM experience_events').run();
   await env.DB.batch([
     env.DB.prepare("DELETE FROM jobs WHERE created_at < ? AND status IN ('done', 'failed')").bind(nowMs - 86_400_000),
     env.DB.prepare('DELETE FROM empty_answers WHERE day < ?').bind(utcDay(nowMs) - 1),

@@ -55,7 +55,9 @@ describe('Errand debit contract', () => {
     // the form, the job, the sources and the number of searches don't leave
     const args = JSON.stringify(h.net().contract.sends.map((s) => s.args));
     expect(args).not.toMatch(/Leonids|find|form|sources|searches|site11|November/);
-    expect(Object.keys(sent).sort()).toEqual(['calls', 'model', 'price']);
+    // THEN the accepted completed owner errand contributes its word-free marker to the receipt.
+    expect(Object.keys(sent).sort()).toEqual(['calls', 'completed_errand', 'model', 'price']);
+    expect(sent.completed_errand).toBe(true);
     expect(await env.DB.prepare("SELECT status FROM thoughts WHERE id = ?").bind(thought.id).first()).toEqual({ status: 'billed' });
   });
 
@@ -97,9 +99,9 @@ describe('Errand debit contract', () => {
   it('adds a per-thought estimate: errands and plain thoughts share a batch until the logs would reach the bound', async () => {
     h.net().contract.addPet(PET, OWNER, { project_food: (100n * BigInt(env.STARTER_FOOD)).toString() });
     await seed(3, 4);
-    // 9 plain thoughts of one call: 3 × 2,290 + 9 × 760 = 13,710 < 14,000, so all 12 go together
-    expect(3 * receiptBytes(4) + 9 * receiptBytes(1)).toBeLessThan(MAX_LOG_BYTES_PER_DEBIT);
-    expect(3 * receiptBytes(4) + 10 * receiptBytes(1)).toBeGreaterThan(MAX_LOG_BYTES_PER_DEBIT);
+    // The completed-errand field adds bytes to every receipt; the ninth plain thought needs a second batch.
+    expect(3 * receiptBytes(4) + 8 * receiptBytes(1)).toBeLessThan(MAX_LOG_BYTES_PER_DEBIT);
+    expect(3 * receiptBytes(4) + 9 * receiptBytes(1)).toBeGreaterThan(MAX_LOG_BYTES_PER_DEBIT);
     for (let i = 0; i < 9; i += 1) {
       await env.DB
         .prepare("INSERT INTO thoughts (id, token_id, created_at, kind, model, price_yocto, price_usd_micros, payer, session_id, status) VALUES (?, ?, ?, 'reply', ?, '1000', 1, 'pet', 'seeded-session', 'unbilled')")
@@ -111,6 +113,6 @@ describe('Errand debit contract', () => {
         .run();
     }
     await tick(env, later());
-    expect(h.net().contract.debits.map((d) => d.thoughts.length)).toEqual([12]);
+    expect(h.net().contract.debits.map((d) => d.thoughts.length)).toEqual([11, 1]);
   });
 });

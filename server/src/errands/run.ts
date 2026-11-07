@@ -32,6 +32,7 @@ import {
 import { track } from '../track';
 import { readSkill, SkillUnreadable } from '../work/skill';
 import { afterThought } from './after';
+import { captureWorkNote, stageNote } from '../experience/capture';
 import { blocksOf } from './blocks';
 import { findErrand } from './find';
 import { settleInterrupted } from './late';
@@ -190,6 +191,8 @@ async function readErrand(env: Env, tokenId: string, epoch: number, row: ErrandR
     }
 
     // 6. A report with no reply: free among the pet's first three empty answers of the UTC day, the pet's from the fourth.
+    const captured = captureWorkNote(reply, answers[answers.length - 1]!.finishReason);
+    reply = captured.report;
     const empty = !hasVisible(reply);
     if (empty) {
       const n = await countEmpty(env, tokenId, today);
@@ -224,11 +227,11 @@ async function readErrand(env: Env, tokenId: string, epoch: number, row: ErrandR
         .bind(tokenId, row.id, empty ? 'failed' : 'done', empty ? 'empty' : null, thoughtId, price.toString()),
       env.DB
         .prepare(
-          `INSERT INTO thoughts (id, token_id, created_at, kind, player_text, reply_text, model, price_yocto, price_usd_micros, cut, reasked, payer, session_id, status, skilled, recall, form, sources, verdict, searches, near_usd_rate)
-           SELECT ?1, ?2, ?3, 'errand', ?4, ?5, ?6, ?7, ?8, ?9, ?10, 'pet', ?11, 'unbilled', ?12, 0, 'read', ?13, NULL, 0, ?14
+          `INSERT INTO thoughts (id, token_id, created_at, kind, player_text, reply_text, model, price_yocto, price_usd_micros, cut, reasked, payer, session_id, status, skilled, recall, form, sources, verdict, searches, near_usd_rate, completed_errand)
+           SELECT ?1, ?2, ?3, 'errand', ?4, ?5, ?6, ?7, ?8, ?9, ?10, 'pet', ?11, 'unbilled', ?12, 0, 'read', ?13, NULL, 0, ?14, ?15
            WHERE EXISTS (SELECT 1 FROM errands WHERE token_id = ?2 AND thought_id = ?1)`,
         )
-        .bind(thoughtId, tokenId, now, job, empty ? null : reply.trim(), env.MODEL_ID, price.toString(), yoctoMicros(env, price), cut, reasked ? 1 : 0, sessionId, skilled ? 1 : 0, sources, env.NEAR_USD_RATE),
+        .bind(thoughtId, tokenId, now, job, empty ? null : reply.trim(), env.MODEL_ID, price.toString(), yoctoMicros(env, price), cut, reasked ? 1 : 0, sessionId, skilled ? 1 : 0, sources, env.NEAR_USD_RATE, empty ? 0 : 1),
       ...calls.map(({ answer, signed }, n) =>
         env.DB
           .prepare(
@@ -255,6 +258,7 @@ async function readErrand(env: Env, tokenId: string, epoch: number, row: ErrandR
           ),
       ),
       ...eraseIfCleared(env.DB, tokenId, thoughtId, epoch, now),
+      ...stageNote(env.DB, { thoughtId, tokenId, note: empty ? null : captured.note, at: now, epoch, owner: pet.owner_id, generation: pet.transfer_generation }),
     ]);
     if ((written[0]?.results.length ?? 0) === 0) {
       // The 3 minutes ran out first: nothing of the report is stored and the pet pays nothing more.

@@ -332,7 +332,7 @@ describe('Adapter call rule · the chain', () => {
     ai().push(ASK_DATA, { content: 'A rocket.' });
     await advise(tk, { text: 'What happened on 3 November?' });
     await tick(env, Date.now() + 11 * 60_000);
-    expect(h.events().filter((e) => e.name === 'pet_hired')).toEqual([{ name: 'pet_hired', props: { by: 'player', skill: true, adapter: true } }]);
+    expect(h.events().filter((e) => e.name === 'pet_hired')).toEqual([{ name: 'pet_hired', props: { by: 'player', skill: true, adapter: true, experience: false } }]);
     const sent = h.net().contract.debits[0]!.thoughts[0]!;
     expect(sent.calls.map((c: any) => c.sig_kind)).toEqual(['provider_tee', 'provider_tee']);
   });

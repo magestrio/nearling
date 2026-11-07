@@ -1,6 +1,7 @@
 import { env } from 'cloudflare:workers';
 import { describe, expect, it } from 'vitest';
 import { run } from '../src/spend';
+import { tick } from '../src/cron';
 import { api, harness } from './helpers/api';
 import { NEAR_ACCOUNT, token } from './helpers/network';
 import { addPets, advise, payerToken, workerToken, WORKER } from './helpers/work';
@@ -154,6 +155,22 @@ describe('verification reads', () => {
     const ownerRead = (await api(path, { token: payingOwner })).body;
     expect(ownerRead.viewer).toBe('owner');
     expect(ownerRead.privateCalls[0].replyBase64).toBeTruthy();
+  });
+
+  // spec: add-pet-experience › Experience claim rule › public proof opened
+  it('marks a recorded player advice hire as paid work for a visitor', async () => {
+    addPets(h);
+    const payer = await payerToken();
+    await advise(payer);
+    const row = await env.DB.prepare("SELECT id FROM thoughts WHERE kind = 'advice'").first<{ id: string }>();
+    await tick(env, Date.now() + 11 * 60_000);
+    const proof = await api(`/api/verification/pets/${WORKER}/thoughts/${row!.id}`);
+    expect(proof.body).toMatchObject({ kind: 'advice', viewer: 'visitor', paidWork: true });
+    const link = await api(`/api/verification/pets/${WORKER}/thoughts/${row!.id}/links`,
+      { token: payer, body: { operationId: 'advice_experience_001' } });
+    expect(link.status).toBe(200);
+    const shared = await api(`/api/verification/receipts/${link.body.code}`);
+    expect(shared.body.thought).toMatchObject({ kind: 'advice', paidWork: true });
   });
 
   // spec: add-verification › Receipt index data › поручение

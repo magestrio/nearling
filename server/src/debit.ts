@@ -17,6 +17,7 @@ import { wakeIfFed } from './pet/wake';
 import { gasShareYocto, nearUsdRate, yoctoToUsdMicros } from './pricing';
 import { gasIsLow } from './servicePause';
 import { track } from './track';
+import { recordExperienceEvent } from './experience/events';
 
 const SESSION_QUIET_MS = 10 * 60_000;
 export const MAX_THOUGHTS_PER_DEBIT = 12;
@@ -26,7 +27,8 @@ export const MAX_THOUGHTS_PER_DEBIT = 12;
 export const MAX_LOG_BYTES_PER_DEBIT = 14_000;
 /** A receipt's log at its longest: fixed and per-call bytes, plus the worker field and the separate hire event.
  * The first two terms cover the stage-1 receipt measure; the latter terms keep a hire batch below the log cap. */
-const RECEIPT_BASE_BYTES = 250;
+// The receipt now serializes `completed_errand` even when false (25 bytes including JSON punctuation).
+const RECEIPT_BASE_BYTES = 275;
 const RECEIPT_CALL_BYTES = 510;
 const WORKER_BYTES = 60;
 const HIRE_EVENT_BYTES = 300;
@@ -61,7 +63,10 @@ interface ThoughtRow {
   hire_skilled: number | null;
   /** 1 when the answer read a data source (`pet_hired { adapter }`). */
   hire_adapter: number | null;
+  hire_experience: number | null;
   hire_fee: string | null;
+  /** Only a shown, successful owner errand can carry the chain marker. */
+  completed_errand: number;
 }
 
 interface CallRow {
@@ -82,11 +87,11 @@ function micros(env: Env, yocto: bigint): number {
   return rate === null ? 0 : yoctoToUsdMicros(yocto, rate);
 }
 
-/** The gas to attach: a plain thought 1.25 Tgas (the sandbox measured 9.78 for 12, with a margin of 1.5), a thought
- * with a hire 1.9 (12 hires over new pairs burn 15.3 Tgas, ×1.5 is 23 for the batch), never under 5. */
-export function gasFor(thoughts: number, hires = 0, manyCalls = 0): string {
-  // A thought of 3–4 calls (an errand) burns 1.47 Tgas in the sandbox: ×1.5 is 2.25 (`add-pet-errands` design.md › Контракт).
-  const tgas = Math.max(5, Math.ceil((thoughts - hires - manyCalls) * 1.25 + hires * 1.9 + manyCalls * 2.25));
+/** First counted debit measured 2.588626 Tgas vs 2.409617 Tgas ordinary (experience.rs);
+ * 0.17901 × 1.5 rounds to 0.27 Tgas per counted receipt. Existing categories keep their margins. */
+export function gasFor(thoughts: number, hires = 0, manyCalls = 0, counted = 0): string {
+  // A thought of 3–4 calls burns 1.47 Tgas in the sandbox: ×1.5 is 2.25 (`add-pet-errands`).
+  const tgas = Math.max(5, Math.ceil((thoughts - hires - manyCalls) * 1.25 + hires * 1.9 + manyCalls * 2.25 + counted * 0.27));
   return (BigInt(tgas) * TGAS).toString();
 }
 
@@ -180,8 +185,9 @@ async function nextBatch(env: Env, sessionId: string): Promise<ThoughtRow[]> {
   const rows = (
     await env.DB.prepare(
       `SELECT t.id, t.model, t.price_yocto, t.shared_job_hash AS job_hash, CASE WHEN t.kind IN ('advice', 'hire_answer') THEN t.worker_id END AS worker,
+              t.completed_errand,
               (SELECT COUNT(*) FROM thought_calls c WHERE c.thought_id = t.id) AS calls,
-              h.id AS hire_id, h.kind AS hire_kind, h.mode AS hire_mode, h.skilled AS hire_skilled, h.fee_yocto AS hire_fee, (t.data_labels IS NOT NULL) AS hire_adapter
+              h.id AS hire_id, h.kind AS hire_kind, h.mode AS hire_mode, h.skilled AS hire_skilled, h.fee_yocto AS hire_fee, (t.data_labels IS NOT NULL) AS hire_adapter, h.experience AS hire_experience
        FROM thoughts t LEFT JOIN hires h ON h.answer_thought_id = t.id AND h.status = 'unbilled'
        WHERE t.session_id = ? AND t.status = 'unbilled' ORDER BY t.created_at, t.rowid LIMIT ?`,
     )
@@ -229,13 +235,42 @@ async function settle(env: Env, session: Pick<Session, 'id' | 'token_id'>, debit
   } else if (hires.length > 0) {
     statements.push(env.DB.prepare(`UPDATE hires SET status = 'dropped', dropped_code = ? WHERE ${live}`).bind(rejected, ...ids));
   }
+  const hasStaged = (await env.DB.prepare(`SELECT source_thought_id FROM experience_notes WHERE source_thought_id IN ${inIds} AND status = 'staged' LIMIT 1`).bind(...ids).first()) !== null;
+  let noteActivationAt: number | null = null;
+  if (hasStaged) {
+    // A confirmed debit can race a gift or a memory clear. Read the current chain owner before the atomic
+    // status change; a failed read leaves the batch in flight for reconciliation instead of approving stale data.
+    const current = status === 'billed' ? await petView(env, session.token_id) : null;
+    noteActivationAt = statements.length;
+    statements.push(env.DB.prepare(
+      `UPDATE experience_notes SET status = 'active' WHERE source_thought_id IN ${inIds} AND status = 'staged'
+       AND owner_account = ? AND owner_generation = ? AND memory_epoch = (SELECT memory_epoch FROM pets WHERE token_id = experience_notes.token_id)
+       AND EXISTS (SELECT 1 FROM thoughts t WHERE t.id = experience_notes.source_thought_id AND t.status = 'unbilled' AND t.erased_at IS NULL)`,
+    ).bind(...ids, current?.owner_id ?? '', current?.transfer_generation ?? -1));
+    statements.push(env.DB.prepare(`DELETE FROM experience_notes WHERE source_thought_id IN ${inIds} AND status = 'staged'`).bind(...ids));
+    if (status === 'billed') statements.push(env.DB.prepare(
+      `DELETE FROM experience_notes WHERE token_id = ? AND status = 'active' AND source_thought_id NOT IN
+       (SELECT source_thought_id FROM experience_notes WHERE token_id = ? AND status = 'active' ORDER BY created_at DESC, rowid DESC LIMIT 6)`,
+    ).bind(session.token_id, session.token_id));
+    if (status === 'billed') statements.push(env.DB.prepare(
+      `DELETE FROM experience_field WHERE token_id = ? AND source_thought_id NOT IN
+       (SELECT source_thought_id FROM experience_notes WHERE token_id = ? AND status = 'active')`,
+    ).bind(session.token_id, session.token_id));
+  }
   const at = statements.length;
   statements.push(
-    env.DB.prepare(`UPDATE thoughts SET status = ?, debit_tx_hash = ? WHERE id IN ${inIds} AND status = 'unbilled'`).bind(status, status === 'billed' ? txHash : null, ...ids),
+    env.DB.prepare(`UPDATE thoughts SET status = ?, debit_tx_hash = ?, debit_refusal_code = ? WHERE id IN ${inIds} AND status = 'unbilled'`)
+      .bind(status, status === 'billed' ? txHash : null, status === 'project' ? rejected || null : null, ...ids),
     env.DB.prepare('UPDATE debit_sessions SET debit_id = NULL, tx_hash = NULL WHERE id = ? AND debit_id IS ?').bind(session.id, debitId),
   );
   const results = await env.DB.batch(statements);
   const changed = results[at]?.meta.changes ?? 0;
+  if (changed > 0 && status === 'billed' && noteActivationAt !== null) {
+    for (let i = 0; i < (results[noteActivationAt]?.meta.changes ?? 0); i += 1) {
+      track('experience_note_saved', { source: 'errand' });
+      await recordExperienceEvent(env, 'experience_note_saved');
+    }
+  }
   if (changed > 0 && status === 'billed') await afterRecord(env, hires);
   return changed;
 }
@@ -245,7 +280,8 @@ async function settle(env: Env, session: Pick<Session, 'id' | 'token_id'>, debit
  * with the next poll otherwise. */
 async function afterRecord(env: Env, hires: ThoughtRow[]): Promise<void> {
   for (const hire of hires) {
-    track('pet_hired', { by: hire.hire_kind ?? 'player', ...(hire.hire_kind === 'pet' && hire.hire_mode !== null ? { mode: hire.hire_mode } : {}), skill: hire.hire_skilled === 1, adapter: hire.hire_adapter === 1 });
+    track('pet_hired', { by: hire.hire_kind ?? 'player', ...(hire.hire_kind === 'pet' && hire.hire_mode !== null ? { mode: hire.hire_mode } : {}), skill: hire.hire_skilled === 1, adapter: hire.hire_adapter === 1, experience: hire.hire_experience === 1 });
+    await recordExperienceEvent(env, 'pet_hired', { experience: hire.hire_experience === 1 });
   }
   for (const worker of new Set(hires.map((t) => t.worker))) {
     if (worker === null) continue;
@@ -333,6 +369,7 @@ async function debitSession(env: Env, session: Session, held: Claim, accepted: M
       // The worker of an answer, and the hire it is the fee of: the contract writes `hire` right after the receipt.
       ...(t.worker !== null ? { worker: t.worker } : {}),
       ...(t.job_hash === null ? {} : { job_hash: t.job_hash }),
+      ...(t.completed_errand === 1 ? { completed_errand: true } : {}),
       ...(t.worker !== null && t.hire_id !== null ? { hire: { kind: t.hire_kind, skill: t.hire_skilled === 1, fee: t.hire_fee } } : {}),
       calls: calls
         .filter((c) => c.thought_id === t.id)
@@ -360,7 +397,7 @@ async function debitSession(env: Env, session: Session, held: Claim, accepted: M
     const answer = await env.SERVER_KEY.get(env.SERVER_KEY.idFromName('server')).send({
       methodName: 'debit_session',
       args: { token_id: session.token_id, debit_id: debitId, thoughts },
-      gas: gasFor(batch.length, thoughts.filter((t) => 'hire' in t).length, batch.filter((t, i) => t.calls > 2 && !('hire' in thoughts[i]!)).length),
+      gas: gasFor(batch.length, thoughts.filter((t) => 'hire' in t).length, batch.filter((t, i) => t.calls > 2 && !('hire' in thoughts[i]!)).length, thoughts.filter((t) => 'hire' in t || 'completed_errand' in t).length),
       ...(shared === undefined ? {} : { writes: { kind: 'shared_debit' as const, sessionId: session.id, debitId } }),
     });
     if (answer.status === 'unreachable') return false;

@@ -108,6 +108,7 @@ export function Message({
   hue,
   verify,
   meta,
+  foot: extra,
   actions,
   kicker,
   verdict,
@@ -122,6 +123,7 @@ export function Message({
   hue?: Accent;
   verify?: { href: string; label: string };
   meta?: ReactNode | ReactNode[];
+  foot?: ReactNode;
   actions?: ReactNode;
   kicker?: string;
   verdict?: 'True' | 'False';
@@ -140,8 +142,8 @@ export function Message({
     ) : null;
   const bubbleType = from === 'event' ? 'type-small' : latest ? 'type-lead' : 'type-body';
   const foot =
-    verify || meta ? (
-      <div className="ds-message__foot">
+    verify || meta || extra ? (
+      <div className={cx('ds-message__foot', Boolean(meta) && extra != null && 'ds-message__foot--with-extra')}>
         {verify ? (
           <a className="ds-message__verify" href={verify.href} aria-label={verify.label}>
             <Icon name="verify" size="sm" />
@@ -154,6 +156,7 @@ export function Message({
             ))}
           </span>
         ) : null}
+        {extra != null ? <div className="ds-message__extra type-small">{extra}</div> : null}
       </div>
     ) : null;
   const head = [
@@ -189,7 +192,7 @@ export function Message({
   ) : null;
   return (
     <li
-      className={cx('ds-message', `ds-message--${from}`, latest && 'ds-message--latest', fresh && 'ds-message--fresh')}
+      className={cx('ds-message', `ds-message--${from}`, latest && 'ds-message--latest', fresh && 'ds-message--fresh', extra != null && 'ds-message--has-foot')}
       data-accent={hue}
       data-reveal={reveal ? '' : undefined}
     >

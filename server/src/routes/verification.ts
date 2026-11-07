@@ -29,9 +29,11 @@ interface Pointer {
   searches: number | null;
   data_labels: string | null;
   shared_job_hash: string | null;
+  completed_errand: number;
+  debit_refusal_code: string | null;
 }
 
-export function publicPointer(row: Pointer) {
+export function publicPointer(row: Pointer, hireRecorded = false) {
   const recorded = row.status === 'billed' && row.debit_tx_hash !== null;
   return {
     id: row.id,
@@ -51,6 +53,9 @@ export function publicPointer(row: Pointer) {
     adapterUsed: row.adapter_used === 1,
     form: row.form,
     searches: row.searches,
+    paidWork: recorded && (row.completed_errand === 1 || hireRecorded),
+    ...(row.status === 'project' && row.debit_refusal_code === 'pool_empty'
+      ? { billing: 'refused', code: 'pool_empty' } : {}),
     dataLabels: row.data_labels === null ? null : JSON.parse(row.data_labels) as string[],
   };
 }
@@ -75,12 +80,12 @@ async function codeHash(code: string): Promise<string> {
   return hex(new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(code))));
 }
 
-async function receiptData(db: D1Database, thought: string): Promise<{ row: (Pointer & ReceiptThought) | null; calls: StoredCall[]; hire: { fee_yocto: string; skilled: number; status: string } | null }> {
+async function receiptData(db: D1Database, thought: string): Promise<{ row: (Pointer & ReceiptThought) | null; calls: StoredCall[]; hire: { fee_yocto: string; skilled: number; status: string; experience: number } | null }> {
   const row = await db.prepare('SELECT * FROM thoughts WHERE id = ?').bind(thought).first<Pointer & ReceiptThought>();
   if (row === null) return { row, calls: [], hire: null };
   const calls = await db.prepare('SELECT * FROM thought_calls WHERE thought_id = ? ORDER BY n').bind(thought).all<StoredCall>();
-  const hire = await db.prepare('SELECT fee_yocto, skilled, status FROM hires WHERE answer_thought_id = ?')
-    .bind(thought).first<{ fee_yocto: string; skilled: number; status: string }>();
+  const hire = await db.prepare('SELECT fee_yocto, skilled, status, experience FROM hires WHERE answer_thought_id = ?')
+    .bind(thought).first<{ fee_yocto: string; skilled: number; status: string; experience: number }>();
   return { row, calls: calls.results, hire };
 }
 
@@ -88,16 +93,27 @@ async function currentPet(env: Env, paying: string): Promise<PetRecord | null> {
   return petView(env, paying);
 }
 
-function ownerPointer(row: Pointer) {
-  return { ...publicPointer(row), model: row.model, priceYocto: row.price_yocto,
+function ownerPointer(row: Pointer, hireRecorded: boolean) {
+  return { ...publicPointer(row, hireRecorded), model: row.model, priceYocto: row.price_yocto,
     nearUsdRate: row.near_usd_rate };
 }
 
-function publicShared(row: Pointer & ReceiptThought, calls: StoredCall[]) {
-  return { ...publicPointer(row), calls: calls.map((call) => ({ n: call.n,
+function publicShared(row: Pointer & ReceiptThought, calls: StoredCall[], hireRecorded: boolean) {
+  return { ...publicPointer(row, hireRecorded), calls: calls.map((call) => ({ n: call.n,
     reqSha256: call.req_sha256, resSha256: call.res_sha256,
     request: `calls/${call.n}/request`, reply: `calls/${call.n}/reply`,
-  })) };
+  })), containsWorkNote: calls.some((call) => signedReplyHasNote(call.res_bytes)) };
+}
+
+function signedReplyHasNote(bytes: ArrayBuffer | Uint8Array | null): boolean {
+  if (bytes === null) return false;
+  try {
+    const response = JSON.parse(new TextDecoder().decode(bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes))) as {
+      choices?: Array<{ message?: { content?: unknown } }>;
+    };
+    const content = response.choices?.[0]?.message?.content;
+    return typeof content === 'string' && /(?:^|\n)WORK_NOTE:[^\r\n]+\r?\nWORK_FIELD:[^\r\n]+\s*$/u.test(content);
+  } catch { return false; }
 }
 
 verificationRoutes.post('/api/verification/pets/:id/thoughts/:thought/links', async (c) => {
@@ -176,7 +192,7 @@ async function liveLink(env: Env, code: string) {
   const currentCalls = fresh.results.map((item) => ({ ...item, n: item.call_n }));
   if (!await intactCallHashes(currentCalls) || currentCalls.length !== calls.length)
     return { kind: 'unavailable' } as const;
-  return { kind: 'live', row: fresh.results[0]!, calls: currentCalls } as const;
+  return { kind: 'live', row: fresh.results[0]!, calls: currentCalls, hireRecorded: hire?.status === 'recorded' } as const;
 }
 
 verificationRoutes.get('/api/verification/receipts/:code', async (c) => {
@@ -187,7 +203,7 @@ verificationRoutes.get('/api/verification/receipts/:code', async (c) => {
     if (result.kind === 'unknown') return c.json({ code: 'unknown_link' }, 404);
     if (result.kind === 'revoked') return c.json({ code: 'revoked', tokenId: result.token, thoughtId: result.thought });
     if (result.kind === 'unavailable') return c.json({ code: 'receipt_unavailable' }, 409);
-    return c.json({ status: 'live', thought: publicShared(result.row, result.calls) });
+    return c.json({ status: 'live', thought: publicShared(result.row, result.calls, result.hireRecorded) });
   } catch (error) {
     if (error instanceof ChainUnreachable) return c.json({ code: 'chain_unreachable' }, 503);
     throw error;
@@ -270,8 +286,8 @@ verificationRoutes.get('/api/verification/pets/:id/thoughts/:thought', async (c)
   if (row === null) return c.json({ code: 'no_thought' }, 404);
   const calls = await c.env.DB.prepare('SELECT n, label, req_sha256, res_sha256, signature, sig_kind, signer, completion_id, tokens_in, tokens_out, tokens_reasoning, cut FROM thought_calls WHERE thought_id = ? ORDER BY n')
     .bind(thoughtId).all();
-  const fee = row.worker_id === null ? null : await c.env.DB.prepare('SELECT fee_yocto, fee_usd_micros FROM hires WHERE answer_thought_id = ?')
-    .bind(thoughtId).first<{ fee_yocto: string; fee_usd_micros: number }>();
+  const fee = row.worker_id === null ? null : await c.env.DB.prepare('SELECT fee_yocto, fee_usd_micros, experience, status FROM hires WHERE answer_thought_id = ?')
+    .bind(thoughtId).first<{ fee_yocto: string; fee_usd_micros: number; experience: number; status: string }>();
   let linkedFunding: Array<{ txHash: string; source: string; amountYocto: string }> = [];
   if (row.shared_job_hash !== null && row.status === 'billed' && row.debit_tx_hash !== null) {
     try {
@@ -288,7 +304,10 @@ verificationRoutes.get('/api/verification/pets/:id/thoughts/:thought', async (c)
       throw error;
     }
   }
-  const publicPart = { ...publicPointer(row), calls: row.status === 'billed' && row.debit_tx_hash !== null ? calls.results : [], fee, linkedFunding };
+  const hireRecorded = fee?.status === 'recorded';
+  const publicFee = fee === null ? null : { fee_yocto: fee.fee_yocto,
+    fee_usd_micros: fee.fee_usd_micros, experience: fee.experience };
+  const publicPart = { ...publicPointer(row, hireRecorded), calls: row.status === 'billed' && row.debit_tx_hash !== null ? calls.results : [], fee: publicFee, linkedFunding };
   const session = c.get('session');
   if (session === null) return c.json({ ...publicPart, viewer: 'visitor' });
   const paying = row.paying_token_id;
@@ -301,16 +320,19 @@ verificationRoutes.get('/api/verification/pets/:id/thoughts/:thought', async (c)
     throw error;
   }
   if (pet === null || pet.owner_id !== session.accountId) return c.json({ ...publicPart, viewer: 'guest' });
-  const ownerPart = { ...publicPart, ...ownerPointer(row) };
+  const ownerPart = { ...publicPart, ...ownerPointer(row, hireRecorded) };
   if (row.erased_at !== null) return c.json({ ...ownerPart, viewer: 'owner' });
   const words = await c.env.DB.prepare('SELECT player_text, reply_text FROM thoughts WHERE id = ? AND erased_at IS NULL')
     .bind(thoughtId).first<{ player_text: string | null; reply_text: string | null }>();
   const bytes = await c.env.DB.prepare('SELECT n, req_bytes, res_bytes FROM thought_calls WHERE thought_id = ? ORDER BY n')
     .bind(thoughtId).all<{ n: number; req_bytes: ArrayBuffer | Uint8Array; res_bytes: ArrayBuffer | Uint8Array }>();
   const privateCalls = bytes.results.map((call) => ({ n: call.n,
-    requestBase64: row.skilled === 1 || row.adapter_used === 1 ? null : encodeBytes(call.req_bytes),
+    requestBase64: row.skilled === 1 || row.adapter_used === 1 || fee?.experience === 1 ? null : encodeBytes(call.req_bytes),
     replyBase64: encodeBytes(call.res_bytes),
   }));
-  return c.json({ ...ownerPart, viewer: 'owner', playerText: words?.player_text ?? null,
+  const containsWorkNote = bytes.results.some((call) => signedReplyHasNote(call.res_bytes));
+  return c.json({ ...ownerPart, viewer: 'owner', containsWorkNote,
+    publicationWarning: containsWorkNote ? `This may reveal ${pet.name}'s work note along with the report.` : null,
+    playerText: words?.player_text ?? null,
     replyText: words?.reply_text ?? null, privateCalls });
 });

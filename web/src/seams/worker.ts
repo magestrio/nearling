@@ -10,6 +10,8 @@ import type {
   CodeTestResult,
   Conversation,
   DiaryView,
+  ExperienceNotes,
+  WorkRecord,
   ErrandQuote,
   SharedErrand,
   FeedOutcome,
@@ -105,6 +107,11 @@ async function callReceiptBytes(code: string, n: number, part: 'request' | 'repl
 const id = (tokenId: string) => encodeURIComponent(tokenId);
 
 const real: WorkerApi = {
+  experience: (token, tokenId) => call<ExperienceNotes>(`/api/pets/${id(tokenId)}/experience`, token),
+  workRecord: (tokenId) => call<WorkRecord>(`/api/pets/${id(tokenId)}/work`, null),
+  experienceRecordOpened: (ids) => call<void>('/api/experience/record-opened', null, { method: 'POST', body: ids }),
+  approveExperience: (token, tokenId, noteId, approved, generation) => call(`/api/pets/${id(tokenId)}/experience/notes/${id(noteId)}/approval`, token, { method: 'PUT', body: { approved, generation } }),
+  publishExperienceField: (token, tokenId, noteId, generation) => call(`/api/pets/${id(tokenId)}/experience/field`, token, { method: 'POST', body: { noteId, generation } }),
   health: () => call<Health>('/health', null),
   showcase: () => call<ShowcaseCopy>('/api/showcase', null),
   hireBoard: (token) => call<HireBoard>('/api/hire', token),

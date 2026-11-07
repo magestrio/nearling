@@ -80,10 +80,10 @@ async function hashMatches(bytes: Uint8Array, expected: string): Promise<boolean
 
 /** Refuses ambiguous or incomplete evidence. A thought id is not on chain, so its full call
  * tuple must select exactly one receipt inside the executed batch. */
-export async function matchingReceipt(env: Env, row: ReceiptThought, calls: StoredCall[], hire: { fee_yocto: string; skilled: number; status: string } | null): Promise<boolean> {
+export async function matchingReceipt(env: Env, row: ReceiptThought, calls: StoredCall[], hire: { fee_yocto: string; skilled: number; status: string; experience: number } | null): Promise<boolean> {
   if (row.status !== 'billed' || row.debit_tx_hash === null || row.paying_token_id === null
     || row.receipt_token_id === null || row.link_eligible !== 1 || row.skilled === 1
-    || row.adapter_used === 1 || row.erased_at !== null || !intactCalls(calls)
+    || row.adapter_used === 1 || hire?.experience === 1 || row.erased_at !== null || !intactCalls(calls)
     || row.receipt_token_id !== (row.kind === 'hire_question' ? row.paying_token_id : (row.worker_id ?? row.paying_token_id))) return false;
   if (!await intactCallHashes(calls)) return false;
   const outcome = await receiptTransaction(env, row.debit_tx_hash, env.SERVER_ACCOUNT_ID) as Outcome;

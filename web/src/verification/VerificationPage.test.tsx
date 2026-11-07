@@ -11,6 +11,12 @@ const record = { name: 'Pixel', characterHash: 'a'.repeat(64), character: 'check
   items: [], source: { version: '1', link: 'https://example.test' } };
 
 describe('Verification receipt page', () => {
+  // spec: add-pet-experience › Experience claim rule › public proof opened
+  it('places the paid-work limitation beside a public receipt', () => {
+    const thought = verificationFakes({ signedOut: true }).worker!.verificationThoughts![THINK_ID] as VerificationThought;
+    const html = renderToStaticMarkup(<ReceiptPanel thought={{ ...thought, paidWork: true }} proof={null} record={record} payerName={null} />);
+    expect(html).toContain('A receipt records paid work. It does not prove the answer was correct.');
+  });
   // spec: add-verification › Verification flow › не сошлось
   it('shows the permanent model, tokens and cut-off, naming each pointer difference', () => {
     const row = verificationFakes().worker!.verificationThoughts![THINK_ID] as VerificationThought;

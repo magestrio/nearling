@@ -22,6 +22,13 @@ export const fakeNearRpc: NearRpc = {
             ? { hash: 'b'.repeat(64), state: 'funding', linked_near: shared.funded ?? '0', linked_snack: '0' } : null, } as T;
     }
     if (methodName === 'contract_source_metadata') return { version: '0.1.0', link: 'https://github.com/magestrio/nearling' } as T;
+    if (methodName === 'experience_view') {
+      const id = String(args.token_id ?? '9');
+      if (!fakeState().worker?.pets?.[id]) return null as T;
+      const counts = fakeState().worker?.workRecord;
+      const c = counts && !('fail' in counts) ? counts.counts : { paidHires: 0, completedErrands: 0, countedSince: Date.UTC(2026, 10, 7) * 1_000_000 };
+      return { token_id: id, paid_hires: c.paidHires, completed_errands: c.completedErrands, counted_since: c.countedSince } as T;
+    }
     return (fakeState().rpc?.viewResult ?? '0.1.0') as T;
   },
   async getBalance() {
