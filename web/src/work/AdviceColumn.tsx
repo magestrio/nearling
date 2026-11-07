@@ -44,7 +44,7 @@ import './advice.css';
 
 const accentOf = (tokenId: string): Accent => makePet(tokenId).hue as Accent;
 
-function EntryMessage({ entry, worker, myPet }: { entry: Entry; worker: { tokenId: string; name: string }; myPet: string }) {
+function EntryMessage({ entry, worker, myPet, payerId, onRetry }: { entry: Entry; worker: { tokenId: string; name: string }; myPet: string; payerId: string; onRetry: () => void }) {
   switch (entry.kind) {
     case 'asked':
       return (
@@ -77,6 +77,11 @@ function EntryMessage({ entry, worker, myPet }: { entry: Entry; worker: { tokenI
           {couldntHelpLine(worker.name)}
         </Message>
       );
+    case 'refusal':
+      return <Message from="event" fresh={entry.fresh}
+        verify={{ href: `/pet/${payerId}/verify/refusal/${entry.refusalId}`, label: 'Check this thought' }}>
+        {`${entry.reason} No food was spent.`}
+      </Message>;
     case 'error':
       // a cleared memory is the game's own event line, as on the hire side; only an answer lost in the empty case is an error
       return entry.code === 'cleared' ? (
@@ -84,8 +89,15 @@ function EntryMessage({ entry, worker, myPet }: { entry: Entry; worker: { tokenI
           {adviceClearedLine(myPet)}
         </Message>
       ) : (
-        <Message from="error" fresh={entry.fresh}>
-          {entry.code === 'data_failed' ? adviceDataFailedLine(worker.name) : entry.code === 'data_failed_paid' ? adviceDataFailedPaidLine(worker.name, myPet) : adviceEmptyLine(worker.name, myPet)}
+        <Message from="error" fresh={entry.fresh} actions={entry.code === 'screening_failed'
+          ? <Button variant="secondary" size="compact" onClick={onRetry}>Try again</Button>
+          : entry.code === 'screening_exhausted' || entry.code === 'screening_capacity'
+            ? <Button variant="secondary" size="compact" href="/hire">Ask another pet</Button> : undefined}>
+          {entry.code === 'screening_failed' ? `${worker.name} lost that thought. Nothing was spent — try again.`
+            : entry.code === 'screening_exhausted' ? `${worker.name} lost that thought. Nothing was spent. ${worker.name} is unavailable until tomorrow.`
+              : entry.code === 'screening_capacity' ? `${worker.name} is unavailable until tomorrow.`
+                : entry.code === 'data_failed' ? adviceDataFailedLine(worker.name)
+                  : entry.code === 'data_failed_paid' ? adviceDataFailedPaidLine(worker.name, myPet) : adviceEmptyLine(worker.name, myPet)}
         </Message>
       );
   }
@@ -187,7 +199,8 @@ function Column({ tokenId, name, asleep, advice }: SlotProps & { advice: NonNull
         {lead.action.label}
       </Button>
     ) : null
-  ) : blocker === 'cant_pay' ? (
+  ) : a.characterRefused ? <Button size="compact" variant="secondary" href="/hire">Ask another pet</Button>
+  : blocker === 'cant_pay' ? (
     // the state's one filled action: «Feed {name}» on the page steps down while the own pet can't pay
     <Button size="compact" icon="feed" haspopup="dialog" expanded={feedOpen || undefined} onClick={feedMineNow}>
       {feedMine(myPet)}
@@ -200,7 +213,7 @@ function Column({ tokenId, name, asleep, advice }: SlotProps & { advice: NonNull
       type="submit"
       price={price}
       busy={a.busy}
-      off={blocker !== null || read === null || a.draft.trim() === ''}
+      off={blocker !== null || a.screeningClosed || a.screeningFailed || read === null || a.draft.trim() === ''}
       onClick={() => void a.ask(a.draft)}
     >
       {read?.discounted ? 'Ask' : adviceButton(name)}
@@ -225,7 +238,7 @@ function Column({ tokenId, name, asleep, advice }: SlotProps & { advice: NonNull
           introOn="phone"
         >
           {a.entries.map((entry) => (
-            <EntryMessage key={entry.id} entry={entry} worker={{ tokenId, name }} myPet={myPet} />
+            <EntryMessage key={entry.id} entry={entry} worker={{ tokenId, name }} myPet={myPet} payerId={advice.payer.tokenId} onRetry={a.retry} />
           ))}
           {a.busy ? (
             <Thinking key="thinking" wait={a.waiting ? WAIT_LINE : undefined}>

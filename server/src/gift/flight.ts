@@ -49,6 +49,9 @@ async function finalise(env: Env, row: GiftFlight, when: number): Promise<void> 
       .bind(row.token_id, row.tx_hash, row.receiver),
     env.DB.prepare(`UPDATE receipt_links SET revoked_at = ?3 WHERE paying_token_id = ?1 AND revoked_at IS NULL AND ${open}`)
       .bind(row.token_id, row.tx_hash, when),
+    env.DB.prepare(`UPDATE work_invitations SET status = 'expired' WHERE status = 'open'
+      AND (sender_token = ?1 OR recipient_token = ?1) AND ${open}`)
+      .bind(row.token_id, row.tx_hash),
     env.DB.prepare("UPDATE gift_flights SET state = 'ok', resolved_at = ?3 WHERE token_id = ?1 AND tx_hash = ?2 AND state IN ('prepared', 'sending', 'unknown')")
       .bind(row.token_id, row.tx_hash, Date.now()),
   ]);

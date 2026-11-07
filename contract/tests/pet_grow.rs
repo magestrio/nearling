@@ -356,10 +356,17 @@ async fn a_pet_of_version_2_reads_with_no_traits_and_grows_by_twenty_bytes() -> 
 
     // The first write upgrades the record in place to the current one: the traits (2 bytes) and,
     // since `add-daily-ritual`, the counted streak day (8) and, since `add-wardrobe`, the items
-    // (1) and, since `add-pet-work`, the job counter (9), from the contract's balance.
+    // (1), since `add-pet-work`, the job counter (9), and the public wish reserve (17),
+    // paid by the project's pool.
     let storage = ctx.storage_usage().await?;
+    let pool = ctx.pool().await?;
     ctx.grow("0", "Teen", "cozy").await?.into_result()?;
-    assert_eq!(ctx.storage_usage().await? - storage, 20);
+    // spec: add-pet-will › Will reserve contract › start accepted
+    assert_eq!(ctx.storage_usage().await? - storage, 37);
+    assert_eq!(
+        pool - ctx.pool().await?,
+        37 * 10_000_000_000_000_000_000u128
+    );
     assert_eq!(trait_words(&ctx.pet_view("0").await?), ["cozy"]);
     assert_eq!(ctx.pet_view("0").await?["stage"], "Teen");
 

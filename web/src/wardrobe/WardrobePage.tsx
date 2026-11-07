@@ -11,7 +11,7 @@ import { nameOf, wearProps } from './catalogue';
 import { asleepLine, BUYING_LINE, loadingLine, pausedLine, signedOutLine, wearingLine } from './lines';
 import { useKeepTileFocus } from './useKeepTileFocus';
 import type { useWardrobe } from './useWardrobe';
-import { LINE, wardrobeView, type TileDraw } from './wardrobeView';
+import { LINE, wardrobeView, wishEarnedLine, type TileDraw } from './wardrobeView';
 
 // Wardrobe screen (add-wardrobe › Wardrobe screen) built from design/bundle/screens/wardrobe.js: the pet in what it wears at the left,
 // the items at the right (on the phone the pet on top, the page scrolling): own first, then the earned not yet, then the ones to buy,
@@ -93,6 +93,7 @@ export function WardrobePage({
   // After a purchase landed, the page goes up to the pet and the focus moves to the line under it (DS › ItemGrid › After an outcome);
   // the page's live region does not say it again.
   const boughtName = nameOf(w.bought);
+  const wishEarned = !signedOut ? wishEarnedLine(name, w.view) : null;
   useEffect(() => {
     if (boughtName === undefined) return;
     window.scrollTo(0, 0);
@@ -271,7 +272,8 @@ export function WardrobePage({
                 }
                 motion={figure.motion}
                 foot={
-                  boughtName !== undefined ? (
+                  wishEarned !== null ? <Text align="center" id={BOUGHT_ID} tabIndex={-1}>{wishEarned}</Text>
+                  : boughtName !== undefined ? (
                     <Text align="center" id={BOUGHT_ID} tabIndex={-1}>
                       {wearingLine(name, boughtName)}
                     </Text>

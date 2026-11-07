@@ -145,17 +145,17 @@ describe('Pet hire flow', () => {
     expect((await rows("SELECT reply_text FROM thoughts WHERE kind = 'hire_event'"))[0]).toEqual({ reply_text: 'failed' });
   });
 
-  // spec: add-pet-work › Pet hire flow › найм не состоялся
-  it('answers on its own, no fee and the place back, when the worker\'s call failed', async () => {
+  // spec: add-pet-will › Character refusal flow › no signed answer
+  it('keeps a failed worker screening free, releases the place and does not call the payer pet again', async () => {
     const tk = await world();
     h.net().ai.push(ask(), { status: 500 }, { content: 'Alone.' });
     const out = await say(tk, PAYER, 'Hi');
-    expect(out.thought.text).toBe('Alone.');
-    expect(calls()).toHaveLength(3);
+    expect(out.code).toBe('screening_failed');
+    expect(calls()).toHaveLength(2);
     expect(await rows('SELECT 1 FROM hires')).toEqual([]);
     expect(await places()).toEqual({ n: 0, held: 0 });
     expect(await rows('SELECT 1 FROM pet_life WHERE token_id = ?', '6')).toEqual([]);
-    expect((await rows("SELECT reply_text FROM thoughts WHERE kind = 'hire_event'"))[0]).toEqual({ reply_text: 'failed' });
+    expect(await rows("SELECT reply_text FROM thoughts WHERE kind = 'hire_event'")).toEqual([]);
   });
 
   // spec: add-pet-work › Pet hire flow › найм не состоялся
@@ -170,30 +170,27 @@ describe('Pet hire flow', () => {
     expect(await places()).toEqual({ n: 3, held: 0 });
   });
 
-  // spec: add-pet-work › Pet hire flow › работник ответил пусто
-  it('pays the worker\'s empty fourth answer of the day by usage, with no fee, and answers on its own', async () => {
+  // spec: add-pet-will › Character refusal flow › no signed answer
+  it('keeps an empty screening free despite the payer\'s older empty count, without a worker fee', async () => {
     const tk = await world();
     await env.DB.prepare('INSERT INTO empty_answers (token_id, day, n) VALUES (?, ?, 3)').bind(PAYER, day()).run();
     h.net().ai.push(ask(), { content: '', tokensOut: 12 }, { content: 'Alone.' });
     const out = await say(tk, PAYER, 'Hi');
-    expect(out.thought.text).toBe('Alone.');
+    expect(out.code).toBe('screening_failed');
     const turn = await rows('SELECT kind, player_text, reply_text, price_yocto FROM thoughts WHERE token_id = ? ORDER BY created_at, rowid', PAYER);
-    expect(turn.map((t) => t.kind)).toEqual(['hire_question', 'hire_answer', 'hire_event', 'reply']);
-    expect(turn[1]).toMatchObject({ player_text: null, reply_text: null });
-    expect(BigInt(turn[1]!.price_yocto)).toBeGreaterThan(0n);
-    expect(turn[2]!.reply_text).toBe('empty');
+    expect(turn.map((t) => t.kind)).toEqual(['hire_question']);
     expect(await rows('SELECT 1 FROM hires')).toEqual([]);
-    expect(await rows('SELECT 1 FROM project_spend')).toEqual([]);
+    expect(await rows('SELECT kind FROM project_spend')).toEqual([{ kind: 'will_screening' }]);
     // the fourth empty answer reached nobody: the worker's place is back, its count and price stay
     expect(await places()).toEqual({ n: 0, held: 0 });
   });
 
-  // spec: add-pet-work › Pet hire flow › работник ответил пусто
-  it('leaves one of the first three empty answers to the project: no thought of the worker, no fee, the pet answers on its own', async () => {
+  // spec: add-pet-will › Character refusal flow › no signed answer
+  it('leaves an empty worker screening to the project with no worker fee or self-answer', async () => {
     const tk = await world();
     h.net().ai.push(ask(), { content: '' }, { content: 'Alone.' });
-    expect((await say(tk, PAYER, 'Hi')).thought.text).toBe('Alone.');
-    expect((await rows('SELECT kind FROM thoughts WHERE token_id = ? ORDER BY created_at, rowid', PAYER)).map((t) => t.kind)).toEqual(['hire_question', 'hire_event', 'reply']);
+    expect((await say(tk, PAYER, 'Hi')).code).toBe('screening_failed');
+    expect((await rows('SELECT kind FROM thoughts WHERE token_id = ? ORDER BY created_at, rowid', PAYER)).map((t) => t.kind)).toEqual(['hire_question']);
     expect(await places()).toEqual({ n: 0, held: 0 });
     expect(await rows('SELECT 1 FROM hires')).toEqual([]);
   });

@@ -97,6 +97,7 @@ pub enum OutfitVia {
     Streak,
     Riddle,
     Bought,
+    PetWish,
 }
 
 /// NEP-297 events of the game's own standard.

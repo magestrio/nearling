@@ -12,6 +12,7 @@ import { openSession, randomId, type JobResult, type Turn } from '../spend';
 import { track } from '../track';
 import { relation } from '../society/relations';
 import { recordSocietyEvent } from '../society/events';
+import { recordWillEvent } from '../will/events';
 import { answerStatements, dataOnly, workerCall, type WorkerOutcome } from './answer';
 import { checkWorker, type Candidate } from './candidates';
 import { hold, pairPrice, release, type Quote } from './quote';
@@ -68,23 +69,23 @@ export async function continueHire(env: Env, t: HireTurn): Promise<JobResult> {
   };
 
   // No hire after all: an event line of the turn and the pet's own reply, an ordinary thought from its food.
-  const failed = async (code: 'failed' | 'empty' | 'data_failed' | 'data_failed_paid' | 'society_refused', until?: number): Promise<JobResult> => {
+  const failed = async (code: 'failed' | 'empty' | 'data_failed' | 'data_failed_paid' | 'society_refused' | 'character_refused', until?: number, refusalId?: string): Promise<JobResult> => {
     if (code === 'society_refused') {
       track('pet_hire_refused', { by: 'pet', reason: 'relationship' });
       await recordSocietyEvent(env, 'pet_hire_refused', { by: 'pet', reason: 'relationship' });
     }
-    if (code === 'society_refused' && t.mode === 'manual') await answerOffer();
+    if ((code === 'society_refused' || code === 'character_refused') && t.mode === 'manual') await answerOffer();
     const eventId = randomId();
     await env.DB.prepare(
       "INSERT INTO thoughts (id, token_id, created_at, kind, player_text, reply_text, model, price_yocto, price_usd_micros, payer, status, worker_id, worker_name, turn_id, hire_mode) VALUES (?, ?, ?, 'hire_event', NULL, ?, '', '0', 0, 'project', 'project', ?, ?, ?, ?)",
     )
-      .bind(eventId, t.tokenId, Date.now(), code === 'society_refused' && until !== undefined ? `${code}|${new Date(until).toISOString()}` : code, t.candidate.tokenId, t.candidate.name, t.turnId, t.mode)
+      .bind(eventId, t.tokenId, Date.now(), code === 'society_refused' && until !== undefined ? `${code}|${new Date(until).toISOString()}` : refusalId === undefined ? code : `${code}|${refusalId}`, t.candidate.tokenId, t.candidate.name, t.turnId, t.mode)
       .run();
     const own = await t.own({ id: t.turnId, recall: 1 });
     if (t.mode === 'manual') {
-      if (code !== 'society_refused' && ('thoughtId' in own || own.code === 'memory_cleared')) await answerOffer();
+      if (code !== 'society_refused' && code !== 'character_refused' && ('thoughtId' in own || own.code === 'memory_cleared')) await answerOffer();
       // no answer at all: the turn reads as before the tap, the offer's buttons back, the event line not told
-      else if (code !== 'society_refused') await env.DB.prepare("DELETE FROM thoughts WHERE id = ? AND kind = 'hire_event'").bind(eventId).run();
+      else if (code !== 'society_refused' && code !== 'character_refused') await env.DB.prepare("DELETE FROM thoughts WHERE id = ? AND kind = 'hire_event'").bind(eventId).run();
     }
     return withEvents(own, [...t.events, ...(until == null ? [] : [`society_refused:${new Date(until).toISOString()}`])]);
   };
@@ -135,10 +136,18 @@ export async function continueHire(env: Env, t: HireTurn): Promise<JobResult> {
     return t.mode === 'manual' ? priceRose(changed) : failed('failed');
   }
 
-  const out: WorkerOutcome = await workerCall(env, { worker: { id: t.candidate.tokenId, pet: worker }, question: t.question, fee: held.fee, payerId: t.tokenId, day, payerEpoch: t.epoch, job: 'hire', pair: { payerName: hirer.name, stance: (await relation(env.DB, t.tokenId, t.candidate.tokenId))?.stance ?? 'neutral' } });
+  const out: WorkerOutcome = await workerCall(env, { worker: { id: t.candidate.tokenId, pet: worker }, question: t.question, fee: held.fee, payerId: t.tokenId, payerGeneration: hirer.transfer_generation, day, payerEpoch: t.epoch, job: 'hire', pair: { payerName: hirer.name, stance: (await relation(env.DB, t.tokenId, t.candidate.tokenId))?.stance ?? 'neutral' } });
   if (out.kind === 'failed') {
     console.log(`hire_failed:${out.code}`);
-    return out.code === 'paused' ? { code: 'paused', events: t.events } : failed('failed');
+    if (out.code === 'screening_failed' || out.code === 'screening_exhausted' || out.code === 'screening_capacity' || out.code === 'paused')
+      return { code: out.code, events: t.events };
+    return failed('failed');
+  }
+  if (out.kind === 'declined') {
+    track('pet_hire_refused', { by: 'pet', reason: 'character', project_usd: out.projectMicros / 1_000_000 });
+    await recordWillEvent(env, 'pet_hire_refused', { id: out.id, by: 'pet', reason: 'character', project_usd: out.projectMicros / 1_000_000 });
+    const own = await failed('character_refused', undefined, out.id);
+    return { ...own, refusal: { id: out.id, reason: out.reason } };
   }
 
   // What the hirer's batch stores: the worker's thought, and for a shown answer the hire (the fee). A cleared answer

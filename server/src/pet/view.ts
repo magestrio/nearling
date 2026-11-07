@@ -11,6 +11,7 @@ import { hireModeOf, type HireMode } from '../work/mode';
 import { readOffer } from '../work/offerRead';
 import { priceView } from '../work/quote';
 import { skillLabel } from '../work/skill';
+import { privateWish } from '../will/diary';
 
 /** The exact prices of the thoughts answered but not yet debited on the network, summed. Their
  * reserves (a call in flight) are not here: the fullness does not count them. A hired answer is counted
@@ -60,6 +61,8 @@ export async function hello(db: D1Database, tokenId: string, ownerAccount?: stri
 export interface FoodState {
   /** Food in the contract minus the unbilled thoughts (can be negative only by a defect). */
   eff: bigint;
+  /** Public reserve is separate from ordinary food and cannot fund a thought or owner purchase. */
+  reserved: bigint;
   unbilled: bigint;
   /** The prices of the outfit purchases whose send has gone out and has no outcome yet (`sending`,
    * `unknown`): held against the food and the cap, though the network has not taken them (`Thought
@@ -93,7 +96,7 @@ export async function foodState(db: D1Database, tokenId: string, pet: PetRecord,
   const ordinary = eff > held + linked ? eff - held - linked : 0n;
   const room = sharedHash !== undefined && pet.shared_job?.hash === sharedHash ?
     (pet.shared_job.state === 'Transferred' ? linked : ordinary + linked) : ordinary;
-  return { eff, unbilled, held, room, capLeft: left < 0n ? 0n : left };
+  return { eff, reserved: BigInt(pet.wish_reserve ?? '0'), unbilled, held, room, capLeft: left < 0n ? 0n : left };
 }
 
 /** «Устал» holds to 00:00 UTC of the day it was written. It is written when a reply is refused or
@@ -130,6 +133,7 @@ export async function deepPrice(env: Env & PriceEnv, tokenId: string): Promise<{
 }
 
 export interface OwnerFields {
+  wish: Awaited<ReturnType<typeof privateWish>>;
   fullness: Fullness;
   tired: boolean;
   /** The next 00:00 UTC (ISO), while tired: «Back at {time}». */
@@ -247,6 +251,7 @@ export async function ownerFields(env: Env, tokenId: string, pet: PetRecord, pau
   const read = await env.DB.prepare('SELECT 1 AS found FROM ritual_days WHERE token_id = ? AND day = ? AND read_at IS NOT NULL').bind(tokenId, today).first();
   const offer = await readOffer(env.DB, tokenId, state.state === 'asleep');
   return {
+    wish: await privateWish(env.DB, tokenId, pet),
     fullness: state,
     tired,
     // «Back at {time}» also at zero energy: both end at 00:00 UTC (`Energy rule`).

@@ -41,6 +41,14 @@ export function forgetStatements(db: D1Database, tokenId: string, now: number): 
     db.prepare('DELETE FROM society_relations WHERE token_id = ?').bind(tokenId),
     db.prepare('DELETE FROM society_encounters WHERE token_id = ?').bind(tokenId),
     db.prepare('DELETE FROM society_diary_lines WHERE token_id = ?').bind(tokenId),
+    db.prepare('DELETE FROM pet_wishes WHERE token_id = ?').bind(tokenId),
+    db.prepare('DELETE FROM will_operations WHERE token_id = ?').bind(tokenId),
+    db.prepare('DELETE FROM will_diary_lines WHERE token_id = ?').bind(tokenId),
+    db.prepare('DELETE FROM will_refusals WHERE payer_token = ? OR worker_token = ?').bind(tokenId, tokenId),
+    db.prepare('DELETE FROM work_invitations WHERE sender_token = ? OR recipient_token = ?').bind(tokenId, tokenId),
+    // No invitation survives a confirmed clear, including one addressed to this pet.
+    db.prepare("UPDATE work_invitations SET status = 'expired' WHERE status = 'open' AND (sender_token = ? OR recipient_token = ?)")
+      .bind(tokenId, tokenId),
     // The owner's answers to the riddle are memory too; the day's marks stay (`ritual_days`), so a second
     // answer the same day is still refused (`Ritual data` › «удаление памяти»).
     db.prepare('DELETE FROM riddle_answers WHERE token_id = ?').bind(tokenId),

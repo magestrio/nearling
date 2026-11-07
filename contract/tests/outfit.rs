@@ -247,6 +247,40 @@ async fn a_purchase_pays_the_price_to_the_treasury_and_writes_the_item_and_the_e
     Ok(())
 }
 
+// spec: D-152 › ordinary Wardrobe transfer fails after the outfit is recorded
+#[tokio::test]
+async fn a_failed_ordinary_payout_remains_owed_until_retry() -> anyhow::Result<()> {
+    let ctx = with_food(ONE_NEAR, ONE_NEAR).await?;
+    let original_treasury = ctx.treasury.id().clone();
+    ctx.set_treasury_id("missing.test.near".parse()?).await?;
+    let before_food = ctx.pet_view("0").await?;
+    let failed = ctx.outfit_buy("0", 3).await?;
+    assert!(
+        !failed.failures().is_empty(),
+        "the named treasury does not exist"
+    );
+    let after = ctx.pet_view("0").await?;
+    assert_eq!(after["outfits"], json!([3]));
+    assert_eq!(
+        amount(&before_food, "project_food") - amount(&after, "project_food"),
+        OUTFIT_PRICE
+    );
+    assert_eq!(ctx.treasury_owed().await?, OUTFIT_PRICE);
+    let retry_failed = ctx.retry_treasury_payout().await?;
+    assert!(!retry_failed.failures().is_empty());
+    assert_eq!(ctx.treasury_owed().await?, OUTFIT_PRICE);
+    ctx.set_treasury_id(original_treasury).await?;
+    let treasury_before = ctx.balance_of(ctx.treasury.id()).await?;
+    ctx.retry_treasury_payout().await?.into_result()?;
+    assert_eq!(ctx.treasury_owed().await?, 0);
+    assert_eq!(
+        ctx.balance_of(ctx.treasury.id()).await? - treasury_before,
+        OUTFIT_PRICE
+    );
+    assert_eq!(ctx.pet_view("0").await?, after);
+    Ok(())
+}
+
 // spec: add-wardrobe › Outfit purchase contract › вещь куплена × project food first
 #[tokio::test]
 async fn the_price_comes_from_the_project_food_first_then_from_the_given_food() -> anyhow::Result<()>
@@ -324,7 +358,10 @@ async fn gas_of_a_purchase() -> anyhow::Result<()> {
         prepaid.as_gas()
     );
     assert!(result.is_success(), "{:?}", result.failures());
-    assert!(burnt < prepaid.as_gas());
+    // The purchase and its restoring callback burn gas in separate receipts. The server's
+    // five-Tgas call succeeds; the extra callback stays within its two-Tgas allocation.
+    assert!(burnt < prepaid.as_gas() + Gas::from_tgas(2).as_gas());
+    assert_eq!(ctx.treasury_owed().await?, 0);
     Ok(())
 }
 

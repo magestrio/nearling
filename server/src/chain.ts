@@ -42,6 +42,9 @@ export interface PetRecord {
   born_at: number;
   project_food: string;
   given_food: string;
+  /** Public food set aside for the pet's private wish. */
+  wish_reserve?: string;
+  wish_active?: boolean;
   debit_day: number;
   debited_today: string;
   last_debit_id: number;
@@ -482,7 +485,9 @@ export interface ServerCall {
     | { kind: 'growth'; tokenId: string; stage: 'teen' | 'adult' }
     | { kind: 'birth'; receiver: string; startedAt: number }
     | { kind: 'shared_open'; tokenId: string; jobHash: string }
-    | { kind: 'shared_debit'; sessionId: string; debitId: number };
+    | { kind: 'shared_debit'; sessionId: string; debitId: number }
+    | { kind: 'will_start'; op: string }
+    | { kind: 'will_release'; op: string };
 }
 
 /** Called with the hash of a signed transaction before each broadcast. A throw means the hash could not be

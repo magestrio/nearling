@@ -68,7 +68,12 @@ petRoutes.get('/api/pets/:id', async (c) => {
     throw e;
   }
   const fields = await ownerFields(c.env, id, pet, (await pauseReason(c.env.DB)) !== null);
-  return c.json({ viewer: 'owner', ...base, ...fields, ownedCount: owned, myFeed });
+  // spec: add-pet-will › Refusal privacy data › worker owner views refusal
+  const refusals = await c.env.DB.prepare("SELECT created_at, worker_code FROM will_refusals WHERE worker_token = ? AND worker_generation = ? ORDER BY created_at DESC")
+    .bind(id, pet.transfer_generation).all<{ created_at: number; worker_code: string }>();
+  return c.json({ viewer: 'owner', ...base, wishReserveYocto: pet.wish_reserve ?? '0', wishActive: pet.wish_active ?? false,
+    ...fields, ownedCount: owned, myFeed,
+    willActivity: refusals.results.map((entry) => ({ at: entry.created_at, code: entry.worker_code })) });
 });
 
 // The signed-in player: the pet they hatched, the one they have now, how many they own.

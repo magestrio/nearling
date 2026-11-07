@@ -34,7 +34,7 @@ function publicNotice(name: string): string {
 /** The two notices beside a pet on the Gift screen are the Hatch screen's own words. */
 export function HatchNotices({ name }: { name: string }) {
   return <Stack gap={3}>
-    <Block role="trust" icon="globe" quiet><Text variant="small">{publicNotice(name)}</Text><Text variant="small">{RECEIPTS_LINE}</Text></Block>
+    <Block role="trust" icon="globe" quiet><Text variant="small">{publicNotice(name)}</Text><Text variant="small">Saved food and a bought outfit are public on NEAR forever. The wish's words stay private.</Text><Text variant="small">{RECEIPTS_LINE}</Text></Block>
     <Block role="mind" icon="bulb" quiet><Text variant="small">{AI_NOTICE}</Text></Block>
   </Stack>;
 }

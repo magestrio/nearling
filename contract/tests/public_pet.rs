@@ -12,6 +12,7 @@ fn keys(value: &Value) -> Vec<String> {
 }
 
 // spec: add-pet › Public pet data › питомец в эксплорере
+// spec: add-pet-will › Wish view contract › public reserve read
 #[tokio::test]
 async fn the_explorer_shows_the_owner_name_character_food_and_receipts_but_no_words()
 -> anyhow::Result<()> {
@@ -52,10 +53,14 @@ async fn the_explorer_shows_the_owner_name_character_food_and_receipts_but_no_wo
             "streak",
             "traits",
             "transfer_generation",
+            "wish_active",
+            "wish_reserve",
             "work_known",
         ]
     );
     assert!(pet["shared_job"].is_null());
+    assert_eq!(pet["wish_active"], false);
+    assert_eq!(pet["wish_reserve"], "0");
 
     // The birth event carries the character's hash, not its text.
     let pet_born: Value = serde_json::from_str(&birth_events[1])?;

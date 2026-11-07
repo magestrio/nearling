@@ -120,6 +120,20 @@ pub async fn setup(pool: u128) -> anyhow::Result<Ctx> {
 }
 
 impl Ctx {
+    pub async fn treasury_owed(&self) -> anyhow::Result<u128> {
+        let value: Value = self.contract.view("treasury_owed").await?.json()?;
+        Ok(value.as_str().unwrap().parse()?)
+    }
+
+    pub async fn retry_treasury_payout(&self) -> anyhow::Result<ExecutionFinalResult> {
+        Ok(self
+            .server
+            .call(self.contract.id(), "retry_treasury_payout")
+            .gas(Gas::from_tgas(30))
+            .transact()
+            .await?)
+    }
+
     pub async fn fund(&self, yocto: u128) -> anyhow::Result<()> {
         self.funder
             .call(self.contract.id(), "pool_fund")
@@ -319,8 +333,8 @@ impl Ctx {
     pub async fn set_pet(&self, token_id: &str, edit: impl FnOnce(&mut Pet)) -> anyhow::Result<()> {
         // The stored record itself, not the view: the job counter's day is not in the view.
         let mut pet = self.read_record(token_id).await?.current();
-        edit(&mut pet);
-        self.put_record(token_id, VersionedPet::V6(pet)).await
+        edit(&mut pet.pet);
+        self.put_record(token_id, VersionedPet::V7(pet)).await
     }
 
     /// Writes a record as it is, in any version: a test of an older pet needs the old bytes.
@@ -616,6 +630,16 @@ impl Ctx {
         let state = self.read_state().await?;
         let mut mirror: StateMirror = borsh::from_slice(&state)?;
         mirror.pool = pool;
+        self.worker
+            .patch_state(self.contract.id(), b"STATE", &borsh::to_vec(&mirror)?)
+            .await?;
+        Ok(())
+    }
+
+    pub async fn set_treasury_id(&self, treasury_id: near_sdk::AccountId) -> anyhow::Result<()> {
+        let state = self.read_state().await?;
+        let mut mirror: StateMirror = borsh::from_slice(&state)?;
+        mirror.treasury_id = treasury_id;
         self.worker
             .patch_state(self.contract.id(), b"STATE", &borsh::to_vec(&mirror)?)
             .await?;

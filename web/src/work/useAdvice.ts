@@ -15,7 +15,8 @@ export type Entry =
   | { id: string; kind: 'asked'; text: string; fresh?: boolean }
   | { id: string; kind: 'answer'; thoughtId: string; text: string; skilled: boolean; dataLabels?: string[]; noHireFee?: boolean; answerPriceCents?: number; fresh?: boolean }
   | { id: string; kind: 'event'; code: 'couldnt_help'; fresh?: boolean }
-  | { id: string; kind: 'error'; code: 'empty' | 'cleared' | 'data_failed' | 'data_failed_paid'; fresh?: boolean };
+  | { id: string; kind: 'refusal'; reason: string; refusalId: string; fresh?: boolean }
+  | { id: string; kind: 'error'; code: 'empty' | 'cleared' | 'data_failed' | 'data_failed_paid' | 'screening_failed' | 'screening_exhausted' | 'screening_capacity'; fresh?: boolean };
 
 /** What stops an ask now, in the order `Advice flow` › several at once shows them: only the first is drawn. */
 export type Blocker = 'paused' | 'worker_asleep' | 'relationship' | 'worker_resting' | 'cant_pay' | 'tired';
@@ -54,6 +55,9 @@ export function useAdvice(worker: { tokenId: string; name: string; asleep: boole
   const [waiting, setWaiting] = useState(false);
   // the price rose under the tap: the line says so until the next tap
   const [rose, setRose] = useState(false);
+  const [screeningClosed, setScreeningClosed] = useState(false);
+  const [screeningFailed, setScreeningFailed] = useState(false);
+  const [characterRefused, setCharacterRefused] = useState(false);
 
   const draftRef = useRef(draft);
   const jobRef = useRef<string | null>(null);
@@ -63,6 +67,7 @@ export function useAdvice(worker: { tokenId: string; name: string; asleep: boole
   const finished = useRef(new Set<string>());
   // the question each job carries, to put back in the field when it does not come
   const asking = useRef<{ job: string | null; entry: string; text: string } | null>(null);
+  const retryAsked = useRef<string | null>(null);
   // this tab has lines of its own: a later read does not replace them with the server's
   const local = useRef(false);
 
@@ -87,6 +92,8 @@ export function useAdvice(worker: { tokenId: string; name: string; asleep: boole
         const answer = await workerApi.advice(token, worker.tokenId, payerId);
         if (gen !== readGen.current) return;
         setRead(answer);
+        if (answer.screeningAvailable) setScreeningClosed(false);
+        else setScreeningClosed(true);
         if (open && !local.current) {
           if (answer.pending) {
             const id = `asked-${(counter.current += 1)}`;
@@ -114,9 +121,13 @@ export function useAdvice(worker: { tokenId: string; name: string; asleep: boole
   useEffect(() => {
     setRead(null);
     setEntries([]);
+    setScreeningClosed(false);
+    setScreeningFailed(false);
+    setCharacterRefused(false);
     changeJob(null);
     local.current = false;
     asking.current = null;
+    retryAsked.current = null;
     void load(true);
     return () => {
       readGen.current += 1;
@@ -156,11 +167,11 @@ export function useAdvice(worker: { tokenId: string; name: string; asleep: boole
   }, [job]);
 
   /** The question did not go through: its line leaves the log and it is back in the field, unless the player typed something new. */
-  const giveBack = useCallback((add?: Entry) => {
+  const giveBack = useCallback((add?: Entry, keepLine = false) => {
     const asked = asking.current;
     asking.current = null;
     setEntries((now) => {
-      const rest = asked ? now.filter((e) => e.id !== asked.entry) : now;
+      const rest = asked && !keepLine ? now.filter((e) => e.id !== asked.entry) : now;
       return add ? [...rest, add] : rest;
     });
     if (asked && draftRef.current === '') {
@@ -170,7 +181,7 @@ export function useAdvice(worker: { tokenId: string; name: string; asleep: boole
   }, []);
 
   const couldntHelp = useCallback((): Entry => ({ id: `line-${(counter.current += 1)}`, kind: 'event', code: 'couldnt_help', fresh: true }), []);
-  const failed = useCallback((code: 'empty' | 'cleared' | 'data_failed' | 'data_failed_paid'): Entry => ({ id: `line-${(counter.current += 1)}`, kind: 'error', code, fresh: true }), []);
+  const failed = useCallback((code: Extract<Entry, { kind: 'error' }>['code']): Entry => ({ id: `line-${(counter.current += 1)}`, kind: 'error', code, fresh: true }), []);
 
   /** The payer's job is over: the answer, or why there is none. */
   const settle = useCallback(
@@ -188,6 +199,24 @@ export function useAdvice(worker: { tokenId: string; name: string; asleep: boole
         return;
       }
       switch (state.code) {
+        case 'character_refused':
+          giveBack(state.characterRefusal ? { id: `line-${(counter.current += 1)}`, kind: 'refusal',
+            reason: state.characterRefusal.reason, refusalId: state.characterRefusal.id, fresh: true } : couldntHelp(), true);
+          void load();
+          setCharacterRefused(true);
+          return;
+        case 'screening_failed':
+          retryAsked.current = asking.current?.entry ?? null;
+          giveBack(failed('screening_failed'), true);
+          setScreeningFailed(true);
+          void load();
+          return;
+        case 'screening_exhausted':
+        case 'screening_capacity':
+          giveBack(failed(state.code), true);
+          setScreeningClosed(true);
+          void load();
+          return;
         case 'price_rose':
           giveBack();
           setRose(true);
@@ -287,7 +316,7 @@ export function useAdvice(worker: { tokenId: string; name: string; asleep: boole
   // While anything stops an ask the column reads again at the guest page's own pace, so «Ask {name} · {price}» comes back by itself
   // when the pause lifts or the paying pet is fed elsewhere (another tab, a friend), with no reload and no edit (`Advice flow` ›
   // «several at once»); a blocker that ends at a named time is also read at that time, so it does not wait for the next poll.
-  const held = blocker !== null;
+  const held = blocker !== null || screeningClosed;
   useEffect(() => {
     if (!held) return undefined;
     const timer = setInterval(() => {
@@ -299,7 +328,8 @@ export function useAdvice(worker: { tokenId: string; name: string; asleep: boole
   // The times the read names, as a key: the timer is set when the key changes, not on every render. A time already behind when the
   // read lands (a slow page, a clock ahead of the Worker's) still gets its one read, 1.5 s on; the same read again has the same key,
   // so it does not loop.
-  const endsKey = [read?.payer.state === 'tired' ? read.payer.until : null, read?.resting?.until, read?.dropsAt, read?.refusalUntil]
+  const endsKey = [read?.payer.state === 'tired' ? read.payer.until : null, read?.resting?.until, read?.dropsAt, read?.refusalUntil,
+    read?.screeningResetAt]
     .map((iso) => (iso ? Date.parse(iso) : Number.NaN))
     .filter((at) => Number.isFinite(at))
     .sort((a, b) => a - b)
@@ -314,17 +344,23 @@ export function useAdvice(worker: { tokenId: string; name: string; asleep: boole
 
   /** «Ask {name} · {price}» or Enter: the question goes at the price the column shows, a ceiling. */
   const ask = useCallback(
-    async (raw: string) => {
+    async (raw: string, retry = false) => {
       const text = raw;
       const current = read;
       // what stops an ask stops the Enter of the field too: the question waits where it is
-      if (jobRef.current !== null || sendingRef.current || current === null || blockerRef.current !== null || text.trim() === '') return;
+      if (jobRef.current !== null || sendingRef.current || current === null || blockerRef.current !== null || screeningClosed || characterRefused || (screeningFailed && !retry) || text.trim() === '') return;
       // a session that ended: the line, nothing sent
       if (!authRef.current.needSession()) return;
       const entry = `asked-${(counter.current += 1)}`;
       sendingRef.current = true;
       setSending(true);
       setRose(false);
+      setScreeningFailed(false);
+      if (retry) {
+        const prior = retryAsked.current;
+        retryAsked.current = null;
+        setEntries((now) => now.filter((line) => line.id !== prior && (line.kind !== 'error' || line.code !== 'screening_failed')));
+      }
       local.current = true;
       asking.current = { job: null, entry, text };
       setEntries((now) => [...now, { id: entry, kind: 'asked', text, fresh: true }]);
@@ -353,8 +389,9 @@ export function useAdvice(worker: { tokenId: string; name: string; asleep: boole
         setSending(false);
       }
     },
-    [read, worker.tokenId, payerId, changeJob, giveBack, load, setDraft],
+    [read, worker.tokenId, payerId, changeJob, giveBack, load, setDraft, screeningClosed, screeningFailed, characterRefused],
   );
 
-  return { read, entries, draft, setDraft, busy, waiting, rose, blocker, ask };
+  return { read, entries, draft, setDraft, busy, waiting, rose, blocker, screeningClosed, screeningFailed, characterRefused,
+    ask, retry: () => void ask(draftRef.current, true) };
 }

@@ -23,6 +23,7 @@ import {
   Page,
   PetPlate,
   PetStage,
+  Progress,
   Rail,
   RailItem,
   Shell,
@@ -41,7 +42,7 @@ import { ExperienceNotesPage } from '../../experience/ExperienceNotesPage';
 import { WorkRecordPage } from '../../experience/WorkRecordPage';
 import { useDiary } from '../../diary/useDiary';
 import { useSelfOpen } from '../../diary/useSelfOpen';
-import { wearProps } from '../../wardrobe/catalogue';
+import { nameOf, OUTFITS, wearProps } from '../../wardrobe/catalogue';
 import { NewOutfitNotice } from '../../wardrobe/NewOutfitNotice';
 import { useNotice } from '../../wardrobe/useNotice';
 import { useWardrobe } from '../../wardrobe/useWardrobe';
@@ -83,13 +84,15 @@ import { PetFigure } from '../../pet/PetFigure';
 import { MS, talkMs } from '../../pet/proto/motion.js';
 import { usePetMotion } from '../../pet/proto/useMotion.js';
 import { useAuth } from '../../seams/auth';
-import { toastHeld, type ErrandForm, type PetView } from '../../seams/worker';
+import { toastHeld, workerApi, type ErrandForm, type PetView, type WishTarget } from '../../seams/worker';
+import { useWishSheet, wishProgress } from '../../will/WishSheet';
+import { InvitationCard, useInvitations } from '../../will/InvitationCard';
 import { SignInLines, SignInOutcome, useSignInLines } from '../../signin/SignInOutcome';
 import { useSignIn } from '../../signin/signIn';
 import { emptyPaidLine, lostLine, offlineLine, pausedLine, WAIT_LINE } from './lines';
 import { hasSlot, peekPendingAction, runAction, Slot, takePendingAction, type ActionName, type Viewer } from './parts';
 import { takeReturnSheet, takeReturnSkill } from '../../signin/returnPlace';
-import { usePetScreen, type Banner as BannerKind, type OwnerView } from './usePetScreen';
+import { FORMER_OWNER_LINE, usePetScreen, type Banner as BannerKind, type OwnerView } from './usePetScreen';
 import { useWaking } from './useWaking';
 import { usePetCard } from '../../showcase/usePetCard';
 
@@ -136,7 +139,7 @@ export function sealLine(name: string, state: SealState): string {
 
 /** `start`: the phone owner's intro card, where the line is left-aligned and a mismatch or an unreadable seal is said by the
  *  banner above the page instead (the frames' `checkLink(pet, true)`). */
-function CheckLink({ tokenId, name, seal, start, watching, owner }: { tokenId: string; name: string; seal: ReturnType<typeof useSeal>; start?: boolean; watching?: string | null; owner?: boolean }) {
+function CheckLink({ tokenId, name, seal, start, watching, owner, wish, onWish }: { tokenId: string; name: string; seal: ReturnType<typeof useSeal>; start?: boolean; watching?: string | null; owner?: boolean; wish?: boolean; onWish?: () => void }) {
   const align = start ? undefined : 'center';
   return (
     <Stack gap={1} align={align}>
@@ -150,6 +153,7 @@ function CheckLink({ tokenId, name, seal, start, watching, owner }: { tokenId: s
         {owner ? <TextLink href={experiencePath(tokenId)} tone="quiet" iconEnd="chevron">Review experience</TextLink> : null}
         {owner ? <TextLink href={relationshipsPath(tokenId)} tone="quiet" iconEnd="chevron">Relationships</TextLink> : null}
       </Cluster>
+      {owner && wish ? <TextLink href="#wish" tone="quiet" iconEnd="chevron" onClick={onWish}>{`${name}'s wish`}</TextLink> : null}
     </Stack>
   );
 }
@@ -250,6 +254,43 @@ function OwnerPage({ pet, s, seal }: { pet: OwnerView; s: ReturnType<typeof useP
   const asleep = pet.fullness.state === 'asleep';
   const hungry = pet.fullness.state === 'hungry';
   const share = usePetCard(pet, s.lines ?? [], s.tokenOf, auth.authenticated && !auth.sessionEnded);
+  const wishSheet = useWishSheet(tokenId, name, pet.outfitPrice, s.tokenOf, s.reread, s.reread);
+  const invites = useInvitations(tokenId, auth.authenticated && !auth.sessionEnded, s.tokenOf, s.reread);
+  const invitationIds = invites.cards.map((card) => card.id).join('|');
+  useEffect(() => {
+    if (!invitationIds && !invites.ended) return undefined;
+    const frame = requestAnimationFrame(() => {
+      const log = document.querySelector<HTMLElement>('[role="log"]');
+      const first = [...(log?.querySelectorAll<HTMLElement>('ul[aria-label="Work invitations"] > li') ?? [])]
+        .find((item) => item.getClientRects().length > 0);
+      if (log && first) log.scrollTop = first.getBoundingClientRect().top - log.getBoundingClientRect().top + log.scrollTop;
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [invitationIds, invites.ended?.id]);
+  const privateWish = auth.authenticated && !auth.sessionEnded && !asleep ? pet.wish : null;
+  const wishNode = auth.authenticated && !auth.sessionEnded && !asleep ? wishSheet.node : null;
+  const wishAmount = privateWish ? wishProgress(privateWish, pet.outfitPrice) : null;
+  const lastWish = useRef<WishTarget | null>(null);
+  const [wishOutcome, setWishOutcome] = useState<{ item: string; source: 'owner' | 'pet_wish' } | null>(null);
+  const outfitKey = pet.outfits.join('|');
+  if (privateWish) lastWish.current = privateWish;
+  useEffect(() => { if (pet.wish) setWishOutcome(null); }, [pet.wish]);
+  useEffect(() => {
+    if (pet.wish || !auth.authenticated || auth.sessionEnded) return;
+    let active = true;
+    void (async () => {
+      try {
+        const view = await workerApi.wardrobe(await s.tokenOf(), tokenId);
+        const outcome = view.outcome;
+        if (!active || outcome?.status !== 'bought' || !pet.outfits.includes(outcome.item)) return;
+        if (outcome.source === 'pet_wish' || (outcome.source === 'owner' && lastWish.current?.item === outcome.item)) {
+          setWishOutcome({ item: outcome.item, source: outcome.source });
+        }
+      } catch { /* the Pet screen's own connection banner handles its reads */ }
+    })();
+    return () => { active = false; };
+  }, [pet.wish, outfitKey, auth.authenticated, auth.sessionEnded, s.tokenOf, tokenId]);
+  useEffect(() => { if (!auth.authenticated || auth.sessionEnded || asleep) wishSheet.close(); }, [auth.authenticated, auth.sessionEnded, asleep, wishSheet.close]);
   const hello = pet.hello && !s.spoke;
   const slot = {
     tokenId,
@@ -514,10 +555,13 @@ function OwnerPage({ pet, s, seal }: { pet: OwnerView; s: ReturnType<typeof useP
     skill.close();
     errand.openSheet(again);
   };
+  // the will's event lines stand under the history (the frames): the last reply is then an ordinary bubble, not the newest line
+  const willTail = auth.authenticated && !auth.sessionEnded && ((pet.willActivity?.length ?? 0) > 0 || wishOutcome?.source === 'pet_wish');
   const history = [
     ...all.flatMap((line, i): ReactNode[] => [
       line.who === 'event' ? (
-        <Message key={line.id} from="event" fresh={line.fresh}>
+        <Message key={line.id} from="event" fresh={line.fresh}
+          verify={line.refusalId ? { href: `/pet/${tokenId}/verify/refusal/${line.refusalId}`, label: 'Check this thought' } : undefined}>
           {line.text}
         </Message>
       ) : line.who === 'player' ? (
@@ -550,7 +594,7 @@ function OwnerPage({ pet, s, seal }: { pet: OwnerView; s: ReturnType<typeof useP
           from="pet"
           speaker={name}
           fresh={line.fresh}
-          latest={settled && i === lastPet && all.slice(i + 1).every((l) => l.cutNote)}
+          latest={settled && i === lastPet && !willTail && all.slice(i + 1).every((l) => l.cutNote)}
           verify={line.noVerify ? undefined : { href: `/pet/${tokenId}/verify/${line.id}`, label: 'Check this thought' }}
           meta={line.meta}
           foot={line.foot}
@@ -569,10 +613,17 @@ function OwnerPage({ pet, s, seal }: { pet: OwnerView; s: ReturnType<typeof useP
       <Cluster gap={3}>
         <Slot slot="growth" {...slot} />
       </Cluster>
-      <CheckLink tokenId={tokenId} name={name} seal={seal} watching={pet.watch?.target} start owner />
+      <CheckLink tokenId={tokenId} name={name} seal={seal} watching={pet.watch?.target} start owner wish={!!privateWish} onWish={wishSheet.open} />
       {asleep ? null : <Slot slot="hiring" {...slot} />}
     </Stack>
   );
+  const invitationCards = (invites.cards.length || invites.ended || invites.readError) ? <ul aria-label="Work invitations" className="ds-stack" style={{ gap: 'var(--space-3)', listStyle: 'none', margin: 'var(--space-0)', padding: 'var(--space-0)' }}>
+    {invites.readError ? <li><Note tone="error">Work invitations unavailable. Try again.</Note><Button variant="secondary" size="compact" onClick={invites.retryRead}>Try again</Button></li> : null}
+    {invites.cards.map((invitation) => <li key={invitation.id}><InvitationCard card={invitation} busy={invites.busy === invitation.id}
+      error={Boolean(invites.actionErrors[invitation.id])} onRetry={() => invites.retryAction(invitation)}
+      onAsk={() => invites.ask(invitation)} onDismiss={() => invites.dismiss(invitation)} /></li>)}
+    {invites.ended ? <li key={`ended-${invites.ended.id}`}><InvitationCard card={invites.ended} ended onAsk={() => undefined} onDismiss={() => undefined} /></li> : null}
+  </ul> : null;
 
   // What turns the field off, and the line that says why (`Pet screen` › «asleep (владелец)», `Daily cap rule` ›
   // «Устал», `Connection rule` › «разговор на паузе»); «Think hard» is also off while the pet is too hungry for it
@@ -586,7 +637,8 @@ function OwnerPage({ pet, s, seal }: { pet: OwnerView; s: ReturnType<typeof useP
   const tiredLine = `${name} is tired for today. Back at ${resetTime(pet.until)}.`;
   const hungryLine = `${name} is too hungry to think hard right now.`;
   // with a card sheet open the page under it says the line of `Card eligibility rule` › pet asleep
-  const sleepLine = share.open ? `${name} is asleep. A meal can wake ${name}.` : `${name} is asleep. A meal will wake ${name} up.`;
+  const sleepLine = pet.wish ? `Feed ${name} to wake them.`
+    : share.open ? `${name} is asleep. A meal can wake ${name}.` : `${name} is asleep. A meal will wake ${name} up.`;
   // zero energy is not the day's cap: «Think hard» stops for it, chatting does not (`Energy rule`), and its words come before the hunger's
   const drained = !asleep && !tired && pet.energy === 0;
   const note = asleep ? null : tired ? tiredLine : drained ? energyLine(name, pet.until) : hungry ? hungryLine : null;
@@ -694,7 +746,7 @@ function OwnerPage({ pet, s, seal }: { pet: OwnerView; s: ReturnType<typeof useP
           fill
           ratio="start"
           start={
-            <Inert on={giftGiven ? true : cover.open || giftOpen ? 'phone' : undefined}>
+            <Inert on={giftGiven ? true : cover.open || giftOpen || wishNode ? 'phone' : undefined}>
               <PetStage
                 compact
                 owner
@@ -746,6 +798,14 @@ function OwnerPage({ pet, s, seal }: { pet: OwnerView; s: ReturnType<typeof useP
                     fullness={{ state: pet.fullness.state, level: hungry ? pet.fullness.level : undefined }}
                     action={asleep ? null : feedButton(true, 'secondary')}
                   >
+                    {privateWish ? <Stack gap={2}>
+                      <Stack gap={1}>
+                        <Progress value={wishAmount!.fraction}>{wishAmount!.cents}</Progress>
+                        <Text variant="small" tone="secondary" tabular>{wishAmount!.near}</Text>
+                      </Stack>
+                      <Text variant="small" tone="secondary">{`${name} wants ${nameOf(privateWish.item) ?? privateWish.item}`}</Text>
+                    </Stack> : auth.authenticated && !auth.sessionEnded && wishOutcome?.source === 'owner' ? <Text variant="small" tone="secondary">{`${name} already has ${nameOf(wishOutcome.item) ?? wishOutcome.item}.`}</Text>
+                      : OUTFITS.filter((o) => o.kind === 'bought').every((o) => pet.outfits.includes(o.slug)) ? <Text variant="small" tone="secondary">{`${name} has every outfit for now.`}</Text> : null}
                     <Only on="desktop">
                       <Slot slot="growth" {...slot} />
                     </Only>
@@ -753,7 +813,7 @@ function OwnerPage({ pet, s, seal }: { pet: OwnerView; s: ReturnType<typeof useP
                   </PetPlate>
                 }
                 foot={<Stack gap={2} align="center">
-                  <CheckLink tokenId={tokenId} name={name} seal={seal} watching={pet.watch?.target} owner />
+                  <CheckLink tokenId={tokenId} name={name} seal={seal} watching={pet.watch?.target} owner wish={!!privateWish} onWish={wishSheet.open} />
                   <OldReserveNotice tokenId={tokenId} name={name} reserve={pet.oldSharedReserve} onReleased={s.reread} />
                 </Stack>}
               />
@@ -761,9 +821,12 @@ function OwnerPage({ pet, s, seal }: { pet: OwnerView; s: ReturnType<typeof useP
           }
           end={
             <Stack gap={0} grow>
-              <Inert on={cover.open || (giftOpen && !giftTyping)}>
-                <Conversation intro={card} introOn="phone">
+              <Inert on={cover.open || !!wishNode || (giftOpen && !giftTyping)}>
+                <Conversation intro={invitationCards ? <><Only on="phone"><Stack gap={3}>{card}{invitationCards}</Stack></Only><Only on="desktop">{invitationCards}</Only></> : card} introOn={invitationCards ? undefined : 'phone'}>
                   {history}
+                  {auth.authenticated && !auth.sessionEnded ? pet.willActivity?.map((activity, index) =>
+                    <Message key={`will-activity-${activity.at}-${index}`} from="event">{`${name} declined a request · ${activity.code}`}</Message>) : null}
+                  {auth.authenticated && !auth.sessionEnded && wishOutcome?.source === 'pet_wish' ? <Message from="event">{`${name} earned ${nameOf(wishOutcome.item) ?? wishOutcome.item}!`}</Message> : null}
                   {s.failure ? (
                     <Message
                       key="failure"
@@ -799,6 +862,7 @@ function OwnerPage({ pet, s, seal }: { pet: OwnerView; s: ReturnType<typeof useP
               <WatchSheet tokenId={tokenId} name={name} open={watchOpen} draft={watchDraft} onDraft={setWatchDraft} onClose={() => setWatchOpen(false)} tokenOf={s.tokenOf} onOwnerLost={s.reread} onChanged={s.reread} />
               <FeedLayer column pageFullness={pet.fullness} />
               <GiftSheet tokenId={tokenId} name={name} stage={pet.stage} worn={pet.worn} onGiven={s.reread} />
+              {wishNode}
               <SkillSheet
                 name={name}
                 skill={skill}
@@ -902,7 +966,7 @@ function OutsiderPage({ pet, s, seal }: { pet: Exclude<PetView, { viewer: 'owner
   const tail = (
     <>
       <Live>{bannerLine(s.banner, name)}</Live>
-      {s.notice ? (
+      {s.notice && s.notice !== FORMER_OWNER_LINE ? (
         <Toast silent onDone={toastHeld() ? undefined : s.clearNotice}>
           {s.notice}
         </Toast>
@@ -998,11 +1062,12 @@ function OutsiderPage({ pet, s, seal }: { pet: Exclude<PetView, { viewer: 'owner
                     Sign in
                   </Button>
                 ) : null}
-                {fresh ? (
+                {fresh && s.notice !== FORMER_OWNER_LINE ? (
                   <Button block variant="secondary" href={hatchPath(tokenId)}>
                     Get your own pet
                   </Button>
                 ) : null}
+                {s.notice === FORMER_OWNER_LINE ? <Note>{FORMER_OWNER_LINE}</Note> : null}
                 {/* the outcome of a sign-in, and a guest's line of an ended session, under the action */}
                 <SignInOutcome column unreachable={offlineLine(name)} />
               </Stack>

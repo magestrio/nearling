@@ -63,6 +63,10 @@ const PIXEL_RESULT = { tokenId: '9' };
 const PIXEL = { tokenId: '9', name: 'Pixel', stage: 'adult' as const, fullness: { state: 'full' as const, level: 1 }, mood: 'happy' as const };
 const BISCUIT = { tokenId: '2', name: 'Biscuit', stage: 'adult' as const, fullness: { state: 'full' as const, level: 1 }, mood: 'happy' as const };
 const OWNER_DEFAULTS = {
+  wish: null,
+  wishReserveYocto: '0',
+  wishActive: false,
+  willActivity: [],
   traits: ['clever', 'sociable'],
   energy: 7,
   tired: false,
@@ -318,6 +322,67 @@ export const fakeWorkerApi: WorkerApi = {
   async pet(token, tokenId) {
     recordCall('worker:pet');
     return viewOf(token, tokenId);
+  },
+  async wish(token, tokenId) {
+    needSession(token);
+    const pet = await viewOf(token, tokenId);
+    if (pet.viewer !== 'owner') throw new WorkerError(403, 'not_owner');
+    return answer('wish', state().wish, { wish: pet.wish, reserveYocto: pet.wishReserveYocto,
+      active: pet.wishActive, releaseStatus: null });
+  },
+  async cancelWish(token, tokenId) {
+    needSession(token);
+    const pet = await viewOf(token, tokenId);
+    if (pet.viewer !== 'owner') throw new WorkerError(403, 'not_owner');
+    const result = await answer('cancelWish', state().cancelWish, { status: 'released' as const });
+    if (result.status === 'released') {
+      const owned = state().pets?.[tokenId];
+      if (owned) owned.owner = { ...owned.owner, wish: null, wishReserveYocto: '0', wishActive: false };
+    }
+    return result;
+  },
+  async continueWish(token, tokenId) {
+    needSession(token);
+    const pet = await viewOf(token, tokenId);
+    if (pet.viewer !== 'owner') throw new WorkerError(403, 'not_owner');
+    const result = await answer('continueWish', state().continueWish, { status: 'active' as const });
+    if ('status' in result && result.status === 'active') {
+      const owned = state().pets?.[tokenId];
+      if (owned?.owner?.wish) owned.owner = { ...owned.owner, wish: { ...owned.owner.wish, status: 'active' }, wishActive: true };
+    }
+    return result;
+  },
+  async invitations(token, tokenId) {
+    needSession(token);
+    if (!state().owned?.includes(tokenId)) throw new WorkerError(403, 'not_owner');
+    return answer('invitations', state().invitations, { invitations: [] });
+  },
+  async acceptInvitation(token, tokenId, invitationId) {
+    needSession(token);
+    if (!state().owned?.includes(tokenId)) throw new WorkerError(403, 'not_owner');
+    const configured = state().invitations;
+    const card = configured && 'invitations' in configured ? configured.invitations.find((entry) => entry.id === invitationId) : undefined;
+    if (!card) throw new WorkerError(409, 'invitation_ended');
+    const result = await answer('acceptInvitation', state().acceptInvitation,
+      { workerId: card.workerId, name: card.name, label: card.label, price: card.price, question: '' as const });
+    state().invitations = { invitations: configured && 'invitations' in configured
+      ? configured.invitations.filter((entry) => entry.id !== invitationId) : [] };
+    return result;
+  },
+  async dismissInvitation(token, tokenId, invitationId) {
+    needSession(token);
+    if (!state().owned?.includes(tokenId)) throw new WorkerError(403, 'not_owner');
+    const configured = state().invitations;
+    if (!configured || !('invitations' in configured) ||
+      !configured.invitations.some((entry) => entry.id === invitationId)) throw new WorkerError(409, 'invitation_ended');
+    const result = await answer('dismissInvitation', state().dismissInvitation, { status: 'dismissed' as const });
+    state().invitations = { invitations: configured.invitations.filter((entry) => entry.id !== invitationId) };
+    return result;
+  },
+  async refusalEvidence(token, tokenId) {
+    needSession(token);
+    if (!state().owned?.includes(tokenId)) throw new WorkerError(403, 'not_owner');
+    return answer('refusalEvidence', state().refusalEvidence, state().refusalEvidence as import('./worker-types').RefusalEvidence);
   },
   async relationships(token, tokenId) {
     needSession(token);
@@ -725,6 +790,8 @@ export const fakeWorkerApi: WorkerApi = {
     return {
       price: { yocto: '830000000000000000000', cents: 0.38 },
       skilled: false,
+      screeningAvailable: true,
+      screeningResetAt: null,
       workerAsleep: worker.fullness.state === 'asleep',
       resting: null,
       payer: { tokenId: payer, name: own.name, state: 'ok', until: null },

@@ -20,6 +20,7 @@ const stays = (name: string, time: string) =>
 const EXPERIENCE_WARNING = 'Work notes and the public field will be erased. Paid work counts and receipts stay public forever.';
 const clearing = (name: string) => `Clearing ${name}'s memory…`;
 const failed = (name: string) => `We couldn't clear ${name}'s memory. Nothing was erased — try again.`;
+const WILL_FAILED = "Memory wasn't cleared. Try again.";
 const unknown = (name: string) => `We couldn't confirm whether ${name}'s memory was cleared. Reload to see where things stand.`;
 
 export function ClearMemoryDialog({
@@ -79,7 +80,7 @@ export function ClearMemoryDialog({
     if (failure) document.getElementById(lineId)?.focus();
   }, [failure, lineId]);
 
-  const line = failure === 'unknown' ? unknown(name) : failure === 'busy' ? BUSY : failure === 'failed' ? failed(name) : null;
+  const line = failure === 'unknown' ? unknown(name) : failure === 'busy' ? BUSY : failure === 'failed' ? (phase.kind === 'error' && phase.hasWish ? WILL_FAILED : failed(name)) : null;
   const act =
     failure === 'unknown' ? (
       <Button block variant="danger" onClick={() => window.location.reload()}>

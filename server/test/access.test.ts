@@ -11,7 +11,7 @@ const petReads = () => h.net().contract.reads.filter((r) => r.method === 'pet_vi
 describe('Conversation access data', () => {
   // spec: add-pet › Conversation access data › чужой питомец
   it('shows a signed-in player who is not the owner the guest view and nothing of the owner', async () => {
-    h.net().contract.addPet('9', OWNER);
+    h.net().contract.addPet('9', OWNER, { wish_reserve: '123', wish_active: true });
     const res = await api('/api/pets/9', { token: await token('did:privy:other', OTHER) });
     expect(res.status).toBe(200);
     expect(res.body).toEqual({
@@ -32,15 +32,18 @@ describe('Conversation access data', () => {
       watch: null,
     });
     // The owner-only fields are not in the answer, and the conversation route does not exist for them yet.
-    for (const field of ['tired', 'paused', 'hello', 'ownedCount', 'pendingJob', 'pendingMode', 'events', 'traits', 'energy', 'outfits', 'notices', 'outfitPrice']) expect(res.body).not.toHaveProperty(field);
+    // spec: add-pet-will › Wish state data › diary input
+    // The public reserve remains readable through pet_view; the guest Pet page has no reserve surface.
+    for (const field of ['tired', 'paused', 'hello', 'ownedCount', 'pendingJob', 'pendingMode', 'events', 'traits', 'energy', 'outfits', 'notices', 'outfitPrice', 'wish', 'wishActive', 'wishReserveYocto', 'willActivity']) expect(res.body).not.toHaveProperty(field);
   });
 
   // spec: add-pet › Conversation access data › чужой питомец
   it('gives the owner the owner view', async () => {
-    h.net().contract.addPet('9', OWNER);
+    h.net().contract.addPet('9', OWNER, { wish_reserve: '123', wish_active: true });
     const res = await api('/api/pets/9', { token: await token('did:privy:owner', OWNER) });
     expect(res.status).toBe(200);
-    expect(res.body).toMatchObject({ viewer: 'owner', tokenId: '9', name: 'Pixel', tired: false, paused: false, hello: true, ownedCount: 1 });
+    expect(res.body).toMatchObject({ viewer: 'owner', tokenId: '9', name: 'Pixel', tired: false, paused: false, hello: true, ownedCount: 1,
+      wishReserveYocto: '123', wishActive: true });
   });
 
   // spec: add-pet › Conversation access data › чужой питомец
@@ -74,9 +77,11 @@ describe('Conversation access data', () => {
 
   // spec: add-pet › Conversation access data › чужой питомец
   it('shows a visitor with no session only the pet, the name, the stage and the fullness, from the shared copy', async () => {
-    h.net().contract.addPet('9', OWNER);
+    h.net().contract.addPet('9', OWNER, { wish_reserve: '123', wish_active: true });
     const first = await api('/api/pets/9');
     expect(first.body).toEqual({ viewer: 'visitor', tokenId: '9', name: 'Pixel', stage: 'baby', fullness: { state: 'full', level: 1 }, mood: 'calm', worn: null, skill: null, watch: null });
+    // spec: add-pet-will › Wish state data › diary input
+    for (const field of ['wish', 'wishActive', 'wishReserveYocto', 'willActivity']) expect(first.body).not.toHaveProperty(field);
     // The second visitor within 15 s is served from the copy: the network is not read again.
     await api('/api/pets/9');
     await api('/api/pets/9');

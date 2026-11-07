@@ -25,7 +25,7 @@ const MAX_LINE_CODE_POINTS = 500;
 const CONVERSATION_PAGE = 50;
 /** The event line of a hire that did not happen, by what its row says (`work/hire.ts`): the data lines are
  * `Adapter call rule` › «data failed in a hire» and «…, past three». */
-const HIRE_EVENT_CODES: Record<string, string> = { empty: 'hire_empty', data_failed: 'hire_data_failed', data_failed_paid: 'hire_data_failed_paid', society_refused: 'society_refused' };
+const HIRE_EVENT_CODES: Record<string, string> = { empty: 'hire_empty', data_failed: 'hire_data_failed', data_failed_paid: 'hire_data_failed_paid', society_refused: 'society_refused', character_refused: 'character_refused' };
 
 /** The owner's pet, or the response to send instead. */
 export async function ownedPet(c: AppContext): Promise<{ pet: PetRecord; id: string } | Response> {
@@ -183,9 +183,10 @@ thoughtRoutes.get('/api/pets/:id/state', async (c) => {
     if (job.status === 'queued' || job.status === 'running' || job.result === null) {
       out.pending = true;
     } else {
-      const result = JSON.parse(job.result) as { code?: string; thoughtId?: string; cut?: string | null; price?: string; reasked?: boolean; events?: string[]; turn?: string; paid?: boolean; until?: string };
+      const result = JSON.parse(job.result) as { code?: string; thoughtId?: string; cut?: string | null; price?: string; reasked?: boolean; events?: string[]; turn?: string; paid?: boolean; until?: string; refusal?: { id: string; reason: string } };
       events.push(...(result.events ?? []));
       if (result.code !== undefined) out.code = result.code;
+      if (result.refusal !== undefined) out.characterRefusal = result.refusal;
       if (result.code === 'society_refused' && result.until !== undefined) out.refusalUntil = result.until;
       // An advice whose worker's data failed (`Adapter call rule` › «data failed in advice»): whether the paying pet's food paid for it.
       if (result.code === 'data_failed') out.paid = result.paid === true;
@@ -258,12 +259,15 @@ thoughtRoutes.get('/api/pets/:id/conversation', async (c) => {
        EXISTS (SELECT 1 FROM thoughts q WHERE q.token_id = t.token_id AND q.turn_id = t.turn_id AND q.kind = 'hire_question') AS has_question,
        EXISTS (SELECT 1 FROM thoughts r WHERE r.token_id = t.token_id AND r.turn_id = t.turn_id AND r.kind IN ('reply', 'question') AND r.reply_text IS NOT NULL) AS has_own,
        h.fee_yocto, h.fee_usd_micros, h.status AS hire_status, h.worker_name AS hire_worker, h.mode AS recorded_hire_mode,
+       r.id AS refusal_id, r.reason AS refusal_reason,
        (SELECT price_yocto FROM thoughts a WHERE a.id = h.answer_thought_id) AS answer_price_yocto,
        (SELECT price_usd_micros FROM thoughts a WHERE a.id = h.answer_thought_id) AS answer_price_usd_micros
      FROM thoughts t LEFT JOIN hires h ON h.hirer_id = t.token_id AND (h.answer_thought_id = t.id OR (t.turn_id IS NOT NULL AND h.turn_id = t.turn_id))
+     LEFT JOIN will_refusals r ON t.kind = 'hire_event' AND t.reply_text = 'character_refused|' || r.id
+       AND r.payer_token = t.token_id AND r.payer_generation = ?
      WHERE t.token_id = ? AND COALESCE(t.origin_sent_at, t.created_at) < ? AND (t.player_text IS NOT NULL OR t.reply_text IS NOT NULL) ORDER BY COALESCE(t.origin_sent_at, t.created_at) DESC, t.rowid DESC LIMIT ?`,
   )
-    .bind(owned.id, Number.isFinite(before) ? before : Number.MAX_SAFE_INTEGER, CONVERSATION_PAGE + 1)
+    .bind(owned.pet.transfer_generation, owned.id, Number.isFinite(before) ? before : Number.MAX_SAFE_INTEGER, CONVERSATION_PAGE + 1)
     .all<{
       id: string;
       created_at: number;
@@ -292,6 +296,8 @@ thoughtRoutes.get('/api/pets/:id/conversation', async (c) => {
       fee_yocto: string | null;
       fee_usd_micros: number | null;
       hire_status: string | null;
+      refusal_id: string | null;
+      refusal_reason: string | null;
       hire_worker: string | null;
       recorded_hire_mode: string | null;
       answer_price_yocto: string | null;
@@ -354,6 +360,7 @@ thoughtRoutes.get('/api/pets/:id/conversation', async (c) => {
         return [...player, { id: t.id, who: 'pet', text: t.reply_text, at: t.order_at, cut: null, hireTo: t.worker_name ?? '', ...tag }];
       case 'hire_event':
         return [{ id: t.id, who: 'event', code: HIRE_EVENT_CODES[t.reply_text.split('|')[0]!] ?? 'hire_failed',
+          ...(t.refusal_id !== null && t.refusal_reason !== null && !previousOwner ? { refusal: { id: t.refusal_id, reason: t.refusal_reason } } : {}),
           ...(t.reply_text.startsWith('society_refused|') ? { refusalUntil: t.reply_text.split('|')[1] } : {}),
           ...(t.hire_mode === 'auto' || t.hire_mode === 'manual' ? { hireMode: t.hire_mode } : {}),
           at: t.order_at, worker, ...tag }];

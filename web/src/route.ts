@@ -54,6 +54,7 @@ export type Route =
   | { name: 'relationships'; tokenId: string }
   | { name: 'work-record'; tokenId: string }
   | { name: 'verify'; tokenId: string; thoughtId: string | null }
+  | { name: 'verify-refusal'; tokenId: string; refusalId: string }
   | { name: 'receipt'; code: string }
   /** Adapter catalog screen: `/adapters`, or `/adapters?pet=<token_id>` from the skill of that pet (`add-pet-errands`) */
   | { name: 'adapters'; pet: string | null }
@@ -84,6 +85,8 @@ export function parseRoute(location: string): Route {
   }
   const receipt = /^\/receipt\/([0-9a-f]{64})$/.exec(path);
   if (receipt) return { name: 'receipt', code: receipt[1]! };
+  const refusal = /^\/pet\/(\d{1,20})\/verify\/refusal\/([0-9a-f]{24})$/.exec(path);
+  if (refusal) return { name: 'verify-refusal', tokenId: refusal[1]!, refusalId: refusal[2]! };
   const verify = /^\/pet\/(\d{1,20})\/verify(?:\/([0-9a-f]{24}))?$/.exec(path);
   if (verify) return { name: 'verify', tokenId: verify[1]!, thoughtId: verify[2] ?? null };
   const shared = /^\/pet\/(\d{1,20})\/errand\/([0-9a-f]{64})$/.exec(path);

@@ -11,6 +11,10 @@ import { NEAR_ACCOUNT, token } from './helpers/network';
 type OwnerView = Extract<PetView, { viewer: 'owner' }>;
 const OWNER_VIEW: Record<keyof OwnerView, 'always' | 'sometimes'> = {
   viewer: 'always',
+  wish: 'always',
+  wishReserveYocto: 'always',
+  wishActive: 'always',
+  willActivity: 'always',
   tokenId: 'always',
   name: 'always',
   stage: 'always',
@@ -51,6 +55,8 @@ const OWNER_VIEW: Record<keyof OwnerView, 'always' | 'sometimes'> = {
   oldSharedReserve: 'always',
 };
 const STATE: Record<keyof PetState, 'always' | 'sometimes'> = {
+  wish: 'always',
+  characterRefusal: 'sometimes',
   tokenId: 'always',
   name: 'always',
   stage: 'always',
@@ -115,6 +121,11 @@ const WARDROBE: Record<keyof WardrobeView, 'always' | 'sometimes'> = {
 
 const always = (fields: Record<string, 'always' | 'sometimes'>) => Object.entries(fields).filter(([, when]) => when === 'always').map(([key]) => key);
 const known = (fields: Record<string, 'always' | 'sometimes'>) => Object.keys(fields);
+// spec: add-pet-will › Wish pursuit flow › wish chosen
+// The Worker sends these owner-only fields ahead of the web stage that adds them to PetView.
+// The reserve stays public in pet_view on chain; guest and visitor Pet screens show fullness alone.
+const OWNER_WILL = ['wishReserveYocto', 'wishActive', 'wish', 'willActivity'] as const;
+const STATE_WILL = ['wish'] as const;
 
 const h = harness();
 const OWNER = NEAR_ACCOUNT(1);
@@ -126,13 +137,14 @@ describe('the answers the client is typed against', () => {
     h.net().contract.addPet('5', OWNER);
     const { body } = await api('/api/pets/5', { token: await owner() });
     for (const field of always(OWNER_VIEW)) expect(body, field).toHaveProperty(field);
-    expect(known(OWNER_VIEW)).toEqual(expect.arrayContaining(Object.keys(body)));
+    expect([...known(OWNER_VIEW), ...OWNER_WILL]).toEqual(expect.arrayContaining(Object.keys(body)));
+    expect(body).toMatchObject({ wishReserveYocto: '0', wishActive: false, wish: null, willActivity: [] });
     expect(body.stage).toBe('baby');
   });
 
   // spec: add-pet › Pet screen › success (гость)
   it('gives a guest and a visitor the base of a pet with the same stage word', async () => {
-    h.net().contract.addPet('5', OWNER);
+    h.net().contract.addPet('5', OWNER, { wish_reserve: '123', wish_active: true });
     const guest = await api('/api/pets/5', { token: await token('did:privy:other', NEAR_ACCOUNT(2)) });
     const visitor = await api('/api/pets/5');
     // a signed-in viewer also gets `myFeed` (their own meal on its way for this pet); a visitor has none
@@ -147,7 +159,8 @@ describe('the answers the client is typed against', () => {
     h.net().contract.addPet('5', OWNER, { name: 'Pixel', stage: 'Teen' });
     const { body } = await api('/api/pets/5/state', { token: await owner() });
     for (const field of always(STATE)) expect(body, field).toHaveProperty(field);
-    expect(known(STATE)).toEqual(expect.arrayContaining(Object.keys(body)));
+    expect([...known(STATE), ...STATE_WILL]).toEqual(expect.arrayContaining(Object.keys(body)));
+    expect(body.wish).toBeNull();
     expect(body).toMatchObject({ tokenId: '5', name: 'Pixel', stage: 'teen', events: [] });
   });
 
@@ -171,7 +184,8 @@ describe('the answers the client is typed against', () => {
     const tk = await owner();
     const out = await say(tk, '5', 'Hello!');
     for (const field of always(STATE)) expect(out, field).toHaveProperty(field);
-    expect(known(STATE)).toEqual(expect.arrayContaining(Object.keys(out)));
+    expect([...known(STATE), ...STATE_WILL]).toEqual(expect.arrayContaining(Object.keys(out)));
+    expect(out.wish).toBeNull();
     expect(out).toMatchObject({ name: 'Pixel', stage: 'baby', jobKind: 'reply', lastThought: out.thought.id });
   });
 });

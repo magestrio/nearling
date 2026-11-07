@@ -30,10 +30,13 @@ import {
 import { buildMessages, hireLayer, inputBound, parseAsk, type Hired, type ThoughtJob } from './prompt';
 import { gasIsLow, isPaused, setPause } from './servicePause';
 import { track } from './track';
+import { recordWillEvent } from './will/events';
 import { findCandidates, type Candidate } from './work/candidates';
 import { continueHire } from './work/hire';
 import { hireModeOf, type HireMode } from './work/mode';
 import { composeSocial, pendingSocial, socialLineStatements, type SocialFact } from './society/diary';
+import { parseWish, startPendingWish, wishOffer, wishStatements, type WishOffer } from './will/diary';
+import { invitationOffer, invitationStatement, parseInvitation, type InvitationOffer } from './will/invitation';
 
 export type RefusalCode =
   | 'ai_unavailable'
@@ -51,6 +54,10 @@ export type RefusalCode =
   | 'worker_asleep'
   | 'worker_resting'
   | 'society_refused'
+  | 'character_refused'
+  | 'screening_failed'
+  | 'screening_exhausted'
+  | 'screening_capacity'
   // the paying pet's memory was cleared while the answer was on its way: its words are not kept (`Memory deletion data`)
   | 'memory_cleared'
   // a pet's own hire: the worker answered and its fee stands, the pet's own reply did not come (`Pet hire flow` › «свой ответ не пришёл»)
@@ -70,10 +77,10 @@ export type JobResult =
   // `turn`: the turn of a hire whose own reply was lost, for the page's «Try again» (`own_lost`)
   // `price`: what an errand whose report was not kept still cost (`Errand flow` › «memory cleared on the way»)
   // `paid`: for `data_failed`, whether the paying pet paid the data call (past its three failed calls of the day)
-  | { code: RefusalCode; events?: string[]; turn?: string; price?: string; paid?: boolean; until?: string }
+  | { code: RefusalCode; events?: string[]; turn?: string; price?: string; paid?: boolean; until?: string; refusal?: { id: string; reason: string } }
   // the worker's price is above the one shown: nothing held or spent, the price now (`Hire quote data`)
   | { code: 'price_rose'; price: string }
-  | { thoughtId: string; cut: 'fuse' | 'food' | 'cap' | null; price: string; reasked: boolean; events: string[] };
+  | { thoughtId: string; cut: 'fuse' | 'food' | 'cap' | null; price: string; reasked: boolean; events: string[]; refusal?: { id: string; reason: string } };
 
 export const CHAT_TIMEOUT_MS = 60_000;
 const DEEP_TIMEOUT_MS = 90_000;
@@ -226,6 +233,9 @@ export async function run(env: Env, tokenId: string, job: ThoughtJob, epoch?: nu
   let candidates: Candidate[] = [];
   let hireMode: HireMode = 'auto';
   const social = job.kind === 'diary' ? await pendingSocial(env, tokenId, job.day) : [];
+  const wish = job.kind === 'diary' ? await wishOffer(env.DB, tokenId, pet) : undefined;
+  const invitation = job.kind === 'diary'
+    ? await invitationOffer(env, tokenId, pet, job.day, now, pet.wish_active || wish?.slugs.length !== 0) : undefined;
   if (opts.turn === undefined && job.kind === 'reply' && job.mode === 'chat') {
     hireMode = await hireModeOf(env.DB, tokenId);
     candidates = await findCandidates(env, { tokenId, pet, food: fs }, hireMode, now);
@@ -236,7 +246,7 @@ export async function run(env: Env, tokenId: string, job: ThoughtJob, epoch?: nu
     pet,
     job,
     { mood: moodOf(state, life.moodDay, today), energyPercent: energy * 10, outfit: await wornOf(env.DB, tokenId) },
-    { ...(candidates.length > 0 ? { hire: hireLayer(candidates) } : {}), ...(opts.turn?.hired === undefined ? {} : { hired: opts.turn.hired }) },
+    { ...(candidates.length > 0 ? { hire: hireLayer(candidates) } : {}), ...(opts.turn?.hired === undefined ? {} : { hired: opts.turn.hired }), wish, invitation },
   );
   const bound = inputBound(messages);
   const minCall = minCallPrice(env, bound);
@@ -257,7 +267,7 @@ export async function run(env: Env, tokenId: string, job: ThoughtJob, epoch?: nu
   const reserve = ceilingPrice(env, bound, plan.ceiling) + reaskMin;
   await env.DB.prepare('INSERT OR REPLACE INTO pet_spend (token_id, reserve_yocto, job_id) VALUES (?, ?, ?)').bind(tokenId, reserve.toString(), null).run();
   try {
-    return await think(env, tokenId, pet, job, fs, { messages, bound, plan, deep, reserve, epoch: heldEpoch, candidates, hireMode, opts, social });
+    return await think(env, tokenId, pet, job, fs, { messages, bound, plan, deep, reserve, epoch: heldEpoch, candidates, hireMode, opts, social, wish, invitation });
   } finally {
     await env.DB.prepare('DELETE FROM pet_spend WHERE token_id = ?').bind(tokenId).run();
   }
@@ -266,6 +276,8 @@ export async function run(env: Env, tokenId: string, job: ThoughtJob, epoch?: nu
 interface Ctx {
   messages: Message[];
   social: SocialFact[];
+  wish?: WishOffer;
+  invitation?: InvitationOffer;
   bound: number;
   plan: Plan;
   deep: boolean;
@@ -331,6 +343,12 @@ async function think(env: Env, tokenId: string, pet: PetRecord, job: ThoughtJob,
     ? composeSocial(lastReply, ctx.social)
     : { reply: lastReply, lines: [] };
   if (job.kind === 'diary') lastReply = socialResult.reply;
+  const wishResult = job.kind === 'diary' && ctx.wish !== undefined
+    ? parseWish(lastReply, ctx.wish, ctx.social.map((fact) => fact.name)) : null;
+  if (wishResult !== null) lastReply = wishResult.reply;
+  const invitationResult = job.kind === 'diary' && ctx.invitation !== undefined
+    ? parseInvitation(lastReply, ctx.invitation) : null;
+  if (invitationResult !== null) lastReply = invitationResult.reply;
   // The pet chose to ask one of the pets it was offered: this call is the decision thought of a hire, not a reply.
   const ask = ctx.candidates.length > 0 && job.kind === 'reply' ? parseAsk(lastReply, ctx.candidates.length) : null;
   const asked = ask === null ? null : ctx.candidates[ask.n - 1]!;
@@ -380,6 +398,20 @@ async function think(env: Env, tokenId: string, pet: PetRecord, job: ThoughtJob,
         now,
       })
     : [];
+  let invitationWrite: D1PreparedStatement | null = null;
+  if (job.kind === 'diary' && invitationResult?.chosen != null && ctx.invitation !== undefined &&
+    fullness(fs.eff - price).state !== 'asleep') {
+    const choice = invitationResult.chosen;
+    const [senderNow, recipientNow] = await Promise.all([petView(env, tokenId), petView(env, choice.tokenId)]);
+    if (senderNow !== null && senderNow.transfer_generation === ctx.invitation.senderGeneration &&
+      (senderNow.wish_active || wishResult?.item != null) &&
+      recipientNow?.transfer_generation === choice.generation && recipientNow.owner_id !== senderNow.owner_id &&
+      (await invitationOffer(env, tokenId, senderNow, job.day, now, true)).candidates
+        .some((candidate) => candidate.tokenId === choice.tokenId && candidate.generation === choice.generation)) {
+      invitationWrite = invitationStatement(env.DB, tokenId, ctx.invitation.senderGeneration,
+        choice, job.day, ctx.epoch, now);
+    }
+  }
   const statements = [
     env.DB.prepare(
       "INSERT INTO thoughts (id, token_id, created_at, kind, player_text, reply_text, model, price_yocto, price_usd_micros, cut, reasked, payer, session_id, status, worker_id, worker_name, skilled, recall, turn_id, near_usd_rate) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pet', ?, 'unbilled', ?, ?, ?, ?, ?, ?)",
@@ -428,6 +460,9 @@ async function think(env: Env, tokenId: string, pet: PetRecord, job: ThoughtJob,
       ),
     ),
     ...(job.kind === 'diary' ? socialLineStatements(env.DB, tokenId, job.day, ctx.epoch, socialResult.lines, ctx.social) : []),
+    ...(job.kind === 'diary' && wishResult !== null
+      ? wishStatements(env.DB, tokenId, job.day, ctx.epoch, pet.transfer_generation, wishResult, now) : []),
+    ...(invitationWrite === null ? [] : [invitationWrite]),
     // The owner may have cleared the memory while the model was answering: the words go, the receipt stays.
     ...eraseIfCleared(env.DB, tokenId, thoughtId, ctx.epoch, now),
     // Manual: the choice is an offer, one per pet, with the price now (not held) — unless a clear landed meanwhile
@@ -453,6 +488,17 @@ async function think(env: Env, tokenId: string, pet: PetRecord, job: ThoughtJob,
     ...life,
   ];
   const written = await env.DB.batch(statements);
+  if (invitationWrite !== null && written[statements.indexOf(invitationWrite)]?.meta.changes === 1 &&
+    wishResult?.item == null) {
+    track('pet_work_invited');
+    const invitation = await env.DB.prepare('SELECT id FROM work_invitations WHERE sender_token = ? AND day = ?')
+      .bind(tokenId, utcDay(Date.now())).first<{ id: string }>();
+    if (invitation !== null) await recordWillEvent(env, 'pet_work_invited', { id: invitation.id });
+  }
+  if (job.kind === 'diary' && wishResult?.item !== null && wishResult?.item !== undefined) {
+    try { await startPendingWish(env, tokenId); }
+    catch { console.log('will_start_pending'); }
+  }
   if (lives && deep) energyOf(written.at(-1));
   if (questionDone) track('ritual_completed', { part: 'question' });
 

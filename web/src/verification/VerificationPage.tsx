@@ -3,7 +3,7 @@ import { AccountControl } from '../account/AccountControl';
 import { config } from '../config';
 import { Banner, Block, Button, Center, Cluster, CopyField, Growth, Header, Heading, Live, Mark, Mono, Note, Only, Page,
   Receipt, ReceiptCall, ReceiptList, ReceiptRow, Record, RecordItem, Seal, Shell, Skeleton, Split,
-  Stack, Text, TextLink, Sheet, Toast } from '../ds';
+  Stack, Surface, Text, TextLink, Sheet, Toast } from '../ds';
 import type { Accent } from '../ds';
 import { formatCents } from '../lib/price';
 import { PetFigure } from '../pet/PetFigure';
@@ -11,12 +11,13 @@ import { makePet } from '../pet/proto/generator.js';
 import { petPath, verifyPath } from '../route';
 import { useAuth } from '../seams/auth';
 import { nearRpc } from '../seams/rpc';
-import { workerApi, WorkerError, type PetView, type SharedReceipt, type VerificationIndex, type VerificationThought } from '../seams/worker';
+import { workerApi, WorkerError, type PetView, type SharedReceipt, type VerificationIndex, type VerificationThought, type RefusalEvidence } from '../seams/worker';
 import { useSignIn } from '../signin/signIn';
 import { centsAtRate, pointerDifferences, verifyPointer, type CheckState } from './checkMachine';
 import { errandCallTitle, errandForm, errandTime, reportCall, stoppedSearch } from './errand';
 import { hardwareHref } from './hardware';
 import { loadRecord, type PetRecordModel } from './record';
+import { refusalSignature } from './refusal';
 
 type ListedThought = VerificationIndex['thoughts'][number];
 type Ready = { kind: 'ready'; record: PetRecordModel; pet: PetView; index: VerificationIndex;
@@ -134,7 +135,7 @@ function RecordPanel({ tokenId, ready, onRetry }: { tokenId: string; ready: Read
     <Stack gap={3}>
       <Cluster justify="center"><PetFigure tokenId={tokenId} name={record.name} stage={pet.stage} state={pet.fullness.state}
         outfit={pet.worn ?? undefined} size="md" decorative still /></Cluster>
-      <Cluster gap={3} align="center"><Heading level={1} variant="title-2">{record.name}</Heading>
+      <Cluster gap={3} align="center"><Heading level={1} variant="title-2"><span style={{ whiteSpace: record.name.length <= 12 ? 'nowrap' : 'normal', overflowWrap: 'anywhere' }}>{record.name}</span></Heading>
         {checked ? <Seal hash={record.characterHash} size="sm" /> : null}</Cluster>
       {ready.unread
         ? <Cluster gap={3} justify="space-between"><Note tone="error" silent>{`We can't check ${record.name}'s character on NEAR just now. Try again.`}</Note>
@@ -327,7 +328,7 @@ function ReceiptLinkPage({ code }: { code: string }) {
   </Center></Page></Shell></>;
 }
 
-export function VerificationPage({ tokenId, thoughtId, code, shared }: { tokenId?: string; thoughtId?: string | null;
+export function VerificationPage({ tokenId, thoughtId, refusalId, code, shared }: { tokenId?: string; thoughtId?: string | null; refusalId?: string;
   code?: string; shared?: { code: string; refresh: () => void } }) {
   const auth = useAuth();
   const signIn = useSignIn();
@@ -339,9 +340,28 @@ export function VerificationPage({ tokenId, thoughtId, code, shared }: { tokenId
   const [sharedReply, setSharedReply] = useState<string | null>(null);
   const [sharedReplyHash, setSharedReplyHash] = useState<{ n: number; hash: string } | null>(null);
   const [copyOutcome, setCopyOutcome] = useState<'success' | 'failure' | null>(null);
+  const [refusal, setRefusal] = useState<RefusalEvidence | null>(null);
   const copyInput = useRef<HTMLTextAreaElement>(null);
   const downloadGeneration = useRef(0);
   const retry = () => setRevision((n) => n + 1);
+  useEffect(() => {
+    if (!tokenId || !refusalId || !auth.ready || !auth.authenticated) { setRefusal(null); return; }
+    let live = true;
+    void (async () => {
+      try {
+        const token = await auth.getIdentityToken();
+        if (!token) throw new WorkerError(401, 'signed_out');
+        const evidence = await workerApi.refusalEvidence(token, tokenId, refusalId);
+        if (live) setRefusal(evidence);
+      } catch (error) {
+        if (live) {
+          setRefusal(null);
+          if (error instanceof WorkerError && error.status === 401) auth.endSession(false);
+        }
+      }
+    })();
+    return () => { live = false; };
+  }, [tokenId, refusalId, auth.ready, auth.authenticated, revision]);
   useEffect(() => {
     setDialog(null); setDownloadMarks({}); setDownloadError(null); setSharedReply(null); setSharedReplyHash(null); setCopyOutcome(null);
     return () => { downloadGeneration.current += 1; };
@@ -519,12 +539,18 @@ export function VerificationPage({ tokenId, thoughtId, code, shared }: { tokenId
       : "The bytes couldn't be downloaded just now. Try again."}</Note>
       <Button variant="secondary" size="compact" onClick={() => download(downloadError.n, downloadError.part)}>Try again</Button></Cluster> : null}</Stack> : null;
   const sharedControls = shared ? { onDownload: download, marks: downloadMarks } : undefined;
-  const open = selected ? <ReceiptPanel thought={selected} proof={proof} record={record} payerName={payerName}
+  const refusalSig = refusal ? refusalSignature(refusal.signedEvidenceBase64) : null;
+  const refusalOpen = refusalId && refusal ? <Surface><Stack gap={4}>
+    <Text variant="lead">{refusal.reason}</Text>
+    {refusalSig ? <Mono>{shortHash(refusalSig)}</Mono> : null}
+    <Note tone="plain">No on-chain receipt for this refusal.</Note>
+  </Stack></Surface> : null;
+  const open = refusalId ? refusalOpen : selected ? <ReceiptPanel thought={selected} proof={proof} record={record} payerName={payerName}
     footer={shareFooter} intro={intro} shared={sharedControls} sharedReply={sharedReply} /> : null;
   const signedOut = !auth.authenticated;
   const networkError = proof?.kind === 'unavailable' || record.items.some((item) => item.link === 'unavailable');
   return <><Live>{state.unread ? `We can't check ${name}'s character on NEAR just now. Try again.` : proof?.kind === 'too-old' ? TOO_OLD : networkError ? UNREACHABLE : proofAnnouncement(selected, proof, record)}</Live>
-    <Shell accent={makePet(tokenId).hue as Accent} header={<Header start={<Button variant="ghost" size="compact" icon="back" href={petPath(tokenId)}>{`Back to ${name}`}</Button>}
+    <Shell accent={makePet(tokenId).hue as Accent} header={<Header start={<Button variant="ghost" size="compact" nowrap={name.length <= 12} icon="back" href={petPath(tokenId)}>{`Back to ${name}`}</Button>}
     end={<AccountControl tokenId={tokenId} name={name} viewer={pet.viewer} />} />}>
     <Page><Stack gap={5}>
       {networkError ? <Banner action={<Button variant="secondary" size="compact" onClick={retry}>Try again</Button>}>{UNREACHABLE}</Banner> : null}
@@ -536,14 +562,14 @@ export function VerificationPage({ tokenId, thoughtId, code, shared }: { tokenId
       <Split ratio="end" start={<RecordPanel tokenId={tokenId} ready={state} onRetry={retry} />}
         end={<Stack gap={5}>
           {open ? <Only on="desktop">{open}</Only> : null}
-          {shared ? null : thoughts.length === 0 ? <Text>{`No thoughts yet. Each of ${name}'s thoughts gets a receipt here.`}</Text>
+          {refusalId ? null : shared ? null : thoughts.length === 0 ? <Text>{`No thoughts yet. Each of ${name}'s thoughts gets a receipt here.`}</Text>
             : <ReceiptList>{thoughts.map((thought) => <ReceiptRow key={thought.id}
               href={verifyPath(tokenId, thought.id)} current={thought.id === thoughtId}
               time={date(thought.at)} model={thought.status === 'billed' && !(thought.id === thoughtId && selectedReceiptUnknown) ? modelLabel(thought.model) : null}
               price={thought.status === 'billed' && !(thought.id === thoughtId && selectedReceiptUnknown) ? priceOf(thought) : null}
               note={thought.status === 'project' ? 'Paid by the game · no receipt'
                 : thought.status !== 'billed' ? 'Not on NEAR yet' : thought.withoutReply ? 'No reply' : null} />)}</ReceiptList>}
-          {!shared && thoughts.length > 0 ? <TextLink href={contractHref()} external>See every pet's receipts on the explorer</TextLink> : null}
+          {!refusalId && !shared && thoughts.length > 0 ? <TextLink href={contractHref()} external>See every pet's receipts on the explorer</TextLink> : null}
         </Stack>} />
       {signedOut && shared ? <Cluster gap={3}>
         <Text variant="small" tone="secondary">{`Anyone can check ${name}'s record and receipts. Is ${name} yours? Sign in to check its other thoughts word for word.`}</Text>

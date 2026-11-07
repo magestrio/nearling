@@ -120,7 +120,7 @@ export type Step =
   // The 402 of the services: the caller notes the pause.
   | { kind: 'paused' }
   // The data call did not come — a wait that ran out, a refusal, no signature: the project paid what it cost, the caller goes on without it.
-  | { kind: 'lost' }
+  | { kind: 'lost'; costMicros: number }
   | { kind: 'ran'; call: SignedCall; reads: Read[]; failed: string[]; failedSources: string[]; codeFailed: boolean };
 
 export interface StepArgs {
@@ -132,6 +132,8 @@ export interface StepArgs {
   maxTokens: number;
   /** The input bound of the whole request (messages and tools), for what a call that timed out may have cost. */
   bound: number;
+  /** The screened caller writes any failure cost with its screening id. */
+  screened?: boolean;
 }
 
 /** The data call and the calls it asked for. A function that fails, a source that does not answer and a value the rule
@@ -148,19 +150,21 @@ export async function runDataStep(env: Env, offer: Offer, a: StepArgs): Promise<
   if (result.kind === 'paused') return { kind: 'paused' };
   if (result.kind === 'timeout') {
     // the call may still be billed: the project pays it at its bound
-    await projectPays(env, 'no_thought', yoctoMicros(env, ceilingPrice(env, a.bound, a.maxTokens)));
+    const costMicros = yoctoMicros(env, ceilingPrice(env, a.bound, a.maxTokens));
+    if (!a.screened) await projectPays(env, 'no_thought', costMicros);
     console.log('ai_timeout');
-    return { kind: 'lost' };
+    return { kind: 'lost', costMicros };
   }
   if (result.kind === 'failed') {
     console.log(`ai_failed:${result.status}`);
-    return { kind: 'lost' };
+    return { kind: 'lost', costMicros: 0 };
   }
   const signed = await signatureOf(env, result);
   if (signed === null) {
     console.log('signature_missing');
-    await projectPays(env, 'no_thought', usd12ToMicros(callsUsd12(env, [result])));
-    return { kind: 'lost' };
+    const costMicros = usd12ToMicros(callsUsd12(env, [result]));
+    if (!a.screened) await projectPays(env, 'no_thought', costMicros);
+    return { kind: 'lost', costMicros };
   }
 
   const ran = await Promise.all(result.toolCalls.slice(0, MAX_DATA_CALLS).map((call) => runOne(env, offer, call, a)));

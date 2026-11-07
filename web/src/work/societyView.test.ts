@@ -6,6 +6,7 @@ import type { AdviceRead, ConversationLine } from '../seams/worker-types';
 
 const price = { yocto: '747000000000000000000', cents: 0.34 };
 const read: AdviceRead = { price, discounted: true, skilled: false, workerAsleep: false, resting: null,
+  screeningAvailable: true, screeningResetAt: null,
   payer: { tokenId: '9', name: 'Pixel', state: 'ok', until: null }, dropsAt: null, pending: null, last: null, paused: false };
 
 describe('society on existing work surfaces', () => {

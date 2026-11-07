@@ -35,9 +35,9 @@ wardrobeRoutes.get('/api/pets/:id/wardrobe', async (c) => {
   const buying = await c.env.DB.prepare("SELECT id, item FROM outfit_buys WHERE token_id = ? AND status IN ('queued', 'sending', 'unknown') ORDER BY created_at, rowid LIMIT 1")
     .bind(id)
     .first<{ id: string; item: OutfitSlug }>();
-  const outcome = await c.env.DB.prepare("SELECT id, item, status, code FROM outfit_buys WHERE token_id = ? AND status IN ('bought', 'failed') AND settled_at > ? ORDER BY settled_at DESC, rowid DESC LIMIT 1")
+  const outcome = await c.env.DB.prepare("SELECT id, item, status, code, source FROM outfit_buys WHERE token_id = ? AND status IN ('bought', 'failed') AND settled_at > ? ORDER BY settled_at DESC, rowid DESC LIMIT 1")
     .bind(id, now - OUTCOME_WINDOW_MS)
-    .first<{ id: string; item: OutfitSlug; status: 'bought' | 'failed'; code: string | null }>();
+    .first<{ id: string; item: OutfitSlug; status: 'bought' | 'failed'; code: string | null; source: 'owner' | 'pet_wish' }>();
   return c.json({
     owned: slugsOf(pet.outfits),
     worn: wardrobe.worn,

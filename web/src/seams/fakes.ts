@@ -41,6 +41,13 @@ export interface FakeFail {
 }
 
 export interface FakeWorkerState {
+  invitations?: { invitations: import('./worker-types').WorkInvitation[] } | FakeFail;
+  acceptInvitation?: { workerId: string; name: string; label: string | null; price: import('./worker-types').Price; question: '' } | FakeFail;
+  dismissInvitation?: { status: 'dismissed' } | FakeFail;
+  refusalEvidence?: import('./worker-types').RefusalEvidence | FakeFail;
+  wish?: import('./worker-types').WishRead | FakeFail;
+  cancelWish?: { status: 'released' | 'pending' } | FakeFail;
+  continueWish?: { status: 'active' | 'pending' } | { code: 'wish_pending' } | FakeFail;
   relationships?: import('./worker-types').RelationshipSummary | FakeFail;
   relationshipsDelayMs?: number;
   workRecord?: import('./worker-types').WorkRecord | FakeFail;

@@ -10,6 +10,8 @@ import { closeSharedJob, recoverSharedClose, recoveryStatement, validCloseApprov
 import { debitSharedNow } from '../debit';
 import { finishPaidShared } from '../errands/sharedSettle';
 import { ownedPet, settleLater } from './thoughts';
+import { processWishRelease, requestWishRelease } from '../will/purchase';
+import { petView, ChainUnreachable } from '../chain';
 
 export const memoryRoutes = new Hono<AppEnv>();
 
@@ -47,6 +49,20 @@ memoryRoutes.post('/api/pets/:id/memory/clear', async (c) => {
     const stillOwned = await ownedPet(c);
     if (stillOwned instanceof Response) return stillOwned;
     if (stillOwned.pet.transfer_generation !== owned.pet.transfer_generation) return c.json({ code: 'not_owner' }, 403);
+  }
+  // spec: add-pet-will › Will memory clear flow › release fails
+  // spec: add-pet-will › Will memory clear flow › deletion fails after release
+  try {
+    if (owned.pet.wish_active || BigInt(owned.pet.wish_reserve ?? '0') > 0n) {
+      await requestWishRelease(c.env, owned.id, 'clear');
+      await processWishRelease(c.env, owned.id);
+    }
+    const fresh = await petView(c.env, owned.id);
+    if (fresh === null || fresh.owner_id !== c.get('session')?.accountId ||
+      BigInt(fresh.wish_reserve ?? '0') > 0n || fresh.wish_active) return c.json({ code: 'clear_failed' }, 503);
+  } catch (error) {
+    if (error instanceof ChainUnreachable) return c.json({ code: 'chain_unreachable' }, 503);
+    return c.json({ code: 'clear_failed' }, 503);
   }
   try {
     await c.env.DB.batch([

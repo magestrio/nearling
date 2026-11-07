@@ -19,6 +19,7 @@ import { sourceViews } from '../sources/store';
 import { deleteSkill, readSkill, SkillUnreadable, writeSkill } from '../work/skill';
 import { ownedPet, run as runDesk } from './thoughts';
 import { currentPet, ownedPets } from '../gift/current';
+import { screeningCapacity } from '../will/screening';
 
 export const workRoutes = new Hono<AppEnv>();
 
@@ -188,6 +189,7 @@ workRoutes.get('/api/pets/:id/advice', async (c) => {
 
   const now = Date.now();
   const facts = await adviceFacts(c.env, { payerId, payer: pair.payer, workerId: pair.workerId, worker: pair.worker, now });
+  const screeningAvailable = await screeningCapacity(c.env, pair.workerId, now);
   const queued = await c.env.DB.prepare("SELECT id, payload FROM jobs WHERE token_id = ? AND kind = 'advice' AND status IN ('queued', 'running') ORDER BY created_at LIMIT 1")
     .bind(payerId)
     .first<{ id: string; payload: string | null }>();
@@ -219,6 +221,8 @@ workRoutes.get('/api/pets/:id/advice', async (c) => {
     ...(facts.quote.discounted ? { discounted: true } : {}),
     ...(facts.quote.refusalUntil == null ? {} : { refusalUntil: new Date(facts.quote.refusalUntil).toISOString() }),
     skilled: facts.skilled,
+    screeningAvailable,
+    screeningResetAt: screeningAvailable ? null : nextMidnight(now),
     // The worker's data sources, named once: «Whoever runs {labels} sees what {name} looks up there…» is drawn from them.
     labels: await readableSourceLabels(c.env.DB, pair.workerId),
     workerAsleep: facts.workerAsleep,

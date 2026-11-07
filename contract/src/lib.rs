@@ -8,10 +8,11 @@ use near_contract_standards::non_fungible_token::enumeration::NonFungibleTokenEn
 use near_contract_standards::non_fungible_token::events::NftMint;
 use near_contract_standards::non_fungible_token::metadata::TokenMetadata;
 use near_contract_standards::non_fungible_token::{NonFungibleToken, Token, TokenId};
+use near_sdk::borsh;
 use near_sdk::json_types::U128;
 use near_sdk::store::key::Sha256;
 use near_sdk::store::{LookupMap, LookupSet};
-use near_sdk::{AccountId, NearToken, PanicOnDefault, Promise, env, near};
+use near_sdk::{AccountId, Gas, NearToken, PanicOnDefault, Promise, env, near};
 use std::collections::HashMap;
 
 use crate::events::{
@@ -19,8 +20,8 @@ use crate::events::{
 };
 use crate::limits::*;
 use crate::pet::{
-    HatchView, Pet, PetView, RiddleView, Stage, THINKING_CAP, Trait, VersionedPet, is_bought,
-    next_streak, streak_item, token_extra,
+    HatchView, Pet, PetV7, PetView, RiddleView, Stage, THINKING_CAP, Trait, VersionedPet,
+    is_bought, next_streak, streak_item, token_extra,
 };
 use crate::shared_job::{
     FundingKind, OwnerCloseApproval, SharedFunding, SharedJob, SharedJobState, SharedJobView,
@@ -318,6 +319,26 @@ fn take_food_split(pet: &mut Pet, from_given: u128, rest: u128) {
     pet.debited_today = debited_today;
 }
 
+/// Full plus three fixed thought-scale units: 14.5 of STARTER_FOOD's twelve units.
+const WISH_FLOOR: u128 = STARTER_FOOD * 29 / 24;
+const OUTFIT_TREASURY_DEBT_KEY: &[u8] = b"treasury_outfit_owed_v1";
+
+fn outfit_treasury_owed() -> u128 {
+    env::storage_read(OUTFIT_TREASURY_DEBT_KEY)
+        .map(|bytes| borsh::from_slice(&bytes).unwrap_or_else(|_| fail("bad_treasury_debt")))
+        .unwrap_or(0)
+}
+
+fn add_outfit_treasury_debt(amount: u128) {
+    let owed = outfit_treasury_owed()
+        .checked_add(amount)
+        .unwrap_or_else(|| fail("overflow"));
+    env::storage_write(
+        OUTFIT_TREASURY_DEBT_KEY,
+        &borsh::to_vec(&owed).unwrap_or_else(|_| fail("overflow")),
+    );
+}
+
 /// One hire of a batch that passed its checks, with what `debit_session` writes for it.
 struct PlannedHire {
     thought: usize,
@@ -464,6 +485,25 @@ impl Contract {
         if env::predecessor_account_id() != self.server_id {
             fail("not_server");
         }
+    }
+
+    /// Charge only value growth when an older pet record first becomes V7.
+    fn put_pet(&mut self, token_id: TokenId, record: VersionedPet) {
+        let old = self.pets.get(&token_id).unwrap_or_else(|| fail("no_pet"));
+        let old_len = borsh::to_vec(old)
+            .unwrap_or_else(|_| fail("serialize"))
+            .len();
+        let new_len = borsh::to_vec(&record)
+            .unwrap_or_else(|_| fail("serialize"))
+            .len();
+        let cost = (new_len.saturating_sub(old_len) as u128)
+            .checked_mul(env::storage_byte_cost().as_yoctonear())
+            .unwrap_or_else(|| fail("overflow"));
+        self.pool = self
+            .pool
+            .checked_sub(cost)
+            .unwrap_or_else(|| fail("pool_empty"));
+        self.pets.insert(token_id, record);
     }
 
     fn births_today_now(&self) -> u32 {
@@ -935,7 +975,7 @@ impl Contract {
             .internal_mint_with_refund(token_id.clone(), receiver.clone(), None, None);
         self.pets.insert(
             token_id.clone(),
-            VersionedPet::V6(Pet {
+            VersionedPet::V7(PetV7::from(Pet {
                 name,
                 character,
                 born_at: now,
@@ -956,7 +996,7 @@ impl Contract {
                 outfits: 0,
                 job_day: 0,
                 jobs_today: 0,
-            }),
+            })),
         );
         self.hatched.insert(receiver.clone(), token_id.clone());
         self.pets.flush();
@@ -1003,6 +1043,47 @@ impl Contract {
         token_id
     }
 
+    /// Server only. Activates the public reserve while retaining any saved food after a gift.
+    // spec: add-pet-will › Will reserve contract › start accepted
+    // spec: add-pet-will › Will reserve contract › wrong caller
+    // spec: add-pet-will › Will reserve contract › unknown pet
+    pub fn will_start(&mut self, token_id: TokenId) {
+        self.assert_server();
+        let mut record = self
+            .pets
+            .get(&token_id)
+            .cloned()
+            .unwrap_or_else(|| fail("no_pet"));
+        record.current_mut().wish_active = true;
+        self.put_pet(token_id, record);
+    }
+
+    /// Server only. Returns saved food to this same pet; no account can receive it.
+    // spec: add-pet-will › Wish release contract › release accepted
+    // spec: add-pet-will › Wish release contract › wrong caller
+    // spec: add-pet-will › Wish release contract › release exceeds reserve
+    pub fn will_release(&mut self, token_id: TokenId, amount: U128) {
+        self.assert_server();
+        let mut record = self
+            .pets
+            .get(&token_id)
+            .cloned()
+            .unwrap_or_else(|| fail("no_pet"));
+        let pet = record.current_mut();
+        pet.wish_reserve = pet
+            .wish_reserve
+            .checked_sub(amount.0)
+            .unwrap_or_else(|| fail("reserve_short"));
+        pet.given_food = pet
+            .given_food
+            .checked_add(amount.0)
+            .unwrap_or_else(|| fail("overflow"));
+        if pet.wish_reserve == 0 {
+            pet.wish_active = false;
+        }
+        self.put_pet(token_id, record);
+    }
+
     /// The owner gives a whole pet away. Only NEP-171 ownership and enumeration move;
     /// every game record stays under the same token id.
     #[payable]
@@ -1029,6 +1110,13 @@ impl Contract {
         }
         self.tokens
             .nft_transfer(receiver_id, token_id.clone(), approval_id, None);
+        let mut record = self
+            .pets
+            .get(&token_id)
+            .cloned()
+            .unwrap_or_else(|| fail("no_pet"));
+        record.current_mut().wish_active = false;
+        self.put_pet(token_id.clone(), record);
         if let Some(mut job) = self.shared_jobs.get(&token_id).cloned() {
             match job.state {
                 SharedJobState::Funding => self.release_shared_job(token_id.clone(), job),
@@ -1333,7 +1421,7 @@ impl Contract {
             .checked_sub(reserve)
             .unwrap_or_else(|| fail("pool_empty"));
         pet.last_debit_id = debit_id;
-        self.pets.insert(token_id.clone(), record);
+        self.put_pet(token_id.clone(), record);
         if let Some(active) = job {
             if claimed_hash.is_some() {
                 self.shared_jobs.insert(token_id.clone(), active);
@@ -1350,9 +1438,42 @@ impl Contract {
                 .get_mut(&hire.worker)
                 .unwrap_or_else(|| fail("no_worker"));
             let worker = record.current_mut();
+            let earned = hire
+                .fee
+                .checked_sub(hire.price)
+                .unwrap_or_else(|| fail("overflow"));
+            let after_food = worker
+                .project_food
+                .checked_add(worker.given_food)
+                .and_then(|food| food.checked_add(earned))
+                .unwrap_or_else(|| fail("overflow"));
+            let (linked_near, linked_snack) = self
+                .shared_jobs
+                .get(&hire.worker)
+                .map(|job| (job.linked_near, job.linked_snack))
+                .unwrap_or((0, 0));
+            let spendable_after_credit = after_food
+                .checked_sub(linked_near)
+                .and_then(|food| food.checked_sub(linked_snack))
+                .unwrap_or_else(|| fail("over_food"));
+            let saved = if worker.wish_active {
+                (earned / 4)
+                    .min(
+                        OUTFIT_PRICE
+                            .checked_sub(worker.wish_reserve)
+                            .unwrap_or_else(|| fail("reserve_over_price")),
+                    )
+                    .min(spendable_after_credit.saturating_sub(WISH_FLOOR))
+            } else {
+                0
+            };
+            worker.wish_reserve = worker
+                .wish_reserve
+                .checked_add(saved)
+                .unwrap_or_else(|| fail("overflow"));
             worker.given_food = worker
                 .given_food
-                .checked_add(hire.fee - hire.price)
+                .checked_add(earned - saved)
                 .unwrap_or_else(|| fail("overflow"));
             worker.jobs_today = worker.jobs_today_now(today) + 1;
             worker.job_day = today;
@@ -1361,7 +1482,7 @@ impl Contract {
                 .unwrap_or_else(|| fail("overflow"));
         }
         for (worker, record) in workers {
-            self.pets.insert(worker, record);
+            self.put_pet(worker, record);
         }
         // The pets' records first, so the measure of a pair below counts the pair alone.
         self.pets.flush();
@@ -1489,7 +1610,7 @@ impl Contract {
             .given_food
             .checked_add(deposit)
             .unwrap_or_else(|| fail("overflow"));
-        self.pets.insert(token_id.clone(), record);
+        self.put_pet(token_id.clone(), record);
 
         let mut funding_index = None;
         if let Some(active) = job.as_mut() {
@@ -1602,7 +1723,7 @@ impl Contract {
             .project_food
             .checked_add(SNACK_AMOUNT)
             .unwrap_or_else(|| fail("overflow"));
-        self.pets.insert(token_id.clone(), record);
+        self.put_pet(token_id.clone(), record);
 
         let introduced =
             kind == SnackKind::Friend && self.introduce(&token_id, &feeder, SNACK_AMOUNT);
@@ -1667,7 +1788,7 @@ impl Contract {
             Stage::Adult => pet.traits[1] = r#trait.code(),
             Stage::Baby => unreachable!("Baby is nobody's next stage"),
         }
-        self.pets.insert(token_id.clone(), record);
+        self.put_pet(token_id.clone(), record);
 
         NearlingEvent::Grow {
             token_id,
@@ -1709,7 +1830,7 @@ impl Contract {
         if let Some(item) = earned {
             pet.give(item);
         }
-        self.pets.insert(token_id.clone(), record);
+        self.put_pet(token_id.clone(), record);
 
         NearlingEvent::Streak {
             token_id: token_id.clone(),
@@ -1748,7 +1869,7 @@ impl Contract {
             fail("outfit_owned");
         }
         pet.give(THINKING_CAP);
-        self.pets.insert(token_id.clone(), record);
+        self.put_pet(token_id.clone(), record);
 
         NearlingEvent::Outfit {
             token_id,
@@ -1759,10 +1880,13 @@ impl Contract {
         .emit();
     }
 
-    /// Server only, no deposit. Buys the pet one of the four items for sale at `OUTFIT_PRICE`:
-    /// out of the pet's food, the project's first, to the treasury, inside the day's cap it
-    /// shares with the thoughts. «Stays Full» is the server's check, not this method's.
-    pub fn outfit_buy(&mut self, token_id: TokenId, item: u8) {
+    /// Server only, no deposit. Ordinary purchases spend project food first; a wish purchase
+    /// spends only an active reserve. Both share the pet's UTC daily debit cap.
+    // spec: add-pet-will › Wish purchase contract › wish purchase accepted
+    // spec: add-pet-will › Wish purchase contract › insufficient reserve
+    // spec: add-pet-will › Wish purchase contract › daily cap reached
+    // spec: add-pet-will › Wish purchase contract › paused after gift
+    pub fn outfit_buy(&mut self, token_id: TokenId, item: u8, via_wish: Option<bool>) {
         self.assert_server();
         if !is_bought(item) {
             fail("not_for_sale");
@@ -1776,20 +1900,100 @@ impl Contract {
         if pet.has(item) {
             fail("outfit_owned");
         }
-        let job = self.shared_jobs.get(&token_id);
-        take_ordinary_food(pet, 0, OUTFIT_PRICE, job);
+        if via_wish.unwrap_or(false) {
+            if !pet.wish_active {
+                fail("wish_paused");
+            }
+            if pet.wish_reserve < OUTFIT_PRICE {
+                fail("reserve_short");
+            }
+            let day = day_of(env::block_timestamp());
+            let spent = if pet.debit_day == day {
+                pet.debited_today
+            } else {
+                0
+            };
+            pet.debited_today = spent
+                .checked_add(OUTFIT_PRICE)
+                .filter(|total| *total <= DAILY_CAP)
+                .unwrap_or_else(|| fail("daily_cap"));
+            pet.debit_day = day;
+            pet.wish_reserve -= OUTFIT_PRICE;
+            pet.wish_active = false;
+        } else {
+            let job = self.shared_jobs.get(&token_id);
+            take_ordinary_food(pet, 0, OUTFIT_PRICE, job);
+        }
         pet.give(item);
-        self.pets.insert(token_id.clone(), record);
+        self.put_pet(token_id.clone(), record);
 
         NearlingEvent::Outfit {
             token_id,
             item,
-            via: OutfitVia::Bought,
+            via: if via_wish.unwrap_or(false) {
+                OutfitVia::PetWish
+            } else {
+                OutfitVia::Bought
+            },
             price: Some(U128(OUTFIT_PRICE)),
         }
         .emit();
+        let payout = Promise::new(self.treasury_id.clone())
+            .transfer(NearToken::from_yoctonear(OUTFIT_PRICE));
+        if via_wish.unwrap_or(false) {
+            payout.detach();
+        } else {
+            payout
+                .then(
+                    Promise::new(env::current_account_id()).function_call(
+                        "on_outfit_treasury_payout".to_string(),
+                        near_sdk::serde_json::to_vec(&near_sdk::serde_json::json!({
+                            "amount": U128(OUTFIT_PRICE)
+                        }))
+                        .unwrap_or_else(|_| fail("overflow")),
+                        NearToken::from_yoctonear(0),
+                        Gas::from_tgas(2),
+                    ),
+                )
+                .detach();
+        }
+    }
+
+    /// A failed ordinary Wardrobe transfer remains payable to the treasury. The debt uses its own
+    /// storage key so this fix can upgrade the deployed state without changing its Borsh layout.
+    #[private]
+    pub fn on_outfit_treasury_payout(&mut self, amount: U128) {
+        if env::promise_result_checked(0, 0).is_err() {
+            add_outfit_treasury_debt(amount.0);
+        }
+    }
+
+    pub fn treasury_owed(&self) -> U128 {
+        U128(outfit_treasury_owed())
+    }
+
+    /// Server-only retry of failed ordinary Wardrobe payouts. If this transfer fails too, its
+    /// callback restores the debt; successful transfers clear it exactly once.
+    pub fn retry_treasury_payout(&mut self) {
+        self.assert_server();
+        let amount = outfit_treasury_owed();
+        if amount == 0 {
+            return;
+        }
+        env::storage_remove(OUTFIT_TREASURY_DEBT_KEY);
         Promise::new(self.treasury_id.clone())
-            .transfer(NearToken::from_yoctonear(OUTFIT_PRICE))
+            .transfer(NearToken::from_yoctonear(amount))
+            .then(
+                Promise::new(env::current_account_id()).function_call(
+                    "on_outfit_treasury_payout".to_string(),
+                    near_sdk::serde_json::to_vec(&near_sdk::serde_json::json!({
+                        "amount": U128(amount)
+                    }))
+                    .unwrap_or_else(|_| fail("overflow")),
+                    NearToken::from_yoctonear(0),
+                    Gas::from_tgas(2),
+                ),
+            )
             .detach();
     }
 
@@ -2028,8 +2232,8 @@ mod tests {
         let mut contract = funded_contract(7_000_000_000_000_000_000_000_000);
         testing_env!(context(server(), 1_000, 0).build());
         let token_id = contract.pet_mint(player(0), "Pixel".into(), "I am curious.".into());
-        let Some(VersionedPet::V6(born)) = contract.pets.get(&token_id).cloned() else {
-            panic!("a birth writes version 6");
+        let Some(VersionedPet::V7(born)) = contract.pets.get(&token_id).cloned() else {
+            panic!("a birth writes version 7");
         };
         contract.known.insert((token_id.clone(), player(7)));
         let old_record = VersionedPet::V1(crate::pet::PetV1 {
@@ -3011,7 +3215,7 @@ mod tests {
         // The last nanosecond of day 3: the cap plus one yocto is refused whole.
         testing_env!(context(server(), 4 * NS_PER_DAY - 1, 0).build());
         let before = contract.pet_view("0".into()).unwrap();
-        let text = panic_text(|| contract.outfit_buy("0".into(), 3));
+        let text = panic_text(|| contract.outfit_buy("0".into(), 3, None));
         assert!(text.contains("daily_cap"), "{text}");
         let after = contract.pet_view("0".into()).unwrap();
         assert_eq!(after.debited_today.0, before.debited_today.0);
@@ -3023,7 +3227,7 @@ mod tests {
             pet.debited_today = DAILY_CAP - OUTFIT_PRICE;
         });
         testing_env!(context(server(), 4 * NS_PER_DAY - 1, 0).build());
-        contract.outfit_buy("0".into(), 3);
+        contract.outfit_buy("0".into(), 3, None);
         let view = contract.pet_view("0".into()).unwrap();
         assert_eq!(view.debited_today.0, DAILY_CAP);
         assert_eq!(view.outfits, vec![3]);
@@ -3037,10 +3241,10 @@ mod tests {
         );
 
         // The same day another item is over the cap; the first nanosecond of day 4 resets it.
-        let text = panic_text(|| contract.outfit_buy("0".into(), 4));
+        let text = panic_text(|| contract.outfit_buy("0".into(), 4, None));
         assert!(text.contains("daily_cap"), "{text}");
         testing_env!(context(server(), 4 * NS_PER_DAY, 0).build());
-        contract.outfit_buy("0".into(), 4);
+        contract.outfit_buy("0".into(), 4, None);
         let view = contract.pet_view("0".into()).unwrap();
         assert_eq!((view.debit_day, view.debited_today.0), (4, OUTFIT_PRICE));
         assert_eq!(view.outfits, vec![3, 4]);

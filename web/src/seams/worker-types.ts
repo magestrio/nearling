@@ -132,6 +132,12 @@ export type PetView =
   | ({ viewer: 'guest' } & PetBase & MyFeed)
   | ({
       viewer: 'owner';
+      /** Private wish is returned only after a fresh chain ownership check. */
+      wish: WishTarget | null;
+      /** Public chain reserve, carried only in the owner response. */
+      wishReserveYocto: string;
+      wishActive: boolean;
+      willActivity?: Array<{ at: number; code: string }>;
       tired: boolean;
       /** the next 00:00 UTC (ISO), while tired or at zero energy */
       until?: string;
@@ -185,6 +191,26 @@ export type PetView =
       MyFeed);
 
 export type HireMode = 'auto' | 'manual';
+export interface WishTarget {
+  item: OutfitSlug;
+  reason: string;
+  status: 'active' | 'paused' | 'buying' | 'waiting_day';
+  reserveYocto: string;
+}
+export interface WishRead {
+  wish: WishTarget | null;
+  reserveYocto: string;
+  active: boolean;
+  /** Fresh owner read of the latest release operation. An uncertain chain outcome stays unknown. */
+  releaseStatus: null | 'unknown' | 'confirmed' | 'failed';
+}
+export interface WorkInvitation {
+  id: string; workerId: string; name: string; label: string | null; price: Price;
+  createdAt: number; expiresAt: number;
+}
+export interface RefusalEvidence {
+  id: string; reason: string; at: number; signedEvidenceBase64: string; onChainReceipt: false;
+}
 /** A price as the server names it: the exact yocto and the cents at the rate of the moment (two significant digits). */
 export interface Price {
   yocto: string;
@@ -274,6 +300,10 @@ export type ThoughtCode =
   | 'worker_asleep'
   | 'worker_resting'
   | 'society_refused'
+  | 'character_refused'
+  | 'screening_failed'
+  | 'screening_exhausted'
+  | 'screening_capacity'
   /** advice only: the paying pet or the friend's pet is not there any more, or they now share an owner */
   | 'no_pet'
   /** a worker's data source or code did not answer (`Adapter call rule`); on an advice `paid` says whether the paying pet's food paid */
@@ -316,7 +346,7 @@ export type ErrandState =
   | { state: 'away'; form: ErrandForm; job: string | null; sentAt: number }
   | { state: 'done'; cleared: true; priceCents: number }
   | { state: 'failed'; form: ErrandForm; job: string | null; reason: ErrandFailure; cause?: 'unreachable' | 'no_search'; priceCents?: number };
-export type PetState = Omit<Extract<PetView, { viewer: 'owner' }>, 'viewer' | 'ownedCount' | 'myFeed'> & {
+export type PetState = Omit<Extract<PetView, { viewer: 'owner' }>, 'viewer' | 'ownedCount' | 'myFeed' | 'wishReserveYocto' | 'wishActive' | 'willActivity'> & {
   /** the poll's answer carries it only when the tab has a flight to learn of */
   myFeed?: MyFeed['myFeed'];
   pending?: boolean;
@@ -332,6 +362,7 @@ export type PetState = Omit<Extract<PetView, { viewer: 'owner' }>, 'viewer' | 'o
   price?: Price;
   refusalUntil?: string;
   events: PetEvent[];
+  characterRefusal?: { id: string; reason: string };
   /** the giver's open gift link (`GET …/state`): waiting for a friend or accepted, or null; the poll is how an open page learns of an acceptance */
   gift: { code: string; status: 'waiting' | 'accepted'; acceptedName: string | null; acceptedAccount: string | null; version: number } | null;
   /** with `woke`: the name of the friend whose meal woke the pet — «{friend} fed {name}.»; `'A friend'` for a nameless
@@ -376,8 +407,10 @@ export interface ConversationLine {
   skilled?: boolean;
   /** `event`: `hire_failed` — {worker} couldn't help just now; `hire_empty` — {worker} came up empty; `hire_data_failed` — its data
    *  didn't answer (`…_paid`: and the pet's food paid for the try). `error`: `errand_empty` (`priceCents` is what the errand cost) */
-  code?: 'hire_failed' | 'hire_empty' | 'hire_data_failed' | 'hire_data_failed_paid' | 'society_refused' | 'errand_empty' | 'gift';
+  code?: 'hire_failed' | 'hire_empty' | 'hire_data_failed' | 'hire_data_failed_paid' | 'society_refused' | 'character_refused' | 'errand_empty' | 'gift';
   refusalUntil?: string;
+  /** Private payer-only refusal joined after a fresh owner check; absent for a previous owner's turn. */
+  refusal?: { id: string; reason: string };
   /** A refusal's mode when it happened, independent of the owner's current switch. */
   hireMode?: HireMode;
   previousOwner?: boolean;
@@ -475,7 +508,7 @@ export type DiaryEntry =
   /** `lines` are the paragraphs, `question` the last line when it asks (null: no question today); `work` is `add-pet-work`'s
    *  the pet's work of the day before as data — who hired it and the cents of food it earned — the client writes the line
    *  (`Work diary rule`); null when nobody hired it */
-  | { kind: 'text'; id: string; lines: string[]; socialLines?: string[]; question: string | null; work: DiaryWork | null; previousOwner?: boolean }
+  | { kind: 'text'; id: string; lines: string[]; socialLines?: string[]; willLine?: string; question: string | null; work: DiaryWork | null; previousOwner?: boolean }
   | { kind: 'first' | 'cleared' | 'writing' | 'asleep' | 'failed' };
 
 export interface DiaryWork {
@@ -559,7 +592,7 @@ export interface WardrobeView {
   /** the gas pause only: a purchase works on the pause of NEAR AI */
   shopPaused: boolean;
   buying: { id: string; item: OutfitSlug } | null;
-  outcome: { id: string; item: OutfitSlug; status: 'bought' | 'failed'; code: string | null } | null;
+  outcome: { id: string; item: OutfitSlug; status: 'bought' | 'failed'; code: string | null; source?: 'owner' | 'pet_wish' } | null;
 }
 
 /** `GET /api/pets/:id/advice?payer=` (`Advice flow`): what the friend's page needs to draw the column, whole. The price is the
@@ -569,6 +602,9 @@ export interface AdviceRead {
   price: Price;
   discounted?: boolean;
   refusalUntil?: string;
+  /** The worker's current UTC screening capacity and, when exhausted, the Worker's next UTC midnight. */
+  screeningAvailable: boolean;
+  screeningResetAt: string | null;
   skilled: boolean;
   workerAsleep: boolean;
   /** the friend's pet has no energy left today (or ten answers): when it is back, ISO */
@@ -704,6 +740,13 @@ export interface RelationshipSummary {
 }
 
 export interface WorkerApi {
+  wish(token: Token, tokenId: string): Promise<WishRead>;
+  cancelWish(token: Token, tokenId: string): Promise<{ status: 'released' | 'pending' }>;
+  continueWish(token: Token, tokenId: string): Promise<{ status: 'active' | 'pending' } | { code: 'wish_pending' }>;
+  invitations(token: Token, tokenId: string): Promise<{ invitations: WorkInvitation[] }>;
+  acceptInvitation(token: Token, tokenId: string, invitationId: string): Promise<{ workerId: string; name: string; label: string | null; price: Price; question: '' }>;
+  dismissInvitation(token: Token, tokenId: string, invitationId: string): Promise<{ status: 'dismissed' }>;
+  refusalEvidence(token: Token, tokenId: string, refusalId: string): Promise<RefusalEvidence>;
   relationships(token: Token, tokenId: string): Promise<RelationshipSummary>;
   workRecord(tokenId: string): Promise<WorkRecord>;
   experienceRecordOpened(ids: { tabId: string; playerId: string; petId: string }): Promise<void>;

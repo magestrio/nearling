@@ -19,6 +19,7 @@ import { gasIsLow } from './servicePause';
 import { track } from './track';
 import { recordExperienceEvent } from './experience/events';
 import { settleSocietyPending } from './society/settlement';
+import { noteWishSavings } from './will/purchase';
 
 const SESSION_QUIET_MS = 10 * 60_000;
 export const MAX_THOUGHTS_PER_DEBIT = 12;
@@ -282,6 +283,7 @@ async function settle(env: Env, session: Pick<Session, 'id' | 'token_id'>, debit
       if (row !== null) recorded.push(hire);
     }
     await afterRecord(env, recorded);
+    await noteWishSavings(env, recorded.map((hire) => hire.worker).filter((id): id is string => id !== null));
     await settleSocietyPending(env).catch(() => console.log('society_settle_failed'));
   }
   return changed;

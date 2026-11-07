@@ -1,6 +1,13 @@
 import { formatCents } from '../lib/price';
 import type { OutfitSlug, WardrobeView } from '../seams/worker-types';
-import { known, OUTFITS, pictureOf, type Outfit } from './catalogue';
+import { known, nameOf, OUTFITS, pictureOf, type Outfit } from './catalogue';
+
+/** A confirmed automatic wish purchase is distinct from an owner tap's «is wearing» line. */
+export function wishEarnedLine(name: string, view: WardrobeView | null): string | null {
+  const outcome = view?.outcome;
+  if (outcome?.status !== 'bought' || outcome.source !== 'pet_wish') return null;
+  return `${name} earned ${nameOf(outcome.item) ?? outcome.item}!`;
+}
 import { asleepLine, emptyLine, errorLine, FAILED_LINE, loadingLine, pausedLine, shortLine } from './lines';
 
 // What Wardrobe screen draws, as data (design.md › Клиент › `wardrobeView`): the tiles in the placement's order — own, earned not

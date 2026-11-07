@@ -163,18 +163,15 @@ describe('Hire food data', () => {
     expect(await unbilledYocto(env.DB, PAYER)).toBe(0n);
   });
 
-  // spec: add-pet-work › Hire food data › memory cleared before the answer
-  it('carries the worker of an answer that has no words: the paid-empty answer and the one a memory clear took, and not the pet\'s own question', async () => {
-    // an empty answer the paying pet pays by usage
+  // spec: add-pet-will › Character refusal flow › no signed answer
+  it('does not send a debit for an empty worker screening, even after the payer had three empty thoughts', async () => {
     addPets(h);
     const tk = await payerToken();
     await env.DB.prepare('INSERT INTO empty_answers (token_id, day, n) VALUES (?, ?, 3)').bind(PAYER, day()).run();
     h.net().ai.push({ content: '', tokensOut: 12 });
-    expect((await advise(tk, { text: 'A secret question' })).code).toBe('empty_paid');
+    expect((await advise(tk, { text: 'A secret question' })).code).toBe('screening_failed');
     await tick(env, later());
-    const [empty] = h.net().contract.debits[0]!.thoughts;
-    expect(empty).toMatchObject({ worker: WORKER });
-    expect(empty).not.toHaveProperty('hire');
+    expect(h.net().contract.debits).toEqual([]);
     expect(await rows('SELECT 1 FROM hires')).toEqual([]);
     expect(fake(WORKER).given_food).toBe('0');
   });

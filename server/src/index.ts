@@ -22,6 +22,7 @@ import { wardrobeRoutes } from './routes/wardrobe';
 import { verificationRoutes } from './routes/verification';
 import { workRoutes } from './routes/work';
 import { watchRoutes } from './routes/watch';
+import { willRoutes } from './routes/will';
 
 const app = new Hono<AppEnv>();
 
@@ -60,6 +61,7 @@ app.route('/', sourceRoutes);
 app.route('/', catalogRoutes);
 app.route('/', codeRoutes);
 app.route('/', verificationRoutes);
+app.route('/', willRoutes);
 
 // The cron (`triggers.crons`, every minute): sessions to debit, the diary, the pause of the services.
 async function scheduled(_controller: ScheduledController, env: Env, ctx: ExecutionContext): Promise<void> {

@@ -58,8 +58,8 @@ describe('Conversation of a hire', () => {
   });
 
   // spec: add-pet-work › Pet hire flow › найм не состоялся
-  // spec: add-pet-work › Pet hire flow › работник ответил пусто
-  it('tells a hire that did not happen as an event line with a code, no price, and the pet\'s own reply after it', async () => {
+  // spec: add-pet-will › Character refusal flow › no signed answer
+  it('records a failed hire event, then keeps a later empty worker screening free and open', async () => {
     addHirer(h);
     await addWorker(h, '6', 2);
     const tk = await payerToken();
@@ -71,16 +71,32 @@ describe('Conversation of a hire', () => {
     expect(out[2]).not.toHaveProperty('text');
     expect(out[3]).not.toHaveProperty('hire');
 
-    // an empty answer paid by the pet (its fourth of the day) is the other code
+    // Accepted add-pet-will decision: a signed empty screened worker answer is project-paid
+    // even when the payer had three earlier empty thoughts. The turn keeps its question.
     await env.DB.exec('DELETE FROM thoughts');
     await env.DB.exec('DELETE FROM jobs');
     h.net().contract.pets.get('6')!.project_food = (10n * BigInt(env.STARTER_FOOD)).toString();
     await env.DB.prepare('INSERT INTO empty_answers (token_id, day, n) VALUES (?, ?, 3)').bind(PAYER, Math.floor(Date.now() / 86_400_000)).run();
     h.net().ai.push(ask(), { content: '', tokensOut: 12 }, { content: 'Alone.' });
-    await say(tk, PAYER, 'Hi');
+    expect((await say(tk, PAYER, 'Hi')).code).toBe('screening_failed');
     out = await lines(tk);
-    expect(out.map((l) => l.who)).toEqual(['player', 'pet', 'event', 'pet']);
-    expect(out[2]).toMatchObject({ code: 'hire_empty' });
+    expect(out.map((l) => l.who)).toEqual(['player', 'pet']);
+    expect((await rows("SELECT COUNT(*) AS n FROM project_spend WHERE kind = 'will_screening'"))[0].n).toBe(1);
+    expect((await rows('SELECT COUNT(*) AS n FROM hires'))[0].n).toBe(0);
+  });
+
+  // spec: add-pet-work › Pet hire flow › найм не состоялся
+  // spec: add-pet-will › Will playtest data › coded event delivery
+  it('keeps a signed empty worker answer free for the payer among their first three and counts its screening cost once', async () => {
+    addHirer(h);
+    await addWorker(h, '6', 2);
+    const tk = await payerToken();
+    h.net().ai.push(ask(), { content: '', tokensOut: 12 }, { content: 'Alone.' });
+    expect((await say(tk, PAYER, 'Hi')).code).toBe('screening_failed');
+    const out = await lines(tk);
+    expect(out.map((line) => line.who)).toEqual(['player', 'pet']);
+    expect((await rows("SELECT COUNT(*) AS n FROM project_spend WHERE kind = 'will_screening'"))[0].n).toBe(1);
+    expect((await rows('SELECT COUNT(*) AS n FROM hires'))[0].n).toBe(0);
   });
 
   // spec: add-pet-work › Advice flow › ответ

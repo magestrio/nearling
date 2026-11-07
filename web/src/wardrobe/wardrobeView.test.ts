@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { OutfitSlug, WardrobeView } from '../seams/worker-types';
-import { LINE, wardrobeView, type TileDraw, type WardrobeInput } from './wardrobeView';
+import { LINE, wardrobeView, wishEarnedLine, type TileDraw, type WardrobeInput } from './wardrobeView';
 
 const view = (patch: Partial<WardrobeView> = {}): WardrobeView => ({
   owned: ['daisy-crown', 'thinking-cap', 'party-hat'],
@@ -26,6 +26,13 @@ const slugs = (tiles: TileDraw[]) => tiles.map((t) => t.slug);
 const buyTiles = (patch: Partial<WardrobeInput> = {}) => wardrobeView(input(patch)).tiles!.toBuy;
 
 describe('what Wardrobe screen draws', () => {
+  // spec: add-pet-will › Wish pursuit flow › automatic purchase
+  it('announces only a confirmed pet wish purchase as earned', () => {
+    const bought = { id: 'wish-buy', item: 'smart-glasses' as const, status: 'bought' as const, code: null, source: 'pet_wish' as const };
+    expect(wishEarnedLine('Pixel', view({ outcome: bought }))).toBe('Pixel earned Smart glasses!');
+    expect(wishEarnedLine('Pixel', view({ outcome: { ...bought, source: 'owner' } }))).toBeNull();
+    expect(wishEarnedLine('Pixel', view({ outcome: { ...bought, status: 'failed' } }))).toBeNull();
+  });
   // spec: add-wardrobe › Wardrobe screen › success × the order of the tiles
   it("puts the own items first, then the earned not yet, then the ones to buy, each in the catalogue's order", () => {
     const draw = wardrobeView(input());

@@ -203,6 +203,46 @@ describe('Skill code data', () => {
 });
 
 describe('Data source call data', () => {
+  // spec: add-pet-will › Character refusal flow › no signed answer
+  it.each([
+    ['timeout', { hang: true }],
+    ['missing signature', { ...ASK_DATA, signature: 'never' as const }],
+  ])('records one project spend entry for a screened data call with %s', async (_case, behavior) => {
+    const { tk } = await adviceWorld();
+    ai().push(behavior);
+    expect((await advise(tk)).code).toBe('screening_failed');
+    const spends = await rows('SELECT kind, usd_micros, screening_id FROM project_spend');
+    expect(spends).toHaveLength(1);
+    expect(spends[0]).toMatchObject({ kind: 'will_screening' });
+    expect(spends[0].usd_micros).toBeGreaterThan(0);
+    expect(spends[0].screening_id).toMatch(/^[0-9a-f]+$/);
+    expect((await rows('SELECT started FROM will_screenings WHERE worker_token = ?', WORKER))[0]).toEqual({ started: 1 });
+  });
+
+  // spec: add-pet-will › Character refusal flow › refusal capacity reached
+  // spec: add-pet-will › Character refusal flow › third screening fails
+  it('counts failed signed data preparation before another model request and stops the fourth', async () => {
+    const { tk } = await adviceWorld();
+    ai().push({ ...ASK_DATA, signature: 'never' }, { ...ASK_DATA, signature: 'never' }, { ...ASK_DATA, signature: 'never' });
+    expect((await advise(tk)).code).toBe('screening_failed');
+    expect((await advise(tk)).code).toBe('screening_failed');
+    expect((await advise(tk)).code).toBe('screening_exhausted');
+    expect((await advise(tk)).code).toBe('screening_capacity');
+    expect(ai().calls).toHaveLength(3);
+    expect((await rows('SELECT started FROM will_screenings WHERE worker_token = ?', WORKER))[0]).toEqual({ started: 3 });
+  });
+
+  // spec: add-pet-will › Character refusal flow › third screening fails
+  it('closes advice after a third signed data call whose tool fails', async () => {
+    const { tk } = await adviceWorld({ callStatus: 503 });
+    for (let i = 0; i < 3; i++) ai().push(ASK_DATA);
+    expect((await advise(tk)).code).toBe('data_failed');
+    expect((await advise(tk)).code).toBe('data_failed');
+    expect((await advise(tk)).code).toBe('screening_exhausted');
+    expect((await advise(tk)).code).toBe('screening_capacity');
+    expect(ai().calls).toHaveLength(3);
+    expect((await rows('SELECT kind FROM project_spend')).map((r) => r.kind)).toEqual(['will_screening', 'will_screening', 'will_screening']);
+  });
   // spec: add-pet-errands › Adapter call rule › data failed in advice
   // spec: add-pet-errands › Data source call data › failed in a hire or advice
   it('ends an advice with no answer and no fee when the source is busy, among the first three failed calls: the project pays the call, the place is back', async () => {
@@ -217,32 +257,27 @@ describe('Data source call data', () => {
     expect(await rows('SELECT * FROM thoughts WHERE token_id = ?', PAYER)).toEqual([]);
     expect(await rows('SELECT * FROM hires')).toEqual([]);
     expect(await level()).toBe(before);
-    // the place goes back; the worker is marked for the day; the failed call counts among the paying pet's three
+    // The place goes back; the worker's started screening remains counted.
     expect(await places()).toMatchObject({ n: 0, held: 0, data_failed: 1 });
-    expect((await rows('SELECT n FROM empty_answers WHERE token_id = ?', PAYER))[0]).toEqual({ n: 1 });
-    expect((await rows('SELECT kind FROM project_spend')).map((r) => r.kind)).toEqual(['no_thought']);
-    expect(h.events().find((e) => e.name === 'thought_failed')!.props).toMatchObject({ for: 'hirer', payer: 'project' });
+    expect((await rows('SELECT started FROM will_screenings WHERE worker_token = ?', WORKER))[0]).toEqual({ started: 1 });
+    expect((await rows('SELECT kind FROM project_spend')).map((r) => r.kind)).toEqual(['will_screening']);
     expect(adapterEvents()).toEqual([{ outcome: 'busy', job: 'advice' }]);
     expect(mcp.requests.filter((r) => r.method === 'tools/call')).toHaveLength(1);
     // the question is kept for the field: the page can send it again
     expect((await postAdvice(tk, { text: 'What happened on 3 November?' })).status).toBe(202);
   });
 
-  // spec: add-pet-errands › Adapter call rule › data failed in advice, past three
-  it('charges the paying pet\'s food for the data call from the fourth failed call of the day: a thought with no reply, its receipt the data call, no fee', async () => {
+  // spec: add-pet-will › Character refusal flow › no signed answer
+  it('keeps the data-call failure project-paid even when the payer has three older empty answers', async () => {
     const { tk } = await adviceWorld({ callRpcError: true });
     await env.DB.prepare('INSERT INTO empty_answers (token_id, day, n) VALUES (?, ?, 3)').bind(PAYER, day()).run();
     ai().push(ASK_DATA);
     const out = await advise(tk, { text: 'What happened on 3 November?' });
-    expect(out).toMatchObject({ code: 'data_failed', paid: true });
-    const [thought] = await rows('SELECT * FROM thoughts WHERE token_id = ?', PAYER);
-    expect(thought).toMatchObject({ kind: 'advice', player_text: null, reply_text: null, status: 'unbilled', worker_id: WORKER, data_labels: null });
-    expect(BigInt(thought.price_yocto)).toBe(thoughtPrice(env, [{ tokensIn: 900, tokensOut: 40 }]));
-    expect(await rows('SELECT label, n FROM thought_calls WHERE thought_id = ?', thought.id)).toEqual([{ label: 'data', n: 0 }]);
+    expect(out).toMatchObject({ code: 'data_failed', paid: false });
+    expect(await rows('SELECT * FROM thoughts WHERE token_id = ?', PAYER)).toEqual([]);
     expect(await rows('SELECT * FROM hires')).toEqual([]);
     expect(await places()).toMatchObject({ n: 0, held: 0, data_failed: 1 });
-    expect(await rows('SELECT kind FROM project_spend')).toEqual([]);
-    expect(h.events().find((e) => e.name === 'thought_failed')!.props).toMatchObject({ payer: 'pet' });
+    expect((await rows('SELECT kind FROM project_spend')).map((r) => r.kind)).toEqual(['will_screening']);
     // the thought has no words, so the conversation shows nothing of it
     expect((await api(`/api/pets/${PAYER}/conversation`, { token: tk })).body.lines).toEqual([]);
   });
@@ -258,7 +293,7 @@ describe('Data source call data', () => {
     ai().push(ASK_DATA);
     expect(await advise(tk, { text: 'q two' })).toMatchObject({ code: 'data_failed', paid: false });
     expect(adapterEvents().at(-1)).toEqual({ outcome: 'slow', job: 'advice' });
-    expect((await rows('SELECT n FROM empty_answers WHERE token_id = ?', PAYER))[0]).toEqual({ n: 2 });
+    expect((await rows('SELECT started FROM will_screenings WHERE worker_token = ?', WORKER))[0]).toEqual({ started: 2 });
   });
 
   // spec: add-pet-errands › Adapter call rule › data failed in a hire
@@ -272,26 +307,25 @@ describe('Data source call data', () => {
     expect(turn.map((t) => [t.kind, t.reply_text])).toEqual([['hire_question', 'How do I grow radishes?'], ['hire_event', 'data_failed'], ['reply', 'On my own, then.']]);
     expect(await rows('SELECT * FROM hires')).toEqual([]);
     expect(await places()).toMatchObject({ n: 0, held: 0, data_failed: 1 });
-    expect((await rows('SELECT kind FROM project_spend')).map((r) => r.kind)).toEqual(['no_thought']);
+    expect((await rows('SELECT kind FROM project_spend')).map((r) => r.kind)).toEqual(['will_screening']);
     expect(adapterEvents()).toEqual([{ outcome: 'busy', job: 'hire' }]);
     // the page draws «{worker}'s skill couldn't get its data just now, so {name} answered on its own. No fee was paid.»
     const lines = (await api(`/api/pets/${PAYER}/conversation`, { token: tk })).body.lines;
     expect(lines.find((l: any) => l.who === 'event')).toMatchObject({ code: 'hire_data_failed', worker: { tokenId: WORKER, name: 'Biscuit' } });
   });
 
-  // spec: add-pet-errands › Adapter call rule › data failed in a hire, past three
-  it('takes the data call from the hirer\'s food from the fourth failed call of the day: a thought with no reply, no fee', async () => {
+  // spec: add-pet-will › Character refusal flow › no signed answer
+  it('keeps a failed worker data call project-paid in a hire after three older payer empty answers', async () => {
     const { tk } = await hireWorld({ callStatus: 429 });
     await env.DB.prepare('INSERT INTO empty_answers (token_id, day, n) VALUES (?, ?, 3)').bind(PAYER, day()).run();
     ai().push(ask(), ASK_DATA, { content: 'On my own, then.' });
     await say(tk, PAYER, 'What happened on 3 November?');
     const turn = await rows('SELECT kind, reply_text, price_yocto FROM thoughts WHERE token_id = ? ORDER BY created_at, rowid', PAYER);
-    expect(turn.map((t) => [t.kind, t.reply_text])).toEqual([['hire_question', 'How do I grow radishes?'], ['hire_answer', null], ['hire_event', 'data_failed_paid'], ['reply', 'On my own, then.']]);
-    expect(BigInt(turn[1]!.price_yocto)).toBe(thoughtPrice(env, [{ tokensIn: 900, tokensOut: 40 }]));
+    expect(turn.map((t) => [t.kind, t.reply_text])).toEqual([['hire_question', 'How do I grow radishes?'], ['hire_event', 'data_failed'], ['reply', 'On my own, then.']]);
     expect(await rows('SELECT * FROM hires')).toEqual([]);
-    expect(await rows('SELECT kind FROM project_spend')).toEqual([]);
+    expect((await rows('SELECT kind FROM project_spend')).map((r) => r.kind)).toEqual(['will_screening']);
     const lines = (await api(`/api/pets/${PAYER}/conversation`, { token: tk })).body.lines;
-    expect(lines.find((l: any) => l.who === 'event')).toMatchObject({ code: 'hire_data_failed_paid' });
+    expect(lines.find((l: any) => l.who === 'event')).toMatchObject({ code: 'hire_data_failed' });
   });
 
   // spec: add-pet-errands › Data source call data › a failed worker in Auto

@@ -41,6 +41,9 @@ import type {
   ToolView,
   WalletInfo,
   WardrobeView,
+  WishRead,
+  WorkInvitation,
+  RefusalEvidence,
   WatchRead,
   WorkerApi,
 } from './worker-types';
@@ -108,6 +111,13 @@ async function callReceiptBytes(code: string, n: number, part: 'request' | 'repl
 const id = (tokenId: string) => encodeURIComponent(tokenId);
 
 const real: WorkerApi = {
+  wish: (token, tokenId) => call<WishRead>(`/api/pets/${id(tokenId)}/wish`, token),
+  cancelWish: (token, tokenId) => call<{ status: 'released' | 'pending' }>(`/api/pets/${id(tokenId)}/wish/cancel`, token, { method: 'POST' }),
+  continueWish: (token, tokenId) => call<{ status: 'active' | 'pending' } | { code: 'wish_pending' }>(`/api/pets/${id(tokenId)}/wish/continue`, token, { method: 'POST' }),
+  invitations: (token, tokenId) => call<{ invitations: WorkInvitation[] }>(`/api/pets/${id(tokenId)}/invitations`, token),
+  acceptInvitation: (token, tokenId, invitationId) => call<{ workerId: string; name: string; label: string | null; price: WorkInvitation['price']; question: '' }>(`/api/pets/${id(tokenId)}/invitations/${encodeURIComponent(invitationId)}/accept`, token, { method: 'POST' }),
+  dismissInvitation: (token, tokenId, invitationId) => call<{ status: 'dismissed' }>(`/api/pets/${id(tokenId)}/invitations/${encodeURIComponent(invitationId)}/dismiss`, token, { method: 'POST' }),
+  refusalEvidence: (token, tokenId, refusalId) => call<RefusalEvidence>(`/api/verification/pets/${id(tokenId)}/refusals/${encodeURIComponent(refusalId)}`, token),
   experience: (token, tokenId) => call<ExperienceNotes>(`/api/pets/${id(tokenId)}/experience`, token),
   workRecord: (tokenId) => call<WorkRecord>(`/api/pets/${id(tokenId)}/work`, null),
   experienceRecordOpened: (ids) => call<void>('/api/experience/record-opened', null, { method: 'POST', body: ids }),

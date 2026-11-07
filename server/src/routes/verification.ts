@@ -277,6 +277,28 @@ verificationRoutes.get('/api/verification/pets/:id', async (c) => {
   });
 });
 
+// spec: add-pet-will › Refusal privacy data › signed refusal
+// spec: add-pet-will › Refusal privacy data › receipt read
+verificationRoutes.get('/api/verification/pets/:id/refusals/:refusal', async (c) => {
+  const session = requireSession(c);
+  if (session instanceof Response) return session;
+  const id = c.req.param('id');
+  const refusal = c.req.param('refusal');
+  if (!TOKEN_ID.test(id) || !THOUGHT_ID.test(refusal)) return c.json({ code: 'no_refusal' }, 404);
+  let pet: PetRecord | null;
+  try { pet = await petView(c.env, id); }
+  catch (error) {
+    if (error instanceof ChainUnreachable) return c.json({ code: 'chain_unreachable' }, 503);
+    throw error;
+  }
+  if (pet?.owner_id !== session.accountId) return c.json({ code: 'not_owner' }, 403);
+  const row = await c.env.DB.prepare('SELECT reason, signed_bytes, created_at FROM will_refusals WHERE id = ? AND payer_token = ? AND payer_generation = ?')
+    .bind(refusal, id, pet.transfer_generation).first<{ reason: string; signed_bytes: ArrayBuffer | Uint8Array; created_at: number }>();
+  if (row === null) return c.json({ code: 'no_refusal' }, 404);
+  return c.json({ id: refusal, reason: row.reason, at: row.created_at,
+    signedEvidenceBase64: encodeBytes(row.signed_bytes), onChainReceipt: false });
+});
+
 verificationRoutes.get('/api/verification/pets/:id/thoughts/:thought', async (c) => {
   const id = c.req.param('id');
   const thoughtId = c.req.param('thought');

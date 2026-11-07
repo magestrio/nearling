@@ -73,15 +73,16 @@ describe('Worker rule', () => {
   });
 
   // spec: add-pet-work › Worker rule › an answer quotes the instruction
-  it('stops a reply that repeats the instruction: no answer, the place back, the project pays the first three of the payer\'s day and the payer the fourth by usage', async () => {
+  // spec: add-pet-will › Character refusal flow › refusal capacity reached
+  it('stops a reply that repeats the instruction and caps the worker at three screenings for the day', async () => {
     addPets(h);
     await saveSkill('water the plants every morning before the sun is up');
     const repeats = 'Sure: water the plants every morning before the sun is up!';
     for (let i = 0; i < 3; i += 1) {
       h.net().ai.push({ content: repeats, tokensOut: 20 });
-      expect(await call()).toEqual({ kind: 'failed', code: 'ai_unavailable' });
+      expect(await call()).toEqual({ kind: 'failed', code: i === 2 ? 'screening_exhausted' : 'screening_failed' });
     }
-    expect((await spend()).map((r) => r.kind)).toEqual(['no_thought', 'no_thought', 'no_thought']);
+    expect((await spend()).map((r) => r.kind)).toEqual(['will_screening', 'will_screening', 'will_screening']);
     // each stopped call gave its place back: no answer counted, nothing held
     expect(await places()).toEqual({ n: 0, held: 0 });
     expect(await env.DB.prepare('SELECT COUNT(*) AS n FROM thoughts').first()).toEqual({ n: 0 });
@@ -89,7 +90,7 @@ describe('Worker rule', () => {
 
     h.net().ai.push({ content: repeats, tokensOut: 20 });
     const fourth = await call();
-    expect(fourth).toMatchObject({ kind: 'empty', stopped: true, skilled: true });
+    expect(fourth).toEqual({ kind: 'failed', code: 'screening_capacity' });
     expect(await spend()).toHaveLength(3);
     // the fourth reached nobody: the place is back, no answer counted, so the worker's price does not rise
     expect(await places()).toEqual({ n: 0, held: 0 });
@@ -98,35 +99,38 @@ describe('Worker rule', () => {
 
 describe('Hire request data', () => {
   // spec: add-pet-work › Hire request data › ответ без подписи модели или реплики
+  // spec: add-pet-will › Character refusal flow › no signed answer
   it('stores nothing and charges nobody for a worker\'s answer with no `provider_tee` signature: the place is back, the project pays the tokens', async () => {
     addPets(h);
     h.net().ai.push({ signature: 'gateway', tokensOut: 12 });
-    expect(await call()).toEqual({ kind: 'failed', code: 'ai_unavailable' });
+    expect(await call()).toEqual({ kind: 'failed', code: 'screening_failed' });
     expect(await places()).toEqual({ n: 0, held: 0 });
-    expect((await spend()).map((r) => r.kind)).toEqual(['no_thought']);
+    expect((await spend()).map((r) => r.kind)).toEqual(['will_screening']);
     expect(await env.DB.prepare('SELECT COUNT(*) AS n FROM thoughts').first()).toEqual({ n: 0 });
     // the worker did no work: its energy is whole and nothing was noted
     expect(await env.DB.prepare('SELECT energy_used FROM pet_life WHERE token_id = ?').bind(WORKER).first()).toBeNull();
   });
 
   // spec: add-pet-work › Hire request data › ответ без подписи модели или реплики
-  it('treats a signed answer with no line as one of the first three empty answers of the payer: nothing shown or stored, the place back, the project pays', async () => {
+  // spec: add-pet-will › Character refusal flow › no signed answer
+  it('treats a signed answer with no line as a failed screening: nothing shown or stored, the place back, the project pays', async () => {
     addPets(h);
     h.net().ai.push({ content: '   ', tokensOut: 4 });
-    expect(await call()).toEqual({ kind: 'failed', code: 'ai_unavailable' });
+    expect(await call()).toEqual({ kind: 'failed', code: 'screening_failed' });
     expect(await places()).toEqual({ n: 0, held: 0 });
-    expect((await spend()).map((r) => r.kind)).toEqual(['no_thought']);
-    expect((await env.DB.prepare('SELECT n FROM empty_answers WHERE token_id = ?').bind(PAYER).first<{ n: number }>())?.n).toBe(1);
+    expect((await spend()).map((r) => r.kind)).toEqual(['will_screening']);
+    expect(await env.DB.prepare('SELECT n FROM empty_answers WHERE token_id = ?').bind(PAYER).first()).toBeNull();
   });
 
   // spec: add-pet-work › Hire request data › ответ без подписи модели или реплики
+  // spec: add-pet-will › Character refusal flow › no signed answer
   it('pays the project for a call that timed out and gives the place back; a refused call (5xx) costs the project nothing known', async () => {
     addPets(h);
     h.net().ai.push({ hang: true });
-    expect(await call()).toEqual({ kind: 'failed', code: 'ai_unavailable' });
-    expect((await spend()).map((r) => r.kind)).toEqual(['no_thought']);
+    expect(await call()).toEqual({ kind: 'failed', code: 'screening_failed' });
+    expect((await spend()).map((r) => r.kind)).toEqual(['will_screening']);
     h.net().ai.push({ status: 503 });
-    expect(await call()).toEqual({ kind: 'failed', code: 'ai_unavailable' });
+    expect(await call()).toEqual({ kind: 'failed', code: 'screening_failed' });
     expect(await spend()).toHaveLength(1);
     expect(await places()).toEqual({ n: 0, held: 0 });
   });
@@ -216,14 +220,15 @@ describe('Skilled answer data', () => {
   });
 
   // spec: add-pet-work › Skilled answer data › reply stopped
-  it('counts a stopped reply with the answers without a line toward the payer\'s three: two empty ones and a stopped one make three free, the next is paid', async () => {
+  // spec: add-pet-will › Character refusal flow › refusal capacity reached
+  it('counts a stopped reply with empty screenings toward the worker\'s three and stops a fourth call', async () => {
     addPets(h);
     await saveSkill('water the plants every morning');
     h.net().ai.push({ content: '' }, { content: 'Water the plants every morning!' }, { content: '' });
     for (let i = 0; i < 3; i += 1) expect((await call()).kind).toBe('failed');
-    expect((await spend()).map((r) => r.kind)).toEqual(['no_thought', 'no_thought', 'no_thought']);
+    expect((await spend()).map((r) => r.kind)).toEqual(['will_screening', 'will_screening', 'will_screening']);
     h.net().ai.push({ content: 'Water the plants every morning!' });
-    expect((await call()).kind).toBe('empty');
+    expect(await call()).toEqual({ kind: 'failed', code: 'screening_capacity' });
   });
 
   // spec: add-pet-work › Skilled answer data › a skilled answer isn't remembered

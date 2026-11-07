@@ -12,6 +12,8 @@ import { track } from '../track';
 import { dropItemSendStatement, itemTxStatements } from './itemTx';
 import { idOf, OUTFITS, type OutfitSlug } from './outfits';
 import { foodState } from './view';
+import { releaseWishAfterOwnerBuy } from '../will/purchase';
+import { recordWillEvent } from '../will/events';
 
 export type BuyStatus = 'queued' | 'sending' | 'unknown' | 'bought' | 'failed';
 
@@ -26,9 +28,10 @@ export interface BuyRow {
   code: string | null;
   created_at: number;
   settled_at: number | null;
+  source: 'owner' | 'pet_wish';
 }
 
-export const BUY_COLUMNS = 'id, token_id, item, status, price_yocto, given_yocto, tx_hash, code, created_at, settled_at';
+export const BUY_COLUMNS = 'id, token_id, item, status, price_yocto, given_yocto, tx_hash, code, created_at, settled_at, source';
 
 /** The contract's refusal codes in the words of a buy's `code`; any other contract code is kept as it is. */
 const CODE_OF: Record<string, string> = { outfit_owned: 'owned', daily_cap: 'cap', over_food: 'short' };
@@ -98,17 +101,27 @@ export async function finishBuy(env: Env, row: BuyRow, end: BuyEnd): Promise<boo
   if (written[0]!.results.length === 0) return false;
 
   if (end.status === 'failed') {
+    if (row.source === 'pet_wish' && end.code === 'cap') {
+      await env.DB.prepare("UPDATE pet_wishes SET status = 'waiting_day' WHERE token_id = ? AND status = 'buying'").bind(row.token_id).run();
+    }
     console.log(`outfit_buy_failed:${end.code}`);
     return true;
   }
   console.log('outfit_bought');
+  if (row.source === 'pet_wish') {
+    await env.DB.prepare("DELETE FROM pet_wishes WHERE token_id = ? AND item = ? AND status IN ('buying', 'waiting_day')")
+      .bind(row.token_id, row.item).run();
+  }
+  if (row.source === 'owner') await releaseWishAfterOwnerBuy(env, row.token_id, row.item);
   const rate = nearUsdRate(env.NEAR_USD_RATE);
   const usd = (yocto: bigint) => (rate === null ? 0 : yoctoToUsdMicros(yocto, rate) / 1_000_000);
   track('outfit_bought', {
     item: OUTFITS.find((o) => o.slug === row.item)!.event,
     price_usd: usd(BigInt(row.price_yocto)),
     given_usd: usd(BigInt(row.given_yocto ?? '0')),
+    ...(row.source === 'pet_wish' ? { via: 'pet_wish' } : {}),
   });
+  if (row.source === 'pet_wish') await recordWillEvent(env, 'outfit_bought', { id: row.id, via: 'pet_wish' });
   if (end.burnt != null) {
     if (rate === null) console.log('rate_missing');
     else await env.DB.prepare('INSERT INTO project_spend (at, kind, usd_micros) VALUES (?, ?, ?)').bind(now, 'gas', yoctoToUsdMicros(BigInt(end.burnt), rate)).run();
@@ -151,9 +164,17 @@ export async function runBuy(env: Env, row: BuyRow): Promise<void> {
   }
   const price = BigInt(row.price_yocto);
   const food = await foodState(env.DB, row.token_id, pet, now);
+  if (row.source === 'pet_wish') {
+    const wish = await env.DB.prepare("SELECT item, status, owner_generation FROM pet_wishes WHERE token_id = ?")
+      .bind(row.token_id).first<{ item: string; status: string; owner_generation: number }>();
+    if (wish?.item !== row.item || wish.status !== 'buying' || wish.owner_generation !== pet.transfer_generation || !pet.wish_active || BigInt(pet.wish_reserve ?? '0') < price) {
+      await refuse('wish_unavailable');
+      return;
+    }
+  }
   // Not «Full» after the price (also an asleep pet), or over the day's cap with the thoughts the network
   // has not seen: the contract cannot know either (`Outfit purchase contract`).
-  if (fullness(food.room - price).state !== 'full') {
+  if (row.source === 'owner' && fullness(food.room - price).state !== 'full') {
     await refuse('short');
     return;
   }
@@ -165,7 +186,7 @@ export async function runBuy(env: Env, row: BuyRow): Promise<void> {
   // The price is held from here. The part paid from given food, for the analytics event, is what the
   // project's food does not cover (the contract takes the project's food first).
   const projectFood = BigInt(pet.project_food);
-  const given = price - (price < projectFood ? price : projectFood);
+  const given = row.source === 'pet_wish' ? 0n : price - (price < projectFood ? price : projectFood);
   const taken = await env.DB.prepare("UPDATE outfit_buys SET status = 'sending', given_yocto = ?2, sending_at = ?3 WHERE id = ?1 AND status = 'queued' RETURNING id")
     .bind(row.id, given.toString(), Date.now())
     .first();
@@ -174,7 +195,7 @@ export async function runBuy(env: Env, row: BuyRow): Promise<void> {
 
   const answer = await env.SERVER_KEY.get(env.SERVER_KEY.idFromName('server')).send({
     methodName: 'outfit_buy',
-    args: { token_id: row.token_id, item },
+    args: { token_id: row.token_id, item, ...(row.source === 'pet_wish' ? { via_wish: true } : {}) },
     gas: (OUTFIT_BUY_TGAS * 1_000_000_000_000n).toString(),
     writes: { tokenId: row.token_id, item: row.item, buy: row.id },
   });

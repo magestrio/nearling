@@ -12,6 +12,7 @@ import { openSession, randomId, type JobResult } from '../spend';
 import { track } from '../track';
 import { relation } from '../society/relations';
 import { recordSocietyEvent } from '../society/events';
+import { recordWillEvent } from '../will/events';
 import { answerStatements, dataOnly, workerCall } from './answer';
 import { hold, pairPrice, release, type Quote } from './quote';
 
@@ -104,10 +105,15 @@ export async function runAdvice(env: Env, payerId: string, job: AdviceJob, epoch
   }
 
   const prior = await lastExchange(env.DB, payerId, job.worker);
-  const out = await workerCall(env, { worker: { id: job.worker, pet: worker }, question: job.text, fee: held.fee, payerId, day, payerEpoch: epoch, prior, job: 'advice', pair: { payerName: payer.name, stance: (await relation(env.DB, payerId, job.worker))?.stance ?? 'neutral' } });
+  const out = await workerCall(env, { worker: { id: job.worker, pet: worker }, question: job.text, fee: held.fee, payerId, payerGeneration: payer.transfer_generation, day, payerEpoch: epoch, prior, job: 'advice', pair: { payerName: payer.name, stance: (await relation(env.DB, payerId, job.worker))?.stance ?? 'neutral' } });
   if (out.kind === 'failed') {
     console.log(`advice_refused:${out.code}`);
     return { code: out.code };
+  }
+  if (out.kind === 'declined') {
+    track('pet_hire_refused', { by: 'player', reason: 'character', project_usd: out.projectMicros / 1_000_000 });
+    await recordWillEvent(env, 'pet_hire_refused', { id: out.id, by: 'player', reason: 'character', project_usd: out.projectMicros / 1_000_000 });
+    return { code: 'character_refused', refusal: { id: out.id, reason: out.reason } };
   }
   // A data source or the code gave no data (`Adapter call rule` › «data failed in advice»): no fee and no worker's answer,
   // the question is kept. Among the paying pet's first three failed calls of the day the project paid the data call; from

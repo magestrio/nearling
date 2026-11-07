@@ -27,6 +27,8 @@ export interface FakePet {
   born_at: number;
   project_food: string;
   given_food: string;
+  wish_reserve?: string;
+  wish_active?: boolean;
   debit_day: number;
   debited_today: string;
   last_debit_id: number;
@@ -136,6 +138,8 @@ export class FakeContract {
   /** When set, `outfit_grant` / `outfit_buy` fail with this contract code even if their rules would pass. */
   grantFails: string | null = null;
   buyFails: string | null = null;
+  willStartFails: string | null = null;
+  willReleaseFails: string | null = null;
   /** A chain refusal during `shared_job_open`, before any reserve is recorded. */
   sharedOpenFails: string | null = null;
   sharedCloseFails: string | null = null;
@@ -208,6 +212,8 @@ export class FakeContract {
       born_at: 1,
       project_food: env.STARTER_FOOD,
       given_food: '0',
+      wish_reserve: '0',
+      wish_active: false,
       debit_day: this.day,
       debited_today: '0',
       last_debit_id: 0,
@@ -419,7 +425,13 @@ export class FakeContract {
       });
     }
     for (const { worker, workerId, fee, price } of hires) {
-      worker.given_food = (BigInt(worker.given_food) + fee - price).toString();
+      const earned = fee - price;
+      const afterFood = BigInt(worker.project_food) + BigInt(worker.given_food) + earned;
+      const floor = BigInt(env.STARTER_FOOD) * 29n / 24n;
+      const remaining = BigInt(env.OUTFIT_PRICE) - BigInt(worker.wish_reserve ?? '0');
+      const save = worker.wish_active ? [earned / 4n, remaining, afterFood > floor ? afterFood - floor : 0n].reduce((a, b) => a < b ? a : b) : 0n;
+      worker.wish_reserve = (BigInt(worker.wish_reserve ?? '0') + save).toString();
+      worker.given_food = (BigInt(worker.given_food) + earned - save).toString();
       worker.jobs_today = (worker.jobs_today ?? 0) + 1;
       const pair = (list: string[] | undefined, other: string) => [...new Set([...(list ?? []), other])].sort((a, b) => Number(a) - Number(b));
       pet.work_known = pair(pet.work_known, workerId);
@@ -595,7 +607,7 @@ export class FakeContract {
 
   /** The contract's `outfit_buy`, in its order of checks: the caller, the item is for sale, the pet,
    * the item not yet there, the daily cap, the food (project food first). */
-  buy(caller: string, tokenId: string, item: number): { code: string } | null {
+  buy(caller: string, tokenId: string, item: number, viaWish = false): { code: string } | null {
     if (caller !== env.SERVER_ACCOUNT_ID) return { code: 'not_server' };
     if (item < 3 || item > 6) return { code: 'not_for_sale' };
     const pet = this.pets.get(tokenId);
@@ -605,12 +617,19 @@ export class FakeContract {
     const price = BigInt(env.OUTFIT_PRICE);
     const already = pet.debit_day === this.day ? BigInt(pet.debited_today) : 0n;
     if (already + price > 50_000_000_000_000_000_000_000n) return { code: 'daily_cap' };
-    const project = BigInt(pet.project_food);
-    const given = BigInt(pet.given_food);
-    if (price > project + given) return { code: 'over_food' };
-    const fromProject = price < project ? price : project;
-    pet.project_food = (project - fromProject).toString();
-    pet.given_food = (given - (price - fromProject)).toString();
+    if (viaWish) {
+      if (!pet.wish_active) return { code: 'wish_paused' };
+      if (BigInt(pet.wish_reserve ?? '0') < price) return { code: 'reserve_short' };
+      pet.wish_reserve = (BigInt(pet.wish_reserve ?? '0') - price).toString();
+      pet.wish_active = false;
+    } else {
+      const project = BigInt(pet.project_food);
+      const given = BigInt(pet.given_food);
+      if (price > project + given) return { code: 'over_food' };
+      const fromProject = price < project ? price : project;
+      pet.project_food = (project - fromProject).toString();
+      pet.given_food = (given - (price - fromProject)).toString();
+    }
     pet.debit_day = this.day;
     pet.debited_today = (already + price).toString();
     pet.outfits = [...pet.outfits, item].sort((a, b) => a - b);
@@ -678,6 +697,24 @@ export class FakeContract {
         status = refused
           ? { Failure: { ActionError: { index: 0, kind: { FunctionCallError: { ExecutionError: `Smart contract panicked: ${refused.code}` } } } } }
           : { SuccessValue: '' };
+      } else if (call.methodName === 'will_start') {
+        const pet = this.pets.get(String(args.token_id));
+        const refused = tx.signerId !== env.SERVER_ACCOUNT_ID ? 'not_server' : pet === undefined ? 'no_pet' : this.willStartFails;
+        if (refused === null) pet!.wish_active = true;
+        status = refused === null ? { SuccessValue: '' }
+          : { Failure: { ActionError: { index: 0, kind: { FunctionCallError: { ExecutionError: `Smart contract panicked: ${refused}` } } } } };
+      } else if (call.methodName === 'will_release') {
+        const pet = this.pets.get(String(args.token_id));
+        const amount = BigInt(String(args.amount));
+        const refused = tx.signerId !== env.SERVER_ACCOUNT_ID ? 'not_server' : pet === undefined ? 'no_pet'
+          : amount > BigInt(pet.wish_reserve ?? '0') ? 'reserve_short' : this.willReleaseFails;
+        if (refused === null) {
+          pet!.wish_reserve = (BigInt(pet!.wish_reserve ?? '0') - amount).toString();
+          pet!.given_food = (BigInt(pet!.given_food) + amount).toString();
+          if (pet!.wish_reserve === '0') pet!.wish_active = false;
+        }
+        status = refused === null ? { SuccessValue: '' }
+          : { Failure: { ActionError: { index: 0, kind: { FunctionCallError: { ExecutionError: `Smart contract panicked: ${refused}` } } } } };
       } else if (call.methodName === 'shared_job_open') {
         const refused = this.openShared(String(args.token_id), String(args.job_hash), BigInt(String(args.allowance_yocto)));
         status = refused
@@ -725,6 +762,7 @@ export class FakeContract {
         } else {
           pet!.owner_id = receiver;
           pet!.transfer_generation += 1;
+          pet!.wish_active = false;
           if (pet!.shared_job?.state === 'Funding') pet!.shared_job = null;
           else if (pet!.shared_job?.state === 'Running') pet!.shared_job.state = 'Transferred';
           this.balances.set(tx.signerId, (this.balances.get(tx.signerId) ?? 0n) - 1n);
@@ -745,7 +783,7 @@ export class FakeContract {
         const refused =
           call.methodName === 'outfit_grant'
             ? this.grant(tx.signerId, String(args.token_id))
-            : this.buy(tx.signerId, String(args.token_id), Number(args.item));
+            : this.buy(tx.signerId, String(args.token_id), Number(args.item), args.via_wish === true);
         status = refused
           ? { Failure: { ActionError: { index: 0, kind: { FunctionCallError: { ExecutionError: `Smart contract panicked: ${refused.code}` } } } } }
           : { SuccessValue: '' };

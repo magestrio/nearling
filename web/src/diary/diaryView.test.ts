@@ -6,6 +6,13 @@ import { endNote, entryDraw, nextSaid, partLines, riddleDraw, streakDraw } from 
 const diary = (patch: Partial<DiaryView> = {}): DiaryView => ({ ...sampleDiary(), ...patch });
 
 describe('what the Diary draws', () => {
+  // spec: add-pet-will › Wish pursuit flow › wish chosen
+  it('keeps one bounded will line in the entry after the social lines', () => {
+    const entry = entryDraw({ kind: 'text', id: 'd', lines: ['Morning'], question: 'Why?', socialLines: ['Biscuit and I talked.'], willLine: 'I keep thinking about the Smart glasses.', work: null }, 'Pixel', '');
+    expect(entry).toMatchObject({ will: 'I keep thinking about the Smart glasses.' });
+    expect(partLines({ days: 2, freezes: 1, done: false, unit: 'days' }, entry, { yesterday: null, today: { kind: 'held' } }, null, null))
+      .toEqual(expect.arrayContaining(['I keep thinking about the Smart glasses.']));
+  });
   // spec: add-daily-ritual › Streak rule › серия записана позже
   it('keeps the recorded number and strip while the day saves: today is outlined, not counted', () => {
     const saving = streakDraw(diary({ streak: { days: 2, freezes: 1, done: true, line: null, n: 2, k: 1, missed: 0, note: ['saving'] } }));

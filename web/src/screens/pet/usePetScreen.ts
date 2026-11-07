@@ -85,6 +85,7 @@ export interface Line {
   meta?: string;
   foot?: string;
   noVerify?: boolean;
+  refusalId?: string;
   /** the note under a reply that stopped at one thought's limit — the reply is still the newest thing the pet said */
   cutNote?: boolean;
   /** the pet's own question to a worker, «To {worker}: …»: not the reply the turn waits for */
@@ -128,6 +129,8 @@ export function lineOf(l: ConversationLine, name: string, fresh: boolean, before
       const words =
         l.code === 'society_refused'
           ? l.hireMode === 'auto' ? autoRefusedLine(worker) : hireRefusedLine(worker, resetTime(l.refusalUntil))
+          : l.code === 'character_refused' && l.refusal
+            ? `${l.refusal.reason} ${name} will answer instead.`
           : l.code === 'hire_empty'
           ? hireEmptyLine(name, worker)
           : l.code === 'hire_data_failed'
@@ -136,7 +139,8 @@ export function lineOf(l: ConversationLine, name: string, fresh: boolean, before
               ? hireDataFailedPaidLine(name, worker)
               : hireFailedLine(name, worker);
       return [{ id: l.id, who: l.code === 'society_refused' && l.hireMode === 'auto' ? 'pet' : 'event', text: words, fresh: fresh || undefined,
-        noVerify: l.code === 'society_refused' && l.hireMode === 'auto' }];
+        noVerify: l.code === 'society_refused' && l.hireMode === 'auto',
+        ...(l.code === 'character_refused' && l.refusal ? { refusalId: l.refusal.id } : {}) }];
     }
     case 'pet': {
       if (l.report) return [reportLineOf(l, name, fresh, before)];
@@ -213,6 +217,8 @@ export interface Asked {
 }
 
 export const POLL_IDLE_MS = 5000;
+/** The line of a Pet screen that was the player's own a moment ago (`Will ownership rule` › «former owner opens»). */
+export const FORMER_OWNER_LINE = 'This pet belongs to someone else now.';
 export const POLL_JOB_MS = 1500;
 /** A guest's or a visitor's page looks at the pet again this often (`Pet life data`: the face and the stage change on an open
  *  page «за секунды»); slower than the owner's, since a visitor's copy is up to 15 s old anyway */
@@ -428,6 +434,9 @@ export function usePetScreen(tokenId: string, from: string | null, diary = false
         const token = await tokenOf();
         const pet = await workerApi.pet(token, tokenId);
         if (!live) return;
+        if (pageRef.current.kind === 'pet' && pageRef.current.pet.viewer === 'owner' && pet.viewer !== 'owner') {
+          setNotice((now) => now ?? FORMER_OWNER_LINE);
+        }
         setPage({ kind: 'pet', pet });
         setBanner(null);
         if (pet.viewer === 'owner') {
@@ -857,6 +866,9 @@ export function usePetScreen(tokenId: string, from: string | null, diary = false
                 name: s.name,
                 stage: s.stage,
                 fullness: s.fullness,
+                wish: s.wish ?? null,
+                wishReserveYocto: s.wish?.reserveYocto ?? '0',
+                wishActive: s.wish != null && s.wish.status !== 'paused',
                 tired: s.tired,
                 until: s.until,
                 paused: s.paused,

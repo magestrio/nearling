@@ -106,25 +106,20 @@ describe('Advice flow', () => {
     expect((await advise(tk, { text: 'Another?' })).thought.text).toBe('Hello there, friend.');
   });
 
-  // spec: add-pet-work › Advice flow › пустой ответ работника
-  it('makes the paying pet pay the fourth empty answer of its day by usage: no fee, no hire, the question not stored', async () => {
+  // spec: add-pet-will › Character refusal flow › no signed answer
+  it('keeps an empty worker screening free even when the payer had three empty thoughts: no fee or question stored', async () => {
     addPets(h);
     const tk = await payerToken();
     await env.DB.prepare('INSERT INTO empty_answers (token_id, day, n) VALUES (?, ?, 3)').bind(PAYER, day()).run();
     h.net().ai.push({ content: '', tokensOut: 12 });
     const out = await advise(tk, { text: 'A secret question' });
 
-    expect(out.code).toBe('empty_paid');
+    expect(out.code).toBe('screening_failed');
     expect(out.thought).toBeUndefined();
-    const [thought] = await rows('SELECT * FROM thoughts WHERE token_id = ?', PAYER);
-    expect(thought).toMatchObject({ kind: 'advice', player_text: null, reply_text: null, worker_id: WORKER, status: 'unbilled' });
-    expect(BigInt(thought.price_yocto)).toBeGreaterThan(0n);
-    expect(BigInt(thought.price_yocto)).toBeLessThan(FEE);
+    expect(await rows('SELECT * FROM thoughts WHERE token_id = ?', PAYER)).toEqual([]);
     expect(await rows('SELECT 1 FROM hires')).toEqual([]);
-    expect(await rows('SELECT 1 FROM project_spend')).toEqual([]);
-    // the fullness is lower by the call, which is far less than a fee
-    expect(await level(tk)).toBeGreaterThan(Number(S - FEE) / Number(S));
-    expect(await level(tk)).toBeLessThan(1);
+    expect((await rows('SELECT kind FROM project_spend'))).toEqual([{ kind: 'will_screening' }]);
+    expect(await level(tk)).toBe(1);
     // nothing reached the asker: the place is back, no answer counted, and it did no work worth a step
     expect(await places()).toEqual({ n: 0, held: 0 });
     expect(await rows('SELECT 1 FROM pet_life WHERE token_id = ?', WORKER)).toEqual([]);
@@ -132,12 +127,13 @@ describe('Advice flow', () => {
   });
 
   // spec: add-pet-work › Advice flow › пустой ответ работника
-  it('shows nothing and charges nobody for one of the first three empty answers: the code is `ai_unavailable`, the question stays with the player', async () => {
+  // spec: add-pet-will › Character refusal flow › no signed answer
+  it('shows a failed screening with no charge for an empty worker answer; the question stays with the player', async () => {
     addPets(h);
     const tk = await payerToken();
     h.net().ai.push({ content: '' });
     const out = await advise(tk);
-    expect(out.code).toBe('ai_unavailable');
+    expect(out.code).toBe('screening_failed');
     expect(await rows('SELECT 1 FROM thoughts')).toEqual([]);
     expect(await rows('SELECT 1 FROM hires')).toEqual([]);
     expect(await level(tk)).toBe(1);
@@ -150,7 +146,7 @@ describe('Advice flow', () => {
   it('ends with `memory_cleared` when the paying pet\'s memory is cleared while the worker answers: no fee and no hire, the answer by usage, the place back, the worker earns nothing', async () => {
     addPets(h);
     const tk = await payerToken();
-    h.net().ai.push({ delay: 100 });
+    h.net().ai.push({ delay: 500 });
     const sent = await postAdvice(tk, { text: 'A private question' });
     await until(() => h.net().ai.calls.length === 1);
     expect((await api(`/api/pets/${PAYER}/memory/clear`, { token: tk, method: 'POST' })).status).toBe(200);
@@ -256,6 +252,8 @@ describe('Advice flow facts', () => {
       last: null,
       price: { yocto: FEE.toString(), cents: hireCents(FEE, Number(env.NEAR_USD_RATE)) },
       skilled: false,
+      screeningAvailable: true,
+      screeningResetAt: null,
       labels: [],
       workerAsleep: false,
       resting: null,

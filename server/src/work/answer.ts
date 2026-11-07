@@ -14,14 +14,15 @@ import { eraseIfCleared, memoryEpoch } from '../pet/forget';
 import { energyLeft, moodOf, noteDeed, noteMood, readLife, spendEnergy } from '../pet/life';
 import { wornOf } from '../pet/outfits';
 import { foodState } from '../pet/view';
-import { ceilingFor, ceilingPrice, fullness, thoughtPrice, usd12ToMicros } from '../pricing';
+import { ceilingFor, ceilingPrice, fullness, thoughtPrice } from '../pricing';
 import { DATA_CALL_LINE, inputBound, MARKET_LINE, RETELL_LINE, workerMessages, type Exchange } from '../prompt';
 import { setPause } from '../servicePause';
 import { DATA_MAX_TOKENS, loadOffer, numbered, runDataStep, sourceLabelsOf, type Read } from '../sources/step';
-import { callsUsd12, CHAT_TIMEOUT_MS, countEmpty, FREE_EMPTY_ANSWERS, hex, projectPays, randomId, refusalOf, yoctoMicros, type Answer, type SignedCall } from '../spend';
-import { track } from '../track';
+import { CHAT_TIMEOUT_MS, hex, randomId, yoctoMicros, type Answer, type SignedCall } from '../spend';
 import { approvedWorkNotes, workNoteData } from '../experience/use';
 import { pairInstruction, parseReaction } from '../society/reaction';
+import { CHARACTER_CHOICE_LINE, attemptedDecline, characterDecline } from '../will/refusal';
+import { beginScreening, claimScreening, releaseUnstartedScreening, screeningSpend, type Screening } from '../will/screening';
 import type { Stance, Reaction } from '../society/relations';
 import { quotesInstruction } from './leak';
 import { answered, release } from './quote';
@@ -38,6 +39,7 @@ export interface WorkerAsk {
   fee: bigint;
   /** The paying pet, whose empty answers of the day the call counts. */
   payerId: string;
+  payerGeneration?: number;
   /** The UTC day of the worker's place (`worker_answers`). */
   day: number;
   /** The paying pet's `memory_epoch` when its job was claimed: an answer that lands after the memory was cleared
@@ -61,19 +63,19 @@ export interface WithData {
 export type WorkerOutcome =
   // Signed, a line, the filter passed: the caller shows it and the fee is owed. `labels`: the data sources it read.
   | ({ kind: 'answer'; reply: string; call: SignedCall; price: bigint; skilled: boolean; labels: string[]; reaction: Reaction | null } & WithData)
+  | { kind: 'declined'; reason: string; id: string; projectMicros: number }
   // Signed and a line, but the paying pet's memory was cleared while the worker answered: the words are not kept,
   // no fee is owed, the worker earns nothing and its place is back; the paying pet pays the call by usage.
   | ({ kind: 'cleared'; call: SignedCall; price: bigint; skilled: boolean } & WithData)
-  // Signed, with no line (or stopped by the filter), the paying pet's fourth of the day or later: it pays the call
-  // by usage, no fee. `stopped` says the reply held the instruction: its bytes must not be kept. `only: 'data'`: the
-  // call is a data call that failed (`data_failed`, paid), the whole of the receipt.
+  // The paying pet's paid data-only failure after its third failed data call. A signed but empty
+  // answer call is a failed character screening instead; `only: 'data'` identifies this receipt.
   | ({ kind: 'empty'; call: SignedCall; price: bigint; skilled: boolean; stopped: boolean; only?: 'data' } & WithData)
   // A data source or the code did not give its data (`Adapter call rule`): no answer call, no fee, the place is back.
   // `call` is the data call, `price` its usage (cut under the fee), `paid` whether the paying pet pays it (past its three
   // failed calls of the UTC day) or the project does; `labels` are those that failed.
   | { kind: 'data_failed'; call: SignedCall; price: bigint; paid: boolean; labels: string[] }
   // Nothing to show and nothing owed: the place is back, the project paid what it had to.
-  | { kind: 'failed'; code: 'ai_unavailable' | 'paused' };
+  | { kind: 'failed'; code: 'ai_unavailable' | 'paused' | 'screening_failed' | 'screening_exhausted' | 'screening_capacity' };
 
 /** The paying pet's thought for a data call that failed past its three: a thought with no reply whose receipt is the data
  * call (`Adapter call rule` › «data failed in a hire, past three»). */
@@ -91,7 +93,9 @@ async function markDataFailed(env: Env, workerId: string, day: number): Promise<
  * has become an answer of the day. */
 export async function workerCall(env: Env, ask: WorkerAsk): Promise<WorkerOutcome> {
   const { worker } = ask;
+  let placeActive = true;
   const back = async (outcome: WorkerOutcome): Promise<WorkerOutcome> => {
+    placeActive = false;
     await release(env, worker.id, ask.day);
     return outcome;
   };
@@ -108,6 +112,21 @@ export async function workerCall(env: Env, ask: WorkerAsk): Promise<WorkerOutcom
     throw e;
   }
 
+  const reserved = await claimScreening(env, worker.id, Date.now());
+  if (reserved === null) return back({ kind: 'failed', code: 'screening_capacity' });
+  let screening = reserved;
+  let reservationActive = true;
+  const unstarted = async (outcome: WorkerOutcome): Promise<WorkerOutcome> => {
+    reservationActive = false;
+    await releaseUnstartedScreening(env, worker.id, screening);
+    return back(outcome);
+  };
+  const lost = async (answers: Answer[], uncertain = 0n, incurredMicros = 0): Promise<WorkerOutcome> => {
+    await screeningSpend(env, screening, answers, uncertain, incurredMicros);
+    return back({ kind: 'failed', code: screening.attempt === 3 ? 'screening_exhausted' : 'screening_failed' });
+  };
+
+  try {
   const start = Date.now();
   const today = utcDay(start);
   const life = await readLife(env.DB, worker.id);
@@ -125,17 +144,26 @@ export async function workerCall(env: Env, ask: WorkerAsk): Promise<WorkerOutcom
     const dataMessages = workerMessages(worker.pet, ask.question + noteData, layers, skill.instruction, [DATA_CALL_LINE], ask.prior ?? null);
     const dataBound = inputBound(dataMessages) + offer.toolsBytes;
     const dataTokens = ceilingFor(env, dataBound, ask.fee - 1n, DATA_MAX_TOKENS);
-    if (dataTokens < 1) return back({ kind: 'failed', code: 'ai_unavailable' });
-    const step = await runDataStep(env, offer, { tokenId: worker.id, job: ask.job, messages: dataMessages, maxTokens: dataTokens, bound: dataBound });
+    if (dataTokens < 1) return unstarted({ kind: 'failed', code: 'ai_unavailable' });
+    screening = await beginScreening(env, worker.id, screening);
+    reservationActive = false;
+    const step = await runDataStep(env, offer, { tokenId: worker.id, job: ask.job, messages: dataMessages, maxTokens: dataTokens, bound: dataBound, screened: true });
     if (step.kind === 'paused') {
       await setPause(env.DB, 'ai', Date.now());
       console.log('ai_402');
+      await screeningSpend(env, screening, []);
       return back({ kind: 'failed', code: 'paused' });
     }
-    if (step.kind === 'lost') return back({ kind: 'failed', code: 'ai_unavailable' });
+    if (step.kind === 'lost') return lost([], 0n, step.costMicros);
     data = step.call;
     reads = step.reads;
-    if (step.failed.length > 0) return back(await dataFailed(env, ask, data, step.failed));
+    if (step.failed.length > 0) {
+      if (screening.attempt === 3) {
+        await markDataFailed(env, worker.id, ask.day);
+        return lost([data.answer]);
+      }
+      return back(await dataFailed(env, ask, data, step.failed, screening));
+    }
   }
   const dataTokens = data === null ? [] : [{ tokensIn: data.answer.tokensIn, tokensOut: data.answer.tokensOut }];
   const dataAnswers = data === null ? [] : [data.answer];
@@ -146,7 +174,7 @@ export async function workerCall(env: Env, ask: WorkerAsk): Promise<WorkerOutcom
     ask.question + noteData,
     layers,
     skill?.instruction ?? null,
-    [...(reads.length === 0 ? [] : [RETELL_LINE, MARKET_LINE]), ...(ask.pair === undefined ? [] : [pairInstruction(ask.pair.payerName, worker.pet.name, ask.pair.stance)])],
+    [...(reads.length === 0 ? [] : [RETELL_LINE, MARKET_LINE]), CHARACTER_CHOICE_LINE, ...(ask.pair === undefined ? [] : [pairInstruction(ask.pair.payerName, worker.pet.name, ask.pair.stance)])],
     ask.prior ?? null,
     numbered(reads),
   );
@@ -155,26 +183,47 @@ export async function workerCall(env: Env, ask: WorkerAsk): Promise<WorkerOutcom
   // this input (the gas share is in the data call's price already).
   const maxTokens = ceilingFor(env, bound, ask.fee - 1n - thoughtPriceOf(env, dataTokens), MAX_ANSWER_TOKENS, data === null);
   if (maxTokens < 1) {
-    await projectPays(env, 'no_thought', usd12ToMicros(callsUsd12(env, dataAnswers)));
-    return back({ kind: 'failed', code: 'ai_unavailable' });
+    if (dataAnswers.length > 0) return lost(dataAnswers);
+    return unstarted({ kind: 'failed', code: 'ai_unavailable' });
   }
 
   // A skilled request carries a fresh 128-bit value outside `messages`, kept nowhere: no guess at the instruction
   // can match the public hash of the request (`Skilled answer data` › «a guess at the instruction»).
   const nonce = skill === null ? undefined : hex(crypto.getRandomValues(new Uint8Array(16)));
+  // A worker without a data step starts its screening immediately before the answer request.
+  if (reservationActive) {
+    screening = await beginScreening(env, worker.id, screening);
+    reservationActive = false;
+  }
   const result = await complete(env, { messages, maxTokens, thinking: false, timeoutMs: CHAT_TIMEOUT_MS, ...(nonce === undefined ? {} : { extra: { nonce } }) });
-  const failure = await refusalOf(env, result, ceilingPrice(env, bound, maxTokens, data === null), dataAnswers);
-  if (failure !== null) return back({ kind: 'failed', code: 'code' in failure && failure.code === 'paused' ? 'paused' : 'ai_unavailable' });
+  if (result.kind === 'paused') {
+    await setPause(env.DB, 'ai', Date.now());
+    await screeningSpend(env, screening, dataAnswers);
+    return back({ kind: 'failed', code: 'paused' });
+  }
+  if (result.kind !== 'answer') return lost(dataAnswers, result.kind === 'timeout' ? ceilingPrice(env, bound, maxTokens, data === null) : 0n);
   const answer = result as Answer;
 
   const signed = await signatureOf(env, answer);
   if (signed === null) {
-    // The tokens were used and nobody can prove the answer: the project pays them.
-    await projectPays(env, 'no_thought', usd12ToMicros(callsUsd12(env, [...dataAnswers, answer])));
     console.log('signature_missing');
-    return back({ kind: 'failed', code: 'ai_unavailable' });
+    return lost([...dataAnswers, answer]);
   }
   const call: SignedCall = { answer, signed };
+
+  const rawReply = replyOf(answer.content);
+  const decline = characterDecline(rawReply);
+  if (decline !== null) {
+    const projectMicros = await screeningSpend(env, screening, [...dataAnswers, answer]);
+    const id = randomId();
+    // Only the signed response bytes and hashes, never the private question or request bytes.
+    const evidence = new TextEncoder().encode(JSON.stringify({ model: env.MODEL_ID, reqSha: answer.reqSha, resSha: answer.resSha,
+      response: Array.from(answer.resBytes), signature: signed.signature, sigKind: signed.sigKind, signer: signed.signer, completionId: answer.id }));
+    await env.DB.prepare("INSERT INTO will_refusals (id, payer_token, worker_token, reason, signed_bytes, worker_code, created_at, payer_generation, worker_generation) VALUES (?, ?, ?, ?, ?, 'character', ?, ?, ?)")
+      .bind(id, ask.payerId, worker.id, decline, evidence, Date.now(), ask.payerGeneration ?? 0, worker.pet.transfer_generation).run();
+    return back({ kind: 'declined', reason: decline, id, projectMicros });
+  }
+  if (attemptedDecline(rawReply)) return lost([...dataAnswers, answer]);
 
   const parsed = parseReaction(replyOf(answer.content));
   const reply = parsed.reply;
@@ -182,33 +231,25 @@ export async function workerCall(env: Env, ask: WorkerAsk): Promise<WorkerOutcom
     || notes.some((note) => quotesInstruction(note, reply));
   const empty = stopped || !hasVisible(reply);
   const skilled = skill !== null;
+  // spec: add-pet-will › Character refusal flow › no signed answer
+  // The accepted signed-empty decision treats every screened outside answer as a failed attempt,
+  // regardless of the paying pet's older empty-thought count. It has no payer debit or hire.
+  if (empty) {
+    console.log(stopped ? 'worker_stopped' : 'worker_empty_screening');
+    return lost([...dataAnswers, answer]);
+  }
   // By usage, and never as high as the fee: what the answer cost above it was the project's.
   const usage = thoughtPrice(env, [...dataTokens, { tokensIn: answer.tokensIn, tokensOut: answer.tokensOut }]);
   const price = usage < ask.fee ? usage : ask.fee - 1n;
   if (usage > price) {
-    await projectPays(env, 'edge', yoctoMicros(env, usage - price));
     console.log('worker_over_fee');
-  }
-
-  if (empty) {
-    // An answer with no line, or a stopped one, counts toward the paying pet's three of the UTC day.
-    const n = await countEmpty(env, ask.payerId, utcDay(Date.now()));
-    if (n <= FREE_EMPTY_ANSWERS) {
-      await projectPays(env, 'no_thought', usd12ToMicros(callsUsd12(env, [...dataAnswers, answer])));
-      console.log(stopped ? 'worker_stopped' : 'worker_empty_free');
-      return back({ kind: 'failed', code: 'ai_unavailable' });
-    }
-    // The fourth: the pet pays the call by usage, but nothing reached the asker, so the worker's place goes back and
-    // its count and price stay (`Hire quote data` › «no answer»; §8 › Ответы работника за день counts shown answers).
-    console.log(stopped ? 'worker_stopped' : 'worker_empty_paid');
-    return back({ kind: 'empty', call, data, price, skilled, stopped,
-      ...(notes.length > 0 ? { experience: true } : {}) });
   }
 
   // The paying pet's memory was cleared since its job was claimed: nobody keeps this answer, so the worker did no
   // work worth a place, a step of energy or a deed (`Hire quote data` › «no answer»).
   if (ask.payerEpoch !== undefined && (await memoryEpoch(env.DB, ask.payerId)) !== ask.payerEpoch) {
     console.log('worker_cleared');
+    await screeningSpend(env, screening, [], usage > price ? usage - price : 0n);
     return back({ kind: 'cleared', call, data, price, skilled,
       ...(notes.length > 0 ? { experience: true } : {}) });
   }
@@ -216,27 +257,30 @@ export async function workerCall(env: Env, ask: WorkerAsk): Promise<WorkerOutcom
   // The work itself: a step of energy, a better mood, a deed of the day, never a counted day (`Worker rule`).
   await spendEnergy(env.DB, worker.id, 'work', Date.now());
   await env.DB.batch([...noteMood(env.DB, worker.id, utcDay(Date.now())), ...noteDeed(env.DB, worker.id, 'work')]);
+  placeActive = false;
   await answered(env, worker.id, ask.day);
+  // A successful answer is paid by the payer's ordinary hire fee; only an overage enters project spend.
+  await screeningSpend(env, screening, [], usage > price ? usage - price : 0n);
   return { kind: 'answer', reply, reaction: parsed.reaction, call, data, price, skilled, labels,
     ...(notes.length > 0 ? { experience: true } : {}) };
+  } catch (error) {
+    if (reservationActive) await releaseUnstartedScreening(env, worker.id, screening);
+    if (placeActive) await release(env, worker.id, ask.day);
+    throw error;
+  }
 }
 
 const thoughtPriceOf = (env: Env, calls: { tokensIn: number; tokensOut: number }[]): bigint => (calls.length === 0 ? 0n : thoughtPrice(env, calls));
 
-/** A tool of the worker's skill gave no data (`Adapter call rule` › «data failed in a hire», «…, past three»): no answer
- * call, no fee. The paying pet's three failed calls of the UTC day decide who pays the data call — the project among the
- * first three, the paying pet by usage from the fourth — and the worker is out of Auto until 00:00 UTC. */
-async function dataFailed(env: Env, ask: WorkerAsk, call: SignedCall, labels: string[]): Promise<WorkerOutcome> {
-  const n = await countEmpty(env, ask.payerId, utcDay(Date.now()));
+/** A tool of the worker's skill gave no data: no answer call or fee. The started screening
+ * pays its data call from the project ledger; the worker stays out of Auto until UTC reset. */
+async function dataFailed(env: Env, ask: WorkerAsk, call: SignedCall, labels: string[], screening: Screening): Promise<WorkerOutcome> {
   await markDataFailed(env, ask.worker.id, ask.day);
   const usage = thoughtPrice(env, [{ tokensIn: call.answer.tokensIn, tokensOut: call.answer.tokensOut }]);
   const price = usage < ask.fee ? usage : ask.fee - 1n;
-  const paid = n > FREE_EMPTY_ANSWERS;
-  if (!paid) await projectPays(env, 'no_thought', usd12ToMicros(callsUsd12(env, [call.answer])));
-  else if (usage > price) await projectPays(env, 'edge', yoctoMicros(env, usage - price));
-  console.log(paid ? 'worker_data_failed_paid' : 'worker_data_failed');
-  track('thought_failed', { for: 'hirer', payer: paid ? 'pet' : 'project', cost_usd: Number(callsUsd12(env, [call.answer])) / 1e12 });
-  return { kind: 'data_failed', call, price, paid, labels };
+  await screeningSpend(env, screening, [call.answer]);
+  console.log('worker_data_failed');
+  return { kind: 'data_failed', call, price, paid: false, labels };
 }
 
 /** What the paying pet's batch stores of a worker's answer that reached it (shown, empty-and-paid, or cleared). */
@@ -250,7 +294,7 @@ export interface StoredAnswer {
   /** The question of an advice; none for a hire answer (its question is the `hire_question` row of the turn). */
   playerText: string | null;
   worker: { id: string; name: string };
-  outcome: Exclude<WorkerOutcome, { kind: 'failed' } | { kind: 'data_failed' }>;
+  outcome: Exclude<WorkerOutcome, { kind: 'failed' } | { kind: 'data_failed' } | { kind: 'declined' }>;
   fee: bigint;
   discounted?: boolean;
   hire: { kind: 'player' | 'pet'; mode: 'auto' | 'manual' | null };

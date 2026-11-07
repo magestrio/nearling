@@ -75,6 +75,7 @@ export function App() {
         {!unreachable && route.name === 'hatch' ? <HatchScreen from={route.from} /> : null}
         {!unreachable && route.name === 'gift' ? <GiftPage key={route.code} code={route.code} /> : null}
         {!unreachable && route.name === 'verify' ? <VerificationPage key={route.tokenId} tokenId={route.tokenId} thoughtId={route.thoughtId} /> : null}
+        {!unreachable && route.name === 'verify-refusal' ? <VerificationPage key={`${route.tokenId}:${route.refusalId}`} tokenId={route.tokenId} refusalId={route.refusalId} /> : null}
         {!unreachable && route.name === 'receipt' ? <VerificationPage key={route.code} code={route.code} /> : null}
         {!unreachable && route.name === 'shared-errand' ? <SharedErrandPage key={route.code} tokenId={route.tokenId} code={route.code} /> : null}
         {/* one element for the three: the Diary and the Wardrobe open over the Pet screen's own state (the pet, the poll, the line being typed) */}

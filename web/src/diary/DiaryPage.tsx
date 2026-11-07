@@ -124,6 +124,7 @@ function Entry({ pet, today, previousOwner }: { pet: OwnerView; today: EntryDraw
           ))}
           {today.question !== null ? <Text variant="body-strong">{today.question}</Text> : null}
           {today.social?.map((line, i) => <Text key={`social-${i}`}>{line}</Text>)}
+          {today.will ? <Text>{today.will}</Text> : null}
         </Stack>
         {previousOwner ? <Text variant="small" tone="secondary">{`${pet.name} wrote this before coming to you.`}</Text> : null}
         {today.work !== null ? (
@@ -183,7 +184,7 @@ export function DiaryPage({
   const load = d.load;
   const rawView: DiaryView | null = load.kind === 'ready' ? load.diary : load.kind === 'error' ? load.last : null;
   const view: DiaryView | null = rawView && (signedOut || !auth.authenticated)
-    ? { ...rawView, entry: rawView.entry.kind === 'text' ? { ...rawView.entry, socialLines: [] } : rawView.entry }
+    ? { ...rawView, entry: rawView.entry.kind === 'text' ? { ...rawView.entry, socialLines: [], willLine: undefined } : rawView.entry }
     : rawView;
   const socialSeen = useRef(new Set<string>());
   const socialKey = view?.entry.kind === 'text' && view.entry.socialLines?.length ? `${tokenId}:${view.day}:${view.entry.id}` : null;

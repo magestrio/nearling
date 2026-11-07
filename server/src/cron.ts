@@ -28,6 +28,8 @@ import { clearPause, gasReserve, lastProbe, noteProbe, pauseReason, setPause } f
 import { monthOf } from './signin';
 import { dueWatches, queueWatchIfMissing, recoverUnqueuedWatches } from './watch/day';
 import { finishDueWatches } from './watch/settle';
+import { startPendingWish } from './will/diary';
+import { noteWishSavings, processWishRelease, queueFundedWish } from './will/purchase';
 
 /** At most this many calls to NEAR AI at once for the diary (the provider allows ~64 per model, volatile). */
 const DIARY_AT_ONCE = 8;
@@ -56,7 +58,28 @@ export async function tick(env: Env, nowMs: number = Date.now()): Promise<void> 
   const parts: [string, () => Promise<void>][] = [
     ['debit', () => closeAndDebit(env, nowMs)],
     ['society', () => settleSocietyPending(env)],
+    ['will_invitation_expire', async () => {
+      await env.DB.prepare('DELETE FROM work_invitations WHERE expires_at <= ?').bind(nowMs).run();
+    }],
     ['diary', () => diary(env, nowMs)],
+    ['will_start', async () => {
+      const rows = await env.DB.prepare("SELECT token_id FROM pet_wishes WHERE status = 'starting' ORDER BY created_at LIMIT 10")
+        .all<{ token_id: string }>();
+      for (const row of rows.results) await startPendingWish(env, row.token_id);
+    }],
+    ['will_purchase', async () => {
+      const rows = await env.DB.prepare("SELECT token_id FROM pet_wishes WHERE status IN ('active', 'waiting_day', 'buying') ORDER BY created_at LIMIT 10")
+        .all<{ token_id: string }>();
+      for (const row of rows.results) {
+        await noteWishSavings(env, [row.token_id]);
+        if (await queueFundedWish(env, row.token_id, nowMs)) await desk(env, row.token_id).process(row.token_id);
+      }
+    }],
+    ['will_release', async () => {
+      const rows = await env.DB.prepare("SELECT DISTINCT token_id FROM will_operations WHERE kind = 'release' AND status IN ('queued', 'sending', 'unknown') ORDER BY created_at LIMIT 10")
+        .all<{ token_id: string }>();
+      for (const row of rows.results) await processWishRelease(env, row.token_id);
+    }],
     ['pause', () => pause(env, nowMs)],
     ['riddle', () => riddleTick(env, nowMs)],
     ['outfits', () => outfits(env, nowMs)],
@@ -267,9 +290,12 @@ export async function clean(env: Env, nowMs: number): Promise<void> {
   if (nowMs >= JUDGE_DELETE_AT) await env.EVENTS.prepare('DELETE FROM showcase_card_shared').run();
   if (nowMs >= JUDGE_DELETE_AT) await env.EVENTS.prepare('DELETE FROM experience_events').run();
   if (nowMs >= JUDGE_DELETE_AT) await env.EVENTS.prepare('DELETE FROM society_events').run();
+  if (nowMs >= JUDGE_DELETE_AT) await env.EVENTS.prepare('DELETE FROM will_events').run();
   await env.DB.batch([
     env.DB.prepare("DELETE FROM jobs WHERE created_at < ? AND status IN ('done', 'failed')").bind(nowMs - 86_400_000),
     env.DB.prepare('DELETE FROM empty_answers WHERE day < ?').bind(utcDay(nowMs) - 1),
+    env.DB.prepare('DELETE FROM will_screenings WHERE day < ?').bind(utcDay(nowMs) - 1),
+    env.DB.prepare('DELETE FROM will_screening_claims WHERE day < ? OR expires_at <= ?').bind(utcDay(nowMs) - 1, nowMs),
     // Refusals of past months (Sign-in data › «новый месяц»); the ended sessions after 24 hours (ADR-022).
     env.DB.prepare('DELETE FROM sign_in_refusals WHERE month <> ?').bind(monthOf(nowMs)),
     env.DB.prepare('DELETE FROM ended_sessions WHERE ended_at < ?').bind(nowMs - 86_400_000),

@@ -9,14 +9,14 @@ export type ClearPhase =
   | { kind: 'idle' }
   | { kind: 'clearing' }
   /** `failed`: the server said nothing was erased; `busy`: `429`; `unknown`: no answer, the outcome is not known */
-  | { kind: 'error'; why: 'failed' | 'busy' | 'unknown' };
+  | { kind: 'error'; why: 'failed' | 'busy' | 'unknown'; hasWish: boolean };
 
 /** The answer that says nothing was erased: the server read it all and refused or failed before the batch. */
 function nothingErased(e: WorkerError): boolean {
   if (e.status === 404) return true;
   if (e.status === 400 || e.status === 409) return e.code === 'close_refused';
   if (e.status === 500) return e.code === 'clear_failed';
-  if (e.status === 503) return e.code === 'chain_unreachable' || e.code === 'auth_unavailable';
+  if (e.status === 503) return e.code === 'chain_unreachable' || e.code === 'auth_unavailable' || e.code === 'clear_failed';
   return false;
 }
 
@@ -39,9 +39,11 @@ export function useClearMemory(tokenId: string, outcome: { done: () => void; ret
     }
     running.current = true;
     setPhase({ kind: 'clearing' });
+    let hasWish = false;
     try {
       const token = await authRef.current.getIdentityToken();
       if (token === null) throw new WorkerError(401, 'signed_out');
+      hasWish = await workerApi.wish(token, tokenId).then((read) => read.wish !== null).catch(() => false);
       let chain;
       try { chain = await sharedJobOf(tokenId); }
       catch { throw new WorkerError(503, 'chain_unreachable'); }
@@ -63,11 +65,11 @@ export function useClearMemory(tokenId: string, outcome: { done: () => void; ret
       } else if (error.status === 403) {
         out.current.notOwner();
       } else if (error.status === 429) {
-        setPhase({ kind: 'error', why: 'busy' });
+        setPhase({ kind: 'error', why: 'busy', hasWish });
       } else if (nothingErased(error)) {
-        setPhase({ kind: 'error', why: 'failed' });
+        setPhase({ kind: 'error', why: 'failed', hasWish });
       } else {
-        setPhase({ kind: 'error', why: 'unknown' });
+        setPhase({ kind: 'error', why: 'unknown', hasWish });
       }
     } finally {
       running.current = false;

@@ -8,6 +8,8 @@ import type { Message } from './nearai';
 import type { Mood } from './pet/life';
 import { OUTFITS, type OutfitSlug } from './pet/outfits';
 import { recentWork, workOfDay } from './work/record';
+import { wishInstruction, type WishOffer } from './will/diary';
+import { invitationInstruction, type InvitationOffer } from './will/invitation';
 
 /** The input of a typical thought, 2,300 tokens, in bytes at a token per 4 bytes (§8 › Память питомца). */
 const MEMORY_BYTES = 2_300 * 4;
@@ -177,7 +179,7 @@ export async function buildMessages(
   pet: PetRecord,
   job: ThoughtJob,
   life: LifeLayers,
-  extra: { hire?: string; hired?: Hired } = {},
+  extra: { hire?: string; hired?: Hired; wish?: WishOffer; invitation?: InvitationOffer } = {},
 ): Promise<Message[]> {
   const deep = job.kind === 'reply' && job.mode === 'deep';
   let system = layers(pet, deep, life);
@@ -242,7 +244,9 @@ export async function buildMessages(
     ...(extra.hired === undefined ? [] : [{ player_text: extra.hired.question, reply_text: extra.hired.answer, worker_name: extra.hired.worker, at: Date.now() }]),
     ...advice.results,
   ];
-  const tail = (await workLayer(db, tokenId, job)) + (extra.hire ?? '');
+  const tail = (await workLayer(db, tokenId, job)) + (extra.hire ?? '')
+    + (job.kind === 'diary' && extra.wish !== undefined ? wishInstruction(extra.wish) : '')
+    + (job.kind === 'diary' && extra.invitation !== undefined ? invitationInstruction(extra.invitation) : '');
   let used = bytesOf(system) + bytesOf(noteLayer) + bytesOf(tail) + bytesOf(user) + (entryLine === null ? 0 : bytesOf(entryLine.content));
   // Another pet's words are data in a system message: said so once, and each one quoted on a line of its own. They
   // share the memory budget with the pet's own conversation: the words of this turn's worker always stay, an older
