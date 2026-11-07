@@ -53,13 +53,13 @@ export function streakDraw(d: DiaryView): StreakDraw {
 
 /** The entry: its text in the pet's voice with the question as the last line, or the game's line in its place (no author). */
 export type EntryDraw =
-  | { kind: 'text'; lines: string[]; question: string | null; work: string | null }
+  | { kind: 'text'; lines: string[]; question: string | null; social?: string[]; work: string | null }
   | { kind: 'line'; text: string };
 
 export function entryDraw(entry: DiaryEntry, name: string, until: string, closedAt = ''): EntryDraw {
   switch (entry.kind) {
     case 'text':
-      return { kind: 'text', lines: entry.lines, question: entry.question, work: entry.work === null ? null : workLine(name, closedAt, entry.work) };
+      return { kind: 'text', lines: entry.lines, question: entry.question, ...(entry.socialLines?.length ? { social: entry.socialLines.slice(0, 3) } : {}), work: entry.work === null ? null : workLine(name, closedAt, entry.work) };
     case 'first':
       return { kind: 'line', text: firstEntryLine(name, until) };
     case 'cleared':
@@ -105,7 +105,7 @@ export function partLines(streak: StreakDraw, entry: EntryDraw, riddle: RiddleDr
     `Streak: ${streak.days} ${streak.unit} · Freezes: ${streak.freezes}`,
     streak.line,
     streak.note,
-    ...(entry.kind === 'line' ? [entry.text] : [...entry.lines, entry.question, entry.work]),
+    ...(entry.kind === 'line' ? [entry.text] : [...entry.lines, entry.question, ...(entry.social ?? []), entry.work]),
     riddle.yesterday,
     riddle.today.kind === 'held' ? HELD_LINE : riddle.today.text,
     riddle.today.kind === 'answered' ? riddle.today.line : null,

@@ -63,7 +63,7 @@ import { MyPetsSheet, useMyPetsOpen, closeMyPets } from '../../gift/MyPetsSheet'
 import { closeGift, useGiftRequest } from '../../gift/giftRequest';
 import { energyLine } from '../../life/lines';
 import { OfferMessage, OwnLostMessage, WorkerMessage } from '../../work/hireLines';
-import { askingLine, offerLine, offerRoseLine, skillSavedLine } from '../../work/lines';
+import { askingLine, likedOfferLine, offerLine, offerRoseLine, skillSavedLine } from '../../work/lines';
 import { SkillSheet } from '../../work/SkillSheet';
 import { useSkill } from '../../work/useSkill';
 import { AdapterSheet } from '../../adapters/AdapterSheet';
@@ -74,7 +74,7 @@ import { useCode } from '../../adapters/useCode';
 import { useAdapter } from '../../adapters/useAdapter';
 import { formatCents } from '../../lib/price';
 import { resetTime } from '../../lib/time';
-import { experiencePath, workRecordPath, hatchPath, navigate, petPath, useLocation } from '../../route';
+import { experiencePath, relationshipsPath, workRecordPath, hatchPath, navigate, petPath, useLocation } from '../../route';
 import { canUseWebGL } from '../../pet/flat';
 import { makePet } from '../../pet/proto/generator.js';
 import { useMotionPaused } from '../../pet/motion';
@@ -128,10 +128,10 @@ function useFigure() {
   return { lost, paused, onLost: () => setLost(true), hub, motion: flat ? null : toggleNode, toggle: toggleNode };
 }
 
-function sealLine(name: string, state: SealState): string {
+export function sealLine(name: string, state: SealState): string {
   return state.kind === 'mismatch' ? `${name}'s character no longer matches the hatch record.`
     : state.kind === 'unavailable' ? `We can't check ${name}'s character on NEAR just now. Try again.`
-      : state.kind === 'checked' ? `This mark identifies ${name}'s character hash checked on NEAR. The contract can be upgraded later.` : '';
+      : state.kind === 'checked' ? `This mark checks that ${name} has the character sealed at birth. Game updates may change how we check it.` : '';
 }
 
 /** `start`: the phone owner's intro card, where the line is left-aligned and a mismatch or an unreadable seal is said by the
@@ -140,14 +140,15 @@ function CheckLink({ tokenId, name, seal, start, watching, owner }: { tokenId: s
   const align = start ? undefined : 'center';
   return (
     <Stack gap={1} align={align}>
-      {watching ? <Text variant="small" tone="secondary" align={align}>{`Watching: ${watching}`}</Text> : null}
+      {watching ? <Text variant="small" tone="secondary" measure align={align}>{`Watching: ${watching}`}</Text> : null}
       <TextLink href={`/pet/${tokenId}/verify`} tone="trust" icon="verify">{`Check it's really ${name}`}</TextLink>
-      {seal.state.kind === 'checked' ? <Text variant="small" tone="secondary" align={align}>{sealLine(name, seal.state)}</Text> : null}
+      {seal.state.kind === 'checked' ? <Text variant="small" tone="secondary" measure align={align}>{sealLine(name, seal.state)}</Text> : null}
       {seal.state.kind === 'mismatch' && !start ? <Note tone="error" silent>{sealLine(name, seal.state)}</Note> : null}
       {seal.state.kind === 'unavailable' && !start ? <Cluster gap={3}><Note tone="error" silent>{sealLine(name, seal.state)}</Note><Button variant="secondary" size="compact" onClick={seal.retry}>Try again</Button></Cluster> : null}
       <Cluster gap={3} justify={start ? undefined : 'center'}>
         <TextLink href={workRecordPath(tokenId)} tone="quiet" iconEnd="chevron">View work record</TextLink>
         {owner ? <TextLink href={experiencePath(tokenId)} tone="quiet" iconEnd="chevron">Review experience</TextLink> : null}
+        {owner ? <TextLink href={relationshipsPath(tokenId)} tone="quiet" iconEnd="chevron">Relationships</TextLink> : null}
       </Cluster>
     </Stack>
   );
@@ -499,9 +500,9 @@ function OwnerPage({ pet, s, seal }: { pet: OwnerView; s: ReturnType<typeof useP
       ? [
           <OfferMessage
             key="offer"
-            text={s.rose ? offerRoseLine(offer.worker, offer.price.cents) : offerLine(name, offer.worker, offer.price.cents)}
+            text={s.rose ? offerRoseLine(offer.worker, offer.price.cents) : offer.discounted ? likedOfferLine(name, offer.worker, offer.price.cents) : offerLine(name, offer.worker, offer.price.cents)}
             worker={offer.worker}
-            buttons={s.offerBusy || s.busy ? undefined : { onAsk: s.askOffer, onDecline: s.declineOffer }}
+            buttons={s.offerBusy || s.busy ? undefined : { onAsk: s.askOffer, onDecline: s.declineOffer, ...(offer.discounted ? { price: formatCents(offer.price.cents) } : {}) }}
           />,
         ]
       : []),
@@ -550,8 +551,9 @@ function OwnerPage({ pet, s, seal }: { pet: OwnerView; s: ReturnType<typeof useP
           speaker={name}
           fresh={line.fresh}
           latest={settled && i === lastPet && all.slice(i + 1).every((l) => l.cutNote)}
-          verify={{ href: `/pet/${tokenId}/verify/${line.id}`, label: 'Check this thought' }}
+          verify={line.noVerify ? undefined : { href: `/pet/${tokenId}/verify/${line.id}`, label: 'Check this thought' }}
           meta={line.meta}
+          foot={line.foot}
         >
           {line.text}
         </Message>

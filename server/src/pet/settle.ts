@@ -3,7 +3,7 @@
 // A portion of NEAR or a snack is on its way as a `feedings` row (one per player). Whoever learns the
 // outcome first - `POST …/feed/send`, `GET …/feed`, the outcome route, the cron - settles it, and the
 // claim is `DELETE … RETURNING`: of all of them exactly one runs what follows, the rest only answer.
-import { ChainUnreachable } from '../chain';
+import { allTokenIdsOf, ChainUnreachable } from '../chain';
 import { utcDay } from '../http';
 import { KNOWN_RECORD_YOCTO, nearUsdRate, SNACK_YOCTO, yoctoToUsdMicros } from '../pricing';
 import { lowerWalletSeen } from '../feeding/wallet';
@@ -13,6 +13,7 @@ import { DIARY_WINDOW_MS } from './ritual';
 import { afterWake, wakeDue, wakeIfFed } from './wake';
 import { confirmedFunding } from '../errands/funding';
 import { startShared } from '../errands/sharedRun';
+import { feedIntroductionStatements } from '../society/relations';
 
 export interface FeedingRow {
   id: string;
@@ -42,6 +43,12 @@ export const FEEDINGS_COLUMNS = 'id, sub, account, token_id, source, via, deposi
 /** Settles `row` with the outcome the network gave. `false`: another flow had already claimed it. */
 export async function settleFeeding(env: Env, row: FeedingRow, outcome: Outcome): Promise<boolean> {
   const claim = [env.DB.prepare('DELETE FROM feedings WHERE id = ? RETURNING id').bind(row.id)];
+  if (outcome.status === 'ok' && row.via === 'link') {
+    // Read the feeder's currently owned pets before claiming the feed. If that chain read is
+    // unavailable, leave the feed row for the existing outcome retry instead of losing its bond.
+    const owned = await allTokenIdsOf(env, row.account);
+    claim.unshift(...feedIntroductionStatements(env.DB, row.id, row.token_id, owned, Date.now()));
+  }
   if (outcome.status === 'ok' && row.job_hash != null) {
     const funding = await confirmedFunding(env, row);
     claim.unshift(env.DB.prepare(

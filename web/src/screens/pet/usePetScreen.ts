@@ -25,7 +25,8 @@ import {
   type PetView,
   type Thought,
 } from '../../seams/worker';
-import { askedMeta, hireClearedLine, hireDataFailedLine, hireDataFailedPaidLine, hireEmptyLine, hireFailedLine, offerLine, toLine } from '../../work/lines';
+import { askedMeta, autoPaidLine, autoRefusedLine, hireClearedLine, hireDataFailedLine, hireDataFailedPaidLine, hireEmptyLine, hireFailedLine, hireRefusedLine, noFeeAnswerLine, offerLine, toLine } from '../../work/lines';
+import { resetTime } from '../../lib/time';
 import { peekPendingAction, runAction, takePendingAction } from './parts';
 
 // The Pet screen's state (add-pet › Pet screen, Connection rule): what the page shows is chosen from the answer of
@@ -82,6 +83,8 @@ export interface Line {
   paidCents?: number;
   /** the small line under a reply: «Thought hard · {price}», or «{name} asked {worker} · {price}» under a hire's answer */
   meta?: string;
+  foot?: string;
+  noVerify?: boolean;
   /** the note under a reply that stopped at one thought's limit — the reply is still the newest thing the pet said */
   cutNote?: boolean;
   /** the pet's own question to a worker, «To {worker}: …»: not the reply the turn waits for */
@@ -112,6 +115,7 @@ export function lineOf(l: ConversationLine, name: string, fresh: boolean, before
           skilled: l.skilled === true,
           ...(l.dataLabels && l.dataLabels.length > 0 ? { dataLabels: l.dataLabels } : {}),
           meta: l.hire ? askedMeta(name, l.hire) : undefined,
+          foot: l.hire && 'noFee' in l.hire && l.hire.answerPriceCents != null ? noFeeAnswerLine(l.hire.worker, l.hire.answerPriceCents) : undefined,
         },
       ];
     case 'event': {
@@ -122,20 +126,25 @@ export function lineOf(l: ConversationLine, name: string, fresh: boolean, before
       if (!l.code) return [{ id: l.id, who: 'event', text, fresh: fresh || undefined }];
       const worker = l.worker?.name ?? '';
       const words =
-        l.code === 'hire_empty'
+        l.code === 'society_refused'
+          ? l.hireMode === 'auto' ? autoRefusedLine(worker) : hireRefusedLine(worker, resetTime(l.refusalUntil))
+          : l.code === 'hire_empty'
           ? hireEmptyLine(name, worker)
           : l.code === 'hire_data_failed'
             ? hireDataFailedLine(name, worker)
             : l.code === 'hire_data_failed_paid'
               ? hireDataFailedPaidLine(name, worker)
               : hireFailedLine(name, worker);
-      return [{ id: l.id, who: 'event', text: words, fresh: fresh || undefined }];
+      return [{ id: l.id, who: l.code === 'society_refused' && l.hireMode === 'auto' ? 'pet' : 'event', text: words, fresh: fresh || undefined,
+        noVerify: l.code === 'society_refused' && l.hireMode === 'auto' }];
     }
     case 'pet': {
       if (l.report) return [reportLineOf(l, name, fresh, before)];
-      const lines = replyLines({ id: l.id, text: l.hireTo !== undefined ? toLine(l.hireTo, text) : text, cut: l.cut ?? null, priceCents: l.priceCents }, name, fresh);
+      const said = l.hire && 'price' in l.hire && l.hire.mode === 'auto' ? `${text} ${autoPaidLine(l.hire.worker, l.hire.priceCents)}` : text;
+      const lines = replyLines({ id: l.id, text: l.hireTo !== undefined ? toLine(l.hireTo, text) : said, cut: l.cut ?? null, priceCents: l.priceCents }, name, fresh);
       if (l.hireTo !== undefined) lines[0]!.question = true;
       if (l.hire) lines[0]!.meta = askedMeta(name, l.hire);
+      if (l.hire && 'noFee' in l.hire && l.hire.answerPriceCents != null) lines[0]!.foot = noFeeAnswerLine(l.hire.worker, l.hire.answerPriceCents);
       return lines;
     }
     default:
@@ -907,7 +916,10 @@ export function usePetScreen(tokenId: string, from: string | null, diary = false
       const mine = asked !== null && jobRef.current === asked;
       // the turn asked a worker (it says so while it asks, and a tap on a hire is one): the conversation holds its question and the
       // worker's words, so the line this tab drew for the owner's words gives way to what the server holds
-      if (mine && (s.pendingProgress || isHireKind(s.jobKind)) && hireJob.current !== asked) {
+      // An Auto hire refused for the pair's break asks no worker (nothing to show while it runs): the job's end tells it, and the
+      // refusal line is a thought of the server the tab has not seen (`Society hire flow` › «auto hire refused»)
+      const refusedForBreak = s.events.some((event) => event.startsWith('society_refused:'));
+      if (mine && (s.pendingProgress || isHireKind(s.jobKind) || refusedForBreak) && hireJob.current !== asked) {
         hireJob.current = asked;
         const local = sent.current?.job === asked ? sent.current : null;
         if (local) {

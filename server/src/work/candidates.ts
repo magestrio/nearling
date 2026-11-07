@@ -10,7 +10,7 @@ import { foodState, type FoodState } from '../pet/view';
 import { fullness, HIRE_AUTO_LIMIT_YOCTO, minCallPrice, TYPICAL_IN } from '../pricing';
 import type { CandidateLine } from '../prompt';
 import { publicFields, publicWorkLabels } from '../experience/publicFacts';
-import { priceOf } from './quote';
+import { pairPrice } from './quote';
 import type { HireMode } from './mode';
 
 /** How many known pets a turn reads, and how many it offers. */
@@ -34,6 +34,7 @@ export interface Candidate extends CandidateLine {
   skilled: boolean;
   /** What this pet's fee is now. */
   price: bigint;
+  discounted: boolean;
 }
 
 /** What of the hirer's food can pay a pet's fee: the contract's given and earned food, less what the unbilled spend
@@ -64,17 +65,18 @@ export function hirerMayHire(hirer: Hirer): boolean {
 }
 
 export type WorkerCheck =
-  | { ok: true; price: bigint; skilled: boolean; label: string | null }
-  | { ok: false; why: 'gone' | 'same_owner' | 'asleep' | 'no_energy' | 'full_day' | 'over_limit' | 'no_given_food' | 'not_full' | 'over_cap' | 'data_failed' };
+  | { ok: true; price: bigint; skilled: boolean; label: string | null; discounted: boolean }
+  | { ok: false; why: 'gone' | 'same_owner' | 'asleep' | 'no_energy' | 'full_day' | 'over_limit' | 'no_given_food' | 'not_full' | 'over_cap' | 'data_failed' | 'society_refused'; until?: number };
 
 /** A worker's fit for a hire by `hirer` at `now`. `mode` says whether the Auto limit applies. */
 export async function checkWorker(env: Env, hirer: Hirer, workerId: string, worker: PetRecord | null, mode: HireMode, now: number): Promise<WorkerCheck> {
   if (worker === null) return { ok: false, why: 'gone' };
   if (worker.owner_id === hirer.pet.owner_id) return { ok: false, why: 'same_owner' };
   const today = utcDay(now);
+  const quote = await pairPrice(env, hirer.tokenId, workerId, today, now);
+  if (quote.refusalUntil != null) return { ok: false, why: 'society_refused', until: quote.refusalUntil };
   if (fullness((await foodState(env.DB, workerId, worker, now)).eff).state === 'asleep') return { ok: false, why: 'asleep' };
   if (energyLeft(await readLife(env.DB, workerId), today) === 0) return { ok: false, why: 'no_energy' };
-  const quote = await priceOf(env, workerId, today);
   if (!quote.open) return { ok: false, why: 'full_day' };
   const price = quote.yocto;
   if (mode === 'auto' && price > HIRE_AUTO_LIMIT_YOCTO) return { ok: false, why: 'over_limit' };
@@ -89,7 +91,7 @@ export async function checkWorker(env: Env, hirer: Hirer, workerId: string, work
   // The fee and the turn's own reply fit what the day's cap leaves.
   if (price + minCallPrice(env, TYPICAL_IN) > hirer.food.capLeft) return { ok: false, why: 'over_cap' };
   const skill = await env.DB.prepare('SELECT label FROM skills WHERE token_id = ?').bind(workerId).first<{ label: string }>();
-  return { ok: true, price, skilled: skill !== null, label: skill?.label ?? null };
+  return { ok: true, price, skilled: skill !== null, label: skill?.label ?? null, discounted: quote.discounted === true };
 }
 
 const shuffled = <T>(items: T[]): T[] => {
@@ -143,7 +145,7 @@ async function readCandidates(env: Env, hirer: Hirer, mode: HireMode, now: numbe
       if (check.ok && pet !== null) {
         const experience = await publicWorkLabels(env, id, pet, fields);
         fit.push({ tokenId: id, name: pet.name, pet, character: pet.character, label: check.label,
-          skilled: check.skilled, price: check.price, experience });
+          skilled: check.skilled, price: check.price, discounted: check.discounted, experience });
       }
     }
     return [...shuffled(fit.filter((c) => c.skilled)), ...shuffled(fit.filter((c) => !c.skilled))].slice(0, OFFER_LIMIT);

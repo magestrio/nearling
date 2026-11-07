@@ -13,17 +13,18 @@ import { WorkerError, waitLineMs, workerApi, type AdviceRead, type PetState } fr
  *  game's, written by the component from the code (the names are known there). */
 export type Entry =
   | { id: string; kind: 'asked'; text: string; fresh?: boolean }
-  | { id: string; kind: 'answer'; thoughtId: string; text: string; skilled: boolean; dataLabels?: string[]; fresh?: boolean }
+  | { id: string; kind: 'answer'; thoughtId: string; text: string; skilled: boolean; dataLabels?: string[]; noHireFee?: boolean; answerPriceCents?: number; fresh?: boolean }
   | { id: string; kind: 'event'; code: 'couldnt_help'; fresh?: boolean }
   | { id: string; kind: 'error'; code: 'empty' | 'cleared' | 'data_failed' | 'data_failed_paid'; fresh?: boolean };
 
 /** What stops an ask now, in the order `Advice flow` › several at once shows them: only the first is drawn. */
-export type Blocker = 'paused' | 'worker_asleep' | 'worker_resting' | 'cant_pay' | 'tired';
+export type Blocker = 'paused' | 'worker_asleep' | 'relationship' | 'worker_resting' | 'cant_pay' | 'tired';
 
 export function blockerOf(facts: { workerAsleep: boolean; read: AdviceRead | null }): Blocker | null {
   const { read } = facts;
   if (read?.paused) return 'paused';
   if (facts.workerAsleep || read?.workerAsleep) return 'worker_asleep';
+  if (read?.refusalUntil && Date.parse(read.refusalUntil) > Date.now()) return 'relationship';
   if (read?.resting) return 'worker_resting';
   if (read && (read.payer.state === 'short' || read.payer.state === 'asleep')) return 'cant_pay';
   if (read?.payer.state === 'tired') return 'tired';
@@ -96,7 +97,7 @@ export function useAdvice(worker: { tokenId: string; name: string; asleep: boole
             const last = answer.last;
             setEntries([
               { id: `asked-${(counter.current += 1)}`, kind: 'asked', text: last.question },
-              { id: `answer-${last.id}`, kind: 'answer', thoughtId: last.id, text: last.text, skilled: last.skilled, dataLabels: last.dataLabels },
+              { id: `answer-${last.id}`, kind: 'answer', thoughtId: last.id, text: last.text, skilled: last.skilled, dataLabels: last.dataLabels, noHireFee: last.noHireFee, answerPriceCents: last.answerPriceCents },
             ]);
           }
         }
@@ -181,7 +182,7 @@ export function useAdvice(worker: { tokenId: string; name: string; asleep: boole
       const thought = state.thought;
       if (thought && thought.kind === 'advice' && state.code !== 'memory_cleared') {
         asking.current = null;
-        setEntries((now) => [...now, { id: `answer-${thought.id}`, kind: 'answer', thoughtId: thought.id, text: thought.text, skilled: thought.skilled === true, dataLabels: thought.dataLabels, fresh: true }]);
+        setEntries((now) => [...now, { id: `answer-${thought.id}`, kind: 'answer', thoughtId: thought.id, text: thought.text, skilled: thought.skilled === true, dataLabels: thought.dataLabels, noHireFee: thought.noHireFee, answerPriceCents: thought.answerPriceCents, fresh: true }]);
         setRose(false);
         void load();
         return;
@@ -191,6 +192,11 @@ export function useAdvice(worker: { tokenId: string; name: string; asleep: boole
           giveBack();
           setRose(true);
           if (state.price) setRead((r) => (r ? { ...r, price: state.price! } : r));
+          void load();
+          return;
+        case 'society_refused':
+          giveBack();
+          if (state.refusalUntil) setRead((r) => r ? { ...r, refusalUntil: state.refusalUntil } : r);
           void load();
           return;
         case 'worker_asleep':
@@ -293,7 +299,7 @@ export function useAdvice(worker: { tokenId: string; name: string; asleep: boole
   // The times the read names, as a key: the timer is set when the key changes, not on every render. A time already behind when the
   // read lands (a slow page, a clock ahead of the Worker's) still gets its one read, 1.5 s on; the same read again has the same key,
   // so it does not loop.
-  const endsKey = [read?.payer.state === 'tired' ? read.payer.until : null, read?.resting?.until, read?.dropsAt]
+  const endsKey = [read?.payer.state === 'tired' ? read.payer.until : null, read?.resting?.until, read?.dropsAt, read?.refusalUntil]
     .map((iso) => (iso ? Date.parse(iso) : Number.NaN))
     .filter((at) => Number.isFinite(at))
     .sort((a, b) => a - b)

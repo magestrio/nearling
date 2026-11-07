@@ -44,6 +44,13 @@ export const lookedUpLine = (worker: string, labels: string[]) =>
 
 /** `Pet hire flow` › предложение в Manual / price rose on an offer. */
 export const offerLine = (name: string, worker: string, cents: number) => `${name} wants to ask ${worker} about this. It costs ${formatCents(cents)}.`;
+export const likedOfferLine = (name: string, worker: string, cents: number) => `${name} likes ${worker}. Ask ${worker} · ${formatCents(cents)}`;
+export const pairAdviceLine = (payer: string, worker: string, cents: number) => `${payer} and ${worker} get along. Ask · ${formatCents(cents)}`;
+export const adviceRefusedLine = (worker: string, payer: string, until: string) => `${worker} needs a break from ${payer} until ${until}. No food was spent.`;
+export const hireRefusedLine = (worker: string, until: string) => `${worker} needs a break until ${until}. No hire fee was paid.`;
+export const autoRefusedLine = (worker: string) => `${worker} needs a break today. I'll answer you myself.`;
+export const autoPaidLine = (worker: string, cents: number) => `I asked ${worker}. It cost ${formatCents(cents)}.`;
+export const noFeeAnswerLine = (worker: string, cents: number) => `No hire fee was paid. ${worker}'s answer cost ${formatCents(cents)}.`;
 export const offerRoseLine = (worker: string, cents: number) => `${worker} is busier now — it's ${formatCents(cents)}. Nothing was spent.`;
 export const askWorker = (worker: string) => `Ask ${worker}`;
 export const NO_THANKS = 'No thanks';

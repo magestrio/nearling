@@ -75,13 +75,12 @@ pub const KNOWN_RECORD_BYTES: u64 = 72;
 /// back at the reveal. The unit test `a_commit_costs_exactly_the_record_bytes` measures it.
 pub const RIDDLE_COMMIT_BYTES: u64 = 81;
 
-/// The lowest fee of a hire: 0.00083 NEAR, about 5 typical thoughts (`Hire debit contract`, ADR-011
-/// › «A band»). `server/vitest.config.ts` reads it by name, so it stays a plain integer literal on
-/// one line.
-pub const HIRE_FEE_MIN: u128 = 830_000_000_000_000_000_000;
+/// The lowest fee of a hire: 0.00074 NEAR, including the liked-pair discount (ADR-035).
+/// `server/vitest.config.ts` reads it by name, so it stays a plain integer literal on one line.
+pub const HIRE_FEE_MIN: u128 = 740_000_000_000_000_000_000;
 
-/// The highest fee of a hire: 0.00443 NEAR, the price of a skilled worker's tenth hire of a day
-/// (floor + 9 x 0.0004). Read by `server/vitest.config.ts` by name, a plain integer literal.
+/// The highest fee of a hire: 0.00443 NEAR, the existing undiscounted skilled-worker ceiling.
+/// Read by `server/vitest.config.ts` by name, a plain integer literal.
 pub const HIRE_FEE_MAX: u128 = 4_430_000_000_000_000_000_000;
 
 /// The jobs a pet does for others in a UTC day. Read by `server/vitest.config.ts` by name.

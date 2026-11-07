@@ -28,6 +28,7 @@ export function WorkerMessage({ line }: { line: Line }) {
       fresh={line.fresh}
       verify={{ href: `/pet/${worker.tokenId}/verify/${line.id}`, label: 'Check this thought' }}
       meta={meta}
+      foot={line.foot}
     >
       {line.text}
     </Message>
@@ -46,7 +47,7 @@ export function OfferMessage({
   /** the worker's name, for «Ask {worker}» */
   worker: string;
   /** the buttons, while the offer stands and nothing answers it */
-  buttons?: { onAsk: () => void; onDecline: () => void };
+  buttons?: { onAsk: () => void; onDecline: () => void; price?: string };
 }) {
   return (
     <Message
@@ -54,7 +55,7 @@ export function OfferMessage({
       actions={
         buttons ? (
           <Cluster gap={2}>
-            <Button variant="secondary" size="compact" icon="bag" role="trust" onClick={buttons.onAsk}>
+            <Button variant="secondary" size="compact" icon="bag" role="trust" price={buttons.price} onClick={buttons.onAsk}>
               {askWorker(worker)}
             </Button>
             <Button variant="ghost" size="compact" onClick={buttons.onDecline}>

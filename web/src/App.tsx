@@ -13,6 +13,7 @@ import { PetNotFound, PetScreen } from './screens/pet/PetScreen';
 import { GiftPage } from './gift/GiftPage';
 import { HireBoardPage } from './work/HireBoardPage';
 import { VerificationPage } from './verification/VerificationPage';
+import { SocietyPage } from './society/SocietyPage';
 import { ReturnToPlace } from './signin/ReturnToPlace';
 import { SharedErrandPage } from './errands/SharedErrandPage';
 import { SignInLayer } from './signin/signIn';
@@ -70,6 +71,7 @@ export function App() {
         {/* Home draws its own `Connection rule` page (`home-error`), whatever the exchange answered */}
         {route.name === 'home' ? <HomeScreen /> : null}
         {!unreachable && route.name === 'hire' ? <HireBoardPage /> : null}
+        {!unreachable && route.name === 'relationships' ? <SocietyPage key={route.tokenId} tokenId={route.tokenId} /> : null}
         {!unreachable && route.name === 'hatch' ? <HatchScreen from={route.from} /> : null}
         {!unreachable && route.name === 'gift' ? <GiftPage key={route.code} code={route.code} /> : null}
         {!unreachable && route.name === 'verify' ? <VerificationPage key={route.tokenId} tokenId={route.tokenId} thoughtId={route.thoughtId} /> : null}

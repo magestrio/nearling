@@ -41,6 +41,8 @@ export interface FakeFail {
 }
 
 export interface FakeWorkerState {
+  relationships?: import('./worker-types').RelationshipSummary | FakeFail;
+  relationshipsDelayMs?: number;
   workRecord?: import('./worker-types').WorkRecord | FakeFail;
   workRecordDelayMs?: number;
   experience?: import('./worker-types').ExperienceNotes | FakeFail;

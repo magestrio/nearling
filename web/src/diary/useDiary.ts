@@ -22,6 +22,14 @@ const DAY_MS = 86_400_000;
 
 /** The UTC day of the player's clock. A diary whose day is behind it is a day that has moved on. */
 export const utcDayNow = () => Math.floor(Date.now() / DAY_MS);
+/** A hidden or ended owner view must not retain private social words for the next reader of this tab. */
+export function withoutSocial(load: DiaryLoad): DiaryLoad {
+  if (load.kind === 'loading' || load.kind === 'error' && load.last === null) return load;
+  const clear = (diary: DiaryView): DiaryView => diary.entry.kind === 'text'
+    ? { ...diary, entry: { ...diary.entry, socialLines: [] } } : diary;
+  return load.kind === 'ready' ? { kind: 'ready', diary: clear(load.diary) }
+    : { kind: 'error', last: load.last === null ? null : clear(load.last) };
+}
 
 const statusOf = (e: unknown) => (e instanceof WorkerError ? e.status : 0);
 
@@ -63,6 +71,9 @@ export function useDiary({
   const [banner, setBanner] = useState<DiaryBanner>(null);
   const loadRef = useRef(load);
   loadRef.current = load;
+  useEffect(() => {
+    if (ended || !owner) setLoad((now) => withoutSocial(now));
+  }, [ended, owner]);
   // the question's draft is the tab's memory; the riddle's also lives in the session (`typed riddle answer`)
   const [question, setQuestionState] = useState('');
   const [riddle, setRiddleState] = useState<RiddleDraft | null>(null);
@@ -108,6 +119,7 @@ export function useDiary({
       try {
         const diary = await workerApi.diary(await tokenOf(), tokenId);
         if (mine !== stand.current || order !== seq.current) return;
+        if (document.hidden || authRef.current.sessionEnded || !owner) return;
         setLoad({ kind: 'ready', diary });
         setBanner(null);
         // the typed riddle answer comes back once, when the diary's day is known: another day's is removed
@@ -137,7 +149,7 @@ export function useDiary({
         if (order === seq.current) inFlight.current = false;
       }
     },
-    [tokenOf, tokenId, reread, dropRiddle],
+    [tokenOf, tokenId, reread, dropRiddle, owner],
   );
 
   // Opening: a diary is read afresh each time the screen stands (`Diary screen` › «loading»); the polls follow. The late line
@@ -164,7 +176,8 @@ export function useDiary({
       if (!document.hidden) void fetchDiary();
     }, POLL_DIARY_MS);
     const onVisible = () => {
-      if (!document.hidden) void fetchDiary();
+      if (document.hidden) setLoad((now) => withoutSocial(now));
+      else void fetchDiary();
     };
     document.addEventListener('visibilitychange', onVisible);
     return () => {

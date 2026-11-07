@@ -51,6 +51,7 @@ export type Route =
   /** Wardrobe screen: the pet's outfits, inside the Pet screen's own state (`add-wardrobe` › `Wardrobe screen`) */
   | { name: 'wardrobe'; tokenId: string }
   | { name: 'experience'; tokenId: string }
+  | { name: 'relationships'; tokenId: string }
   | { name: 'work-record'; tokenId: string }
   | { name: 'verify'; tokenId: string; thoughtId: string | null }
   | { name: 'receipt'; code: string }
@@ -95,6 +96,8 @@ export function parseRoute(location: string): Route {
   if (wardrobe) return { name: 'wardrobe', tokenId: wardrobe[1]! };
   const experience = /^\/pet\/(\d{1,20})\/experience$/.exec(path);
   if (experience) return { name: 'experience', tokenId: experience[1]! };
+  const relationships = /^\/pet\/(\d{1,20})\/relationships$/.exec(path);
+  if (relationships) return { name: 'relationships', tokenId: relationships[1]! };
   const work = /^\/pet\/(\d{1,20})\/work$/.exec(path);
   if (work) return { name: 'work-record', tokenId: work[1]! };
   if (/^\/pet(\/[^/]*)?$/.test(path)) return { name: 'pet-broken' };
@@ -106,6 +109,7 @@ export const sharedErrandPath = (tokenId: string, code: string) => `/pet/${token
 export const diaryPath = (tokenId: string) => `/pet/${tokenId}/diary`;
 export const wardrobePath = (tokenId: string) => `/pet/${tokenId}/wardrobe`;
 export const experiencePath = (tokenId: string) => `/pet/${tokenId}/experience`;
+export const relationshipsPath = (tokenId: string) => `/pet/${tokenId}/relationships`;
 export const workRecordPath = (tokenId: string) => `/pet/${tokenId}/work`;
 export const verifyPath = (tokenId: string, thoughtId?: string | null) => `/pet/${tokenId}/verify${thoughtId ? `/${thoughtId}` : ''}`;
 export const adaptersPath = (pet?: string | null) => `/adapters${pet ? `?pet=${pet}` : ''}`;

@@ -1,6 +1,6 @@
 import type { Page } from '@playwright/test';
 import type { FakeState, FakeWorkerState } from '../../src/seams/fakes';
-import type { AdviceRead, CatalogEntryView, ConversationLine, ErrandForm, ErrandReport, ErrandState, ExperienceNotes, FeedSheetData, Fullness, HireMeta, OutfitSlug, SheetPortion, SourceView, ToolView, VerificationIndex, VerificationThought, WorkRecord } from '../../src/seams/worker-types';
+import type { AdviceRead, CatalogEntryView, ConversationLine, ErrandForm, ErrandReport, ErrandState, ExperienceNotes, FeedSheetData, Fullness, HireMeta, OutfitSlug, RelationshipSummary, SheetPortion, SourceView, ToolView, VerificationIndex, VerificationThought, WorkRecord } from '../../src/seams/worker-types';
 import { SAMPLE_DAY, sampleDiary } from '../../src/seams/diary.sample';
 import type { DiaryView } from '../../src/seams/worker-types';
 import type { HireBoard } from '../../src/seams/worker-types';
@@ -118,6 +118,14 @@ const PET_ALONE = 'Say what the chart changed for you — one sentence. Then let
 const NORI_REF = { tokenId: '5', name: 'Nori' };
 const NORI_PRICE = { yocto: '380000000000000000000', cents: 0.38 };
 const NORI_PAID: HireMeta = { worker: 'Nori', price: NORI_PRICE.yocto, priceCents: 0.38 };
+const LIKED_PRICE = { yocto: '747000000000000000000', cents: 0.34 };
+const LIKED_PAID: HireMeta = { worker: 'Biscuit', price: LIKED_PRICE.yocto, priceCents: 0.34, mode: 'auto' };
+const PAIR_BREAK = '2027-01-01T16:00:00.000Z';
+const pairTurn = (worker: string, ...tail: ConversationLine[]) => {
+  const turn = hireTurn(...tail);
+  return { ...turn, lines: turn.lines.map((line) => line.id === 'w1' ? { ...line, hireTo: worker } : line) };
+};
+const likedTurn = (...tail: ConversationLine[]) => pairTurn('Biscuit', ...tail);
 /** the history, then the owner's line and the pet's question to Nori (its own thought, with its receipt) and what the turn went on to */
 const hireTurn = (...tail: ConversationLine[]): { lines: ConversationLine[]; more: false; before: null } => ({
   lines: [
@@ -890,7 +898,52 @@ const reportExperienceFixture = (hasNote: boolean): ScreenFixture => {
   }) }, prepare: async (page) => { await page.getByText(hasNote ? 'New work note' : 'No work note this time').waitFor(); await errandLines(page, '3 searches · 1.4¢'); } };
 };
 
+const SOCIETY: RelationshipSummary = { tokenId: '9', name: 'Pixel', relationships: [
+  { tokenId: '2', name: 'Biscuit', stance: 'liked', breakUntil: null },
+  { tokenId: '5', name: 'Nori', stance: 'neutral', breakUntil: null },
+  { tokenId: '7', name: 'Sage', stance: 'strained', breakUntil: null },
+  { tokenId: '8', name: 'Mochi', stance: 'strained', breakUntil: Date.parse('2026-11-07T16:00:00Z') },
+] };
+const societyFixture = (relationships: RelationshipSummary | { fail: { status: number; code: string } } = SOCIETY,
+  extras: Partial<FakeWorkerState> = {}): ScreenFixture => ({
+  route: '/pet/9/relationships',
+  fakes: { auth: SIGNED_IN, worker: { owned: ['9'], pets: { '9': { ...PIXEL, worn: 'thinking-cap' } }, relationships, ...extras } },
+  beforeLoad: (page) => page.clock.install({ time: new Date('2026-11-07T12:00:00Z') }),
+});
+
 export const fixtures: Record<string, ScreenFixture> = {
+  // spec: add-pet-society › Society diary flow › named social line
+  'diary-social': { route: '/pet/9/diary', fakes: { auth: SIGNED_IN, worker: diaryWorker({ entry: { ...entryWithWork(), socialLines: ['I think Biscuit and I are getting closer.', 'Sage and I had a rough day.'] } as DiaryView['entry'], streak: STREAK_2 }) }, prepare: diaryReady },
+  // spec: add-pet-society › Society diary flow › settled gossip
+  'diary-gossip': { route: '/pet/9/diary', fakes: { auth: SIGNED_IN, worker: diaryWorker({ entry: { ...entryWithWork(), socialLines: ['I have a story about helping Nori yesterday.'] } as DiaryView['entry'], streak: STREAK_2 }) }, prepare: diaryReady },
+  // spec: add-pet-society › Society hire flow › manual quote
+  'work-offer-liked': { route: '/pet/9', fakes: { auth: SIGNED_IN, worker: { ...owner({ hireMode: 'manual', offer: { worker: 'Biscuit', question: HIRE_QUESTION, price: LIKED_PRICE, discounted: true } }), conversation: likedTurn() } }, prepare: async (page) => { await page.getByText('Pixel likes Biscuit. Ask Biscuit · 0.34¢').waitFor(); await atNewest(page); } },
+  // spec: add-pet-society › Society hire flow › manual hire refused
+  'work-refused-pair': { route: '/pet/9', fakes: { auth: SIGNED_IN, worker: { ...owner({ hireMode: 'manual' }), conversation: pairTurn('Mochi', { id: 'w2', who: 'event', code: 'society_refused', hireMode: 'manual', worker: { tokenId: '1', name: 'Mochi' }, refusalUntil: PAIR_BREAK, at: 0 }, pixelSays(PET_ALONE, null)) } }, prepare: async (page) => { await page.getByText('Mochi needs a break until 18:00. No hire fee was paid.').waitFor(); await atNewest(page); }, belowFold: ['Ask'] },
+  // spec: add-pet-society › Society hire flow › auto paid
+  'work-auto-paid': { route: '/pet/9', fakes: { auth: SIGNED_IN, worker: { ...owner({ hireMode: 'auto' }), conversation: likedTurn({ id: 'w2', who: 'worker', text: NORI_SAYS, worker: { tokenId: '2', name: 'Biscuit' }, at: 0 }, pixelSays(PET_SAYS.replace('Nori says:', 'Biscuit says:'), LIKED_PAID)) } }, prepare: async (page) => { await page.getByText(/I asked Biscuit\. It cost 0\.34¢\./).waitFor(); await atNewest(page); } },
+  // spec: add-pet-society › Society hire flow › auto hire refused
+  'work-auto-refused': { route: '/pet/9', fakes: { auth: SIGNED_IN, worker: { ...owner({ hireMode: 'auto' }), conversation: { lines: [...HISTORY, { id: 'w1:you', who: 'player', text: TYPED, at: 1_700_000_000_100 }, { id: 'w2', who: 'event', code: 'society_refused', hireMode: 'auto', worker: { tokenId: '1', name: 'Mochi' }, refusalUntil: PAIR_BREAK, at: 1_700_000_000_102 }, { ...pixelSays(PET_ALONE, null), at: 1_700_000_000_103 }], more: false, before: null } } }, prepare: async (page) => { await page.getByText("Mochi needs a break today. I'll answer you myself.").waitFor(); await atNewest(page); } },
+  // spec: add-pet-society › Society hire price contract › post-answer hire rejection
+  'work-no-fee-pair': { route: '/pet/9', fakes: { auth: SIGNED_IN, worker: { ...owner(), conversation: hireTurn(nori({ worker: 'Nori', noFee: true, answerPrice: '460000000000000000000', answerPriceCents: 0.21 }), pixelSays(PET_SAYS, null)) } }, prepare: async (page) => { await page.getByText("No hire fee was paid. Nori's answer cost 0.21¢.").waitFor(); await atNewest(page); } },
+  // spec: add-pet-society › Society hire flow › player advice quote
+  'advice-liked': { route: '/pet/2', fakes: { auth: SIGNED_IN, worker: guestAdvice({ price: LIKED_PRICE, discounted: true }) }, prepare: async (page) => { await typeAdvice(page); await page.getByText('Pixel and Biscuit get along. Ask · 0.34¢').waitFor(); } },
+  // spec: add-pet-society › Society hire flow › player advice refused
+  'advice-refused-pair': { route: '/pet/1', fakes: { auth: SIGNED_IN, worker: { ...guestAdvice({ refusalUntil: PAIR_BREAK }), pets: { '9': PIXEL, '1': { tokenId: '1', name: 'Mochi', stage: 'adult', fullness: { state: 'full', level: 1 }, mood: 'happy' } } } }, prepare: async (page) => { await typeAdvice(page, ADVICE_QUESTION, 'Mochi'); await page.getByText('Mochi needs a break from Pixel until 18:00. No food was spent.').first().waitFor(); } },
+  // spec: add-pet-society › Society summary screen › success
+  'society': societyFixture(),
+  // spec: add-pet-society › Society summary screen › empty
+  'society-empty': societyFixture({ ...SOCIETY, relationships: [] }),
+  // spec: add-pet-society › Society summary screen › loading
+  'society-loading': societyFixture(SOCIETY, { relationshipsDelayMs: FOREVER }),
+  // spec: add-pet-society › Society summary screen › error
+  'society-error': societyFixture({ fail: { status: 503, code: 'chain_unreachable' } }),
+  // spec: add-pet-society › Society summary screen › signed-out
+  'society-signed-out': { ...societyFixture(), fakes: { worker: { pets: { '9': { ...PIXEL, worn: 'thinking-cap' } } } } },
+  // spec: add-pet-society › Society summary screen › asleep
+  'society-asleep': societyFixture(SOCIETY, { pets: { '9': { ...PIXEL, worn: 'thinking-cap', fullness: { state: 'asleep', level: 0 } } } }),
+  // spec: add-pet-society › Society ownership flow › old owner requests
+  'society-old-owner': societyFixture(SOCIETY, { owned: [] }),
   // spec: add-pet-experience › Work record screen › success
   'record': { ...recordFixture(), hiddenCopy: ['Paid hires: {n} · Completed errands: {m} · Counted since {date}'] },
   // spec: add-pet-experience › Work record screen › empty

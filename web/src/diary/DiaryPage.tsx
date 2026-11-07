@@ -123,6 +123,7 @@ function Entry({ pet, today, previousOwner }: { pet: OwnerView; today: EntryDraw
             <Text key={i}>{line}</Text>
           ))}
           {today.question !== null ? <Text variant="body-strong">{today.question}</Text> : null}
+          {today.social?.map((line, i) => <Text key={`social-${i}`}>{line}</Text>)}
         </Stack>
         {previousOwner ? <Text variant="small" tone="secondary">{`${pet.name} wrote this before coming to you.`}</Text> : null}
         {today.work !== null ? (
@@ -180,7 +181,20 @@ export function DiaryPage({
 
   // the diary on screen: the answer, or the last known one under the error line
   const load = d.load;
-  const view: DiaryView | null = load.kind === 'ready' ? load.diary : load.kind === 'error' ? load.last : null;
+  const rawView: DiaryView | null = load.kind === 'ready' ? load.diary : load.kind === 'error' ? load.last : null;
+  const view: DiaryView | null = rawView && (signedOut || !auth.authenticated)
+    ? { ...rawView, entry: rawView.entry.kind === 'text' ? { ...rawView.entry, socialLines: [] } : rawView.entry }
+    : rawView;
+  const socialSeen = useRef(new Set<string>());
+  const socialKey = view?.entry.kind === 'text' && view.entry.socialLines?.length ? `${tokenId}:${view.day}:${view.entry.id}` : null;
+  useEffect(() => {
+    if (!socialKey || signedOut || !auth.authenticated || auth.sessionEnded || socialSeen.current.has(socialKey)) return;
+    socialSeen.current.add(socialKey);
+    void auth.getIdentityToken().then((token) => {
+      if (!token) return;
+      return workerApi.societyDiarySeen(token, tokenId, { eventId: crypto.randomUUID(), tabId: crypto.randomUUID(), playerId: crypto.randomUUID(), petId: crypto.randomUUID() });
+    }).catch(() => {});
+  }, [socialKey, signedOut, auth, tokenId]);
   const [watchRates, setWatchRates] = useState<Record<string, string>>({});
   const watchIds = view?.watch?.map((item) => item.receiptId).join('|') ?? '';
   useEffect(() => {

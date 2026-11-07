@@ -45,7 +45,7 @@ describe('Pet hire flow', () => {
     const [t] = await rows('SELECT * FROM thoughts WHERE token_id = ?', PAYER);
     expect(t).toMatchObject({ kind: 'hire_question', player_text: 'What should I plant?', reply_text: 'How do I grow radishes?', worker_id: '6', worker_name: 'Worker6', status: 'unbilled' });
     expect(await rows('SELECT * FROM hire_offers')).toEqual([
-      { token_id: PAYER, turn_id: t.turn_id, worker_id: '6', worker_name: 'Worker6', question: 'How do I grow radishes?', price_yocto: FEE.toString(), created_at: expect.any(Number) },
+      { token_id: PAYER, turn_id: t.turn_id, worker_id: '6', worker_name: 'Worker6', question: 'How do I grow radishes?', price_yocto: FEE.toString(), discounted: 0, created_at: expect.any(Number) },
     ]);
     // no fee, no hire, no place, no work for the worker, no own reply
     expect(await rows('SELECT 1 FROM hires')).toEqual([]);

@@ -83,8 +83,9 @@ test.describe('on a phone', () => {
   test('совет открыт: the visitor\'s pet takes the hero height, rises over the header\'s room and leaves «Go to your Pixel» tappable', async ({ page }) => {
     await open(page);
     const pet = page.locator('.ds-stage--compact:not(.ds-stage--owner) .pet-figure--hero');
-    const proportion = await pet.evaluate((el) => el.getBoundingClientRect().height / innerHeight);
-    expect(proportion).toBeGreaterThan(0.3);
+    // the frames (guestAdvice, 2026-11-07) draw the pet in a box of 20dvh less one space-6 above the pinned Dock
+    const box = await pet.evaluate((el) => el.getBoundingClientRect().height - (innerHeight * 0.2 - 32));
+    expect(Math.abs(box)).toBeLessThan(2);
     const reached = await page.getByRole('link', { name: 'Go to your Pixel' }).evaluate((link) => {
       const r = link.getBoundingClientRect();
       return link.contains(document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2));

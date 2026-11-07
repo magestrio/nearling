@@ -348,7 +348,7 @@ export class FakeContract {
       const fee = BigInt(t.hire.fee);
       const worker = t.worker === undefined ? undefined : this.pets.get(t.worker);
       if (worker === undefined || t.worker === undefined) return { code: `hire:${i}:no_worker` };
-      if (fee < 830_000_000_000_000_000_000n || fee > 4_430_000_000_000_000_000_000n) return { code: `hire:${i}:fee_band` };
+      if (fee < 740_000_000_000_000_000_000n || fee > 4_430_000_000_000_000_000_000n) return { code: `hire:${i}:fee_band` };
       if (price >= fee) return { code: `hire:${i}:answer_over_fee` };
       if (worker.owner_id === pet.owner_id) return { code: `hire:${i}:same_owner` };
       const jobs = (worker.jobs_today ?? 0) + (jobsGiven.get(t.worker) ?? 0);

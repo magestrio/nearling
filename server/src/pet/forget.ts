@@ -36,6 +36,11 @@ export function forgetStatements(db: D1Database, tokenId: string, now: number): 
     // The on-chain counts and billed receipt pointers are deliberately outside pet memory.
     db.prepare('DELETE FROM experience_field WHERE token_id = ?').bind(tokenId),
     db.prepare('DELETE FROM experience_notes WHERE token_id = ?').bind(tokenId),
+    // Society is directed: clear this pet's side and pending social words, never the
+    // counterparty's own side. Processed hire markers remain to prevent replay.
+    db.prepare('DELETE FROM society_relations WHERE token_id = ?').bind(tokenId),
+    db.prepare('DELETE FROM society_encounters WHERE token_id = ?').bind(tokenId),
+    db.prepare('DELETE FROM society_diary_lines WHERE token_id = ?').bind(tokenId),
     // The owner's answers to the riddle are memory too; the day's marks stay (`ritual_days`), so a second
     // answer the same day is still refused (`Ritual data` › «удаление памяти»).
     db.prepare('DELETE FROM riddle_answers WHERE token_id = ?').bind(tokenId),

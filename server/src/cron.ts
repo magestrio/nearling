@@ -23,6 +23,7 @@ import { DIARY_WINDOW_MS, markDueDays, settleOpenRows } from './pet/ritual';
 import { FEEDINGS_COLUMNS, settleFeeding, type FeedingRow } from './pet/settle';
 import { riddleTick } from './riddle/cron';
 import { cleanQuotes } from './work/quote';
+import { settleSocietyPending } from './society/settlement';
 import { clearPause, gasReserve, lastProbe, noteProbe, pauseReason, setPause } from './servicePause';
 import { monthOf } from './signin';
 import { dueWatches, queueWatchIfMissing, recoverUnqueuedWatches } from './watch/day';
@@ -54,6 +55,7 @@ const PROBE_EVERY_MS = 5 * 60_000;
 export async function tick(env: Env, nowMs: number = Date.now()): Promise<void> {
   const parts: [string, () => Promise<void>][] = [
     ['debit', () => closeAndDebit(env, nowMs)],
+    ['society', () => settleSocietyPending(env)],
     ['diary', () => diary(env, nowMs)],
     ['pause', () => pause(env, nowMs)],
     ['riddle', () => riddleTick(env, nowMs)],
@@ -264,6 +266,7 @@ export async function clean(env: Env, nowMs: number): Promise<void> {
   await env.EVENTS.prepare('DELETE FROM showcase_event_counts WHERE expires_at <= ?').bind(nowMs).run();
   if (nowMs >= JUDGE_DELETE_AT) await env.EVENTS.prepare('DELETE FROM showcase_card_shared').run();
   if (nowMs >= JUDGE_DELETE_AT) await env.EVENTS.prepare('DELETE FROM experience_events').run();
+  if (nowMs >= JUDGE_DELETE_AT) await env.EVENTS.prepare('DELETE FROM society_events').run();
   await env.DB.batch([
     env.DB.prepare("DELETE FROM jobs WHERE created_at < ? AND status IN ('done', 'failed')").bind(nowMs - 86_400_000),
     env.DB.prepare('DELETE FROM empty_answers WHERE day < ?').bind(utcDay(nowMs) - 1),

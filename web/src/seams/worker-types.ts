@@ -194,6 +194,7 @@ export interface HireOffer {
   worker: string;
   question: string;
   price: Price;
+  discounted?: boolean;
 }
 
 export type ClosedReason = 'service' | 'budget' | 'pool' | 'daily';
@@ -272,6 +273,7 @@ export type ThoughtCode =
   | 'short'
   | 'worker_asleep'
   | 'worker_resting'
+  | 'society_refused'
   /** advice only: the paying pet or the friend's pet is not there any more, or they now share an owner */
   | 'no_pet'
   /** a worker's data source or code did not answer (`Adapter call rule`); on an advice `paid` says whether the paying pet's food paid */
@@ -279,7 +281,8 @@ export type ThoughtCode =
   /** an errand's job: it ended with no report (the page reads `PetState.errand`), or after the 3 minutes */
   | 'errand_failed'
   | 'late';
-export type PetEvent = 'fell_asleep' | 'daily_cap_reached' | 'woke';
+/** `society_refused:<ISO time>`: the job's hire was refused before any call for the pair's break (`Society hire flow`) */
+export type PetEvent = 'fell_asleep' | 'daily_cap_reached' | 'woke' | `society_refused:${string}`;
 export interface Thought {
   id: string;
   text: string;
@@ -295,6 +298,9 @@ export interface Thought {
   skilled?: boolean;
   /** an advice that read the worker's data sources: their names, once each (`Adapter call rule` › «advice line») */
   dataLabels?: string[];
+  noHireFee?: boolean;
+  answerPrice?: string;
+  answerPriceCents?: number;
 }
 /** The pet whose answer a worker line is: its token id (the receipt is `/pet/<token_id>/verify/<id>`) and its name. */
 export interface WorkerRef {
@@ -324,6 +330,7 @@ export type PetState = Omit<Extract<PetView, { viewer: 'owner' }>, 'viewer' | 'o
   paid?: boolean;
   /** with `price_rose`: the worker's price now */
   price?: Price;
+  refusalUntil?: string;
   events: PetEvent[];
   /** the giver's open gift link (`GET …/state`): waiting for a friend or accepted, or null; the poll is how an open page learns of an acceptance */
   gift: { code: string; status: 'waiting' | 'accepted'; acceptedName: string | null; acceptedAccount: string | null; version: number } | null;
@@ -333,7 +340,7 @@ export type PetState = Omit<Extract<PetView, { viewer: 'owner' }>, 'viewer' | 'o
 };
 /** What a hire cost, under the line it belongs to: the fee in yocto and in cents at the rate it was made, or `noFee` when the
  *  contract did not take the hire's record (`Pet hire flow` › «найм не записан в сети»). `worker` is the worker's name. */
-export type HireMeta = { worker: string; price: string; priceCents: number } | { worker: string; noFee: true };
+export type HireMeta = { worker: string; price: string; priceCents: number; mode?: HireMode } | { worker: string; noFee: true; answerPrice?: string | null; answerPriceCents?: number | null };
 /** What an errand's report holds (`GET …/conversation`, a `pet` line with a `report`): `sources` are the results it cites, at most 5,
  *  `{ label: host, url }` (a read of pasted text: `{ label: 'Your text' }`); `verdict` only for «Is it true?»; `missed` — the data
  *  sources that did not answer, and `{ code: true }` for the skill's code that did not (`Adapter call rule` › «data failed in an errand, code»). */
@@ -369,7 +376,10 @@ export interface ConversationLine {
   skilled?: boolean;
   /** `event`: `hire_failed` — {worker} couldn't help just now; `hire_empty` — {worker} came up empty; `hire_data_failed` — its data
    *  didn't answer (`…_paid`: and the pet's food paid for the try). `error`: `errand_empty` (`priceCents` is what the errand cost) */
-  code?: 'hire_failed' | 'hire_empty' | 'hire_data_failed' | 'hire_data_failed_paid' | 'errand_empty' | 'gift';
+  code?: 'hire_failed' | 'hire_empty' | 'hire_data_failed' | 'hire_data_failed_paid' | 'society_refused' | 'errand_empty' | 'gift';
+  refusalUntil?: string;
+  /** A refusal's mode when it happened, independent of the owner's current switch. */
+  hireMode?: HireMode;
   previousOwner?: boolean;
   name?: string;
   hire?: HireMeta;
@@ -465,7 +475,7 @@ export type DiaryEntry =
   /** `lines` are the paragraphs, `question` the last line when it asks (null: no question today); `work` is `add-pet-work`'s
    *  the pet's work of the day before as data — who hired it and the cents of food it earned — the client writes the line
    *  (`Work diary rule`); null when nobody hired it */
-  | { kind: 'text'; id: string; lines: string[]; question: string | null; work: DiaryWork | null; previousOwner?: boolean }
+  | { kind: 'text'; id: string; lines: string[]; socialLines?: string[]; question: string | null; work: DiaryWork | null; previousOwner?: boolean }
   | { kind: 'first' | 'cleared' | 'writing' | 'asleep' | 'failed' };
 
 export interface DiaryWork {
@@ -557,6 +567,8 @@ export interface WardrobeView {
  *  day's limit). `pending` is the payer's advice to this worker on its way, `last` its newest one that still holds its words. */
 export interface AdviceRead {
   price: Price;
+  discounted?: boolean;
+  refusalUntil?: string;
   skilled: boolean;
   workerAsleep: boolean;
   /** the friend's pet has no energy left today (or ten answers): when it is back, ISO */
@@ -565,7 +577,7 @@ export interface AdviceRead {
   /** a skilled worker above its starting price: when the price falls back, ISO */
   dropsAt: string | null;
   pending: { job: string; question: string } | null;
-  last: { id: string; question: string; text: string; skilled: boolean; price?: string; priceCents?: number; dataLabels?: string[] } | null;
+  last: { id: string; question: string; text: string; skilled: boolean; price?: string; priceCents?: number; noHireFee?: boolean; answerPrice?: string; answerPriceCents?: number; dataLabels?: string[] } | null;
   /** the services are on a pause: «several at once» draws its line first, and the page reads again until it lifts */
   paused: boolean;
   /** the names of the worker's data sources with a tool ticked: «Whoever runs {labels} sees what {name} looks up there…» */
@@ -684,9 +696,18 @@ export type SharedErrand = { tokenId: string; name: string; state: 'empty' } | {
   receiptId?: string | null;
 };
 
+/** Owner-only GET /api/pets/:id/relationships; no private row survives outside the open screen. */
+export interface RelationshipSummary {
+  tokenId: string;
+  name: string;
+  relationships: Array<{ tokenId: string; name: string; stance: 'neutral' | 'liked' | 'strained'; breakUntil: number | null }>;
+}
+
 export interface WorkerApi {
+  relationships(token: Token, tokenId: string): Promise<RelationshipSummary>;
   workRecord(tokenId: string): Promise<WorkRecord>;
   experienceRecordOpened(ids: { tabId: string; playerId: string; petId: string }): Promise<void>;
+  societyDiarySeen(token: Token, tokenId: string, ids: { eventId: string; tabId: string; playerId: string; petId: string }): Promise<void>;
   experience(token: Token, tokenId: string): Promise<ExperienceNotes>;
   approveExperience(token: Token, tokenId: string, noteId: string, approved: boolean, generation: number): Promise<{ noteId: string; approved: boolean; generation: number }>;
   publishExperienceField(token: Token, tokenId: string, noteId: string, generation: number): Promise<{ noteId: string; published: true }>;

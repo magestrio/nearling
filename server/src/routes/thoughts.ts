@@ -25,7 +25,7 @@ const MAX_LINE_CODE_POINTS = 500;
 const CONVERSATION_PAGE = 50;
 /** The event line of a hire that did not happen, by what its row says (`work/hire.ts`): the data lines are
  * `Adapter call rule` › «data failed in a hire» and «…, past three». */
-const HIRE_EVENT_CODES: Record<string, string> = { empty: 'hire_empty', data_failed: 'hire_data_failed', data_failed_paid: 'hire_data_failed_paid' };
+const HIRE_EVENT_CODES: Record<string, string> = { empty: 'hire_empty', data_failed: 'hire_data_failed', data_failed_paid: 'hire_data_failed_paid', society_refused: 'society_refused' };
 
 /** The owner's pet, or the response to send instead. */
 export async function ownedPet(c: AppContext): Promise<{ pet: PetRecord; id: string } | Response> {
@@ -183,9 +183,10 @@ thoughtRoutes.get('/api/pets/:id/state', async (c) => {
     if (job.status === 'queued' || job.status === 'running' || job.result === null) {
       out.pending = true;
     } else {
-      const result = JSON.parse(job.result) as { code?: string; thoughtId?: string; cut?: string | null; price?: string; reasked?: boolean; events?: string[]; turn?: string; paid?: boolean };
+      const result = JSON.parse(job.result) as { code?: string; thoughtId?: string; cut?: string | null; price?: string; reasked?: boolean; events?: string[]; turn?: string; paid?: boolean; until?: string };
       events.push(...(result.events ?? []));
       if (result.code !== undefined) out.code = result.code;
+      if (result.code === 'society_refused' && result.until !== undefined) out.refusalUntil = result.until;
       // An advice whose worker's data failed (`Adapter call rule` › «data failed in advice»): whether the paying pet's food paid for it.
       if (result.code === 'data_failed') out.paid = result.paid === true;
       // The tab's own job lost the pet's own reply after the worker's answer: the turn «Try again» finishes. Only the
@@ -214,7 +215,7 @@ thoughtRoutes.get('/api/pets/:id/state', async (c) => {
         } else if (thought !== null && thought.kind === 'advice') {
           // The friend's answer to the advice, in the friend's voice: whose it is, whether a skill shaped it, and the
           // fee the paying pet's fullness fell by, in the rate it was made at (`price` yocto, `priceCents`).
-          const hire = await c.env.DB.prepare('SELECT fee_yocto, fee_usd_micros FROM hires WHERE answer_thought_id = ?').bind(thought.id).first<{ fee_yocto: string; fee_usd_micros: number }>();
+          const hire = await c.env.DB.prepare('SELECT fee_yocto, fee_usd_micros, status FROM hires WHERE answer_thought_id = ?').bind(thought.id).first<{ fee_yocto: string; fee_usd_micros: number; status: string }>();
           out.thought = {
             id: thought.id,
             kind: 'advice',
@@ -223,7 +224,9 @@ thoughtRoutes.get('/api/pets/:id/state', async (c) => {
             worker: { tokenId: thought.worker_id, name: thought.worker_name },
             skilled: thought.skilled === 1,
             ...(thought.data_labels === null ? {} : { dataLabels: JSON.parse(thought.data_labels) as string[] }),
-            ...(hire !== null ? { price: hire.fee_yocto, priceCents: Number((hire.fee_usd_micros / 10_000).toPrecision(2)) } : {}),
+            ...(hire?.status === 'dropped' ? { noHireFee: true, answerPrice: thought.price_yocto,
+              answerPriceCents: Number((thought.price_usd_micros / 10_000).toPrecision(2)) }
+              : hire !== null ? { price: hire.fee_yocto, priceCents: Number((hire.fee_usd_micros / 10_000).toPrecision(2)) } : {}),
           };
         } else if (thought !== null) {
           out.thought = {
@@ -251,10 +254,12 @@ thoughtRoutes.get('/api/pets/:id/conversation', async (c) => {
   // so the own reply (and the reply of a declined offer) shows no line of its own when its turn has a question to a
   // worker. `has_own` says the turn's own reply has words: the price under a hire goes under it, else under the worker's.
   const rows = await c.env.DB.prepare(
-    `SELECT t.id, t.created_at, t.origin_owner, COALESCE(t.origin_sent_at, t.created_at) AS order_at, t.kind, t.player_text, t.reply_text, t.cut, t.reasked, t.price_yocto, t.price_usd_micros, t.worker_id, t.worker_name, t.skilled, t.turn_id, t.form, t.sources, t.verdict, t.searches, t.data_missed, t.data_labels,
+    `SELECT t.id, t.created_at, t.origin_owner, COALESCE(t.origin_sent_at, t.created_at) AS order_at, t.kind, t.player_text, t.reply_text, t.cut, t.reasked, t.price_yocto, t.price_usd_micros, t.worker_id, t.worker_name, t.skilled, t.turn_id, t.form, t.sources, t.verdict, t.searches, t.data_missed, t.data_labels, t.hire_mode,
        EXISTS (SELECT 1 FROM thoughts q WHERE q.token_id = t.token_id AND q.turn_id = t.turn_id AND q.kind = 'hire_question') AS has_question,
        EXISTS (SELECT 1 FROM thoughts r WHERE r.token_id = t.token_id AND r.turn_id = t.turn_id AND r.kind IN ('reply', 'question') AND r.reply_text IS NOT NULL) AS has_own,
-       h.fee_yocto, h.fee_usd_micros, h.status AS hire_status, h.worker_name AS hire_worker
+       h.fee_yocto, h.fee_usd_micros, h.status AS hire_status, h.worker_name AS hire_worker, h.mode AS recorded_hire_mode,
+       (SELECT price_yocto FROM thoughts a WHERE a.id = h.answer_thought_id) AS answer_price_yocto,
+       (SELECT price_usd_micros FROM thoughts a WHERE a.id = h.answer_thought_id) AS answer_price_usd_micros
      FROM thoughts t LEFT JOIN hires h ON h.hirer_id = t.token_id AND (h.answer_thought_id = t.id OR (t.turn_id IS NOT NULL AND h.turn_id = t.turn_id))
      WHERE t.token_id = ? AND COALESCE(t.origin_sent_at, t.created_at) < ? AND (t.player_text IS NOT NULL OR t.reply_text IS NOT NULL) ORDER BY COALESCE(t.origin_sent_at, t.created_at) DESC, t.rowid DESC LIMIT ?`,
   )
@@ -281,12 +286,16 @@ thoughtRoutes.get('/api/pets/:id/conversation', async (c) => {
       searches: number | null;
       data_missed: string | null;
       data_labels: string | null;
+      hire_mode: string | null;
       has_question: number;
       has_own: number;
       fee_yocto: string | null;
       fee_usd_micros: number | null;
       hire_status: string | null;
       hire_worker: string | null;
+      recorded_hire_mode: string | null;
+      answer_price_yocto: string | null;
+      answer_price_usd_micros: number | null;
     }>();
   const more = rows.results.length > CONVERSATION_PAGE;
   const page = rows.results.slice(0, CONVERSATION_PAGE).reverse();
@@ -300,8 +309,11 @@ thoughtRoutes.get('/api/pets/:id/conversation', async (c) => {
       t.fee_yocto === null || t.fee_usd_micros === null
         ? {}
         : t.hire_status === 'dropped'
-          ? { hire: { worker: t.hire_worker ?? '', noFee: true } }
-          : { hire: { worker: t.hire_worker ?? '', price: t.fee_yocto, priceCents: Number((t.fee_usd_micros / 10_000).toPrecision(2)) } };
+          ? { hire: { worker: t.hire_worker ?? '', noFee: true,
+              answerPrice: t.answer_price_yocto, answerPriceCents: t.answer_price_usd_micros === null ? null
+                : Number((t.answer_price_usd_micros / 10_000).toPrecision(2)) } }
+          : { hire: { worker: t.hire_worker ?? '', price: t.fee_yocto, priceCents: Number((t.fee_usd_micros / 10_000).toPrecision(2)),
+              ...(t.recorded_hire_mode === 'auto' || t.recorded_hire_mode === 'manual' ? { mode: t.recorded_hire_mode } : {}) } };
     const worker = { tokenId: t.worker_id, name: t.worker_name };
     // The data sources a worker's answer read: the line «{worker} looked this up through {labels}…» is drawn from them.
     const dataLabels = t.data_labels === null ? {} : { dataLabels: JSON.parse(t.data_labels) as string[] };
@@ -330,17 +342,21 @@ thoughtRoutes.get('/api/pets/:id/conversation', async (c) => {
       // The line of a transition is the game's: a centred line, not the pet's voice (`Growth flow`).
       case 'growth':
         return [...player, { id: t.id, who: 'event', text: t.reply_text, at: t.order_at, ...tag }];
-      // The friend's pet's words, with its receipt at the worker's token id (`Receipt index data`). No price under it:
-      // a saved advice shows none, and a dropped record changes the food quietly (`Advice flow`, `Hire price rule`).
+      // The friend's pet's words, with its receipt at the worker's token id (`Receipt index data`).
+      // A rejected fee names the exact answer cost; a settled advice keeps its existing line.
       case 'advice':
-        return [...player, { id: t.id, who: 'worker', text: t.reply_text, at: t.order_at, worker, skilled: t.skilled === 1, ...dataLabels, ...tag }];
+        return [...player, { id: t.id, who: 'worker', text: t.reply_text, at: t.order_at, worker,
+          skilled: t.skilled === 1, ...dataLabels, ...(t.hire_status === 'dropped' ? hire() : {}), ...tag }];
       case 'hire_answer':
         return [...player, { id: t.id, who: 'worker', text: t.reply_text, at: t.order_at, worker, skilled: t.skilled === 1, ...dataLabels, ...(t.has_own === 1 ? {} : hire()), ...tag }];
       // What the pet wrote to the worker, its own thought (the client says «To {worker}: …»).
       case 'hire_question':
         return [...player, { id: t.id, who: 'pet', text: t.reply_text, at: t.order_at, cut: null, hireTo: t.worker_name ?? '', ...tag }];
       case 'hire_event':
-        return [{ id: t.id, who: 'event', code: HIRE_EVENT_CODES[t.reply_text] ?? 'hire_failed', at: t.order_at, worker, ...tag }];
+        return [{ id: t.id, who: 'event', code: HIRE_EVENT_CODES[t.reply_text.split('|')[0]!] ?? 'hire_failed',
+          ...(t.reply_text.startsWith('society_refused|') ? { refusalUntil: t.reply_text.split('|')[1] } : {}),
+          ...(t.hire_mode === 'auto' || t.hire_mode === 'manual' ? { hireMode: t.hire_mode } : {}),
+          at: t.order_at, worker, ...tag }];
       default:
         return [
           ...player,

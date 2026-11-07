@@ -60,6 +60,9 @@ diaryRoutes.get('/api/pets/:id/diary', async (c) => {
   await ensurePetRow(c.env, id, pet);
   const day = (await readDay(c.env, id, now))!;
   const { facts, entry, row } = day;
+  const socialLines = entry.kind === 'text' ? (await c.env.DB.prepare(
+    'SELECT line FROM society_diary_lines WHERE token_id = ? AND day = ? ORDER BY slot LIMIT 3',
+  ).bind(id, today).all<{ line: string }>()).results.map((item) => item.line) : [];
   const complete = row?.completed_at != null || isComplete(facts);
   const giftBoundary = await c.env.DB.prepare('SELECT last_gift_block_at FROM pets WHERE token_id = ?').bind(id).first<{ last_gift_block_at: number | null }>();
   const entryTime = entry.kind === 'text' ? await c.env.DB.prepare('SELECT created_at FROM thoughts WHERE id = ?').bind(entry.id).first<{ created_at: number }>() : null;
@@ -114,7 +117,9 @@ diaryRoutes.get('/api/pets/:id/diary', async (c) => {
     closedAt: new Date(today * DAY_MS).toISOString(),
     until: new Date((today + 1) * DAY_MS).toISOString(),
     // `work`: the hires recorded in the day before this entry's (`Work diary rule`); the client writes the line.
-    entry: entry.kind === 'text' ? { kind: 'text', id: entry.id, lines: entry.lines, question: entry.question, work: await workOfDay(c.env.DB, id, today - 1), ...(previousOwner ? { previousOwner: true } : {}) } : { kind: entry.kind },
+    entry: entry.kind === 'text' ? { kind: 'text', id: entry.id, lines: entry.lines,
+      ...(socialLines.length > 0 ? { socialLines } : {}), question: entry.question,
+      work: await workOfDay(c.env.DB, id, today - 1), ...(previousOwner ? { previousOwner: true } : {}) } : { kind: entry.kind },
     read: facts.read,
     exchange,
     watch: watch.results.map((item) => ({ target: item.target, change: item.change,

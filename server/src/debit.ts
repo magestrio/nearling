@@ -18,6 +18,7 @@ import { gasShareYocto, nearUsdRate, yoctoToUsdMicros } from './pricing';
 import { gasIsLow } from './servicePause';
 import { track } from './track';
 import { recordExperienceEvent } from './experience/events';
+import { settleSocietyPending } from './society/settlement';
 
 const SESSION_QUIET_MS = 10 * 60_000;
 export const MAX_THOUGHTS_PER_DEBIT = 12;
@@ -64,6 +65,7 @@ interface ThoughtRow {
   /** 1 when the answer read a data source (`pet_hired { adapter }`). */
   hire_adapter: number | null;
   hire_experience: number | null;
+  hire_discounted: number | null;
   hire_fee: string | null;
   /** Only a shown, successful owner errand can carry the chain marker. */
   completed_errand: number;
@@ -187,7 +189,7 @@ async function nextBatch(env: Env, sessionId: string): Promise<ThoughtRow[]> {
       `SELECT t.id, t.model, t.price_yocto, t.shared_job_hash AS job_hash, CASE WHEN t.kind IN ('advice', 'hire_answer') THEN t.worker_id END AS worker,
               t.completed_errand,
               (SELECT COUNT(*) FROM thought_calls c WHERE c.thought_id = t.id) AS calls,
-              h.id AS hire_id, h.kind AS hire_kind, h.mode AS hire_mode, h.skilled AS hire_skilled, h.fee_yocto AS hire_fee, (t.data_labels IS NOT NULL) AS hire_adapter, h.experience AS hire_experience
+              h.id AS hire_id, h.kind AS hire_kind, h.mode AS hire_mode, h.skilled AS hire_skilled, h.fee_yocto AS hire_fee, (t.data_labels IS NOT NULL) AS hire_adapter, h.experience AS hire_experience, h.society_discounted AS hire_discounted
        FROM thoughts t LEFT JOIN hires h ON h.answer_thought_id = t.id AND h.status = 'unbilled'
        WHERE t.session_id = ? AND t.status = 'unbilled' ORDER BY t.created_at, t.rowid LIMIT ?`,
     )
@@ -271,7 +273,17 @@ async function settle(env: Env, session: Pick<Session, 'id' | 'token_id'>, debit
       await recordExperienceEvent(env, 'experience_note_saved');
     }
   }
-  if (changed > 0 && status === 'billed') await afterRecord(env, hires);
+  if (changed > 0 && status === 'billed') {
+    const accepted = hires.filter((h) => h.hire_id !== null);
+    const recorded: ThoughtRow[] = [];
+    for (const hire of accepted) {
+      const row = await env.DB.prepare("SELECT 1 AS found FROM hires WHERE id = ? AND status = 'recorded'")
+        .bind(hire.hire_id).first();
+      if (row !== null) recorded.push(hire);
+    }
+    await afterRecord(env, recorded);
+    await settleSocietyPending(env).catch(() => console.log('society_settle_failed'));
+  }
   return changed;
 }
 
@@ -280,8 +292,9 @@ async function settle(env: Env, session: Pick<Session, 'id' | 'token_id'>, debit
  * with the next poll otherwise. */
 async function afterRecord(env: Env, hires: ThoughtRow[]): Promise<void> {
   for (const hire of hires) {
-    track('pet_hired', { by: hire.hire_kind ?? 'player', ...(hire.hire_kind === 'pet' && hire.hire_mode !== null ? { mode: hire.hire_mode } : {}), skill: hire.hire_skilled === 1, adapter: hire.hire_adapter === 1, experience: hire.hire_experience === 1 });
-    await recordExperienceEvent(env, 'pet_hired', { experience: hire.hire_experience === 1 });
+    track('pet_hired', { by: hire.hire_kind ?? 'player', ...(hire.hire_kind === 'pet' && hire.hire_mode !== null ? { mode: hire.hire_mode } : {}), skill: hire.hire_skilled === 1, adapter: hire.hire_adapter === 1, experience: hire.hire_experience === 1, discounted: hire.hire_discounted === 1 });
+    await recordExperienceEvent(env, 'pet_hired', { experience: hire.hire_experience === 1,
+      discounted: hire.hire_discounted === 1, id: hire.hire_id ?? undefined });
   }
   for (const worker of new Set(hires.map((t) => t.worker))) {
     if (worker === null) continue;

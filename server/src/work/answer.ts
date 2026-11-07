@@ -21,6 +21,8 @@ import { DATA_MAX_TOKENS, loadOffer, numbered, runDataStep, sourceLabelsOf, type
 import { callsUsd12, CHAT_TIMEOUT_MS, countEmpty, FREE_EMPTY_ANSWERS, hex, projectPays, randomId, refusalOf, yoctoMicros, type Answer, type SignedCall } from '../spend';
 import { track } from '../track';
 import { approvedWorkNotes, workNoteData } from '../experience/use';
+import { pairInstruction, parseReaction } from '../society/reaction';
+import type { Stance, Reaction } from '../society/relations';
 import { quotesInstruction } from './leak';
 import { answered, release } from './quote';
 import { readSkill, SkillUnreadable } from './skill';
@@ -45,6 +47,7 @@ export interface WorkerAsk {
   prior?: Exchange | null;
   /** Whose job calls the worker: the events of its data say so (`adapter_called`, `skill_code_ran`). */
   job: 'hire' | 'advice';
+  pair?: { payerName: string; stance: Stance };
 }
 
 /** What the answer call was told beside the question: the data call that preceded it, and the data sources it read. */
@@ -57,7 +60,7 @@ export interface WithData {
 
 export type WorkerOutcome =
   // Signed, a line, the filter passed: the caller shows it and the fee is owed. `labels`: the data sources it read.
-  | ({ kind: 'answer'; reply: string; call: SignedCall; price: bigint; skilled: boolean; labels: string[] } & WithData)
+  | ({ kind: 'answer'; reply: string; call: SignedCall; price: bigint; skilled: boolean; labels: string[]; reaction: Reaction | null } & WithData)
   // Signed and a line, but the paying pet's memory was cleared while the worker answered: the words are not kept,
   // no fee is owed, the worker earns nothing and its place is back; the paying pet pays the call by usage.
   | ({ kind: 'cleared'; call: SignedCall; price: bigint; skilled: boolean } & WithData)
@@ -143,7 +146,7 @@ export async function workerCall(env: Env, ask: WorkerAsk): Promise<WorkerOutcom
     ask.question + noteData,
     layers,
     skill?.instruction ?? null,
-    reads.length === 0 ? [] : [RETELL_LINE, MARKET_LINE],
+    [...(reads.length === 0 ? [] : [RETELL_LINE, MARKET_LINE]), ...(ask.pair === undefined ? [] : [pairInstruction(ask.pair.payerName, worker.pet.name, ask.pair.stance)])],
     ask.prior ?? null,
     numbered(reads),
   );
@@ -173,7 +176,8 @@ export async function workerCall(env: Env, ask: WorkerAsk): Promise<WorkerOutcom
   }
   const call: SignedCall = { answer, signed };
 
-  const reply = replyOf(answer.content).trim();
+  const parsed = parseReaction(replyOf(answer.content));
+  const reply = parsed.reply;
   const stopped = (skill !== null && quotesInstruction(skill.instruction, reply))
     || notes.some((note) => quotesInstruction(note, reply));
   const empty = stopped || !hasVisible(reply);
@@ -213,7 +217,7 @@ export async function workerCall(env: Env, ask: WorkerAsk): Promise<WorkerOutcom
   await spendEnergy(env.DB, worker.id, 'work', Date.now());
   await env.DB.batch([...noteMood(env.DB, worker.id, utcDay(Date.now())), ...noteDeed(env.DB, worker.id, 'work')]);
   await answered(env, worker.id, ask.day);
-  return { kind: 'answer', reply, call, data, price, skilled, labels,
+  return { kind: 'answer', reply, reaction: parsed.reaction, call, data, price, skilled, labels,
     ...(notes.length > 0 ? { experience: true } : {}) };
 }
 
@@ -248,6 +252,7 @@ export interface StoredAnswer {
   worker: { id: string; name: string };
   outcome: Exclude<WorkerOutcome, { kind: 'failed' } | { kind: 'data_failed' }>;
   fee: bigint;
+  discounted?: boolean;
   hire: { kind: 'player' | 'pet'; mode: 'auto' | 'manual' | null };
   turnId: string | null;
   /** The payer's `memory_epoch` the job was claimed at. */
@@ -323,7 +328,7 @@ export function answerStatements(env: Env, a: StoredAnswer): { statements: D1Pre
     hireAt = statements.length;
     statements.push(
       env.DB.prepare(
-        "INSERT INTO hires (id, turn_id, hirer_id, worker_id, worker_name, kind, mode, skilled, fee_yocto, fee_usd_micros, answer_thought_id, session_id, status, created_at, experience) SELECT ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, 'unbilled', ?13, ?15 WHERE COALESCE((SELECT memory_epoch FROM pets WHERE token_id = ?3), 0) = ?14 RETURNING id",
+        "INSERT INTO hires (id, turn_id, hirer_id, worker_id, worker_name, kind, mode, skilled, fee_yocto, fee_usd_micros, answer_thought_id, session_id, status, created_at, experience, society_reaction, society_payer_epoch, society_worker_epoch, society_discounted) SELECT ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, 'unbilled', ?13, ?15, ?16, ?14, COALESCE((SELECT memory_epoch FROM pets WHERE token_id = ?4), 0), ?17 WHERE COALESCE((SELECT memory_epoch FROM pets WHERE token_id = ?3), 0) = ?14 RETURNING id",
       ).bind(
         randomId(),
         a.turnId,
@@ -340,6 +345,8 @@ export function answerStatements(env: Env, a: StoredAnswer): { statements: D1Pre
         a.stored,
         a.epoch,
         outcome.experience ? 1 : 0,
+        outcome.reaction ?? null,
+        a.discounted ? 1 : 0,
       ),
     );
   }

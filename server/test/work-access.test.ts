@@ -84,7 +84,8 @@ describe('Conversation of a hire', () => {
   });
 
   // spec: add-pet-work › Advice flow › ответ
-  it('keeps the advice in the conversation of the paying pet: the question as the player\'s line, the answer as the friend\'s pet\'s, with no price under it', async () => {
+  // spec: add-pet-society › Society hire price contract › post-answer hire rejection
+  it('keeps paid advice without a fee label and shows the exact answer cost after a rejected hire', async () => {
     addPets(h);
     const tk = await payerToken();
     await advise(tk);
@@ -92,10 +93,11 @@ describe('Conversation of a hire', () => {
     expect(out.map((l) => l.who)).toEqual(['player', 'worker']);
     expect(out[0]).toMatchObject({ text: 'What should I plant?' });
     expect(out[1]).toMatchObject({ worker: { tokenId: WORKER, name: 'Biscuit' }, skilled: false });
-    // `Hire price rule`: a saved advice shows no price, and a dropped record changes the food quietly
+    // A settled advice keeps its old line; a post-answer rejection gives the exact usage price.
     expect(out[1]).not.toHaveProperty('hire');
     await env.DB.prepare("UPDATE hires SET status = 'dropped', dropped_code = 'cap'").run();
-    expect((await lines(tk))[1]).not.toHaveProperty('hire');
+    const cost = await env.DB.prepare("SELECT price_yocto FROM thoughts WHERE kind = 'advice'").first<{ price_yocto: string }>();
+    expect((await lines(tk))[1]).toMatchObject({ hire: { noFee: true, answerPrice: cost!.price_yocto } });
   });
 });
 

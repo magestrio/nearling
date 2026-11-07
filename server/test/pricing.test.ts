@@ -122,12 +122,15 @@ describe('the project\'s own costs in dollars', () => {
 });
 
 describe('the price of a worker', () => {
+  // spec: add-pet-society › Society hire price contract › discounted hire accepted
   // spec: add-pet-work › Hire price rule › price climbs
-  it('holds the band of the contract: the floor, a step of 0.0004 NEAR an answer, the highest at the tenth, the Auto limit at the third', () => {
-    expect(HIRE_FEE_MIN_YOCTO).toBe(BigInt(env.HIRE_FEE_MIN));
+  it('keeps the undiscounted base above the contract floor, with a step of 0.0004 NEAR and the Auto limit at the third', () => {
+    expect(BigInt(env.HIRE_FEE_MIN)).toBe(740_000_000_000_000_000_000n);
+    expect(HIRE_FEE_MIN_YOCTO).toBe(830_000_000_000_000_000_000n);
+    expect(HIRE_FEE_MIN_YOCTO * 9n / 10n).toBeGreaterThanOrEqual(BigInt(env.HIRE_FEE_MIN));
     expect(HIRE_FEE_MAX_YOCTO).toBe(BigInt(env.HIRE_FEE_MAX));
     expect(MAX_JOBS_PER_DAY).toBe(Number(env.MAX_JOBS_PER_DAY));
-    // without a skill: the floor at every count; with one: floor + a step each, the tenth hire (count 9) at the highest
+    // Without a skill: the base at every count; with one: base + a step each, the tenth hire (count 9) at the highest.
     for (let count = 0; count < MAX_JOBS_PER_DAY; count += 1) expect(workerPrice(false, count)).toBe(HIRE_FEE_MIN_YOCTO);
     expect(workerPrice(true, 0)).toBe(HIRE_FEE_MIN_YOCTO);
     expect(workerPrice(true, 1)).toBe(HIRE_FEE_MIN_YOCTO + HIRE_FEE_STEP_YOCTO);

@@ -99,6 +99,7 @@ const STATE: Record<keyof PetState, 'always' | 'sometimes'> = {
   // with `data_failed` of an advice: whether the paying pet's food paid for the data call
   paid: 'sometimes',
   price: 'sometimes',
+  refusalUntil: 'sometimes',
   friend: 'sometimes',
 };
 

@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react';
-import { Button, Composer, Conversation, Dock, Inert, Live, Message, Note, Only, Stack, Text, Thinking, type Accent } from '../ds';
+import { Button, Composer, Conversation, Inert, Live, Message, Note, Only, Stack, Text, Thinking, type Accent } from '../ds';
 import { useFeedRequest } from '../feeding/feedRequest';
 import { resetTime } from '../lib/time';
 import { formatCents } from '../lib/price';
@@ -16,15 +16,18 @@ import {
   adviceEmptyLine,
   adviceLabel,
   adviceSourcesLine,
+  adviceRefusedLine,
   advicePlaceholder,
   cantPayLine,
   couldntHelpLine,
   feedMine,
   lookedUpLine,
   myPetTiredLine,
+  noFeeAnswerLine,
   paysLine,
   priceDropsLine,
   priceRoseLine,
+  pairAdviceLine,
   savedLine,
   SKILLED_LINE,
   skillShapesLine,
@@ -32,6 +35,8 @@ import {
   workerRestingLine,
 } from './lines';
 import { useAdvice, type Entry } from './useAdvice';
+import { AdviceDock } from './AdviceDock';
+import './advice.css';
 
 // The guest's advice column (add-pet-work › Advice flow), drawn from design/bundle/screens/pet.js › guestAdvice and work.js: the
 // log where the owner's conversation stands, the field with «Ask {name} · {price}» in the Composer's end, and under it who pays.
@@ -60,6 +65,7 @@ function EntryMessage({ entry, worker, myPet }: { entry: Entry; worker: { tokenI
           fresh={entry.fresh}
           verify={{ href: `/pet/${worker.tokenId}/verify/${entry.thoughtId}`, label: 'Check this thought' }}
           meta={meta}
+          foot={entry.noHireFee && entry.answerPriceCents != null ? noFeeAnswerLine(worker.name, entry.answerPriceCents) : undefined}
         >
           {entry.text}
         </Message>
@@ -114,6 +120,8 @@ function Column({ tokenId, name, asleep, advice }: SlotProps & { advice: NonNull
         return workerAsleepLine(name);
       case 'worker_resting':
         return workerRestingLine(name, until(read?.resting?.until));
+      case 'relationship':
+        return adviceRefusedLine(name, myPet, until(read?.refusalUntil));
       case 'cant_pay':
         return [cantPayLine(name, read?.price.cents ?? 0, myPet), read?.dropsAt ? priceDropsLine(name, until(read.dropsAt)) : null].filter(Boolean).join(' ');
       case 'tired':
@@ -164,7 +172,7 @@ function Column({ tokenId, name, asleep, advice }: SlotProps & { advice: NonNull
     document.addEventListener('focusin', onFocus);
     return () => document.removeEventListener('focusin', onFocus);
   }, []);
-  const buttonGone = !signedOut && (blocker === 'worker_resting' || blocker === 'tired');
+  const buttonGone = !signedOut && (blocker === 'worker_resting' || blocker === 'tired' || blocker === 'relationship');
   useEffect(() => {
     if (!buttonGone || !askHadFocus.current) return;
     askHadFocus.current = false;
@@ -195,7 +203,7 @@ function Column({ tokenId, name, asleep, advice }: SlotProps & { advice: NonNull
       off={blocker !== null || read === null || a.draft.trim() === ''}
       onClick={() => void a.ask(a.draft)}
     >
-      {adviceButton(name)}
+      {read?.discounted ? 'Ask' : adviceButton(name)}
     </Button>
   );
 
@@ -225,7 +233,7 @@ function Column({ tokenId, name, asleep, advice }: SlotProps & { advice: NonNull
             </Thinking>
           ) : null}
         </Conversation>
-        <Dock>
+        <AdviceDock>
           <Stack gap={3}>
             <Composer
               placeholder={advicePlaceholder(name)}
@@ -233,15 +241,15 @@ function Column({ tokenId, name, asleep, advice }: SlotProps & { advice: NonNull
               onChange={a.setDraft}
               onSend={(text) => void a.ask(text)}
               disabled={Boolean(signedOut)}
-              note={signedOut ? <Note>{lead?.text}</Note> : line ? <Note>{line}</Note> : null}
-              end={end}
+              note={signedOut ? <Note>{lead?.text}</Note> : line ? <Note>{line}</Note> : read?.discounted ? <Note>{pairAdviceLine(myPet, name, read.price.cents)}</Note> : null}
+              end={blocker === 'relationship' ? <Button size="compact" variant="secondary" href="/hire">Ask another pet</Button> : end}
             />
             {signedOut ? <SignInLines lines={moreLines} /> : null}
             {asked ? <Only on="desktop">{pays}</Only> : pays}
             <Live>{signedOut ? '' : (line ?? '')}</Live>
             <Live alert>{signedOut ? signInLines.map((l) => l.text).join(' ') : ''}</Live>
           </Stack>
-        </Dock>
+        </AdviceDock>
       </Inert>
     </>
   );

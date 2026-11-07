@@ -10,9 +10,11 @@ import { foodState } from '../pet/view';
 import type { ThoughtJob } from '../prompt';
 import { openSession, randomId, type JobResult, type Turn } from '../spend';
 import { track } from '../track';
+import { relation } from '../society/relations';
+import { recordSocietyEvent } from '../society/events';
 import { answerStatements, dataOnly, workerCall, type WorkerOutcome } from './answer';
 import { checkWorker, type Candidate } from './candidates';
-import { hold, priceOf } from './quote';
+import { hold, pairPrice, release, type Quote } from './quote';
 
 export interface HireTurn {
   tokenId: string;
@@ -59,27 +61,32 @@ export async function continueHire(env: Env, t: HireTurn): Promise<JobResult> {
   const answerOffer = async () => {
     if (t.mode === 'manual') await closeOffer(env.DB, t.tokenId, true);
   };
-  const priceRose = async (price: bigint): Promise<JobResult> => {
-    await env.DB.prepare('UPDATE hire_offers SET price_yocto = ? WHERE token_id = ?').bind(price.toString(), t.tokenId).run();
+  const priceRose = async (quote: Quote): Promise<JobResult> => {
+    await env.DB.prepare('UPDATE hire_offers SET price_yocto = ?, discounted = ? WHERE token_id = ?').bind(quote.yocto.toString(), quote.discounted ? 1 : 0, t.tokenId).run();
     console.log('hire_price_rose');
-    return { code: 'price_rose', price: price.toString() };
+    return { code: 'price_rose', price: quote.yocto.toString() };
   };
 
   // No hire after all: an event line of the turn and the pet's own reply, an ordinary thought from its food.
-  const failed = async (code: 'failed' | 'empty' | 'data_failed' | 'data_failed_paid'): Promise<JobResult> => {
+  const failed = async (code: 'failed' | 'empty' | 'data_failed' | 'data_failed_paid' | 'society_refused', until?: number): Promise<JobResult> => {
+    if (code === 'society_refused') {
+      track('pet_hire_refused', { by: 'pet', reason: 'relationship' });
+      await recordSocietyEvent(env, 'pet_hire_refused', { by: 'pet', reason: 'relationship' });
+    }
+    if (code === 'society_refused' && t.mode === 'manual') await answerOffer();
     const eventId = randomId();
     await env.DB.prepare(
-      "INSERT INTO thoughts (id, token_id, created_at, kind, player_text, reply_text, model, price_yocto, price_usd_micros, payer, status, worker_id, worker_name, turn_id) VALUES (?, ?, ?, 'hire_event', NULL, ?, '', '0', 0, 'project', 'project', ?, ?, ?)",
+      "INSERT INTO thoughts (id, token_id, created_at, kind, player_text, reply_text, model, price_yocto, price_usd_micros, payer, status, worker_id, worker_name, turn_id, hire_mode) VALUES (?, ?, ?, 'hire_event', NULL, ?, '', '0', 0, 'project', 'project', ?, ?, ?, ?)",
     )
-      .bind(eventId, t.tokenId, Date.now(), code, t.candidate.tokenId, t.candidate.name, t.turnId)
+      .bind(eventId, t.tokenId, Date.now(), code === 'society_refused' && until !== undefined ? `${code}|${new Date(until).toISOString()}` : code, t.candidate.tokenId, t.candidate.name, t.turnId, t.mode)
       .run();
     const own = await t.own({ id: t.turnId, recall: 1 });
     if (t.mode === 'manual') {
-      if ('thoughtId' in own || own.code === 'memory_cleared') await answerOffer();
+      if (code !== 'society_refused' && ('thoughtId' in own || own.code === 'memory_cleared')) await answerOffer();
       // no answer at all: the turn reads as before the tap, the offer's buttons back, the event line not told
-      else await env.DB.prepare("DELETE FROM thoughts WHERE id = ? AND kind = 'hire_event'").bind(eventId).run();
+      else if (code !== 'society_refused') await env.DB.prepare("DELETE FROM thoughts WHERE id = ? AND kind = 'hire_event'").bind(eventId).run();
     }
-    return withEvents(own, t.events);
+    return withEvents(own, [...t.events, ...(until == null ? [] : [`society_refused:${new Date(until).toISOString()}`])]);
   };
 
   const now = Date.now();
@@ -100,23 +107,35 @@ export async function continueHire(env: Env, t: HireTurn): Promise<JobResult> {
   if (!check.ok || worker === null) {
     // A price that rose past the offer's can be why the pet's food no longer covers it: that is the price's news.
     if (t.mode === 'manual' && !check.ok && ['no_given_food', 'not_full', 'over_cap'].includes(check.why)) {
-      const quote = await priceOf(env, t.candidate.tokenId, utcDay(now));
-      if (quote.open && quote.yocto > t.ceiling) return priceRose(quote.yocto);
+      const quote = await pairPrice(env, t.tokenId, t.candidate.tokenId, utcDay(now), now);
+      if (quote.open && quote.yocto > t.ceiling) return priceRose(quote);
     }
+    if (!check.ok && check.why === 'society_refused') return failed('society_refused', check.until);
     console.log(`hire_failed:${check.ok ? 'gone' : check.why}`);
     return failed('failed');
   }
 
   const day = utcDay(now);
-  const held = await hold(env, t.candidate.tokenId, day, t.ceiling, now);
+  const held = await hold(env, t.candidate.tokenId, day, t.ceiling, now, t.tokenId);
   if (!held.ok) {
     // A tap on an offer whose price rose spends nothing and names the new price (`price rose on an offer`).
-    if (t.mode === 'manual' && held.open) return priceRose(held.price);
+    if (t.mode === 'manual' && held.open) return priceRose(await pairPrice(env, t.tokenId, t.candidate.tokenId, day, Date.now()));
     console.log('hire_failed:price_rose');
     return failed('failed');
   }
 
-  const out: WorkerOutcome = await workerCall(env, { worker: { id: t.candidate.tokenId, pet: worker }, question: t.question, fee: held.fee, payerId: t.tokenId, day, payerEpoch: t.epoch, job: 'hire' });
+  const fresh = await pairPrice(env, t.tokenId, t.candidate.tokenId, day, Date.now());
+  if (fresh.refusalUntil != null) {
+    await release(env, t.candidate.tokenId, day);
+    return failed('society_refused', fresh.refusalUntil);
+  }
+  if (fresh.discounted !== held.discounted) {
+    await release(env, t.candidate.tokenId, day);
+    const changed = await pairPrice(env, t.tokenId, t.candidate.tokenId, day, Date.now());
+    return t.mode === 'manual' ? priceRose(changed) : failed('failed');
+  }
+
+  const out: WorkerOutcome = await workerCall(env, { worker: { id: t.candidate.tokenId, pet: worker }, question: t.question, fee: held.fee, payerId: t.tokenId, day, payerEpoch: t.epoch, job: 'hire', pair: { payerName: hirer.name, stance: (await relation(env.DB, t.tokenId, t.candidate.tokenId))?.stance ?? 'neutral' } });
   if (out.kind === 'failed') {
     console.log(`hire_failed:${out.code}`);
     return out.code === 'paused' ? { code: 'paused', events: t.events } : failed('failed');
@@ -139,6 +158,7 @@ export async function continueHire(env: Env, t: HireTurn): Promise<JobResult> {
         worker: { id: t.candidate.tokenId, name: worker.name },
         outcome: dataOnly(out),
         fee: held.fee,
+        discounted: held.discounted,
         hire: { kind: 'pet', mode: t.mode },
         turnId: t.turnId,
         epoch: t.epoch,
@@ -160,6 +180,7 @@ export async function continueHire(env: Env, t: HireTurn): Promise<JobResult> {
     worker: { id: t.candidate.tokenId, name: worker.name },
     outcome: out,
     fee: held.fee,
+    discounted: held.discounted,
     hire: { kind: 'pet', mode: t.mode },
     turnId: t.turnId,
     epoch: t.epoch,

@@ -18,6 +18,7 @@ import {
   type ErrandForm,
   type ErrandQuote,
   type ExperienceNotes,
+  type RelationshipSummary,
   type WorkRecord,
   type FeedOutcome,
   type FeedSheetData,
@@ -318,6 +319,13 @@ export const fakeWorkerApi: WorkerApi = {
     recordCall('worker:pet');
     return viewOf(token, tokenId);
   },
+  async relationships(token, tokenId) {
+    needSession(token);
+    if (!state().owned?.includes(tokenId)) throw new WorkerError(403, 'not_owner');
+    const configured = state().relationships;
+    const fallback: RelationshipSummary = { tokenId, name: petsOf()[tokenId]?.name ?? 'Pixel', relationships: [] };
+    return answer('relationships', configured, fallback, state().relationshipsDelayMs);
+  },
   cardLines: async (token, tokenId) => {
     needSession(token);
     const pet = await viewOf(token, tokenId);
@@ -356,6 +364,9 @@ export const fakeWorkerApi: WorkerApi = {
   experienceRecordOpened: (ids) => {
     recordCall(`worker:experienceRecordOpened:${Object.keys(ids).sort().join(',')}`);
     return Promise.resolve();
+  },
+  societyDiarySeen: async (_token, _tokenId, ids) => {
+    recordCall(`worker:societyDiarySeen:${Object.keys(ids).sort().join(',')}`);
   },
 
   async verificationIndex(tokenId) {

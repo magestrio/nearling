@@ -33,6 +33,7 @@ import { track } from './track';
 import { findCandidates, type Candidate } from './work/candidates';
 import { continueHire } from './work/hire';
 import { hireModeOf, type HireMode } from './work/mode';
+import { composeSocial, pendingSocial, socialLineStatements, type SocialFact } from './society/diary';
 
 export type RefusalCode =
   | 'ai_unavailable'
@@ -49,6 +50,7 @@ export type RefusalCode =
   | 'short'
   | 'worker_asleep'
   | 'worker_resting'
+  | 'society_refused'
   // the paying pet's memory was cleared while the answer was on its way: its words are not kept (`Memory deletion data`)
   | 'memory_cleared'
   // a pet's own hire: the worker answered and its fee stands, the pet's own reply did not come (`Pet hire flow` › «свой ответ не пришёл»)
@@ -68,7 +70,7 @@ export type JobResult =
   // `turn`: the turn of a hire whose own reply was lost, for the page's «Try again» (`own_lost`)
   // `price`: what an errand whose report was not kept still cost (`Errand flow` › «memory cleared on the way»)
   // `paid`: for `data_failed`, whether the paying pet paid the data call (past its three failed calls of the day)
-  | { code: RefusalCode; events?: string[]; turn?: string; price?: string; paid?: boolean }
+  | { code: RefusalCode; events?: string[]; turn?: string; price?: string; paid?: boolean; until?: string }
   // the worker's price is above the one shown: nothing held or spent, the price now (`Hire quote data`)
   | { code: 'price_rose'; price: string }
   | { thoughtId: string; cut: 'fuse' | 'food' | 'cap' | null; price: string; reasked: boolean; events: string[] };
@@ -223,6 +225,7 @@ export async function run(env: Env, tokenId: string, job: ThoughtJob, epoch?: nu
   // call is the ordinary one, byte for byte. The mode is the one the turn began with: a switch is for the next turn.
   let candidates: Candidate[] = [];
   let hireMode: HireMode = 'auto';
+  const social = job.kind === 'diary' ? await pendingSocial(env, tokenId, job.day) : [];
   if (opts.turn === undefined && job.kind === 'reply' && job.mode === 'chat') {
     hireMode = await hireModeOf(env.DB, tokenId);
     candidates = await findCandidates(env, { tokenId, pet, food: fs }, hireMode, now);
@@ -254,7 +257,7 @@ export async function run(env: Env, tokenId: string, job: ThoughtJob, epoch?: nu
   const reserve = ceilingPrice(env, bound, plan.ceiling) + reaskMin;
   await env.DB.prepare('INSERT OR REPLACE INTO pet_spend (token_id, reserve_yocto, job_id) VALUES (?, ?, ?)').bind(tokenId, reserve.toString(), null).run();
   try {
-    return await think(env, tokenId, pet, job, fs, { messages, bound, plan, deep, reserve, epoch: heldEpoch, candidates, hireMode, opts });
+    return await think(env, tokenId, pet, job, fs, { messages, bound, plan, deep, reserve, epoch: heldEpoch, candidates, hireMode, opts, social });
   } finally {
     await env.DB.prepare('DELETE FROM pet_spend WHERE token_id = ?').bind(tokenId).run();
   }
@@ -262,6 +265,7 @@ export async function run(env: Env, tokenId: string, job: ThoughtJob, epoch?: nu
 
 interface Ctx {
   messages: Message[];
+  social: SocialFact[];
   bound: number;
   plan: Plan;
   deep: boolean;
@@ -323,10 +327,14 @@ async function think(env: Env, tokenId: string, pet: PetRecord, job: ThoughtJob,
   }
 
   const now = Date.now();
+  const socialResult = job.kind === 'diary'
+    ? composeSocial(lastReply, ctx.social)
+    : { reply: lastReply, lines: [] };
+  if (job.kind === 'diary') lastReply = socialResult.reply;
   // The pet chose to ask one of the pets it was offered: this call is the decision thought of a hire, not a reply.
   const ask = ctx.candidates.length > 0 && job.kind === 'reply' ? parseAsk(lastReply, ctx.candidates.length) : null;
   const asked = ask === null ? null : ctx.candidates[ask.n - 1]!;
-  const empty = ask === null && !hasVisible(lastReply);
+  const empty = ask === null && !hasVisible(lastReply) && !(job.kind === 'diary' && socialResult.lines.length > 0);
   if (empty) {
     const n = await countEmpty(env, tokenId, utcDay(now));
     if (n <= FREE_EMPTY_ANSWERS) {
@@ -419,6 +427,7 @@ async function think(env: Env, tokenId: string, pet: PetRecord, job: ThoughtJob,
         answer.finishReason === 'length' ? 1 : 0,
       ),
     ),
+    ...(job.kind === 'diary' ? socialLineStatements(env.DB, tokenId, job.day, ctx.epoch, socialResult.lines, ctx.social) : []),
     // The owner may have cleared the memory while the model was answering: the words go, the receipt stays.
     ...eraseIfCleared(env.DB, tokenId, thoughtId, ctx.epoch, now),
     // Manual: the choice is an offer, one per pet, with the price now (not held) — unless a clear landed meanwhile
@@ -426,8 +435,8 @@ async function think(env: Env, tokenId: string, pet: PetRecord, job: ThoughtJob,
     ...(ask !== null && asked !== null && turnId !== null && ctx.hireMode === 'manual'
       ? [
           env.DB.prepare(
-            'INSERT OR REPLACE INTO hire_offers (token_id, turn_id, worker_id, worker_name, question, price_yocto, created_at) SELECT ?1, ?2, ?3, ?4, ?5, ?6, ?7 WHERE COALESCE((SELECT memory_epoch FROM pets WHERE token_id = ?1), 0) = ?8',
-          ).bind(tokenId, turnId, asked.tokenId, asked.name, ask.question, asked.price.toString(), now, ctx.epoch),
+            'INSERT OR REPLACE INTO hire_offers (token_id, turn_id, worker_id, worker_name, question, price_yocto, created_at, discounted) SELECT ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?9 WHERE COALESCE((SELECT memory_epoch FROM pets WHERE token_id = ?1), 0) = ?8',
+          ).bind(tokenId, turnId, asked.tokenId, asked.name, ask.question, asked.price.toString(), now, ctx.epoch, asked.discounted ? 1 : 0),
         ]
       : []),
     // The question is answered in the thought's own batch; a thought that did not come marks nothing.

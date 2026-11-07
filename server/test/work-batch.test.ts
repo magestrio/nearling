@@ -234,7 +234,7 @@ describe('Hire food data', () => {
     expect(record).toMatchObject({ worker_id: WORKER, hirer_id: PAYER, hirer_name: 'Pixel', fee_yocto: FEE.toString(), answer_yocto: price.toString(), kind: 'player', day: chainDay });
     expect(record.earned_usd_micros).toBeGreaterThan(0);
     expect(record.hire_id).toBe((await rows('SELECT id FROM hires'))[0].id);
-    expect(h.events().filter((e) => e.name === 'pet_hired')).toEqual([{ name: 'pet_hired', props: { by: 'player', skill: false, adapter: false, experience: false } }]);
+    expect(h.events().filter((e) => e.name === 'pet_hired')).toEqual([{ name: 'pet_hired', props: { by: 'player', skill: false, adapter: false, experience: false, discounted: false } }]);
     // the fee is out of the hirer's food once: the fullness did not move when the batch landed
     expect(await unbilledYocto(env.DB, PAYER)).toBe(0n);
     expect(await level(tk)).toBeCloseTo(before, 9);
@@ -256,7 +256,7 @@ describe('Hire food data', () => {
     const [hire] = await rows('SELECT * FROM hires');
     expect(hire).toMatchObject({ kind: 'pet', mode: 'auto', status: 'recorded' });
     expect((await rows('SELECT kind, hirer_name FROM work_records'))).toEqual([{ kind: 'pet', hirer_name: 'Pixel' }]);
-    expect(h.events().filter((e) => e.name === 'pet_hired')).toEqual([{ name: 'pet_hired', props: { by: 'pet', mode: 'auto', skill: false, adapter: false, experience: false } }]);
+    expect(h.events().filter((e) => e.name === 'pet_hired')).toEqual([{ name: 'pet_hired', props: { by: 'pet', mode: 'auto', skill: false, adapter: false, experience: false, discounted: false } }]);
     // the pair is written in the network, and the worker's day has one more job
     expect(fake(PAYER).work_known).toEqual([WORKER]);
     expect(fake(WORKER).jobs_today).toBe(1);
@@ -298,7 +298,8 @@ describe('Hire food data', () => {
 
 describe('Pet hire flow', () => {
   // spec: add-pet-work › Pet hire flow › найм не записан в сети
-  it('tells the page the hire was not recorded: `hiresSeen` moves, an advice\'s line says nothing of a fee, the hirer\'s fullness is by the answer\'s price', async () => {
+  // spec: add-pet-society › Society hire price contract › post-answer hire rejection
+  it('tells the page the hire was not recorded: `hiresSeen` moves, an advice names no hire fee and its exact answer cost', async () => {
     const tk = await advised();
     const seen = async () => (await api(`/api/pets/${PAYER}/state`, { token: tk })).body.hiresSeen;
     expect(await seen()).toBe(0);
@@ -307,8 +308,8 @@ describe('Pet hire flow', () => {
     await tick(env, later());
     expect(await seen()).toBe(1);
     const lines = (await api(`/api/pets/${PAYER}/conversation`, { token: tk })).body.lines as any[];
-    // an advice's line carries no price and no «no fee» (`Advice flow`: the food changes quietly)
-    expect(lines.some((l) => l.hire !== undefined)).toBe(false);
+    const expected = (await rows('SELECT price_yocto FROM thoughts'))[0].price_yocto;
+    expect(lines.find((line) => line.who === 'worker')).toMatchObject({ hire: { noFee: true, answerPrice: expected } });
     // lower by the price of the answer, which is far less than the fee
     const price = BigInt((await rows('SELECT price_yocto FROM thoughts'))[0].price_yocto);
     expect(await level(tk)).toBeCloseTo(Number(S - price) / Number(S), 6);

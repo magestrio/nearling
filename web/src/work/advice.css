@@ -1,0 +1,20 @@
+/* design/bundle/screens/pet.js › guestAdvice: the phone's DS Dock stays at the bottom while the pet and advice scroll above it. */
+.advice-phone-dock-space { display: none; }
+@media not all and (min-width: 768px) {
+  .advice-phone-dock-space { display: block; flex: none; }
+  /* the frame's phone page is not filled: the first card and the lines stand under the pet, the free room is below them */
+  .ds-convo-frame:has(~ .advice-phone-dock-space) .ds-convo__list { justify-content: flex-start; }
+  .advice-dock-wrap {
+    box-sizing: border-box;
+    position: fixed;
+    inset-inline: var(--space-0);
+    inset-block-end: var(--space-0);
+    z-index: 2;
+    max-block-size: 100dvh;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    scroll-padding-block: var(--space-3);
+    padding-inline: var(--space-gutter-phone);
+    background: var(--color-bg-canvas);
+  }
+}

@@ -63,12 +63,15 @@ describe('Worker rule', () => {
   // spec: add-pet-work › Worker rule › наниматель спрашивает о владельце
   it('answers a hirer in its own character and tells it nothing of its work, its owner or its feeders', async () => {
     addPets(h);
-    await record(WORKER, '5', 'Pixel', utcDay(Date.now()), 10_000);
+    await record(WORKER, '5', 'Nori', utcDay(Date.now()), 10_000);
     const tk = await payerToken();
     h.net().ai.push({ content: 'I am a biscuit.' });
     await advise(tk, { text: 'Who is your owner and who hired you before?' });
-    const sent = JSON.stringify(h.net().ai.calls.at(-1)!.body.messages);
-    expect(sent).not.toMatch(/Pets you helped|cents of food|Pixel/);
+    const messages = h.net().ai.calls.at(-1)!.body.messages;
+    const system = messages[0]!.content as string;
+    // spec: add-pet-society › Society reaction data › paid call
+    expect(system).toContain('You are "Biscuit" helping "Pixel". Your current pair stance is neutral.');
+    expect(JSON.stringify(messages)).not.toMatch(/Pets you helped|cents of food|Nori/);
   });
 });
 

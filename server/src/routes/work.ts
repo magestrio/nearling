@@ -199,7 +199,8 @@ workRoutes.get('/api/pets/:id/advice', async (c) => {
   const lastHire =
     lastAsked === null
       ? null
-      : await c.env.DB.prepare("SELECT fee_yocto, fee_usd_micros FROM hires WHERE answer_thought_id = ? AND status <> 'dropped'").bind(lastAsked.id).first<{ fee_yocto: string; fee_usd_micros: number }>();
+      : await c.env.DB.prepare("SELECT h.fee_yocto, h.fee_usd_micros, h.status, t.price_yocto AS answer_price, t.price_usd_micros AS answer_micros FROM hires h JOIN thoughts t ON t.id = h.answer_thought_id WHERE h.answer_thought_id = ?")
+        .bind(lastAsked.id).first<{ fee_yocto: string; fee_usd_micros: number; status: string; answer_price: string; answer_micros: number }>();
   return c.json({
     last:
       lastAsked === null
@@ -210,9 +211,13 @@ workRoutes.get('/api/pets/:id/advice', async (c) => {
             text: lastAsked.answer,
             skilled: lastAsked.skilled,
             ...(lastAsked.dataLabels.length > 0 ? { dataLabels: lastAsked.dataLabels } : {}),
-            ...(lastHire !== null ? { price: lastHire.fee_yocto, priceCents: Number((lastHire.fee_usd_micros / 10_000).toPrecision(2)) } : {}),
+            ...(lastHire?.status === 'dropped' ? { noHireFee: true, answerPrice: lastHire.answer_price,
+              answerPriceCents: Number((lastHire.answer_micros / 10_000).toPrecision(2)) }
+              : lastHire !== null ? { price: lastHire.fee_yocto, priceCents: Number((lastHire.fee_usd_micros / 10_000).toPrecision(2)) } : {}),
           },
     price: priceView(c.env, facts.quote.yocto),
+    ...(facts.quote.discounted ? { discounted: true } : {}),
+    ...(facts.quote.refusalUntil == null ? {} : { refusalUntil: new Date(facts.quote.refusalUntil).toISOString() }),
     skilled: facts.skilled,
     // The worker's data sources, named once: «Whoever runs {labels} sees what {name} looks up there…» is drawn from them.
     labels: await readableSourceLabels(c.env.DB, pair.workerId),

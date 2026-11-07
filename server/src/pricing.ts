@@ -84,9 +84,9 @@ export function outfitCents(rate: number): number {
 // ---------------------------------------------------------------------------------------------
 // The price of a worker (`add-pet-work` › `Hire price rule`, `Hire quote data`, ADR-011 › «A band»).
 
-/** The lowest fee of a hire, 0.00083 NEAR (≈ 0.38¢): the price of a pet without a skill, and the first
- * answer of a day of a pet with one. `HIRE_FEE_MIN` of `contract/src/limits.rs`; `server/vitest.config.ts`
- * hands the contract's value to `test/pricing.test.ts`, which compares. */
+/** The undiscounted base price, 0.00083 NEAR (≈ 0.38¢): the price of a pet without a skill,
+ * and the first answer of a day of a pet with one. The contract's accepted `HIRE_FEE_MIN` is
+ * separately 0.00074 NEAR so a liked pair can pay 10% less than this base price. */
 export const HIRE_FEE_MIN_YOCTO = 830_000_000_000_000_000_000n;
 
 /** What each answer of its UTC day adds to the price of a pet with a skill, 0.0004 NEAR (≈ 0.18¢). The

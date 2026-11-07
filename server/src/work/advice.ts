@@ -10,8 +10,10 @@ import { gasIsLow, isPaused } from '../servicePause';
 import type { Exchange } from '../prompt';
 import { openSession, randomId, type JobResult } from '../spend';
 import { track } from '../track';
+import { relation } from '../society/relations';
+import { recordSocietyEvent } from '../society/events';
 import { answerStatements, dataOnly, workerCall } from './answer';
-import { hold, priceOf, type Quote } from './quote';
+import { hold, pairPrice, release, type Quote } from './quote';
 
 /** What the desk keeps of an advice while it is queued: the worker, the question (the only copy, gone with the job),
  * and the price the page showed, a ceiling (`Hire quote data`). */
@@ -37,7 +39,7 @@ export interface AdviceFacts {
  * payer's states is the page's: asleep, then can't pay, then tired. */
 export async function adviceFacts(env: Env, a: { payerId: string; payer: PetRecord; workerId: string; worker: PetRecord; now: number }): Promise<AdviceFacts> {
   const today = utcDay(a.now);
-  const quote = await priceOf(env, a.workerId, today);
+  const quote = await pairPrice(env, a.payerId, a.workerId, today, a.now);
   const workerFood = await foodState(env.DB, a.workerId, a.worker, a.now);
   const rested = energyLeft(await readLife(env.DB, a.workerId), today) > 0;
   const payerFood = await foodState(env.DB, a.payerId, a.payer, a.now);
@@ -57,6 +59,11 @@ export async function adviceFacts(env: Env, a: { payerId: string; payer: PetReco
 /** Runs one advice of the paying pet `payerId`. The order of refusals: the pause, the chain, the payer (asleep, can't
  * pay, tired) with nothing held, the worker (asleep, resting), then the place at the shown price, then the call. */
 export async function runAdvice(env: Env, payerId: string, job: AdviceJob, epoch: number): Promise<JobResult> {
+  const refused = async (until: number): Promise<JobResult> => {
+    track('pet_hire_refused', { by: 'player', reason: 'relationship' });
+    await recordSocietyEvent(env, 'pet_hire_refused', { by: 'player', reason: 'relationship' });
+    return { code: 'society_refused', until: new Date(until).toISOString() };
+  };
   const now = Date.now();
   if (await isPaused(env.DB, 'thought')) return { code: 'paused' };
   let payer: PetRecord | null;
@@ -73,19 +80,31 @@ export async function runAdvice(env: Env, payerId: string, job: AdviceJob, epoch
   await env.DB.prepare('INSERT OR IGNORE INTO pets (token_id, hatched_by, born_at, birth_tx) VALUES (?, ?, ?, ?)').bind(payerId, payer.owner_id, now, '').run();
 
   const facts = await adviceFacts(env, { payerId, payer, workerId: job.worker, worker, now });
+  if (facts.quote.refusalUntil != null) return refused(facts.quote.refusalUntil);
   if (facts.payer !== 'ok') return { code: facts.payer };
   if (facts.workerAsleep) return { code: 'worker_asleep' };
   if (facts.resting) return { code: 'worker_resting' };
 
   const day = utcDay(now);
-  const held = await hold(env, job.worker, day, BigInt(job.shown), now);
+  const held = await hold(env, job.worker, day, BigInt(job.shown), now, payerId);
   if (!held.ok) {
     console.log('advice_refused:price_rose');
     return held.open ? { code: 'price_rose', price: held.price.toString() } : { code: 'worker_resting' };
   }
 
+  const fresh = await pairPrice(env, payerId, job.worker, day, Date.now());
+  if (fresh.refusalUntil != null) {
+    await release(env, job.worker, day);
+    return refused(fresh.refusalUntil);
+  }
+  if (fresh.discounted !== held.discounted) {
+    await release(env, job.worker, day);
+    const changed = await pairPrice(env, payerId, job.worker, day, Date.now());
+    return { code: 'price_rose', price: changed.yocto.toString() };
+  }
+
   const prior = await lastExchange(env.DB, payerId, job.worker);
-  const out = await workerCall(env, { worker: { id: job.worker, pet: worker }, question: job.text, fee: held.fee, payerId, day, payerEpoch: epoch, prior, job: 'advice' });
+  const out = await workerCall(env, { worker: { id: job.worker, pet: worker }, question: job.text, fee: held.fee, payerId, day, payerEpoch: epoch, prior, job: 'advice', pair: { payerName: payer.name, stance: (await relation(env.DB, payerId, job.worker))?.stance ?? 'neutral' } });
   if (out.kind === 'failed') {
     console.log(`advice_refused:${out.code}`);
     return { code: out.code };
@@ -114,6 +133,7 @@ export async function runAdvice(env: Env, payerId: string, job: AdviceJob, epoch
     worker: { id: job.worker, name: worker.name },
     outcome,
     fee: held.fee,
+    discounted: held.discounted,
     hire: { kind: 'player', mode: null },
     turnId: null,
     epoch,

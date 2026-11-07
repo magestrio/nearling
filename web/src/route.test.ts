@@ -1,7 +1,13 @@
 import { describe, expect, it } from 'vitest';
-import { adaptersPath, diaryPath, hatchPath, parseRoute, petPath, sharedErrandPath, wardrobePath, verifyPath } from './route';
+import { adaptersPath, diaryPath, hatchPath, parseRoute, petPath, relationshipsPath, sharedErrandPath, wardrobePath, verifyPath } from './route';
 
 describe('parseRoute', () => {
+  // spec: add-pet-society › Society summary screen › success
+  it('routes only a pet token to its relationship summary', () => {
+    expect(parseRoute('/pet/9/relationships')).toEqual({ name: 'relationships', tokenId: '9' });
+    expect(parseRoute('/pet/nine/relationships').name).toBe('unknown');
+    expect(relationshipsPath('9')).toBe('/pet/9/relationships');
+  });
   it('reads the Pet screen and the Hatch screen with the friend in the address', () => {
     expect(parseRoute('/pet/9')).toEqual({ name: 'pet', tokenId: '9', from: null });
     expect(parseRoute('/pet/9?from=2')).toEqual({ name: 'pet', tokenId: '9', from: '2' });

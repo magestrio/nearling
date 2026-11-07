@@ -8,6 +8,7 @@ export interface Offer {
   worker: string;
   question: string;
   price: bigint;
+  discounted: boolean;
 }
 
 interface OfferRow {
@@ -16,16 +17,17 @@ interface OfferRow {
   worker_name: string;
   question: string;
   price_yocto: string;
+  discounted: number;
 }
 
 /** The offer standing, or none. An offer whose hirer fell asleep is deleted where it is read: an asleep pet reads no
  * turn and nothing is spent; its words stay in the conversation (`Pet hire flow` › «offer goes stale»). */
 export async function readOffer(db: D1Database, tokenId: string, hirerAsleep: boolean): Promise<Offer | null> {
-  const row = await db.prepare('SELECT turn_id, worker_id, worker_name, question, price_yocto FROM hire_offers WHERE token_id = ?').bind(tokenId).first<OfferRow>();
+  const row = await db.prepare('SELECT turn_id, worker_id, worker_name, question, price_yocto, discounted FROM hire_offers WHERE token_id = ?').bind(tokenId).first<OfferRow>();
   if (row === null) return null;
   if (hirerAsleep) {
     await db.prepare('DELETE FROM hire_offers WHERE token_id = ?').bind(tokenId).run();
     return null;
   }
-  return { turnId: row.turn_id, workerId: row.worker_id, worker: row.worker_name, question: row.question, price: BigInt(row.price_yocto) };
+  return { turnId: row.turn_id, workerId: row.worker_id, worker: row.worker_name, question: row.question, price: BigInt(row.price_yocto), discounted: row.discounted === 1 };
 }

@@ -178,7 +178,7 @@ export interface OwnerFields {
   hireMode: HireMode;
   /** The Manual offer standing, with the worker's name and the price named (`Pet hire flow` › «предложение в Manual»);
    * none for a pet that sleeps (the offer goes where it is read). */
-  offer: { worker: string; question: string; price: { yocto: string; cents: number } } | null;
+  offer: { worker: string; question: string; price: { yocto: string; cents: number }; discounted: boolean } | null;
   /** Whom the pet on its way is asking, so a reloaded page says «{name} is asking {worker}…» (`jobs.progress`). */
   pendingProgress: { asking: string } | null;
   /** How many hires of the pet are settled on the network (recorded or refused): a page that sees the number move
@@ -278,7 +278,7 @@ export async function ownerFields(env: Env, tokenId: string, pet: PetRecord, pau
     notices: noticesOf(pet.outfits, wardrobe.seen),
     outfitPrice: outfitPrice(env),
     hireMode: await hireModeOf(env.DB, tokenId),
-    offer: offer === null ? null : { worker: offer.worker, question: offer.question, price: priceView(env, offer.price) },
+    offer: offer === null ? null : { worker: offer.worker, question: offer.question, price: priceView(env, offer.price), discounted: offer.discounted },
     pendingProgress: progressOf(pending?.progress ?? null),
     hiresSeen: (await env.DB.prepare("SELECT COUNT(*) AS n FROM hires WHERE hirer_id = ? AND status <> 'unbilled'").bind(tokenId).first<{ n: number }>())?.n ?? 0,
     skill: await skillLabel(env.DB, tokenId),
