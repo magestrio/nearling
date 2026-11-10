@@ -6,7 +6,7 @@
 // every transaction a writer signs is noted in `item_sends` BEFORE it is broadcast (`noteItemSend`, called
 // by `ServerKey`), a writer with an `ok` keeps the hash at once (`itemTxStatements`), and the cron asks the
 // network about the rows nobody settled (`settleItemSends`).
-import { ChainUnreachable, hatchView, txStatus, type ServerCall } from '../chain';
+import { ChainUnreachable, finalBirthStatus, hatchView, txStatus, type ServerCall } from '../chain';
 import { birthFlight, finishBirth } from './birth';
 /** A signed send waiting this long may belong to a writer that stopped. */
 const SEND_CLAIM_STALE_MS = 60_000;
@@ -110,13 +110,13 @@ export async function settleItemSends(env: Env, nowMs: number): Promise<void> {
         const result = await birthFlight(env, row.token_id, hatch, nowMs);
         // An older successful POST can have removed the flight before its hash was found.
         // Only a confirmed successful hash may become the pet's verification link.
-        if (result === 'none' && hatch.token_id !== null) {
-          const status = await txStatus(env, row.tx_hash, env.SERVER_ACCOUNT_ID);
-          if (status?.status === 'ok') await finishBirth(env, row.token_id, hatch.token_id, row.tx_hash);
-          else if (status?.status === 'failed' || nowMs - row.sent_at >= LOST_AFTER_MS) await dropItemSend(env.DB, row.tx_hash);
-        }
-        if (result === 'none' && hatch.token_id === null) {
-          const status = await txStatus(env, row.tx_hash, env.SERVER_ACCOUNT_ID);
+        if (result === 'none') {
+          const status = await finalBirthStatus(env, row.tx_hash, env.SERVER_ACCOUNT_ID, row.token_id);
+          if (status?.status === 'ok' && status.value !== null) {
+            const prior = await env.DB.prepare('SELECT token_id FROM pets WHERE hatched_by = ? AND token_id <> ? LIMIT 1')
+              .bind(row.token_id, status.value).first<{ token_id: string }>();
+            await finishBirth(env, row.token_id, status.value, row.tx_hash, status.burnt ?? '0', prior?.token_id ?? null);
+          }
           if (status?.status === 'failed' || nowMs - row.sent_at >= LOST_AFTER_MS) await dropItemSend(env.DB, row.tx_hash);
         }
       } catch (e) {

@@ -1,5 +1,5 @@
 import { useId, type FormEvent, type ReactNode } from 'react';
-import { Block, Button, Center, Centerpiece, Cluster, DisclosureLine, Egg, Header, Heading, Nest, Note, Page, Shell, Stack, Text, TextField, TextLink } from '../../ds';
+import { Block, Button, Centerpiece, DisclosureLine, Egg, Header, Heading, Note, Page, Shell, Stack, Text, TextField, TextLink } from '../../ds';
 import { AccountControl } from '../../account/AccountControl';
 import { resetTime } from '../../lib/time';
 import { petPath } from '../../route';
@@ -19,11 +19,10 @@ const RECEIPTS_LINE = "A thought's receipt shows how long the reply was and whet
 const SAVED_LINE = "Saved food and a bought outfit are public on NEAR forever. The wish's words stay private.";
 const AI_NOTICE =
   "To write your pet's replies, we send NEAR AI what you say and what your pet remembers about you and the friends who feed it. When your pet asks another pet for help, the question it writes goes to that pet too.";
-const PAUSED = 'New pets are paused for now. You can still feed and visit pets you know.';
-const CHECKING = 'Checking if hatching is open…';
+const PAUSED = 'New pets are paused for now.';
+const CHECKING ='Checking if hatching is open…';
 const HATCHING = 'Hatching…';
-const UNREACHABLE = "We can't reach the game right now. Try again in a moment.";
-const BUSY = 'Lots of visitors right now. Try again in a minute.';
+const UNREACHABLE = "We couldn't check hatching right now. Try again.";
 const NOT_HATCHED = "Your pet didn't hatch this time. Nothing was lost — try again.";
 
 /** The first notice names the pet once there is a name; with none — «Your pet's name, character, ID, …». */
@@ -82,54 +81,6 @@ export function HatchScreen({ from }: { from: string | null }) {
   // «Account» stands in the header of every screen where the player has a session (`Account menu screen`)
   const header = auth.authenticated ? <Header end={<AccountControl />} /> : null;
 
-  if (view.kind === 'already') {
-    return (
-      <Shell accent="none" header={<Header end={<AccountControl />} />}>
-        <Page fill width="narrow">
-          <Center>
-            <Heading level={1} variant="lead" align="center" measure>
-              You've already hatched a pet — one per player.
-            </Heading>
-            <Button href={petPath(view.tokenId)}>{`Go to ${view.name}`}</Button>
-            <SignInOutcome text={name} />
-          </Center>
-        </Page>
-      </Shell>
-    );
-  }
-
-  if (view.kind === 'no-pets') {
-    const { tokenId, name: giftedName } = view.lastGifted;
-    const closedLine = view.reason === 'daily'
-      ? `That's all the new pets for today. Hatching is back at ${resetTime(view.until)}. You can still feed and visit pets you know.`
-      : PAUSED;
-    return <Shell accent="none" header={header}>
-      <Page fill width="narrow"><Center>
-        <Nest />
-        {view.closed ? <Note>{closedLine}</Note> : null}
-        <Heading level={1} variant="lead" align="center" measure>{`You gave ${giftedName} a new home, so you don't have a pet right now. You can still feed and visit pets you know — and if someone gives you a pet, it'll show up here.`}</Heading>
-        <Cluster gap={3} justify="center">
-          <Button href={petPath(tokenId)}>{`Visit ${giftedName}`}</Button>
-          {hatch.friend && hatch.friend !== 'loading' ? <Button variant="secondary" href={petPath(hatch.friend.tokenId)}>{`Back to ${hatch.friend.name}`}</Button> : null}
-        </Cluster>
-      </Center></Page>
-    </Shell>;
-  }
-
-  // The way out of a closed screen: a player who never hatched and has no friend link can find a pet to ask.
-  const noExit = view.kind === 'closed' && view.noPets;
-  // «Find a pet to ask» stands under every Hatch state (frames `hatch-closed-today`: beside «Back to {friend_pet}»); in the
-  // no-exit state it is the exit itself, so the line is not drawn a second time
-  const showDiscoveryLink = !noExit;
-  // The friend's pet is the exit of a closed screen: a quiet link under «Find a pet to ask» (frame `hatch-closed-today`)
-  const friendExit = view.kind === 'closed' && hatch.friend && hatch.friend !== 'loading' ? hatch.friend : null;
-  const wayOut =
-    from && hatch.friend === 'loading' ? null : friendExit ? null : noExit ? <Button block variant="secondary" href="/hire">Find a pet to ask</Button> : (
-      <Button block href="/">
-        Go home
-      </Button>
-    );
-
   const hatchButton = (disabled: boolean) => (
     <Button block disabled={disabled} type="submit">
       Hatch my pet
@@ -148,23 +99,24 @@ export function HatchScreen({ from }: { from: string | null }) {
       );
       break;
     case 'unreachable': {
-      line = view.busy ? BUSY : UNREACHABLE;
+      line = UNREACHABLE;
       action = (
         <Why line={line} tone="error">
           <Button block onClick={hatch.tryAgain}>
             Try again
           </Button>
-          {hatchButton(true)}
         </Why>
       );
       break;
     }
-    case 'closed':
-      line =
-        view.reason === 'daily'
-          ? `That's all the new pets for today. Hatching is back at ${resetTime(view.until)}. You can still feed and visit pets you know.`
-          : PAUSED;
-      action = <Why line={line}>{wayOut}</Why>;
+    case 'closed': {
+      line = view.reason === 'daily' ? `That's all the new pets for today. Hatching is back at ${resetTime(view.until)}.` : PAUSED;
+      action = <Note tone="plain" silent>{line}</Note>;
+      break;
+    }
+    case 'already':
+      line = 'You have a pet already.';
+      action = <Why line={line}><Button block href={petPath(view.tokenId)}>{`Go to ${view.name}`}</Button></Why>;
       break;
     case 'signed-out':
       action = (
@@ -208,10 +160,11 @@ export function HatchScreen({ from }: { from: string | null }) {
             actions={
               <Stack gap={2}>
                 {action}
-                {showDiscoveryLink || friendExit ? <Stack gap={1}>
-                  {showDiscoveryLink ? <TextLink href="/hire" tone="quiet" hit>Find a pet to ask</TextLink> : null}
-                  {friendExit ? <TextLink href={petPath(friendExit.tokenId)} tone="quiet" hit>{`Back to ${friendExit.name}`}</TextLink> : null}
-                </Stack> : null}
+                <Stack gap={1}>
+                  <TextLink href="/hire" tone="quiet" hit>Find a pet to ask</TextLink>
+                  {hatch.known.map((pet) => <TextLink key={pet.tokenId} href={petPath(pet.tokenId)} tone="quiet" hit>{`Visit ${pet.name}`}</TextLink>)}
+                  {hatch.friend && hatch.friend !== 'loading' ? <TextLink href={petPath(hatch.friend.tokenId)} tone="quiet" hit>{`Back to ${hatch.friend.name}`}</TextLink> : null}
+                </Stack>
                 <SignInOutcome text={name} />
               </Stack>
             }
@@ -222,7 +175,7 @@ export function HatchScreen({ from }: { from: string | null }) {
               <Heading level={1} align="center" id={titleId}>
                 Hatch your pet
               </Heading>
-              <TextField
+              {view.kind !== 'already' ? <TextField
                 label="Name your pet"
                 placeholder="e.g. Pixel"
                 value={name}
@@ -230,8 +183,9 @@ export function HatchScreen({ from }: { from: string | null }) {
                 readOnly={birth === 'hatching'}
                 error={hatch.nameRefused ? "Let's pick a different name." : undefined}
                 hint={cleaned ? [LIMIT_HINT, PUBLIC_HINT] : LIMIT_HINT}
-              />
-              <HatchDisclosureNotices name={cleaned} sessionKey={auth.authenticated ? auth.nearAccountId ?? 'pending-account' : 'signed-out'} />
+              /> : null}
+              <HatchDisclosureNotices name={view.kind === 'already' ? '' : cleaned} sessionKey={auth.authenticated ? auth.nearAccountId ?? 'pending-account' : 'signed-out'} />
+              {hatch.known.filter((pet) => pet.asleep).map((pet) => <Note key={pet.tokenId} tone="plain" silent>{`${pet.name} is asleep`}</Note>)}
             </div>
           </Centerpiece>
         </form>

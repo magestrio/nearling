@@ -87,12 +87,12 @@ test('success: a signed-in player is led to their current pet at once, and never
   await expect(page.getByRole('heading', { level: 1, name: 'Pixel' })).toBeVisible();
 });
 
-// spec: add-account › Home screen › success
-test('success: a signed-in player with no pet of their own goes to the Hatch screen', async ({ page }) => {
+// spec: add-hatch-again › Petless Home screen › empty
+test('success: a signed-in player with no pet of their own stays on Home', async ({ page }) => {
   await openWith(page, '/', { auth: SIGNED_IN });
-  await expect(page).toHaveURL(/\/hatch$/);
-  await expect(page.getByLabel('Name your pet')).toBeVisible();
-  await expect(page.getByRole('heading', { level: 1, name: HOOK })).toHaveCount(0);
+  await expect(page).toHaveURL(/\/$/);
+  await expect(page.getByText('No pet of your own right now.').first()).toBeVisible();
+  await expect(page.getByRole('link', { name: 'Hatch your pet' }).first()).toHaveAttribute('href', '/hatch');
 });
 
 // spec: add-account › Home screen › success
@@ -167,12 +167,13 @@ test('signed-out (вход закрыт) × закрыт для всех: the wo
 });
 
 // spec: add-account › Home screen › signed-out × Go home с Hatch screen
-test('signed-out × Go home с Hatch screen: «Go home» of a closed Hatch screen lands on Home', async ({ page }) => {
+// A visitor at a closed Hatch screen is read as a signed-in player (add-hatch-again › Hatch again screen › birth paused):
+// the way out is «Find a pet to ask», no «Go home».
+test('signed-out × Go home с Hatch screen: a closed Hatch screen offers a visitor the board, not «Go home»', async ({ page }) => {
   await openWith(page, '/hatch', { worker: { hatchStatus: { open: false, reason: 'service' } } });
-  await page.getByRole('link', { name: 'Go home' }).click();
-  await expect(page).toHaveURL(/\/$/);
-  await expect(page.getByRole('heading', { level: 1, name: HOOK })).toBeVisible();
-  await expect(page.getByRole('link', { name: 'Hatch your pet' })).toBeVisible();
+  await expect(page.getByRole('link', { name: 'Go home' })).toHaveCount(0);
+  await page.getByRole('link', { name: 'Find a pet to ask' }).click();
+  await expect(page).toHaveURL(/\/hire$/);
 });
 
 // spec: add-account › Home screen › signed-out × Go home с Pet screen

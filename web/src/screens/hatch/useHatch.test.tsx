@@ -55,6 +55,161 @@ afterEach(async () => {
 });
 
 describe('the pending Hatch state', () => {
+  // spec: add-hatch-again › Hatch again screen › birth closed for the day × 00:00 UTC
+  it('rechecks a daily closure against the Worker when the browser clock has passed its reset time', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-11-11T02:00:00.000Z'));
+    try {
+      worker.hatchStatus.mockResolvedValueOnce({ open: false, reason: 'daily', until: '2026-11-11T00:00:00.000Z', serverTime: '2026-11-10T23:59:55.000Z' })
+        .mockResolvedValue({ open: true });
+      await show();
+      expect(seen.view.kind).toBe('closed');
+      await act(async () => { await vi.advanceTimersByTimeAsync(4000); });
+      expect(worker.hatchStatus).toHaveBeenCalledTimes(1);
+      expect(seen.view.kind).toBe('closed');
+      await act(async () => { await vi.advanceTimersByTimeAsync(1000); });
+      expect(worker.hatchStatus).toHaveBeenCalledTimes(2);
+      expect(seen.view.kind).toBe('form');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  // spec: add-pet › Hatch screen › рождения на сегодня закрыты
+  it('does not poll the Worker before the reset time it reported', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-11-10T12:00:00.000Z'));
+    try {
+      worker.hatchStatus.mockResolvedValueOnce({ open: false, reason: 'daily', until: '2026-11-11T00:00:00.000Z', serverTime: '2026-11-10T23:59:50.000Z' })
+        .mockResolvedValue({ open: true });
+      await show();
+      await act(async () => { await vi.advanceTimersByTimeAsync(9000); });
+      expect(worker.hatchStatus).toHaveBeenCalledTimes(1);
+      await act(async () => { await vi.advanceTimersByTimeAsync(1000); });
+      expect(worker.hatchStatus).toHaveBeenCalledTimes(2);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  // spec: add-hatch-again › Hatch again screen › birth closed for the day × 00:00 UTC
+  it('retries a missed boundary only after the first reset read still says closed', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-11-10T12:00:00.000Z'));
+    try {
+      worker.hatchStatus.mockResolvedValueOnce({ open: false, reason: 'daily', until: '2026-11-11T00:00:00.000Z', serverTime: '2026-11-10T23:59:55.000Z' })
+        .mockResolvedValueOnce({ open: false, reason: 'daily', until: '2026-11-11T00:00:00.000Z', serverTime: '2026-11-11T00:00:00.000Z' })
+        .mockResolvedValue({ open: true });
+      await show();
+      await act(async () => { await vi.advanceTimersByTimeAsync(5000); });
+      expect(worker.hatchStatus).toHaveBeenCalledTimes(2);
+      await act(async () => { await vi.advanceTimersByTimeAsync(4999); });
+      expect(worker.hatchStatus).toHaveBeenCalledTimes(2);
+      await act(async () => { await vi.advanceTimersByTimeAsync(1); });
+      expect(worker.hatchStatus).toHaveBeenCalledTimes(3);
+      expect(seen.view.kind).toBe('form');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  // spec: add-hatch-again › Hatch again screen › success
+  // spec: add-hatch-again › Repeat ownership data › historical birth with no pet
+  it('allows a repeat when only the historical birth pointer remains', async () => {
+    worker.hatchStatus.mockResolvedValue({ open: true, ownedCount: 0, latestBirth: { tokenId: '9', name: 'Pixel' }, knownPets: [{ tokenId: '9', name: 'Pixel', asleep: false }] });
+    await show();
+    expect(seen.view.kind).toBe('form');
+    expect(seen.known).toEqual([{ tokenId: '9', name: 'Pixel', asleep: false }]);
+    await act(async () => seen.setName('Nova'));
+    worker.hatch.mockResolvedValue({ pending: true });
+    await act(async () => seen.submit());
+    expect(worker.hatch).toHaveBeenCalledWith('identity-token', 'Nova');
+    expect(seen.birth).toBe('hatching');
+  });
+
+  // spec: add-hatch-again › Hatch again screen › already owns a pet
+  // spec: add-hatch-again › Repeat eligibility rule › gift after opening Hatch
+  it('shows a gifted-in current pet even when an old birth is in history', async () => {
+    worker.hatchStatus.mockResolvedValue({ open: true, ownedCount: 1, currentPet: { tokenId: '12', name: 'Biscuit' }, already: { tokenId: '12', name: 'Biscuit' }, latestBirth: { tokenId: '9', name: 'Pixel' } });
+    await show();
+    expect(seen.view).toEqual({ kind: 'already', tokenId: '12', name: 'Biscuit' });
+    await act(async () => seen.setName('Nova'));
+    await act(async () => seen.submit());
+    expect(worker.hatch).not.toHaveBeenCalled();
+  });
+
+  // spec: add-hatch-again › Repeat eligibility rule › gift after opening Hatch
+  it('shows the received pet when the original mint fails because a gift landed', async () => {
+    keepPendingName('alice.testnet', 'Nova');
+    worker.hatchStatus.mockResolvedValue({ open: true, failed: true, ownedCount: 1, currentPet: { tokenId: '12', name: 'Biscuit' }, latestBirth: { tokenId: '9', name: 'Pixel' } });
+    await show();
+    expect(seen.view).toEqual({ kind: 'already', tokenId: '12', name: 'Biscuit' });
+    expect(seen.birth).toBe('idle');
+    expect(pendingName('alice.testnet')).toBeNull();
+  });
+
+  // spec: add-hatch-again › Repeat birth recovery data › old birth exists during pending repeat
+  it('does not navigate to the old birth during a pending repeat', async () => {
+    keepPendingName('alice.testnet', 'Nova');
+    worker.hatchStatus.mockResolvedValue({ open: true, pending: true, ownedCount: 0, latestBirth: { tokenId: '9', name: 'Pixel' } });
+    await show();
+    expect(seen.birth).toBe('hatching');
+    expect(window.location.pathname).toBe('/hatch');
+    await act(async () => seen.submit());
+    expect(worker.hatch).not.toHaveBeenCalled();
+  });
+
+  // spec: add-hatch-again › Repeat birth recovery data › repeat confirmed after lost response
+  it('opens only the token proved by the original repeat transaction', async () => {
+    keepPendingName('alice.testnet', 'Nova');
+    worker.hatchStatus.mockResolvedValue({ open: true, tokenId: '12', ownedCount: 1, latestBirth: { tokenId: '9', name: 'Pixel' } });
+    await show();
+    expect(window.location.pathname).toBe('/pet/12');
+    expect(pendingName('alice.testnet')).toBeNull();
+  });
+
+  // spec: add-hatch-again › Hatch again screen › loading
+  // spec: add-hatch-again › Hatch again screen › success × tab visible
+  it('keeps known links during a fresh check after the tab returns', async () => {
+    const ready = { open: true, ownedCount: 0, knownPets: [{ tokenId: '9', name: 'Pixel', asleep: false }] };
+    let answer!: (value: typeof ready) => void;
+    worker.hatchStatus.mockResolvedValueOnce(ready).mockImplementationOnce(() => new Promise((resolve) => { answer = resolve; }));
+    await show();
+    expect(seen.known).toEqual(ready.knownPets);
+    await act(async () => document.dispatchEvent(new Event('visibilitychange')));
+    expect(seen.view.kind).toBe('checking');
+    expect(seen.known).toEqual(ready.knownPets);
+    await act(async () => answer(ready));
+    expect(seen.view.kind).toBe('form');
+  });
+
+  // spec: add-hatch-again › Hatch again screen › success × sign-out
+  // spec: add-hatch-again › Hatch again screen › signed-out
+  it('drops private known links when the session ends', async () => {
+    worker.hatchStatus.mockResolvedValueOnce({ open: true, ownedCount: 0, knownPets: [{ tokenId: '9', name: 'Pixel', asleep: false }] })
+      .mockResolvedValue({ open: true });
+    await show();
+    expect(seen.known).toHaveLength(1);
+    await updateAuth({ authenticated: false, nearAccountId: null });
+    expect(seen.known).toEqual([]);
+    expect(seen.view.kind).toBe('signed-out');
+  });
+
+  // spec: add-hatch-again › Hatch again screen › success × sign-out
+  // spec: add-hatch-again › Repeat birth flow › unknown outcome
+  it('does not open an old account birth after sign-out while its POST is pending', async () => {
+    worker.hatchStatus.mockResolvedValue({ open: true, ownedCount: 0 });
+    await show();
+    await act(async () => seen.setName('Nova'));
+    let resolve!: (value: { tokenId: string }) => void;
+    worker.hatch.mockImplementationOnce(() => new Promise((done) => { resolve = done; }));
+    await act(async () => { void seen.submit(); });
+    await updateAuth({ authenticated: false, nearAccountId: null });
+    await act(async () => resolve({ tokenId: '12' }));
+    expect(window.location.pathname).toBe('/hatch');
+    expect(seen.view.kind).toBe('signed-out');
+  });
+
   // spec: add-pet › Birth flow › birth pending
   it('restores the typed name and blocks a second birth after a reload', async () => {
     keepPendingName('alice.testnet', 'Pixel');

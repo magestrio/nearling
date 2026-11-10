@@ -856,6 +856,7 @@ const BOARD_PETS: HireBoard['pets'] = [
   { tokenId: '1', opaqueId: 'mochi', name: 'Mochi', label: 'moon phases', price: BOARD_PRICE, status: 'available', yours: false },
   { tokenId: '9', opaqueId: 'pixel', name: 'Pixel', label: 'plot twists', price: BOARD_PRICE, status: 'available', yours: true },
 ];
+const PETLESS_ME = { accountId: 'a'.repeat(64), hatched: { tokenId: '9', name: 'Pixel' }, latestBirth: { tokenId: '9', name: 'Pixel' }, currentPet: null, ownedCount: 0 };
 // «Share {name}» stands in the «More» menu (add-game-layout › Pet actions menu screen); its three choices replace the rows.
 const openShareMenu = async (page: Page) => {
   await page.getByRole('button', { name: 'More' }).click();
@@ -1150,6 +1151,20 @@ export const fixtures: Record<string, ScreenFixture> = {
   'hire-unavailable-today': { route: '/hire', fakes: { auth: SIGNED_IN, worker: { hireBoard: hireBoardSample('resting') } } },
   // spec: add-pet-work › Hire board screen › service paused
   'hire-service-paused': { route: '/hire', fakes: { auth: SIGNED_IN, worker: { hireBoard: hireBoardSample('paused') } } },
+  // a player who gave their pet away: signed in, owns nothing now (the board shows them no «Yours» row)
+  // spec: add-hatch-again › Petless discovery flow › board opened
+  'hire-petless': { route: '/hire', fakes: { auth: SIGNED_IN, worker: { me: PETLESS_ME, hireBoard: hireBoardSample() } },
+    prepare: (page) => page.getByRole('link', { name: 'Visit Nori' }).waitFor() },
+  // spec: add-hatch-again › Petless discovery flow › empty board with no pets to visit
+  'hire-empty-petless': { route: '/hire', fakes: { auth: SIGNED_IN, worker: { me: PETLESS_ME, hireBoard: { pets: [], visits: [] } } },
+    prepare: (page) => page.getByRole('link', { name: 'Hatch your pet' }).waitFor() },
+  // spec: add-hatch-again › Petless discovery flow › advice attempted without a pet
+  'hire-advice-without-pet': { route: '/hire?advice=without-pet', fakes: { auth: SIGNED_IN, worker: { me: PETLESS_ME, hireBoard: { pets: hireBoardSample().pets.slice(0, 1), visits: [] } } },
+    prepare: (page) => page.getByText('You need a pet of your own to pay for advice.').first().waitFor() },
+  // the given-away Pixel, seen by the player who gave it away
+  // spec: add-hatch-again › Petless discovery flow › former pet viewed
+  'pet-former-owner-hatch': { route: '/pet/9', fakes: { auth: SIGNED_IN, worker: { me: PETLESS_ME, pets: { '9': PIXEL } } },
+    prepare: (page) => page.getByRole('link', { name: 'Get your own pet' }).waitFor() },
   // spec: add-pet › Hatch screen › success
   // spec: add-pet › Hatch screen › уведомление о публичности
   // spec: add-pet › Hatch screen › уведомление об AI-провайдере
@@ -1212,12 +1227,6 @@ export const fixtures: Record<string, ScreenFixture> = {
       await typeName(page, 'Pixel');
     },
     belowFold: [NEAR_AI_NOTICE],
-  },
-
-  // spec: add-pet › Hatch screen › уже есть рождённый питомец
-  'hatch-already': {
-    route: '/hatch',
-    fakes: { auth: SIGNED_IN, worker: { hatchStatus: { open: true, already: { tokenId: '9', name: 'Pixel' } } } },
   },
 
   // three spaces: no visible character, refused, kept in the field
@@ -3977,10 +3986,6 @@ export const fixtures: Record<string, ScreenFixture> = {
   ], more: false, before: null }, pets: { '9': { ...PIXEL, worn: null, owner: { ownedCount: 2, hello: true } }, '2': BISCUIT } }) }, hiddenCopy: ['Previous owner'] },
   // spec: add-gift › Gift rule › дневник до подарка
   'diary-before-gift': { route: '/pet/9/diary', fakes: { auth: SIGNED_IN, worker: giftWorker({ diary: { entry: { kind: 'text', id: 'diary-gift', lines: ['Yesterday you told me about the chart nobody understands. After you left I counted the fridge again — forty-three hums this time, two more than the night before.', 'I think the fridge is getting nervous about your presentation too.'], question: 'Did the chart surprise anyone?', work: null, previousOwner: true } } }) }, belowFold: ["Today's streak still needs {parts}."] },
-  // spec: add-gift › Several pets rule › питомцев не осталось
-  'hatch-no-pets': { route: '/hatch', fakes: { auth: SIGNED_IN, worker: { hatchStatus: { open: true, noPets: true, lastGifted: PIXEL_REF } } } },
-  // spec: add-gift › Several pets rule › питомцев не осталось, рождения закрыты
-  'hatch-no-pets-closed': { route: '/hatch?from=2', fakes: { auth: SIGNED_IN, worker: { hatchStatus: { open: false, reason: 'daily', until: MIDNIGHT_UTC, noPets: true, lastGifted: PIXEL_REF }, pets: { '2': BISCUIT } } } },
   // spec: add-pet-experience › Experience notes screen › success
   'exp-notes': experienceFixture(),
   // spec: add-pet-experience › Experience notes screen › empty

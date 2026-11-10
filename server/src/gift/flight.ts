@@ -45,6 +45,10 @@ async function finalise(env: Env, row: GiftFlight, when: number): Promise<void> 
       .bind(row.token_id, row.tx_hash, when),
     env.DB.prepare(`UPDATE players SET last_gifted_pet = ?1, current_pet = CASE WHEN current_pet = ?1 THEN NULL ELSE current_pet END WHERE account_id = ?3 AND ${open}`)
       .bind(row.token_id, row.tx_hash, row.sender),
+    env.DB.prepare(`INSERT INTO known_pets (account_id, token_id, reason, interacted_at)
+      SELECT ?3, ?1, 'gift', ?4 WHERE ${open}
+      ON CONFLICT (account_id, token_id) DO UPDATE SET reason = 'gift', interacted_at = excluded.interacted_at`)
+      .bind(row.token_id, row.tx_hash, row.sender, when),
     env.DB.prepare(`UPDATE players SET current_pet = ?1 WHERE account_id = ?3 AND ${open}`)
       .bind(row.token_id, row.tx_hash, row.receiver),
     env.DB.prepare(`UPDATE receipt_links SET revoked_at = ?3 WHERE paying_token_id = ?1 AND revoked_at IS NULL AND ${open}`)

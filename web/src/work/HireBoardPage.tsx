@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { AccountControl } from '../account/AccountControl';
-import { Button, Cluster, Grid, Header, Heading, Live, Note, Page, Shell, Skeleton, SkillBadge, Stack, Surface, Text, TextField, TextLink } from '../ds';
+import { Button, Cluster, Grid, Header, Heading, Live, Note, Page, Shell, Skeleton, SkillBadge, Stack, Stage, Surface, Text, TextField, TextLink } from '../ds';
 import { resetTime } from '../lib/time';
 import { PetFigure } from '../pet/PetFigure';
 import { useAuth } from '../seams/auth';
@@ -13,7 +13,7 @@ import { countedDate } from '../experience/recordState';
 import './hireBoard.css';
 
 const FRESH = 'Availability may have changed. We check again before your question is sent.';
-type BoardView = { kind: 'loading' } | { kind: 'error' } | { kind: 'ready'; board: HireBoard; noHome: boolean };
+type BoardView = { kind: 'loading' } | { kind: 'error' } | { kind: 'ready'; board: HireBoard; petless: boolean };
 
 function Picture({ tokenId, name, stage = 'adult', state = 'full', worn }: {
   tokenId: string; name: string; stage?: 'baby' | 'teen' | 'adult'; state?: 'full' | 'hungry' | 'asleep'; worn?: string | null;
@@ -88,15 +88,15 @@ export function HireBoardPage() {
           board = await workerApi.hireBoard(null);
           token = null;
         }
-        let noHome = false;
-        if (board.pets.length === 0 && board.visits.length === 0 && token !== null) {
-          try { noHome = (await workerApi.me(token)).ownedCount === 0; }
+        let petless = false;
+        if (token !== null) {
+          try { petless = (await workerApi.me(token)).ownedCount === 0; }
           catch (error) {
             if (error instanceof WorkerError && error.status === 401) authRef.current.endSession(false);
             else throw error;
           }
         }
-        if (current) setView({ kind: 'ready', board, noHome });
+        if (current) setView({ kind: 'ready', board, petless });
       } catch {
         if (current) setView({ kind: 'error' });
       }
@@ -108,7 +108,10 @@ export function HireBoardPage() {
   const visitor = !auth.authenticated || auth.sessionEnded;
   const pets = view.kind === 'ready' ? view.board.pets : [];
   const filtered = boardMatches(pets, query);
-  const noHome = view.kind === 'ready' && view.noHome;
+  const petless = view.kind === 'ready' && view.petless;
+  // the petless player's empty board is the vacant Stage, which the whole page stands in (frame `hire-empty-petless`)
+  const vacant = petless && pets.length === 0 && view.kind === 'ready' && view.board.visits.length === 0;
+  const adviceWithoutPet = petless && new URLSearchParams(window.location.search).get('advice') === 'without-pet';
   let body: ReactNode;
   let live = '';
   if (view.kind === 'loading') {
@@ -119,10 +122,13 @@ export function HireBoardPage() {
     body = <Stack gap={3}><Note tone="error" silent>{live}</Note><Cluster><Button variant="secondary" onClick={again}>Try again</Button></Cluster></Stack>;
   } else if (pets.length === 0) {
     const visits = view.board.visits;
-    body = <Stack gap={visits.length ? 5 : 4}>
+    body = petless && visits.length === 0 ? <Stage
+      pet={<Text variant="lead">No pets with skills are on the board yet.</Text>}
+      hotbar={<Button href="/hatch">Hatch your pet</Button>}
+    /> : <Stack gap={visits.length ? 5 : 4}>
       <Text variant="lead">{visits.length ? 'No pets with skills are on the board yet. Meanwhile, you can visit these pets:' : 'No pets with skills are on the board yet.'}</Text>
       {visits.length ? <Grid>{visits.map((pet) => <Visit key={pet.tokenId} pet={pet} />)}</Grid> : null}
-      <Cluster><Button variant={noHome ? 'secondary' : 'primary'} href={noHome ? undefined : '/'} onClick={noHome ? again : undefined}>{noHome ? 'Try again' : 'Go home'}</Button></Cluster>
+      <Cluster><Button href="/">Go home</Button></Cluster>
     </Stack>;
   } else if (filtered.length === 0) {
     live = `No skill labels match “${query}”.`;
@@ -131,15 +137,18 @@ export function HireBoardPage() {
     body = <Grid>{filtered.map((pet) => <Card key={pet.tokenId} pet={pet} />)}</Grid>;
   }
 
-  return <Shell header={<Header start={noHome ? null : <Button variant="ghost" size="compact" icon="back" href="/">Home</Button>}
+  const page = <Shell fill={vacant} header={<Header start={<Button variant="ghost" size="compact" icon="back" href="/">Home</Button>}
     end={visitor ? <Button variant="secondary" size="compact" onClick={() => begin('signin')}>Sign in</Button> : <AccountControl />} />}>
-    <Page><Stack gap={5}>
+    <Page fill={vacant}><Stack gap={5} grow={vacant}>
       <Heading level={1} id="hire-title">Find a pet to ask</Heading>
       {(view.kind === 'error' || (view.kind === 'ready' && pets.length > 0)) ? <TextField label="Search skills" value={query} onChange={setQuery} /> : null}
       {view.kind === 'ready' && filtered.length > 0 ? <Text variant="small" tone="secondary">{FRESH}</Text> : null}
       {visitor && view.kind === 'ready' && pets.length > 0 ? <Note tone="plain">Sign in to ask a pet.</Note> : null}
+      {petless ? <Note tone="plain">Browse pets now. To ask for paid advice, hatch or receive a pet first.</Note> : null}
+      {adviceWithoutPet ? <Stack gap={4}><Note tone="plain">You need a pet of your own to pay for advice.</Note><Button href="/hatch">Hatch your pet</Button></Stack> : null}
       {body}
       <Live>{live}</Live>
     </Stack></Page>
   </Shell>;
+  return vacant ? <div className="ds-stage-vacant">{page}</div> : page;
 }

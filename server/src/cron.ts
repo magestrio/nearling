@@ -291,6 +291,7 @@ export async function clean(env: Env, nowMs: number): Promise<void> {
   if (nowMs >= JUDGE_DELETE_AT) await env.EVENTS.prepare('DELETE FROM experience_events').run();
   if (nowMs >= JUDGE_DELETE_AT) await env.EVENTS.prepare('DELETE FROM society_events').run();
   if (nowMs >= JUDGE_DELETE_AT) await env.EVENTS.prepare('DELETE FROM will_events').run();
+  if (nowMs >= JUDGE_DELETE_AT) await env.EVENTS.prepare('DELETE FROM hatch_again_events').run();
   await env.DB.batch([
     env.DB.prepare("DELETE FROM jobs WHERE created_at < ? AND status IN ('done', 'failed')").bind(nowMs - 86_400_000),
     env.DB.prepare('DELETE FROM empty_answers WHERE day < ?').bind(utcDay(nowMs) - 1),

@@ -92,6 +92,7 @@ export interface FakeWorkerState {
   hatchResult?: { tokenId: string } | { pending: true } | FakeFail;
   hatchDelayMs?: number;
   me?: Me | FakeFail;
+  meDelayMs?: number;
   myPets?: MyPets | FakeFail;
   /** the pets the fake knows, by token_id */
   pets?: Record<string, Omit<PetBase, 'worn' | 'skill'> & Partial<Pick<PetBase, 'worn' | 'skill'>> & Partial<MyFeed> & { owner?: Partial<Omit<Extract<import('./worker-types').PetView, { viewer: 'owner' }>, keyof PetBase | keyof MyFeed | 'viewer'>> }>;

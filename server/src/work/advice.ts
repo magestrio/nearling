@@ -144,6 +144,13 @@ export async function runAdvice(env: Env, payerId: string, job: AdviceJob, epoch
     turnId: null,
     epoch,
   });
+  if (outcome.kind === 'answer') {
+    statements.push(env.DB.prepare(`INSERT INTO known_pets (account_id, token_id, reason, interacted_at)
+      SELECT ?1, ?2, 'paid_advice', ?3 WHERE EXISTS
+        (SELECT 1 FROM hires WHERE answer_thought_id = ?4 AND kind = 'player')
+      ON CONFLICT (account_id, token_id) DO UPDATE SET reason = 'paid_advice', interacted_at = excluded.interacted_at`)
+      .bind(payer.owner_id, job.worker, stored, thoughtId));
+  }
   const written = await env.DB.batch(statements);
   // A clear that landed between the worker's answer and this batch refused the hire's row by itself.
   const cleared = outcome.kind === 'cleared' || (hireAt !== null && (written[hireAt]?.results.length ?? 0) === 0);

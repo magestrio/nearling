@@ -623,7 +623,9 @@ pub fn token_extra(pet: &Pet) -> String {
 #[near(serializers = [json])]
 #[derive(Clone, Debug)]
 pub struct HatchView {
-    /// The pet born to this account, also after it was given away.
+    /// Current NEP-181 ownership, independent of birth history.
+    pub owned_count: U128,
+    /// The latest pet born to this account, also after it was given away.
     pub token_id: Option<String>,
     /// The current UTC day (`block_timestamp` / 86,400 s).
     pub day: u64,

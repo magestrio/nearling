@@ -7,10 +7,10 @@ import type { AdviceRead } from '../seams/worker-types';
 import { useAdvice, type Entry } from './useAdvice';
 import { POLL_GUEST_MS, POLL_JOB_MS } from '../screens/pet/usePetScreen';
 
-const mocks = vi.hoisted(() => ({ advice: vi.fn(), askAdvice: vi.fn(), petState: vi.fn() }));
+const mocks = vi.hoisted(() => ({ advice: vi.fn(), askAdvice: vi.fn(), petState: vi.fn(), me: vi.fn() }));
 vi.mock('../seams/worker', async (original) => ({
   ...(await original<typeof import('../seams/worker')>()),
-  workerApi: { advice: mocks.advice, askAdvice: mocks.askAdvice, petState: mocks.petState },
+  workerApi: { advice: mocks.advice, askAdvice: mocks.askAdvice, petState: mocks.petState, me: mocks.me },
 }));
 vi.mock('../seams/auth', () => ({ useAuth: () => ({ needSession: () => true, endSession: vi.fn() }) }));
 
@@ -26,6 +26,7 @@ const hostAdvice: Advice = {
   payerChanged: vi.fn(), look: vi.fn(), onStatus: vi.fn(), covered: false,
   check: null, offline: '', carried: null, takeCarried: vi.fn(),
 };
+mocks.me.mockResolvedValue({ accountId: 'alice.testnet', hatched: { tokenId: '9', name: 'Pixel' }, currentPet: { tokenId: '9', name: 'Pixel' }, ownedCount: 1 });
 let root: ReturnType<typeof createRoot> | null = null;
 let host: HTMLDivElement;
 let current: ReturnType<typeof useAdvice>;
@@ -69,4 +70,16 @@ it('shows a retried question once after a failed screening', async () => {
   expect(current.entries.filter((entry) => entry.kind === 'asked' && entry.text === 'Can you help?')).toHaveLength(1);
   await act(async () => current.retry());
   expect(current.entries.filter((entry) => entry.kind === 'asked' && entry.text === 'Can you help?')).toHaveLength(1);
+});
+
+// spec: add-hatch-again › Petless discovery flow › advice attempted without a pet
+it('checks fresh ownership before any question is sent', async () => {
+  window.history.replaceState(null, '', '/pet/2');
+  mocks.advice.mockResolvedValue(read);
+  mocks.me.mockResolvedValueOnce({ accountId: 'alice.testnet', hatched: { tokenId: '9', name: 'Pixel' }, currentPet: null, ownedCount: 0 });
+  await mount();
+  await act(async () => current.ask('Could Biscuit help?'));
+  expect(mocks.askAdvice).not.toHaveBeenCalled();
+  expect(current.entries).toHaveLength(0);
+  expect(window.location.pathname + window.location.search).toBe('/hire?advice=without-pet');
 });

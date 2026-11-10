@@ -7,7 +7,9 @@ import { HomeScreen } from './HomeScreen';
 import { SAMPLE_SHOWCASE } from '../../seams/showcase.sample';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
-const mocks = vi.hoisted(() => ({ view: { kind: 'signed-out' } as { kind: string; all?: boolean; until?: string }, begin: vi.fn(), openJudge: vi.fn(), tryAgain: vi.fn() }));
+const mocks = vi.hoisted(() => ({ view: { kind: 'signed-out' } as {
+  kind: string; all?: boolean; until?: string; knownPets?: Array<{ tokenId: string; name: string; asleep: boolean }>;
+  birth?: { open: boolean; reason?: string } }, begin: vi.fn(), openJudge: vi.fn(), tryAgain: vi.fn() }));
 vi.mock('./useHome', () => ({ useHome: () => ({ view: mocks.view, tryAgain: mocks.tryAgain }) }));
 vi.mock('../../signin/signIn', () => ({ useSignIn: () => ({ begin: mocks.begin, openJudge: mocks.openJudge }) }));
 vi.mock('../../signin/SignInOutcome', () => ({ SignInOutcome: () => null }));
@@ -28,6 +30,38 @@ beforeEach(() => {
 });
 afterEach(async () => { await act(async () => root.unmount()); host.remove(); });
 const show = () => act(async () => root.render(<HomeScreen />));
+
+// spec: add-hatch-again › Petless Home screen › success
+it('keeps the meadow and shows the known given-away pet beside active discovery routes', async () => {
+  mocks.view = { kind: 'petless', knownPets: [{ tokenId: '9', name: 'Pixel', asleep: false }], birth: { open: true } };
+  await show();
+  expect(host.textContent).toContain('No pet of your own right now.');
+  expect(host.querySelector('a[href="/pet/9"]')?.textContent).toBe('Visit Pixel');
+  expect(host.querySelector('.ds-only--desktop a[href="/hatch"]')).not.toBeNull();
+  expect(host.querySelector('.ds-dock a[href="/hire"]')).not.toBeNull();
+  expect(host.querySelector('[data-meadow]')).not.toBeNull();
+});
+
+// spec: add-hatch-again › Petless Home screen › error
+it('offers a fresh check and public board while ownership is unknown', async () => {
+  mocks.view = { kind: 'petless-error' };
+  await show();
+  expect(host.textContent).toContain("We couldn't check your pets. Try again.");
+  expect(host.querySelector('a[href="/hatch"]')).toBeNull();
+  expect(host.querySelector('a[href="/hire"]')).not.toBeNull();
+  await act(async () => host.querySelector<HTMLButtonElement>('.ds-only--desktop button')!.click());
+  expect(mocks.tryAgain).toHaveBeenCalledTimes(1);
+});
+
+// spec: add-hatch-again › Petless Home screen › closed birth
+it('keeps Hatch, board and known pet reachable while births are paused', async () => {
+  mocks.view = { kind: 'petless', knownPets: [{ tokenId: '9', name: 'Pixel', asleep: false }], birth: { open: false, reason: 'budget' } };
+  await show();
+  expect(host.textContent).toContain('New pets are paused for now.');
+  expect(host.querySelector('a[href="/hatch"]')).not.toBeNull();
+  expect(host.querySelector('a[href="/hire"]')).not.toBeNull();
+  expect(host.querySelector('a[href="/pet/9"]')).not.toBeNull();
+});
 
 // spec: add-account › Home screen › signed-out
 it('puts sign-in in the header and the hatch action above the live meadow on desktop and in the phone dock', async () => {

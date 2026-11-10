@@ -6,6 +6,7 @@ beforeEach(() => sessionStorage.clear());
 
 describe('a birth awaiting its original transaction outcome', () => {
   // spec: add-pet › Birth flow › birth pending
+  // spec: add-hatch-again › Repeat birth flow › unknown outcome
   it('keeps the exact typed name across a reload, scoped to the player', () => {
     keepPendingName('alice.testnet', ' Pixel ');
     expect(pendingName('alice.testnet')).toBe(' Pixel ');
@@ -15,6 +16,7 @@ describe('a birth awaiting its original transaction outcome', () => {
 
   // spec: add-pet › Birth flow › birth pending
   // spec: add-pet › Birth flow › не вылупился
+  // spec: add-hatch-again › Repeat birth flow › confirmed failure
   it('removes the pending name only when the outcome has settled', () => {
     keepPendingName('alice.testnet', 'Pixel');
     expect(pendingName('alice.testnet')).toBe('Pixel');
@@ -23,6 +25,7 @@ describe('a birth awaiting its original transaction outcome', () => {
   });
 
   // spec: add-pet › Birth flow › birth pending
+  // spec: add-hatch-again › Hatch again screen › success × sign-out
   it('clears every account on sign-out', () => {
     keepPendingName('alice.testnet', 'Pixel');
     keepPendingName('bob.testnet', 'Biscuit');

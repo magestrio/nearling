@@ -119,14 +119,14 @@ describe('GET /api/me', () => {
     chain.addPet('4', OWNER, { name: 'Biscuit' });
     chain.hatchedBy.set(OWNER, '4');
     const own = await api('/api/me', { token: await token('did:privy:owner', OWNER) });
-    expect(own.body).toEqual({ accountId: OWNER, hatched: { tokenId: '4', name: 'Biscuit' }, currentPet: { tokenId: '4', name: 'Biscuit' }, ownedCount: 1 });
+    expect(own.body).toEqual({ accountId: OWNER, hatched: { tokenId: '4', name: 'Biscuit' }, latestBirth: { tokenId: '4', name: 'Biscuit' }, currentPet: { tokenId: '4', name: 'Biscuit' }, ownedCount: 1, knownPets: [], birth: { open: true } });
 
     chain.pets.get('4')!.owner_id = OTHER; // given away
     const gone = await api('/api/me', { token: await token('did:privy:owner', OWNER) });
-    expect(gone.body).toEqual({ accountId: OWNER, hatched: { tokenId: '4', name: 'Biscuit' }, currentPet: null, ownedCount: 0 });
+    expect(gone.body).toEqual({ accountId: OWNER, hatched: { tokenId: '4', name: 'Biscuit' }, latestBirth: { tokenId: '4', name: 'Biscuit' }, currentPet: null, ownedCount: 0, knownPets: [], birth: { open: true } });
 
     const stranger = await api('/api/me', { token: await token('did:privy:nobody', NEAR_ACCOUNT(3)) });
-    expect(stranger.body).toEqual({ accountId: NEAR_ACCOUNT(3), hatched: null, currentPet: null, ownedCount: 0 });
+    expect(stranger.body).toEqual({ accountId: NEAR_ACCOUNT(3), hatched: null, latestBirth: null, currentPet: null, ownedCount: 0, knownPets: [], birth: { open: true } });
 
     expect((await api('/api/me')).status).toBe(401);
   });

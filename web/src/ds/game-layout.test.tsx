@@ -198,4 +198,8 @@ it('keeps the pending Egg accessible and its motion removable by the DS media ru
   const css = readFileSync('src/ds/components.css', 'utf8');
   expect(css).toMatch(/@media \(prefers-reduced-motion: reduce\) \{ \.ds-egg--cracking \.ds-egg__shell \{ animation: none;/);
   expect(css).toMatch(/\.ds-stage--game \.ds-stage__hotbar \{ position: sticky; inset-block-end: var\(--space-0\)/);
+  // spec: add-hatch-again › Repeat birth flow › unknown outcome
+  const layoutCss = readFileSync('src/ds/pet-layout.css', 'utf8');
+  expect(layoutCss).toMatch(/\.ds-egg--cracking \.ds-egg__shell \{ animation: ds-egg-rock var\(--duration-medium\) var\(--easing-standard\) 15 alternate;/);
+  expect(readFileSync('src/ds/tokens.css', 'utf8')).toMatch(/--duration-medium: 320ms/);
 });

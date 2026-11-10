@@ -17,6 +17,8 @@ vi.mock('../../seams/worker', async (original) => ({
 vi.mock('../../track', () => ({ track: mocks.track }));
 
 const UNTIL = '2026-12-01T00:00:00.000Z';
+const PETLESS = { accountId: 'a', hatched: { tokenId: '9', name: 'Pixel' }, currentPet: null, ownedCount: 0,
+  knownPets: [{ tokenId: '9', name: 'Pixel', asleep: false }], birth: { open: true } };
 let root: Root | null = null;
 let home: ReturnType<typeof useHome>;
 
@@ -120,7 +122,7 @@ describe('a signed-in player', () => {
   });
 
   // spec: add-account › Home screen › success
-  it('is led to the current pet, and to the Hatch screen with none', async () => {
+  it('is led to the current pet', async () => {
     mocks.me.mockResolvedValue({ accountId: 'a', hatched: null, currentPet: { tokenId: '9', name: 'Pixel' }, ownedCount: 1 });
     await show(auth({ authenticated: true }));
     expect(window.location.pathname).toBe('/pet/9');
@@ -128,11 +130,122 @@ describe('a signed-in player', () => {
     expect(mocks.signInState).not.toHaveBeenCalled();
   });
 
-  // spec: add-account › Home screen › success
-  it('is led to the Hatch screen with no current pet', async () => {
-    mocks.me.mockResolvedValue({ accountId: 'a', hatched: null, currentPet: null, ownedCount: 0 });
+  // spec: add-hatch-again › Petless Home screen › success
+  it('stays on Home with fresh known links and birth status after giving away the last pet', async () => {
+    mocks.me.mockResolvedValue(PETLESS);
     await show(auth({ authenticated: true }));
-    expect(window.location.pathname).toBe('/hatch');
+    expect(window.location.pathname).toBe('/');
+    expect(home.view).toEqual({ kind: 'petless', knownPets: PETLESS.knownPets, birth: PETLESS.birth });
+  });
+
+  // spec: add-hatch-again › Petless Home screen › empty
+  it('shows no known links when a fresh zero-owner read has none', async () => {
+    mocks.me.mockResolvedValue({ ...PETLESS, knownPets: [] });
+    await show(auth({ authenticated: true }));
+    expect(home.view).toEqual({ kind: 'petless', knownPets: [], birth: { open: true } });
+  });
+
+  // spec: add-hatch-again › Petless Home screen › closed birth
+  it('uses the fresh closure after midnight instead of historical birth eligibility', async () => {
+    mocks.me.mockResolvedValueOnce({ ...PETLESS, birth: { open: false, reason: 'daily' } })
+      .mockResolvedValue({ ...PETLESS, birth: { open: true } });
+    await show(auth({ authenticated: true }));
+    expect(home.view.kind).toBe('petless');
+    await act(async () => document.dispatchEvent(new Event('visibilitychange')));
+    expect(home.view).toEqual({ kind: 'petless', knownPets: PETLESS.knownPets, birth: { open: true } });
+    expect(mocks.me).toHaveBeenCalledTimes(2);
+  });
+
+  // spec: add-hatch-again › Petless Home screen › closed birth × 00:00 UTC
+  it('checks birth status again at the UTC day boundary', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-11-10T23:59:59.000Z'));
+    try {
+      mocks.me.mockResolvedValueOnce({ ...PETLESS, birth: { open: false, reason: 'daily' } })
+        .mockResolvedValue({ ...PETLESS, birth: { open: true } });
+      await show(auth({ authenticated: true }));
+      await act(async () => { await vi.advanceTimersByTimeAsync(1000); });
+      expect(mocks.me).toHaveBeenCalledTimes(2);
+      expect(home.view).toEqual({ kind: 'petless', knownPets: PETLESS.knownPets, birth: { open: true } });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  // spec: add-hatch-again › Petless Home screen › closed birth × 00:00 UTC
+  it('keeps checking a daily closure when the browser clock is ahead of the Worker', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-11-11T02:00:00.000Z'));
+    try {
+      mocks.me.mockResolvedValueOnce({ ...PETLESS, serverTime: '2026-11-10T23:59:55.000Z', birth: { open: false, reason: 'daily', until: '2026-11-11T00:00:00.000Z' } })
+        .mockResolvedValue({ ...PETLESS, birth: { open: true } });
+      await show(auth({ authenticated: true }));
+      await act(async () => { await vi.advanceTimersByTimeAsync(4000); });
+      expect(mocks.me).toHaveBeenCalledTimes(1);
+      await act(async () => { await vi.advanceTimersByTimeAsync(5000); });
+      expect(mocks.me).toHaveBeenCalledTimes(2);
+      expect(home.view).toEqual({ kind: 'petless', knownPets: PETLESS.knownPets, birth: { open: true } });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  // spec: add-hatch-again › Petless Home screen › closed birth × 00:00 UTC
+  it('retries a missed boundary read after the Worker briefly fails', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-11-11T02:00:00.000Z'));
+    try {
+      mocks.me.mockResolvedValueOnce({ ...PETLESS, serverTime: '2026-11-10T23:59:55.000Z', birth: { open: false, reason: 'daily', until: '2026-11-11T00:00:00.000Z' } })
+        .mockRejectedValueOnce(new WorkerError(503, 'chain_unreachable'))
+        .mockResolvedValue({ ...PETLESS, birth: { open: true } });
+      await show(auth({ authenticated: true }));
+      await act(async () => { await vi.advanceTimersByTimeAsync(5000); });
+      expect(home.view.kind).toBe('petless-error');
+      await act(async () => { await vi.advanceTimersByTimeAsync(5000); });
+      expect(mocks.me).toHaveBeenCalledTimes(3);
+      expect(home.view).toEqual({ kind: 'petless', knownPets: PETLESS.knownPets, birth: { open: true } });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  // spec: add-hatch-again › Petless Home screen › success × reload
+  it('re-reads current ownership and links on a new Home mount', async () => {
+    mocks.me.mockResolvedValueOnce(PETLESS).mockResolvedValue({ ...PETLESS, knownPets: [] });
+    await show(auth({ authenticated: true }));
+    await act(async () => root?.unmount());
+    root = null;
+    await show(auth({ authenticated: true }));
+    expect(mocks.me).toHaveBeenCalledTimes(2);
+    expect(home.view).toEqual({ kind: 'petless', knownPets: [], birth: { open: true } });
+  });
+
+  // spec: add-hatch-again › Petless Home screen › success × receive gift
+  it('leads a player to their current pet after a gift arrives', async () => {
+    mocks.me.mockResolvedValueOnce(PETLESS).mockResolvedValue({ ...PETLESS, ownedCount: 1, currentPet: { tokenId: '2', name: 'Biscuit' } });
+    await show(auth({ authenticated: true }));
+    await act(async () => document.dispatchEvent(new Event('visibilitychange')));
+    expect(window.location.pathname).toBe('/pet/2');
+  });
+
+  // spec: add-hatch-again › Petless Home screen › signed-out × sign-out
+  it('drops private known links when the session ends', async () => {
+    mocks.me.mockResolvedValue(PETLESS);
+    await show(auth({ authenticated: true }));
+    expect(home.view.kind).toBe('petless');
+    mocks.signInState.mockResolvedValue({ state: 'open' });
+    await show(auth());
+    expect(home.view).toEqual({ kind: 'signed-out' });
+  });
+
+  // spec: add-hatch-again › Petless Home screen › error
+  it('does not guess ownership when the current read fails', async () => {
+    mocks.me.mockRejectedValue(new WorkerError(503, 'chain_unreachable'));
+    await show(auth({ authenticated: true }));
+    expect(home.view).toEqual({ kind: 'petless-error' });
+    mocks.me.mockResolvedValue(PETLESS);
+    await act(async () => home.tryAgain());
+    expect(home.view.kind).toBe('petless');
   });
 
   // spec: add-account › Home screen › success
@@ -147,7 +260,7 @@ describe('a signed-in player', () => {
     mocks.me.mockRejectedValue(new WorkerError(401, 'signed_out'));
     await show(auth({ authenticated: true }));
     expect(mocks.endSession).toHaveBeenCalledWith(false);
-    expect(home.view).toEqual({ kind: 'loading' });
+    expect(home.view).toEqual({ kind: 'petless-loading' });
   });
 });
 
@@ -166,7 +279,7 @@ describe('the page that cannot be read', () => {
   it('«Try again» asks the exchange again when it was the exchange that got no answer', async () => {
     const retrySession = vi.fn();
     await show(auth({ authenticated: true, unreachable: true, retrySession }));
-    expect(home.view).toEqual({ kind: 'error', busy: false });
+    expect(home.view).toEqual({ kind: 'petless-error' });
     await act(async () => home.tryAgain());
     expect(retrySession).toHaveBeenCalledTimes(1);
     expect(mocks.signInState).not.toHaveBeenCalled();

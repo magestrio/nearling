@@ -138,6 +138,7 @@ async fn migrate_takes_the_previous_layout_of_a_deployed_contract() -> anyhow::R
     let stored_owner: String = ctx.contract.view("owner_id").await?.json()?;
     assert_eq!(stored_owner, "owner.test.near");
     assert_eq!(ctx.hatch_view("alice.near").await?["token_id"], "0");
+    assert_eq!(ctx.hatch_view("alice.near").await?["owned_count"], "1");
     let migrated = ctx.pet_view("0").await?;
     assert_eq!(migrated["given_food"], "5");
     assert_eq!(migrated["friend_snacks"], 0);

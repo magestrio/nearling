@@ -79,6 +79,19 @@ afterEach(async () => {
 });
 
 describe('look: a read the screen asks for', () => {
+  // spec: add-hatch-again › Repeat ownership data › prior owner reads old memory
+  it('shows the former-owner memory line after a private conversation is refused', async () => {
+    mocks.pet.mockResolvedValueOnce(OWNER).mockResolvedValue({ ...OWNER, viewer: 'guest' });
+    mocks.conversation.mockRejectedValueOnce(new WorkerError(403, 'former_owner'));
+    await act(async () => {
+      root = createRoot(document.createElement('div'));
+      root.render(<AuthContext.Provider value={auth}><Probe /></AuthContext.Provider>);
+    });
+    await vi.waitFor(() => expect(screen.page.kind === 'pet' && screen.page.pet.viewer).toBe('guest'));
+    expect(screen.notice).toBe('You can visit Pixel, but its memories belong to its new owner.');
+    expect(screen.lines).toBeNull();
+  });
+
   // spec: add-game-layout › Pet stage rule › guest entries × owner-to-guest read
   it('replaces the owner view and drops the private conversation after ownership changes', async () => {
     await act(async () => {

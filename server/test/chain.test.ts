@@ -53,7 +53,7 @@ describe('the queue of the server key', () => {
     const chain = h.net().contract;
     await serverKey().send(mint(NEAR_ACCOUNT(1)));
     const second = await serverKey().send(mint(NEAR_ACCOUNT(1)));
-    expect(second).toMatchObject({ status: 'failed', code: 'already_hatched' });
+    expect(second).toMatchObject({ status: 'failed', code: 'already_owns_pet' });
     expect(chain.pets.size).toBe(1);
   });
 

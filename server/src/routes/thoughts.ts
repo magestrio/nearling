@@ -41,7 +41,12 @@ export async function ownedPet(c: AppContext): Promise<{ pet: PetRecord; id: str
     throw e;
   }
   if (pet === null) return c.json({ code: 'no_pet' }, 404);
-  if (pet.owner_id !== session.accountId) return c.json({ code: 'not_owner' }, 403);
+  if (pet.owner_id !== session.accountId) {
+    const known = await c.env.DB.prepare("SELECT 1 FROM known_pets WHERE account_id = ?1 AND token_id = ?2 AND reason = 'gift' UNION SELECT 1 FROM gift_flights WHERE sender = ?1 AND token_id = ?2 AND state = 'ok' LIMIT 1")
+      .bind(session.accountId, id).first();
+    if (known !== null) return c.json({ error: 'former_owner' }, 403);
+    return c.json({ code: 'not_owner' }, 403);
+  }
   return { pet, id };
 }
 

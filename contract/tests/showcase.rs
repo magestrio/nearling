@@ -15,6 +15,7 @@ fn amount(view: &Value, key: &str) -> u128 {
 
 // spec: add-account › Showcase view contract › a birth counted
 // spec: add-pet › Pet mint contract › birth counted
+// spec: add-hatch-again › Repeat pet mint contract › receiver owns a pet
 #[tokio::test]
 async fn public_zero_view_and_only_accepted_births_count() -> anyhow::Result<()> {
     let ctx = setup(BIG_POOL).await?;
@@ -54,7 +55,7 @@ async fn public_zero_view_and_only_accepted_births_count() -> anyhow::Result<()>
     assert_eq!(after_birth["counted_since"], initial["counted_since"]);
 
     let refused = ctx.mint("alice.near", "Again", "Curious").await?;
-    assert_refused(&refused, "already_hatched");
+    assert_refused(&refused, "already_owns_pet");
     assert!(event_logs(&refused).is_empty());
     assert_eq!(totals(&ctx).await?["pets_hatched"], 1);
     Ok(())

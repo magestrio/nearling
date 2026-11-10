@@ -227,9 +227,10 @@ test('signed-out: a session that ended is «Sign in with Google…» at once, no
 });
 
 // spec: add-pet › Service pause data › пауза снялась
+// spec: add-hatch-again › Hatch again screen › birth paused
 test('пауза снялась: the page\'s repeat marks itself a look (`?look=1`); the load is the one call that does not', async ({ page }) => {
   await openWith(page, '/hatch', { auth: SIGNED_IN, worker: { hatchStatus: { open: false, reason: 'service' } } });
-  await expect(page.getByText('New pets are paused for now. You can still feed and visit pets you know.').first()).toBeVisible();
+  await expect(page.getByText('New pets are paused for now.').first()).toBeVisible();
   expect(await calls(page)).not.toContain('worker:hatchStatus:look');
   const looks = async () => (await calls(page)).filter((c) => c === 'worker:hatchStatus:look').length;
   await expect.poll(looks, { timeout: 9000 }).toBeGreaterThan(0);
@@ -239,12 +240,12 @@ test('пауза снялась: the page\'s repeat marks itself a look (`?look=
 // spec: add-pet › Service pause data › пауза снялась
 test('пауза снялась: the closed Hatch screen opens by itself, with the name still there', async ({ page }) => {
   await openWith(page, '/hatch', { auth: SIGNED_IN, worker: { hatchStatus: { open: false, reason: 'service' } } });
-  await expect(page.getByText('New pets are paused for now. You can still feed and visit pets you know.').first()).toBeVisible();
+  await expect(page.getByText('New pets are paused for now.').first()).toBeVisible();
   await page.getByLabel('Name your pet').fill('Pixel');
   await setWorker(page, { hatchStatus: { open: true } });
   await expect(page.getByRole('button', { name: 'Hatch my pet' })).toBeEnabled();
   await expect(page.getByLabel('Name your pet')).toHaveValue('Pixel');
-  await expect(page.getByText('New pets are paused for now. You can still feed and visit pets you know.')).toHaveCount(0);
+  await expect(page.getByText('New pets are paused for now.')).toHaveCount(0);
 });
 
 // spec: add-pet › Hatch screen › рождения на сегодня закрыты

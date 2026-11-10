@@ -150,6 +150,7 @@ export class FakeContract {
   showcaseNumbers = { pets_hatched: 0, thoughts_paid: 0, spent: '0', hires_completed: 0, friend_snacks: 0, counted_since: 0 };
   /** What the next successful transaction burns, yoctoNEAR (`tokens_burnt` of its outcome). */
   burnt = '0';
+  gasPrice = 100_000_000n;
   /** When set, `debit_session` fails with this contract code even if its rules would pass. */
   debitFails: string | null = null;
   bornToday = 0;
@@ -259,6 +260,7 @@ export class FakeContract {
       case 'hatch_view':
         return {
           token_id: this.hatchedBy.get(String(args.account_id)) ?? null,
+          owned_count: String(this.ownedBy(String(args.account_id))),
           day: this.day,
           born_today: this.bornToday,
           pool: this.pool.toString(),
@@ -280,7 +282,7 @@ export class FakeContract {
   mint(receiver: string, name: string, character: string): { code: string } | { tokenId: string } {
     const enc = new TextEncoder();
     if (this.mintFails !== null) return { code: this.mintFails };
-    if (this.hatchedBy.has(receiver)) return { code: 'already_hatched' };
+    if (this.ownedBy(receiver) > 0) return { code: 'already_owns_pet' };
     if (this.bornToday >= 50) return { code: 'daily_births' };
     if (enc.encode(name).length > 32) return { code: 'name_too_long' };
     if (enc.encode(character).length > Number(env.MAX_CHARACTER_BYTES)) return { code: 'character_too_long' };
@@ -836,7 +838,7 @@ export class FakeContract {
         }
       }
       outcome = {
-        final_execution_status: 'EXECUTED_OPTIMISTIC',
+        final_execution_status: 'FINAL',
         status,
         transaction: { hash: key, signer_id: tx.signerId, receiver_id: tx.receiverId,
           actions: action.functionCall === undefined ? [{ Transfer: { deposit: call.deposit.toString() } }]
@@ -859,6 +861,8 @@ export class FakeContract {
 
   async handle(method: string, params: Record<string, unknown>): Promise<unknown> {
     switch (method) {
+      case 'gas_price':
+        return { result: { gas_price: this.gasPrice.toString() } };
       case 'query': {
         const type = params.request_type;
         if (type === 'call_function') {

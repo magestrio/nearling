@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { onFed } from '../feeding/feedRequest';
+import { go } from '../route';
 import { POLL_GUEST_MS, POLL_JOB_MS, WAIT_MS } from '../screens/pet/usePetScreen';
 import type { Advice } from '../screens/pet/parts';
 import { useAuth } from '../seams/auth';
@@ -351,6 +352,30 @@ export function useAdvice(worker: { tokenId: string; name: string; asleep: boole
       if (jobRef.current !== null || sendingRef.current || current === null || blockerRef.current !== null || screeningClosed || characterRefused || (screeningFailed && !retry) || text.trim() === '') return;
       // a session that ended: the line, nothing sent
       if (!authRef.current.needSession()) return;
+      // Ownership may have changed while this friend's page stood open. Check before the player's words enter the ask route.
+      sendingRef.current = true;
+      setSending(true);
+      let token: string | null;
+      try {
+        token = await hostRef.current.tokenOf();
+        if (token === null) throw new WorkerError(401, 'signed_out');
+        const me = await workerApi.me(token);
+        if (me.ownedCount === 0) {
+          go('/hire?advice=without-pet');
+          return;
+        }
+        if (me.currentPet?.tokenId !== payerId) {
+          hostRef.current.payerChanged();
+          return;
+        }
+      } catch (error) {
+        if (statusOf(error) === 401) authRef.current.endSession(true, true);
+        else hostRef.current.report(error, () => void ask(draftRef.current));
+        return;
+      } finally {
+        sendingRef.current = false;
+        setSending(false);
+      }
       const entry = `asked-${(counter.current += 1)}`;
       sendingRef.current = true;
       setSending(true);
@@ -366,7 +391,6 @@ export function useAdvice(worker: { tokenId: string; name: string; asleep: boole
       setEntries((now) => [...now, { id: entry, kind: 'asked', text, fresh: true }]);
       if (draftRef.current === raw) setDraft('');
       try {
-        const token = await hostRef.current.tokenOf();
         const answer = await workerApi.askAdvice(token, worker.tokenId, { payer: payerId, text, price: current.price.yocto });
         if (asking.current?.entry === entry) asking.current.job = answer.job;
         changeJob(answer.job);

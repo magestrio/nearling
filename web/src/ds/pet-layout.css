@@ -18,7 +18,8 @@
 
 /* The upstream DS 0.48 rule at the end of components.css cancels its own pending rock. */
 .ds-action-menu__message:empty { margin: var(--space-0); }
-.ds-egg--cracking .ds-egg__shell { animation: ds-egg-rock var(--duration-medium) var(--easing-standard) infinite alternate; }
+/* Fifteen 320 ms cycles end after 4.8 s; the cracked shell then stands still while the birth remains pending. */
+.ds-egg--cracking .ds-egg__shell { animation: ds-egg-rock var(--duration-medium) var(--easing-standard) 15 alternate; }
 
 @media (prefers-reduced-motion: reduce) {
   .ds-egg--cracking .ds-egg__shell { animation: none; }

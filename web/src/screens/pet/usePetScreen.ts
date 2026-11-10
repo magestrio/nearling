@@ -416,7 +416,13 @@ export function usePetScreen(tokenId: string, from: string | null, diary = false
     retryRef.current = retry;
     if (status === 401) authRef.current.endSession(pageRef.current.kind === 'pet');
     else if (status === 404 && e instanceof WorkerError && e.code === 'no_pet') setPage({ kind: 'not_found' });
-    else if (status === 403) setAttempt((a) => a + 1);
+    else if (status === 403) {
+      if (e instanceof WorkerError && e.code === 'former_owner' && pageRef.current.kind === 'pet') {
+        const name = pageRef.current.pet.name;
+        setNotice(`You can visit ${name}, but its memories belong to its new owner.`);
+      }
+      setAttempt((a) => a + 1);
+    }
     else if (pageRef.current.kind === 'pet') setBanner(status === 429 ? 'busy' : 'offline');
     else setPage({ kind: 'unreachable', busy: status === 429 });
   }, []);

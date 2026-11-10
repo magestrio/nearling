@@ -252,7 +252,7 @@ export const fakeWorkerApi: WorkerApi = {
   me: async (token) => {
     if (token === null) throw new WorkerError(401, 'signed_out');
     needSession(token);
-    return answer('me', state().me, { accountId: 'a'.repeat(64), hatched: null, currentPet: null, ownedCount: 0 });
+    return answer('me', state().me, { accountId: 'a'.repeat(64), hatched: null, currentPet: null, ownedCount: 0, knownPets: [], birth: { open: true } }, state().meDelayMs);
   },
   myPets: async (token) => {
     needSession(token);

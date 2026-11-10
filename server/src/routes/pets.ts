@@ -8,6 +8,9 @@ import { fullnessOf, moodFor, ownerFields } from '../pet/view';
 import { pauseReason } from '../servicePause';
 import { skillLabel } from '../work/skill';
 import { syncedWatch } from '../watch/target';
+import { knownPets } from '../pet/known';
+import { hatchView } from '../chain';
+import { openness } from './hatch';
 
 export const petRoutes = new Hono<AppEnv>();
 
@@ -81,11 +84,15 @@ petRoutes.get('/api/me', async (c) => {
   const session = requireSession(c);
   if (session instanceof Response) return session;
   try {
-    const { pets, hatched } = await ownedPets(c.env, session.accountId);
+    const [{ pets, hatched }, birth, known] = await Promise.all([
+      ownedPets(c.env, session.accountId), hatchView(c.env, session.accountId), knownPets(c.env, session.accountId),
+    ]);
     const current = await currentPet(c.env, session.accountId, pets);
     const lastGifted = pets.length === 0 && hatched !== null ? await lastGiftedPet(c.env, session.accountId) : null;
     return c.json({ accountId: session.accountId, hatched: hatched === null ? null : { tokenId: hatched.tokenId, name: hatched.name },
       currentPet: current === null ? null : { tokenId: current.tokenId, name: current.name }, ownedCount: pets.length,
+      latestBirth: hatched === null ? null : { tokenId: hatched.tokenId, name: hatched.name }, knownPets: known,
+      birth: await openness(c.env, birth),
       ...(lastGifted === null ? {} : { lastGifted: { tokenId: lastGifted.tokenId, name: lastGifted.name } }) });
   } catch (e) {
     if (e instanceof ChainUnreachable) return unreachable(c);

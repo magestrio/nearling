@@ -103,6 +103,7 @@ export function stageOf(pet: Pick<PetRecord, 'stage'>): Stage {
 
 export interface HatchRecord {
   token_id: string | null;
+  owned_count: string;
   day: number;
   born_today: number;
   pool: string;
@@ -339,7 +340,7 @@ export async function transactionExpired(env: Pick<Env, 'NEAR_RPC_URL'>, referen
 }
 
 /** What the network says about a transaction we sent. `null`: the network has not seen it (yet). */
-export type TxOutcome = { status: 'ok'; value: string | null; burnt?: string; blockHash?: string } | { status: 'failed'; code: string } | { status: 'pending' } | null;
+export type TxOutcome = { status: 'ok'; value: string | null; burnt?: string; blockHash?: string } | { status: 'failed'; code: string; burnt?: string } | { status: 'pending' } | null;
 
 /** The execution block's timestamp, in milliseconds. Never use the Worker's clock as chain time. */
 export async function blockTime(env: Pick<Env, 'NEAR_RPC_URL'>, hash: string): Promise<number> {
@@ -364,6 +365,42 @@ export async function txStatus(env: Pick<Env, 'NEAR_RPC_URL'>, txHash: string, s
   }
 }
 
+/** A mint is settled only from its original FINAL transaction, with the recorded receiver. */
+export async function finalBirthStatus(env: Pick<Env, 'NEAR_RPC_URL' | 'CONTRACT_ID'>, txHash: string, senderId: string, receiver: string): Promise<TxOutcome> {
+  try {
+    const raw = await withTimeout(rpcProvider(env).viewTransactionStatus({
+      txHash, accountId: senderId, waitUntil: 'FINAL',
+    }), READ_TIMEOUT_MS);
+    if (raw.final_execution_status !== 'FINAL') return { status: 'pending' };
+    const tx = raw.transaction;
+    if (tx.signer_id !== senderId || tx.receiver_id !== env.CONTRACT_ID || tx.hash !== txHash) throw new ChainUnreachable();
+    const actions = tx.actions as Array<{ FunctionCall?: { method_name: string; args: string } }>;
+    if (actions.length !== 1 || actions[0]?.FunctionCall?.method_name !== 'pet_mint') throw new ChainUnreachable();
+    const rawArgs = atob(actions[0].FunctionCall.args);
+    const args = JSON.parse(new TextDecoder().decode(Uint8Array.from(rawArgs, (ch) => ch.charCodeAt(0)))) as { receiver?: unknown };
+    if (args.receiver !== receiver) throw new ChainUnreachable();
+    if (raw.transaction_outcome?.outcome?.tokens_burnt === undefined ||
+      raw.receipts_outcome === undefined ||
+      raw.receipts_outcome.some((receipt) => receipt.outcome?.tokens_burnt === undefined)) throw new ChainUnreachable();
+    return interpret(raw);
+  } catch (e) {
+    if (isNotKnownYet(e)) return null;
+    throw new ChainUnreachable();
+  }
+}
+
+/** Fresh protocol gas price, yoctoNEAR per gas unit, for a worst-case prepaid mint quote. */
+export async function currentGasPrice(env: Pick<Env, 'NEAR_RPC_URL'>): Promise<bigint> {
+  try {
+    const quote = await withTimeout(rpcProvider(env).viewGasPrice(), READ_TIMEOUT_MS);
+    const price = BigInt(quote.gas_price);
+    if (price <= 0n) throw new Error('bad_gas_price');
+    return price;
+  } catch {
+    throw new ChainUnreachable();
+  }
+}
+
 function isNotKnownYet(e: unknown): boolean {
   const err = e as { type?: string; name?: string; message?: string } | null;
   return (
@@ -379,10 +416,12 @@ function isNotKnownYet(e: unknown): boolean {
 const CONTRACT_CODES = [
   'not_server',
   'already_hatched',
+  'already_owns_pet',
   'daily_births',
   'name_too_long',
   'character_too_long',
   'pool_empty',
+  'birth_cost_limit',
   'price_over_cap',
   'daily_cap',
   'over_food',
@@ -442,7 +481,8 @@ function interpret(out: RawOutcome | null): TxOutcome {
       // A refused hire of a batch: `hire:<index of the thought>:<code>` (`Hire debit contract`).
       const hire = /hire:\d+:[a-z_]+/.exec(text);
       const code = hire?.[0] ?? CONTRACT_CODES.find((c) => text.includes(c)) ?? 'failed';
-      return { status: 'failed', code };
+      const burnt = burntOf(out);
+      return { status: 'failed', code, ...(burnt !== undefined ? { burnt } : {}) };
     }
   }
   return { status: 'pending' };
@@ -550,6 +590,7 @@ async function signAndSendActions(keys: { account: Account; signer: KeyPairSigne
     } catch (e) {
       if (isInvalidNonce(e)) {
         // That transaction was rejected, not included: a new Account re-reads the nonce.
+        if (attempt === SERVER_NONCE_RETRIES) return { status: 'failed', txHash: lastHash, code: 'invalid_nonce' };
         keys.account = new Account(account.accountId, account.provider, signer);
         continue;
       }

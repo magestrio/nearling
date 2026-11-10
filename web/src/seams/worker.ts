@@ -61,7 +61,7 @@ export const FEED_SEND_TIMEOUT_MS = 65_000;
 /** The sign-out does not wait on the server longer than this (`Sign-out data` › `server not reached`). */
 export const END_SESSION_TIMEOUT_MS = 3000;
 
-async function call<T>(path: string, token: Token, init?: { method?: string; body?: unknown; timeoutMs?: number }): Promise<T> {
+async function call<T>(path: string, token: Token, init?: { method?: string; body?: unknown; timeoutMs?: number; serverTime?: boolean }): Promise<T> {
   let res: Response;
   let text: string;
   try {
@@ -89,8 +89,12 @@ async function call<T>(path: string, token: Token, init?: { method?: string; bod
     if (res.ok) throw new WorkerError(0, 'unreachable');
   }
   if (!res.ok) {
-    const code = typeof body === 'object' && body !== null && 'code' in body && typeof body.code === 'string' ? body.code : 'error';
+    const code = typeof body === 'object' && body !== null && 'error' in body && body.error === 'former_owner' ? 'former_owner'
+      : typeof body === 'object' && body !== null && 'code' in body && typeof body.code === 'string' ? body.code : 'error';
     throw new WorkerError(res.status, code, body);
+  }
+  if (init?.serverTime && body !== null && typeof body === 'object' && !Array.isArray(body)) {
+    return { ...body, serverTime: res.headers.get('date') ?? undefined } as T;
   }
   return body as T;
 }
@@ -127,7 +131,7 @@ const real: WorkerApi = {
   health: () => call<Health>('/health', null),
   showcase: () => call<ShowcaseCopy>('/api/showcase', null),
   hireBoard: (token) => call<HireBoard>('/api/hire', token),
-  me: (token) => call<Me>('/api/me', token),
+  me: (token) => call<Me>('/api/me', token, { serverTime: true }),
   myPets: (token) => call<MyPets>('/api/me/pets', token),
   publicGift: (token, code) => call<PublicGift>(`/api/gifts/${encodeURIComponent(code)}`, token),
   acceptGift: (token, code) => call<{ status: 'accepted'; tokenId: string }>(`/api/gifts/${encodeURIComponent(code)}/accept`, token, { method: 'POST' }),
@@ -137,7 +141,7 @@ const real: WorkerApi = {
   prepareGift: (token, tokenId) => call<GiftOutcome>(`/api/pets/${id(tokenId)}/gift/prepare`, token, { method: 'POST' }),
   sendGift: (token, tokenId, body) => call<GiftOutcome>(`/api/pets/${id(tokenId)}/gift/send`, token, { method: 'POST', body, timeoutMs: FEED_SEND_TIMEOUT_MS }),
   giftOutcome: (token, tokenId) => call<GiftOutcome>(`/api/pets/${id(tokenId)}/gift/outcome`, token),
-  hatchStatus: (token, opts) => call<HatchStatus>(opts?.look ? '/api/hatch?look=1' : '/api/hatch', token),
+  hatchStatus: (token, opts) => call<HatchStatus>(opts?.look ? '/api/hatch?look=1' : '/api/hatch', token, { serverTime: true }),
   hatch: (token, name) => call<{ tokenId: string } | { pending: true }>('/api/hatch', token, { method: 'POST', body: { name }, timeoutMs: HATCH_TIMEOUT_MS }),
   pet: (token, tokenId) => call<PetView>(`/api/pets/${id(tokenId)}`, token),
   relationships: (token, tokenId) => call<RelationshipSummary>(`/api/pets/${id(tokenId)}/relationships`, token),

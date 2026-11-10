@@ -36,7 +36,7 @@ describe('Birth flow', () => {
     };
     expect((await hatch('Pixel')).status).toBe(200);
     expect(row).toEqual({ tx_hash: null });
-    expect(statusBody).toEqual({ open: true, pending: true });
+    expect(statusBody).toMatchObject({ open: true, pending: true, knownPets: [] });
     expect(sendsBeforeSigning).toBe(0);
   });
 
@@ -88,7 +88,7 @@ describe('Birth flow', () => {
     expect((await hatch(42)).status).toBe(400);
     expect((await api('/api/hatch', { token: await asPlayer(), body: {} })).status).toBe(400);
     expect((await hatch('a'.repeat(32))).status).toBe(200);
-    expect(h.net().contract.reads.map((r) => r.method)).toEqual(['hatch_view']); // only the last request read the network
+    expect(h.net().contract.reads.map((r) => r.method)).toEqual(['hatch_view', 'nft_supply_for_owner']); // only the valid request read the network
   });
 
   // spec: add-pet › Birth flow › вылупился
@@ -122,19 +122,21 @@ describe('Birth flow', () => {
     const pet = await env.DB.prepare('SELECT token_id, hatched_by, birth_tx FROM pets').first<{ token_id: string; hatched_by: string; birth_tx: string }>();
     expect(pet).toMatchObject({ token_id: '0', hatched_by: PLAYER });
     expect(pet!.birth_tx.length).toBeGreaterThan(30);
-    expect(h.events()).toEqual([{ name: 'pet_born', props: {} }]);
+    expect(h.events()).toEqual([{ name: 'pet_born', props: { pet: expect.stringMatching(/^[0-9a-f]{32}$/), repeat: false } }]);
     // the pet is the player's now
     expect((await api('/api/pets/0', { token: await asPlayer() })).body).toMatchObject({ viewer: 'owner', name: 'Pixel', hello: true });
   });
 
   // spec: add-pet › Birth flow › вылупился
-  it('writes the starter food and the storage of the birth as the project\'s spend, at the rate of the day', async () => {
+  // spec: add-hatch-again › Repeat birth spend data › birth stop reached
+  it('writes the starter food, measured storage and actual gas once per birth token', async () => {
     await hatch('Pixel');
     const rows = (await env.DB.prepare('SELECT kind, usd_micros FROM project_spend ORDER BY kind').all<{ kind: string; usd_micros: number }>()).results;
-    // 0.0020 NEAR x 4.59 = $0.00918; 0.01966 NEAR x 4.59 = $0.0902394, rounded up
+    // 0.0020 NEAR x 4.59 = $0.00918; the measured first-birth storage is 0.01836 NEAR.
     expect(rows).toEqual([
+      { kind: 'gas', usd_micros: 0 },
       { kind: 'starter_food', usd_micros: 9_180 },
-      { kind: 'storage', usd_micros: 90_240 },
+      { kind: 'storage', usd_micros: 84_273 },
     ]);
   });
 
@@ -153,11 +155,12 @@ describe('Birth flow', () => {
     expect(res.body).toEqual({ tokenId: '0' });
     expect(mintCalls()).toHaveLength(1);
     expect(h.net().contract.pets.size).toBe(1);
-    expect(h.events()).toEqual([{ name: 'pet_born', props: {} }]);
+    expect(h.events()).toEqual([{ name: 'pet_born', props: { pet: expect.stringMatching(/^[0-9a-f]{32}$/), repeat: false } }]);
   });
 
   // spec: add-pet › Birth flow › birth pending
-  it('keeps an unknown birth and its original hash until the chain confirms the birth', async () => {
+  // spec: add-hatch-again › Repeat birth recovery data › old birth exists during pending repeat
+  it('does not finalize an unknown hash from a historical birth pointer', async () => {
     h.net().contract.mode = 'lost';
     const res = await hatch('Pixel');
     expect(res.status).toBe(202);
@@ -171,32 +174,33 @@ describe('Birth flow', () => {
     expect(h.net().contract.statusHashes).toContain(row!.tx_hash);
     h.net().contract.mint(PLAYER, 'Pixel', 'character');
     const confirmed = await api('/api/hatch', { token: await asPlayer() });
-    expect(confirmed.body).toMatchObject({ already: { tokenId: '0', name: 'Pixel' } });
-    expect(await env.DB.prepare('SELECT birth_tx FROM pets WHERE token_id = ?').bind('0').first<{ birth_tx: string }>()).toEqual({ birth_tx: row!.tx_hash });
-    expect(await env.DB.prepare('SELECT COUNT(*) AS n FROM jobs WHERE token_id = ? AND kind = ?').bind('0', 'greeting').first<{ n: number }>()).toEqual({ n: 1 });
-    expect(await env.DB.prepare('SELECT COUNT(*) AS n FROM project_spend WHERE birth_account = ?').bind(PLAYER).first<{ n: number }>()).toEqual({ n: 2 });
-    expect(h.events()).toEqual([{ name: 'pet_born', props: {} }]);
+    expect(confirmed.body).toMatchObject({ pending: true });
+    expect(await env.DB.prepare('SELECT birth_tx FROM pets WHERE token_id = ?').bind('0').first()).toBeNull();
+    expect(await env.DB.prepare('SELECT COUNT(*) AS n FROM jobs WHERE token_id = ? AND kind = ?').bind('0', 'greeting').first<{ n: number }>()).toEqual({ n: 0 });
+    expect(await env.DB.prepare('SELECT COUNT(*) AS n FROM project_spend WHERE birth_account = ?').bind(PLAYER).first<{ n: number }>()).toEqual({ n: 0 });
+    expect(h.events()).toEqual([]);
     await api('/api/hatch', { token: await asPlayer() });
-    expect(await env.DB.prepare('SELECT COUNT(*) AS n FROM jobs WHERE token_id = ? AND kind = ?').bind('0', 'greeting').first<{ n: number }>()).toEqual({ n: 1 });
-    expect(await env.DB.prepare('SELECT COUNT(*) AS n FROM project_spend WHERE birth_account = ?').bind(PLAYER).first<{ n: number }>()).toEqual({ n: 2 });
-    expect(h.events()).toEqual([{ name: 'pet_born', props: {} }]);
-    expect(await env.DB.prepare('SELECT COUNT(*) AS n FROM births_in_flight').first<{ n: number }>()).toEqual({ n: 0 });
+    expect(await env.DB.prepare('SELECT COUNT(*) AS n FROM jobs WHERE token_id = ? AND kind = ?').bind('0', 'greeting').first<{ n: number }>()).toEqual({ n: 0 });
+    expect(await env.DB.prepare('SELECT COUNT(*) AS n FROM project_spend WHERE birth_account = ?').bind(PLAYER).first<{ n: number }>()).toEqual({ n: 0 });
+    expect(h.events()).toEqual([]);
+    expect(await env.DB.prepare('SELECT COUNT(*) AS n FROM births_in_flight').first<{ n: number }>()).toEqual({ n: 1 });
     expect(mintCalls()).toHaveLength(0);
   });
 
   // spec: add-pet › Birth flow › birth pending
   // spec: add-pet › Birth flow › не вылупился
   it('keeps an unknown birth pending until its original hash confirms failure, then permits a retry', async () => {
-    h.net().contract.mode = 'lost';
+    h.net().contract.mode = 'executed-but-silent';
+    h.net().contract.mintFails = 'pool_empty';
     expect((await hatch('Pixel')).body).toEqual({ pending: true });
     const row = await env.DB.prepare('SELECT tx_hash FROM births_in_flight WHERE account = ?').bind(PLAYER).first<{ tx_hash: string }>();
-    expect((await api('/api/hatch', { token: await asPlayer() })).body).toMatchObject({ pending: true });
-    h.net().contract.outcomes.set(row!.tx_hash, { status: { Failure: { ActionError: { kind: { FunctionCallError: { ExecutionError: 'failed' } } } } } });
+    expect((await api('/api/hatch', { token: await asPlayer() })).body).toMatchObject({ failed: true });
     expect((await api('/api/hatch', { token: await asPlayer() })).body).toMatchObject({ failed: true });
     expect(h.net().contract.statusHashes).toContain(row!.tx_hash);
     expect(await env.DB.prepare('SELECT COUNT(*) AS n FROM births_in_flight').first<{ n: number }>()).toEqual({ n: 1 });
     expect((await api('/api/hatch', { token: await asPlayer() })).body).toMatchObject({ failed: true });
     h.net().contract.mode = 'normal';
+    h.net().contract.mintFails = null;
     expect((await hatch('Pixel')).status).toBe(200);
     expect(await env.DB.prepare('SELECT COUNT(*) AS n FROM births_in_flight').first<{ n: number }>()).toEqual({ n: 0 });
   });
@@ -244,14 +248,13 @@ describe('Birth flow', () => {
     expect(h.net().contract.pets.size).toBe(1);
     expect((await env.DB.prepare('SELECT birth_tx FROM pets WHERE token_id = ?').bind('0').first<{ birth_tx: string }>())?.birth_tx).toBe(original!.tx_hash);
     expect(await env.DB.prepare("SELECT COUNT(*) AS n FROM jobs WHERE token_id = '0' AND kind = 'greeting'").first<{ n: number }>()).toEqual({ n: 1 });
-    expect(await env.DB.prepare('SELECT COUNT(*) AS n FROM project_spend WHERE birth_account = ?').bind(PLAYER).first<{ n: number }>()).toEqual({ n: 2 });
+    expect(await env.DB.prepare('SELECT COUNT(*) AS n FROM project_spend WHERE birth_token_id = ?').bind('0').first<{ n: number }>()).toEqual({ n: 3 });
     expect(await env.DB.prepare('SELECT COUNT(*) AS n FROM births_in_flight WHERE account = ?').bind(PLAYER).first<{ n: number }>()).toEqual({ n: 0 });
-    expect(h.events()).toEqual([{ name: 'pet_born', props: {} }]);
+    expect(h.events()).toEqual([{ name: 'pet_born', props: { pet: expect.stringMatching(/^[0-9a-f]{32}$/), repeat: false } }]);
   });
 
-  // spec: add-pet › First thought flow › Приветствие
-  // spec: add-pet › Birth flow › birth pending
-  it('reaches a confirmed birth after more than ten older unresolved births, even when their chain reads fail', async () => {
+  // spec: add-hatch-again › Repeat birth recovery data › old birth exists during pending repeat
+  it('keeps an unrelated birth from settling the original hash after older unreadable journal entries', async () => {
     h.net().contract.mode = 'lost';
     expect((await hatch('Pixel')).body).toEqual({ pending: true });
     const original = await env.DB.prepare('SELECT tx_hash FROM births_in_flight WHERE account = ?')
@@ -273,13 +276,13 @@ describe('Birth flow', () => {
     h.net().contract.down = false;
     await settleItemSends(env, now);
     expect((await env.DB.prepare('SELECT birth_tx FROM pets WHERE token_id = ?')
-      .bind('0').first<{ birth_tx: string }>())?.birth_tx).toBe(original!.tx_hash);
+      .bind('0').first<{ birth_tx: string }>())?.birth_tx).toBeUndefined();
     expect(await env.DB.prepare("SELECT COUNT(*) AS n FROM jobs WHERE token_id = '0' AND kind = 'greeting'")
-      .first<{ n: number }>()).toEqual({ n: 1 });
+      .first<{ n: number }>()).toEqual({ n: 0 });
     expect(await env.DB.prepare('SELECT COUNT(*) AS n FROM project_spend WHERE birth_account = ?')
-      .bind(PLAYER).first<{ n: number }>()).toEqual({ n: 2 });
+      .bind(PLAYER).first<{ n: number }>()).toEqual({ n: 0 });
     expect(await env.DB.prepare('SELECT COUNT(*) AS n FROM item_sends WHERE kind = ? AND checked_at = ?')
-      .bind('birth', now).first<{ n: number }>()).toEqual({ n: 11 });
+      .bind('birth', now).first<{ n: number }>()).toEqual({ n: 12 });
   });
 
   // spec: add-pet › Birth flow › не вылупился
@@ -311,8 +314,8 @@ describe('Birth flow', () => {
     expect(mintCalls()).toHaveLength(1);
   });
 
-  // spec: add-pet › Birth flow › вылупился
-  it('does not mint a second pet for a second tap while the first birth is in flight: it waits and answers the same', async () => {
+  // spec: add-hatch-again › Repeat eligibility rule › gift after opening Hatch
+  it('refuses the second tap when another birth made this account an owner', async () => {
     const chain = h.net().contract;
     await env.DB.prepare('INSERT INTO births_in_flight (account, started_at) VALUES (?, ?)').bind(PLAYER, Date.now()).run();
     const second = hatch('Pixel');
@@ -321,8 +324,8 @@ describe('Birth flow', () => {
     chain.mint(PLAYER, 'Pixel', 'c');
     await env.DB.prepare('DELETE FROM births_in_flight WHERE account = ?').bind(PLAYER).run();
     const res = await second;
-    expect(res.status).toBe(200);
-    expect(res.body).toEqual({ tokenId: '0' });
+    expect(res.status).toBe(409);
+    expect(res.body).toMatchObject({ code: 'already', currentPet: { tokenId: '0', name: 'Pixel' } });
     expect(mintCalls()).toHaveLength(0);
   });
 
@@ -400,11 +403,11 @@ describe('Hatch screen', () => {
     await close();
     // the screen's repeating look sees the same answer and counts as nobody's tap
     // (a player with no pet of their own: the answer carries `noPets`, add-account › Hatch screen › no exit)
-    expect((await api('/api/hatch?look=1', { token: await asPlayer() })).body).toEqual({ open: false, reason, noPets: true });
+    expect((await api('/api/hatch?look=1', { token: await asPlayer() })).body).toMatchObject({ open: false, reason, noPets: true, ownedCount: 0 });
     expect(h.events()).toEqual([]);
     const open = await api('/api/hatch', { token: await asPlayer() });
     expect(open.status).toBe(200);
-    expect(open.body).toEqual({ open: false, reason, noPets: true });
+    expect(open.body).toMatchObject({ open: false, reason, noPets: true, ownedCount: 0 });
     expect(h.events()).toEqual([{ name: 'birth_blocked', props: { reason } }]);
     const tap = await hatch('Pixel');
     expect(tap.status).toBe(409);
@@ -416,12 +419,12 @@ describe('Hatch screen', () => {
   it('is open when the spend is a micro-dollar under the threshold and the pool is exactly the birth cost', async () => {
     await env.DB.prepare("INSERT INTO project_spend (at, kind, usd_micros) VALUES (1, 'gas', 99999999)").run();
     h.net().contract.pool = BigInt(env.MAX_BIRTH_COST);
-    expect((await api('/api/hatch', { token: await asPlayer() })).body).toEqual({ open: true });
+    expect((await api('/api/hatch', { token: await asPlayer() })).body).toMatchObject({ open: true, ownedCount: 0 });
   });
 
   // spec: add-pet › Hatch screen › error
   it('closes between the opening of the screen and the tap: the same answer on the tap, nothing minted', async () => {
-    expect((await api('/api/hatch', { token: await asPlayer() })).body).toEqual({ open: true });
+    expect((await api('/api/hatch', { token: await asPlayer() })).body).toMatchObject({ open: true, ownedCount: 0 });
     h.net().contract.pool = 0n;
     const tap = await hatch('Pixel');
     expect(tap.status).toBe(409);
@@ -442,10 +445,10 @@ describe('Hatch screen', () => {
     const chain = h.net().contract;
     chain.bornToday = 50;
     const open = await api('/api/hatch', { token: await asPlayer() });
-    expect(open.body).toEqual({ open: false, reason: 'daily', until: new Date((chain.day + 1) * 86_400_000).toISOString(), noPets: true });
+    expect(open.body).toMatchObject({ open: false, reason: 'daily', until: new Date((chain.day + 1) * 86_400_000).toISOString(), noPets: true, ownedCount: 0 });
     expect(h.events()).toEqual([{ name: 'birth_blocked', props: { reason: 'daily' } }]);
     chain.bornToday = 49;
-    expect((await api('/api/hatch', { token: await asPlayer() })).body).toEqual({ open: true });
+    expect((await api('/api/hatch', { token: await asPlayer() })).body).toMatchObject({ open: true, ownedCount: 0 });
   });
 
   // spec: add-pet › Hatch screen › error × several reasons at once
@@ -456,7 +459,7 @@ describe('Hatch screen', () => {
   ] as const)('with %s the longer cause is told, without a time', async (_label, reason, close) => {
     await close();
     const open = await api('/api/hatch', { token: await asPlayer() });
-    expect(open.body).toEqual({ open: false, reason, noPets: true });
+    expect(open.body).toMatchObject({ open: false, reason, noPets: true, ownedCount: 0 });
     expect(open.body).not.toHaveProperty('until');
     const visitor = await api('/api/hatch');
     expect(visitor.body).toEqual({ open: false, reason });
@@ -464,27 +467,27 @@ describe('Hatch screen', () => {
   });
 
   // spec: add-pet › Hatch screen › уже есть рождённый питомец
+  // spec: add-hatch-again › Repeat eligibility rule › gift after opening Hatch
   it('tells a player who hatched and still owns the pet, with its name', async () => {
     const chain = h.net().contract;
     chain.addPet('3', PLAYER, { name: 'Biscuit' });
     chain.hatchedBy.set(PLAYER, '3');
     const res = await api('/api/hatch', { token: await asPlayer() });
-    expect(res.body).toEqual({ open: true, already: { tokenId: '3', name: 'Biscuit' } });
+    expect(res.body).toMatchObject({ open: true, ownedCount: 1, already: { tokenId: '3', name: 'Biscuit' } });
     const tap = await hatch('Pixel');
     expect(tap.status).toBe(409);
-    expect(tap.body).toEqual({ code: 'already' });
+    expect(tap.body).toMatchObject({ code: 'already', currentPet: { tokenId: '3', name: 'Biscuit' } });
     expect(mintCalls()).toHaveLength(0);
-    // the network has the pet and D1 had no row for it (a birth whose bookkeeping was lost): written now
-    expect(await env.DB.prepare('SELECT hatched_by FROM pets WHERE token_id = ?').bind('3').first()).toEqual({ hatched_by: PLAYER });
+    // A current owner record on chain is enough for the veto; D1 is not eligibility evidence.
   });
 
-  // spec: add-pet › Hatch screen › уже есть рождённый питомец
-  it('does not count pets given to the player: they can still hatch their own', async () => {
+  // spec: add-hatch-again › Repeat eligibility rule › gift after opening Hatch
+  it('counts a gifted-in pet as current ownership and refuses a birth', async () => {
     const chain = h.net().contract;
     chain.addPet('3', PLAYER, { name: 'Gifted' }); // owned, but not hatched by this player
     const res = await api('/api/hatch', { token: await asPlayer() });
-    expect(res.body).toEqual({ open: true });
-    expect((await hatch('Pixel')).status).toBe(200);
+    expect(res.body).toMatchObject({ open: true, ownedCount: 1, already: { tokenId: '3', name: 'Gifted' } });
+    expect((await hatch('Pixel')).status).toBe(409);
   });
 
   // spec: add-pet › Hatch screen › уже есть рождённый питомец
@@ -492,7 +495,7 @@ describe('Hatch screen', () => {
     const chain = h.net().contract;
     chain.addPet('3', NEAR_ACCOUNT(99), { name: 'Away' });
     chain.hatchedBy.set(PLAYER, '3');
-    expect((await api('/api/hatch', { token: await asPlayer() })).body).toEqual({ open: true });
+    expect((await api('/api/hatch', { token: await asPlayer() })).body).toMatchObject({ open: true, ownedCount: 0, latestBirth: { tokenId: '3', name: 'Away' } });
   });
 
   // spec: add-pet › Hatch screen › no exit
@@ -500,9 +503,9 @@ describe('Hatch screen', () => {
     h.net().contract.pool = 0n;
     for (const path of ['/api/hatch', '/api/hatch?look=1']) {
       const res = await api(path, { token: await asPlayer() });
-      expect(res.body, path).toEqual({ open: false, reason: 'pool', noPets: true });
+      expect(res.body, path).toMatchObject({ open: false, reason: 'pool', noPets: true, ownedCount: 0 });
     }
-    expect(h.net().contract.reads.filter((r) => r.method === 'nft_supply_for_owner').map((r) => r.args)).toEqual([{ account_id: PLAYER }, { account_id: PLAYER }]);
+    expect(h.net().contract.reads.filter((r) => r.method === 'nft_tokens_for_owner')).toHaveLength(2);
   });
 
   // spec: add-pet › Hatch screen › no exit
@@ -513,7 +516,7 @@ describe('Hatch screen', () => {
     chain.hatchedBy.set(PLAYER, '3'); // they hatched it, and it is somebody else's now
     expect((await api('/api/hatch', { token: await asPlayer() })).body).toHaveProperty('noPets', true);
     chain.addPet('4', PLAYER, { name: 'Gifted' });
-    expect((await api('/api/hatch', { token: await asPlayer() })).body).toEqual({ open: false, reason: 'pool' });
+    expect((await api('/api/hatch', { token: await asPlayer() })).body).toMatchObject({ open: false, reason: 'pool', ownedCount: 1 });
   });
 
   // spec: add-pet › Hatch screen › no exit
@@ -523,16 +526,16 @@ describe('Hatch screen', () => {
     chain.addPet('3', PLAYER);
     chain.hatchedBy.set(PLAYER, '3');
     const owner = await api('/api/hatch', { token: await asPlayer() });
-    expect(owner.body).toEqual({ open: false, reason: 'pool' });
+    expect(owner.body).toMatchObject({ open: false, reason: 'pool', ownedCount: 1 });
     expect(owner.body).not.toHaveProperty('noPets');
     chain.reads.length = 0;
     const visitor = await api('/api/hatch');
     expect(visitor.body).toEqual({ open: false, reason: 'pool' });
     expect(chain.reads.map((r) => r.method)).not.toContain('nft_supply_for_owner');
-    // open hatching: no count at all
+    // Open hatching also reads current ownership before offering a birth.
     chain.pool = 1_000_000_000_000_000_000_000_000n;
     chain.reads.length = 0;
-    expect((await api('/api/hatch', { token: await token('did:privy:other', NEAR_ACCOUNT(11)) })).body).toEqual({ open: true });
+    expect((await api('/api/hatch', { token: await token('did:privy:other', NEAR_ACCOUNT(11)) })).body).toMatchObject({ open: true, ownedCount: 0 });
     expect(chain.reads.map((r) => r.method)).not.toContain('nft_supply_for_owner');
   });
 
@@ -540,7 +543,7 @@ describe('Hatch screen', () => {
   it('answers 503 chain_unreachable when the count cannot be read, never a closed answer without it', async () => {
     h.net().contract.pool = 0n;
     // the read of the hatch record works, the count fails: only that method is down
-    h.net().contract.failingViews.add('nft_supply_for_owner');
+    h.net().contract.failingViews.add('nft_tokens_for_owner');
     const down = await api('/api/hatch', { token: await asPlayer() });
     expect(down).toEqual({ status: 503, body: { code: 'chain_unreachable' } });
   });

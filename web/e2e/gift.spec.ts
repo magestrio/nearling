@@ -492,11 +492,10 @@ test('leaves a former owner diary closed until Today, then counts its reading', 
   await expect(calls(page)).resolves.toContain('worker:readDiary');
 });
 
-// spec: add-gift › Several pets rule › питомцев не осталось
-// spec: add-gift › Several pets rule › питомцев не осталось, рождения закрыты
+// spec: add-hatch-again › Hatch again screen › birth closed for the day
 test('keeps Visit and a friend exit beneath the closed hatch line', async ({ page }) => {
-  await openWith(page, '/hatch?from=2', { auth: SIGNED_IN, worker: { hatchStatus: { open: false, reason: 'daily', until: '2026-11-01T00:00:00Z', noPets: true, lastGifted: { tokenId: '9', name: 'Pixel' } }, pets: { '2': { tokenId: '2', name: 'Biscuit', stage: 'adult', fullness: { state: 'full', level: 1 }, mood: 'happy' } } } });
-  await expect(page.getByText("You gave Pixel a new home, so you don't have a pet right now.", { exact: false })).toBeVisible();
+  await openWith(page, '/hatch?from=2', { auth: SIGNED_IN, worker: { hatchStatus: { open: false, reason: 'daily', until: '2026-11-01T00:00:00Z', ownedCount: 0, knownPets: [{ tokenId: '9', name: 'Pixel', asleep: false }] }, pets: { '2': { tokenId: '2', name: 'Biscuit', stage: 'adult', fullness: { state: 'full', level: 1 }, mood: 'happy' } } } });
+  await expect(page.getByText(/^That's all the new pets for today\. Hatching is back at \d\d:\d\d\.$/).first()).toBeVisible();
   await expect(page.getByRole('link', { name: 'Visit Pixel' })).toBeVisible();
   await expect(page.getByRole('link', { name: 'Back to Biscuit' })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Account' })).toBeVisible();

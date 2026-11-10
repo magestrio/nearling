@@ -750,8 +750,9 @@ function OutsiderPage({ pet, s, seal, ownerChanged = false }: { pet: Exclude<Pet
   // the label under the name, for every viewer, inert (`Skill rule` › «label on the pet's page»); none for a pet with no skill
   // the badge is always passed, as the frames do: with no skill it draws nothing, and the plate keeps the frames' spacing
   const skillBadge = <SkillBadge name={name} label={pet.skill?.label} />;
-  // a guest who never hatched is offered a pet of their own
-  const fresh = viewer === 'guest' && me !== null && me.hatched === null;
+  // A former owner can hatch again: current ownership, not the historical birth pointer, decides the offer.
+  const fresh = viewer === 'guest' && me !== null && me.ownedCount === 0;
+  const former = fresh && (me?.lastGifted?.tokenId === tokenId || me?.hatched?.tokenId === tokenId);
   const cover = useFeedCover(tokenId);
   const giftRequest = useGiftRequest();
   const givenHere = giftRequest?.tokenId === tokenId && giftRequest.given === true;
@@ -844,10 +845,10 @@ function OutsiderPage({ pet, s, seal, ownerChanged = false }: { pet: Exclude<Pet
       edge={<Stack gap={1}>{pet.watch?.target ? <Text variant="small" tone="secondary">{`Watching: ${pet.watch.target}`}</Text> : null}
         {pet.skill?.label ? <Text variant="small">{`Good at ${pet.skill.label}`}</Text> : null}
         <TextLink href={`/pet/${tokenId}/verify`} tone="trust" icon="verify">{`Check it's really ${name}`}</TextLink></Stack>}
-      chat={<><Conversation label={`Advice from ${name}`}>{s.notice === FORMER_OWNER_LINE ? <Note>{FORMER_OWNER_LINE}</Note> : null}</Conversation>
+      chat={<><Conversation label={`Advice from ${name}`}>{s.notice === FORMER_OWNER_LINE || former ? <Note>{FORMER_OWNER_LINE}</Note> : null}</Conversation>
         <Dock><Stack gap={2}>{asleep ? <Text>{asleepLine}</Text> : null}
           {viewer === 'visitor' ? <Button variant="secondary" onClick={() => begin('signin')}>Sign in</Button> : null}
-          {fresh && s.notice !== FORMER_OWNER_LINE ? <Button variant="secondary" href={hatchPath(tokenId)}>Get your own pet</Button> : null}
+          {fresh ? <Button variant="secondary" href={hatchPath(tokenId)}>Get your own pet</Button> : null}
           <SignInOutcome column unreachable={offlineLine(name)} /></Stack></Dock></>}
       hotbar={<Hotbar items={guestStageActions(name, cover.opener, () => {
         if (viewer === 'visitor') begin('feed'); else if (auth.needSession()) runAction('feed', ctx);

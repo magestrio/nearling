@@ -227,27 +227,39 @@ export type ClosedReason = 'service' | 'budget' | 'pool' | 'daily';
 /** `GET /api/hatch` */
 export interface HatchStatus {
   open: boolean;
+  /** HTTP Date of this Worker response; added by the client seam, not part of the JSON body. */
+  serverTime?: string;
   /** The original signed birth is still being checked; no new birth may be sent. */
   pending?: true;
   /** Its transaction was confirmed unsuccessful and no pet was born. */
   failed?: true;
+  /** A token proved by the original pending mint transaction, never the historical birth pointer. */
+  tokenId?: string;
   reason?: ClosedReason;
   /** ISO time, only for `daily` alone */
   until?: string;
-  /** a signed-in player who hatched a pet they still own */
+  /** The current owned pet, including one received as a gift. */
   already?: { tokenId: string; name: string };
-  /** a closed answer to a session whose player has no pet of their own now: `lastGifted` distinguishes a player
-   *  who gave one away from a player who never hatched; absent for a visitor and for a player with a pet */
+  ownedCount?: number;
+  latestBirth?: { tokenId: string; name: string } | null;
+  currentPet?: { tokenId: string; name: string } | null;
+  knownPets?: Array<{ tokenId: string; name: string; asleep: boolean }>;
+  /** Legacy fields retained for older mock fixtures until their owning changes are rebuilt. */
   noPets?: true;
   lastGifted?: { tokenId: string; name: string };
 }
 
 export interface Me {
   accountId: string;
+  /** HTTP Date of this Worker response; added by the client seam, not part of the JSON body. */
+  serverTime?: string;
   hatched: { tokenId: string; name: string } | null;
   currentPet: { tokenId: string; name: string } | null;
   ownedCount: number;
   lastGifted?: { tokenId: string; name: string };
+  /** Private links returned only after the signed-in player's fresh ownership read. */
+  knownPets?: Array<{ tokenId: string; name: string; asleep: boolean }>;
+  birth?: { open: boolean; reason?: ClosedReason; until?: string };
 }
 
 export interface MyPets {

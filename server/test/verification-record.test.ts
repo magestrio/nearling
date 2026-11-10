@@ -10,24 +10,25 @@ const h = harness();
 const OWNER = NEAR_ACCOUNT(10);
 
 describe('verification record transaction pointers', () => {
-  // spec: add-verification › Verification record rule › link not ready
-  it('recovers a birth hash noted before broadcast when the send answer is lost', async () => {
+  // spec: add-hatch-again › Repeat birth recovery data › repeat confirmed after lost response
+  it('keeps the original birth hash when FINAL confirms a send whose answer was lost', async () => {
     h.net().contract.mode = 'executed-but-silent';
     const tk = await token('did:privy:verification-birth', OWNER);
     const made = await api('/api/hatch', { token: tk, body: { name: 'Pixel' } });
     expect(made.status).toBe(200);
     const tokenId = made.body.tokenId as string;
-    expect((await env.DB.prepare('SELECT birth_tx FROM pets WHERE token_id = ?').bind(tokenId).first<{ birth_tx: string }>())?.birth_tx).toBe('');
-    expect((await api(`/api/verification/pets/${tokenId}`)).body.transactions).toEqual([]);
+    const original = (await env.DB.prepare('SELECT birth_tx FROM pets WHERE token_id = ?').bind(tokenId).first<{ birth_tx: string }>())?.birth_tx;
+    expect(original).toMatch(/^[1-9A-HJ-NP-Za-km-z]{32,}$/);
+    expect((await api(`/api/verification/pets/${tokenId}`)).body.transactions).toMatchObject([{ kind: 'birth', ref: 'birth', txHash: original }]);
     const pending = await env.DB.prepare("SELECT tx_hash FROM item_sends WHERE kind = 'birth' AND token_id = ?")
       .bind(OWNER).first<{ tx_hash: string }>();
-    expect(pending?.tx_hash).toMatch(/^[1-9A-HJ-NP-Za-km-z]{32,}$/);
+    expect(pending).toBeNull();
     h.net().contract.mode = 'normal';
     await settleItemSends(env, Date.now() + 61_000);
     const record = await env.DB.prepare("SELECT tx_hash FROM pet_transactions WHERE token_id = ? AND kind = 'birth' AND ref = 'birth'")
       .bind(tokenId).first<{ tx_hash: string }>();
-    expect(record?.tx_hash).toBe(pending?.tx_hash);
-    expect((await api(`/api/verification/pets/${tokenId}`)).body.transactions).toMatchObject([{ kind: 'birth', ref: 'birth', txHash: pending?.tx_hash }]);
+    expect(record?.tx_hash).toBe(original);
+    expect((await api(`/api/verification/pets/${tokenId}`)).body.transactions).toMatchObject([{ kind: 'birth', ref: 'birth', txHash: original }]);
     expect((await env.DB.prepare('SELECT birth_tx FROM pets WHERE token_id = ?').bind(tokenId).first<{ birth_tx: string }>())?.birth_tx).toBe(record?.tx_hash);
   });
 

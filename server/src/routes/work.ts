@@ -2,7 +2,7 @@
 // (design.md › Worker): the request limit (`gate`) -> the input -> the owner from the contract, uncached
 // (`ownedPet`) -> the check of the pet's state -> the write. Nothing here logs a word of a player.
 import { Hono } from 'hono';
-import { ChainUnreachable, petView, type PetRecord } from '../chain';
+import { ChainUnreachable, ownedCount, petView, type PetRecord } from '../chain';
 import { requireSession, TOKEN_ID, utcDay, type AppContext, type AppEnv } from '../http';
 import { track } from '../track';
 import { fullness, HIRE_FEE_MIN_YOCTO } from '../pricing';
@@ -240,6 +240,12 @@ workRoutes.get('/api/pets/:id/advice', async (c) => {
 workRoutes.post('/api/pets/:id/advice', async (c) => {
   const session = requireSession(c);
   if (session instanceof Response) return session;
+  try {
+    if ((await ownedCount(c.env, session.accountId)) === 0) return c.json({ code: 'not_payer' }, 403);
+  } catch (e) {
+    if (e instanceof ChainUnreachable) return c.json({ code: 'chain_unreachable' }, 503);
+    throw e;
+  }
   const body = await c.req.json<{ payer?: unknown; text?: unknown; price?: unknown }>().catch(() => null);
   if (body === null || typeof body.payer !== 'string' || typeof body.text !== 'string' || typeof body.price !== 'string') return c.json({ code: 'bad_request' }, 400);
   // The question as a line of the player: up to 500 code points with a visible sign; the price is a yocto string, a ceiling.

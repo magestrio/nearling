@@ -202,7 +202,7 @@ pub struct Contract {
     treasury_id: AccountId,
     tokens: NonFungibleToken,
     pets: LookupMap<TokenId, VersionedPet>,
-    /// Account → the token it gave birth to, also after the pet was given away.
+    /// Account → latest birth token, also after the pet was given away.
     hatched: LookupMap<AccountId, TokenId>,
     births_day: u64,
     births_today: u32,
@@ -238,6 +238,19 @@ pub struct Contract {
 
 fn fail(code: &str) -> ! {
     env::panic_str(code)
+}
+
+fn assert_birth_cost(cost: u128) {
+    if cost > MAX_BIRTH_COST {
+        fail("birth_cost_limit");
+    }
+}
+
+// Only unit tests can increase the measured write size. Valid current names and account
+// lengths stay below the ceiling, so this exercises the rejection inside pet_mint itself.
+#[cfg(test)]
+thread_local! {
+    static TEST_BIRTH_EXTRA_BYTES: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
 }
 
 fn day_of(timestamp_ns: u64) -> u64 {
@@ -952,8 +965,8 @@ impl Contract {
     /// Server only, no deposit. The pool pays the storage and the starter food.
     pub fn pet_mint(&mut self, receiver: AccountId, name: String, character: String) -> TokenId {
         self.assert_server();
-        if self.hatched.contains_key(&receiver) {
-            fail("already_hatched");
+        if self.tokens.nft_supply_for_owner(receiver.clone()).0 > 0 {
+            fail("already_owns_pet");
         }
         let now = env::block_timestamp();
         let day = day_of(now);
@@ -1009,10 +1022,15 @@ impl Contract {
             .checked_add(OWNER_LIST_ENTRY_BYTES)
             .and_then(|bytes| bytes.checked_add(TRANSFER_GENERATION_BYTES))
             .unwrap_or_else(|| fail("overflow"));
+        #[cfg(test)]
+        let bytes = bytes
+            .checked_add(TEST_BIRTH_EXTRA_BYTES.with(|extra| extra.get()))
+            .unwrap_or_else(|| fail("overflow"));
         let cost = u128::from(bytes)
             .checked_mul(env::storage_byte_cost().as_yoctonear())
             .and_then(|storage| storage.checked_add(STARTER_FOOD))
             .unwrap_or_else(|| fail("overflow"));
+        assert_birth_cost(cost);
         if self.pool < cost {
             fail("pool_empty");
         }
@@ -2065,6 +2083,7 @@ impl Contract {
 
     pub fn hatch_view(&self, account_id: AccountId) -> HatchView {
         HatchView {
+            owned_count: self.tokens.nft_supply_for_owner(account_id.clone()),
             token_id: self.hatched.get(&account_id).cloned(),
             day: day_of(env::block_timestamp()),
             born_today: self.births_today_now(),
@@ -2282,6 +2301,7 @@ mod tests {
         assert_eq!(migrated.server_id, server());
         assert_eq!(migrated.treasury_id, treasury());
         assert_eq!(migrated.hatch_view(player(0)).pool.0, pool);
+        assert_eq!(migrated.hatch_view(player(0)).owned_count.0, 1);
         assert_eq!(migrated.next_token_id, 1);
         assert_eq!(
             migrated.hatch_view(player(0)).token_id.as_deref(),
@@ -2467,9 +2487,9 @@ mod tests {
         assert_eq!(view.born_today, 0, "the counter belongs to the earlier day");
     }
 
-    // spec: add-pet › Pet mint contract › второй рождённый питомец
+    // spec: add-hatch-again › Repeat pet mint contract › accepted repeat
     #[test]
-    fn a_second_mint_fails_even_after_the_pet_was_given() {
+    fn a_second_mint_passes_after_the_pet_was_given() {
         let mut contract = funded_contract(1_000_000_000_000_000_000_000_000);
         testing_env!(context(server(), 1_000, 0).build());
         let token_id = contract.pet_mint(player(0), "Pixel".into(), "I am curious.".into());
@@ -2479,16 +2499,41 @@ mod tests {
             .internal_transfer_unguarded(&token_id, &player(0), &player(1));
         assert_eq!(contract.tokens.owner_by_id.get(&token_id), Some(player(1)));
 
-        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            contract.pet_mint(player(0), "Second".into(), "I am calm.".into())
-        }));
-        let error = result.expect_err("the second mint must fail");
-        let text = error.downcast_ref::<String>().cloned().unwrap_or_default();
-        assert!(text.contains("already_hatched"), "{text}");
+        let second = contract.pet_mint(player(0), "Second".into(), "I am calm.".into());
+        assert_eq!(second, "1");
         assert_eq!(
             contract.hatch_view(player(0)).token_id.as_deref(),
-            Some("0")
+            Some("1")
         );
+        assert_eq!(contract.tokens.owner_by_id.get(&token_id), Some(player(1)));
+    }
+
+    // spec: add-hatch-again › Repeat pet mint contract › birth above pool ceiling
+    #[test]
+    fn birth_pool_ceiling_accepts_exactly_the_cap_and_rejects_one_yocto_more() {
+        testing_env!(context(server(), 1_000, 0).build());
+        assert_birth_cost(MAX_BIRTH_COST);
+        assert!(panic_text(|| assert_birth_cost(MAX_BIRTH_COST + 1)).contains("birth_cost_limit"));
+    }
+
+    // spec: add-hatch-again › Repeat pet mint contract › birth above pool ceiling
+    #[test]
+    fn pet_mint_rejects_an_over_ceiling_birth_before_pool_counters_or_events() {
+        let mut contract = funded_contract(1_000_000_000_000_000_000_000_000);
+        testing_env!(context(server(), 1_000, 0).build());
+        let pool = contract.pool;
+        let births = contract.births_today;
+        let showcase = contract.pets_hatched;
+        let next_token = contract.next_token_id;
+        TEST_BIRTH_EXTRA_BYTES.with(|extra| extra.set(3_000));
+        let rejected = panic_text(|| contract.pet_mint(player(0), "Pixel".into(), "I am curious.".into()));
+        TEST_BIRTH_EXTRA_BYTES.with(|extra| extra.set(0));
+        assert!(rejected.contains("birth_cost_limit"));
+        assert_eq!(contract.pool, pool);
+        assert_eq!(contract.births_today, births);
+        assert_eq!(contract.pets_hatched, showcase);
+        assert_eq!(contract.next_token_id, next_token);
+        assert!(get_logs().iter().all(|log| !log.contains("pet_born") && !log.contains("nft_mint")));
     }
 
     // spec: add-pet › Hatch view contract › аккаунт рождал питомца (the pet is already given away)
@@ -2504,8 +2549,10 @@ mod tests {
             contract.hatch_view(player(0)).token_id,
             Some(token_id.clone())
         );
+        assert_eq!(contract.hatch_view(player(0)).owned_count.0, 0);
         assert_eq!(contract.pet_view(token_id).unwrap().owner_id, player(1));
         assert_eq!(contract.hatch_view(player(1)).token_id, None);
+        assert_eq!(contract.hatch_view(player(1)).owned_count.0, 1);
     }
 
     // The standard's own byte count is what OWNER_LIST_ENTRY_BYTES must cover: the first token of

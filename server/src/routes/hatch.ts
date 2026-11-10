@@ -1,16 +1,16 @@
 // GET /api/hatch (is hatching open, did this player already hatch) and POST /api/hatch (Birth flow).
 import { Hono } from 'hono';
-import { ChainUnreachable, hatchView, ownedCount, PET_MINT_TGAS, petView, type HatchRecord } from '../chain';
+import { ChainUnreachable, currentGasPrice, finalBirthStatus, hatchView, isNodeRefusal, ownedCount, PET_MINT_TGAS, petView, type HatchRecord } from '../chain';
 import { assembleCharacter } from '../character/presets';
 import { requireSession, type AppContext, type AppEnv } from '../http';
 import { cleanName, hasVisible } from '../name/clean';
 import { hasInsult } from '../name/insult';
-import { MAX_BIRTH_COST_YOCTO } from '../pricing';
-import { birthFlight, finishBirth, type BirthFlight } from '../pet/birth';
+import { MAX_BIRTH_COST_YOCTO, nearUsdRate, yoctoToUsdMicros } from '../pricing';
+import { birthFlight, finishBirth, releaseFailedBirth, type BirthFlight } from '../pet/birth';
 import { gasIsLow, pauseReason } from '../servicePause';
 import { track } from '../track';
-import { lastGiftedPet } from '../gift/current';
-import { publicPetId } from '../pet/publicIds';
+import { currentPet, lastGiftedPet, ownedPets } from '../gift/current';
+import { knownPets } from '../pet/known';
 
 export const hatchRoutes = new Hono<AppEnv>();
 
@@ -20,6 +20,7 @@ const MAX_NAME_BYTES = 32;
 const BIRTHS_PER_DAY = 50;
 /** New births close when the project's own spend reaches $100 (PRODUCT.md §4, in micro-dollars). */
 const BUDGET_USD_MICROS = 100_000_000;
+const PROJECT_CEILING_USD_MICROS = 120_000_000;
 /** A row without a signed hash may be reclaimed after the sender has stopped. */
 const IN_FLIGHT_STALE_MS = 60_000;
 const IN_FLIGHT_WAIT_MS = 30_000;
@@ -35,7 +36,7 @@ interface Open {
 
 /** Why hatching is closed, if it is. Several reasons at once: the longest wins, so that «back at
  * 02:00» is never promised while the pool is empty. `until` only for the day's 50 alone. */
-async function openness(env: Env, hatch: HatchRecord): Promise<Open> {
+export async function openness(env: Env, hatch: HatchRecord): Promise<Open> {
   const causes = new Set<Reason>();
   if ((await pauseReason(env.DB)) !== null) causes.add('service');
   const spent = await env.DB.prepare('SELECT COALESCE(SUM(usd_micros), 0) AS total FROM project_spend').first<{ total: number }>();
@@ -50,6 +51,19 @@ async function openness(env: Env, hatch: HatchRecord): Promise<Open> {
 
 const unreachable = (c: { json: (body: unknown, status: 503) => Response }) => c.json({ code: 'chain_unreachable' }, 503);
 
+async function already(c: AppContext): Promise<Response> {
+  const account = c.get('session')!.accountId;
+  try {
+    const { pets } = await ownedPets(c.env, account);
+    const pet = await currentPet(c.env, account, pets);
+    if (pet === null) return unreachable(c);
+    return c.json({ code: 'already', currentPet: { tokenId: pet.tokenId, name: pet.name } }, 409);
+  } catch (e) {
+    if (e instanceof ChainUnreachable) return unreachable(c);
+    throw e;
+  }
+}
+
 hatchRoutes.get('/api/hatch', async (c) => {
   const session = c.get('session');
   if (session !== null) {
@@ -58,7 +72,11 @@ hatchRoutes.get('/api/hatch', async (c) => {
     const claim = await c.env.DB.prepare('SELECT started_at, tx_hash FROM births_in_flight WHERE account = ?')
       .bind(session.accountId).first<{ started_at: number; tx_hash: string | null }>();
     if (claim !== null && claim.tx_hash === null && Date.now() - claim.started_at < IN_FLIGHT_STALE_MS) {
-      return c.json({ open: true, pending: true });
+      try { return c.json({ open: true, pending: true, knownPets: await knownPets(c.env, session.accountId) }); }
+      catch (e) {
+        if (e instanceof ChainUnreachable) return unreachable(c);
+        throw e;
+      }
     }
   }
   let hatch: HatchRecord;
@@ -74,33 +92,40 @@ hatchRoutes.get('/api/hatch', async (c) => {
       throw e;
     }
   }
+  let flight: Awaited<ReturnType<typeof birthFlight>> = 'none';
   if (session !== null) {
     try {
-      const flight = await birthFlight(c.env, session.accountId, hatch);
-      if (flight === 'pending') return c.json({ open: true, pending: true });
-      if (flight === 'failed') return c.json({ open: true, failed: true });
-      if (flight === 'born' && hatch.token_id === null) {
-        hatch = await hatchView(c.env, session.accountId);
-        if (hatch.token_id === null) return c.json({ open: true, pending: true });
-      }
+      flight = await birthFlight(c.env, session.accountId, hatch);
     } catch (e) {
       if (e instanceof ChainUnreachable) return unreachable(c);
       throw e;
     }
   }
+  let ownership: { ownedCount: number; latestBirth: { tokenId: string; name: string } | null;
+    currentPet: { tokenId: string; name: string } | null; knownPets: Awaited<ReturnType<typeof knownPets>> } | null = null;
+  if (session !== null) {
+    try {
+      const [{ pets, hatched }, known] = await Promise.all([ownedPets(c.env, session.accountId), knownPets(c.env, session.accountId)]);
+      const current = await currentPet(c.env, session.accountId, pets);
+      ownership = { ownedCount: pets.length,
+        latestBirth: hatched === null ? null : { tokenId: hatched.tokenId, name: hatched.name },
+        currentPet: current === null ? null : { tokenId: current.tokenId, name: current.name }, knownPets: known };
+    } catch (e) {
+      if (e instanceof ChainUnreachable) return unreachable(c);
+      throw e;
+    }
+  }
+  if (flight === 'pending') return c.json({ open: true, pending: true, ...ownership });
+  if (flight === 'failed') return c.json({ open: true, failed: true, ...ownership });
+  if (typeof flight === 'object') return c.json({ open: true, tokenId: flight.tokenId, ...ownership });
   const state = await openness(c.env, hatch);
+  if (state.open && ownership !== null && ownership.currentPet !== null) {
+    return c.json({ ...state, ...ownership, already: ownership.currentPet });
+  }
   if (!state.open) {
     // A player with no pet of their own has no way out of a closed screen (`add-pet` › Hatch screen ›
     // «no exit»): what they own now, one count of the chain, also for `?look=1`.
-    let noPets = false;
-    if (session !== null) {
-      try {
-        noPets = (await ownedCount(c.env, session.accountId)) === 0;
-      } catch (e) {
-        if (e instanceof ChainUnreachable) return unreachable(c);
-        throw e;
-      }
-    }
+    const noPets = ownership !== null && ownership.ownedCount === 0;
     // `?look=1`: the screen's own repeat on a closed hatch; the event is for opening it or a tap.
     if (c.req.query('look') !== '1') track('birth_blocked', { reason: state.reason! });
     let lastGifted = null;
@@ -110,23 +135,12 @@ hatchRoutes.get('/api/hatch', async (c) => {
       if (e instanceof ChainUnreachable) return unreachable(c);
       throw e;
     }
-    return c.json(noPets ? { ...state, noPets: true, ...(lastGifted === null ? {} : { lastGifted }) } : state);
+    return c.json(noPets ? { ...state, ...ownership, noPets: true, ...(lastGifted === null ? {} : { lastGifted }) } : { ...state, ...ownership });
   }
-  if (session === null || hatch.token_id === null) return c.json(state);
-  // Hatched before: «already» only while they still own that pet; one given away does not count.
+  if (session === null) return c.json(state);
   try {
-    const pet = await petView(c.env, hatch.token_id);
-    if (pet !== null && pet.owner_id === session.accountId) {
-      return c.json({ ...state, already: { tokenId: hatch.token_id, name: pet.name } });
-    }
-  } catch (e) {
-    if (e instanceof ChainUnreachable) return unreachable(c);
-    throw e;
-  }
-  try {
-    const noPets = (await ownedCount(c.env, session.accountId)) === 0;
-    const lastGifted = noPets ? await lastGiftedPet(c.env, session.accountId) : null;
-    return c.json(lastGifted === null ? state : { ...state, noPets: true, lastGifted });
+    const lastGifted = await lastGiftedPet(c.env, session.accountId);
+    return c.json({ ...state, ...ownership, noPets: true, ...(lastGifted === null ? {} : { lastGifted }) });
   } catch (e) {
     if (e instanceof ChainUnreachable) return unreachable(c);
     throw e;
@@ -166,17 +180,6 @@ hatchRoutes.post('/api/hatch', async (c) => {
       if (e instanceof ChainUnreachable) return unreachable(c);
       throw e;
     }
-    if (hatch.token_id !== null) {
-      // The network has this player's pet. If a birth reached the chain but its row did not reach
-      // D1 (the Worker died between the two), the row is written now: the network is the truth.
-      if (!ownsClaim) await birthFlight(c.env, session.accountId, hatch);
-      await c.env.DB.prepare('INSERT OR IGNORE INTO pets (token_id, hatched_by, born_at, birth_tx) VALUES (?, ?, ?, ?)')
-        .bind(hatch.token_id, session.accountId, Date.now(), '')
-        .run();
-      await publicPetId(c.env.DB, hatch.token_id);
-      return c.json({ code: 'already' }, 409);
-    }
-
     try {
       if (!ownsClaim) {
         const flight = await birthFlight(c.env, session.accountId, hatch);
@@ -186,7 +189,7 @@ hatchRoutes.post('/api/hatch', async (c) => {
           return signed?.tx_hash === null ? waitForTheOtherBirth(c.env, session.accountId, name, c) : c.json({ pending: true }, 202);
         }
         if (flight === 'failed') {
-          const old = await c.env.DB.prepare('SELECT started_at, tx_hash, signed_bytes, rebroadcast_at, failed FROM births_in_flight WHERE account = ?')
+          const old = await c.env.DB.prepare('SELECT started_at, tx_hash, signed_bytes, rebroadcast_at, failed, prior_token_id, birth_rate_usd_micros FROM births_in_flight WHERE account = ?')
             .bind(session.accountId).first<BirthFlight>();
           if (old !== null) {
             const [cleared] = await c.env.DB.batch([
@@ -199,11 +202,7 @@ hatchRoutes.post('/api/hatch', async (c) => {
         }
         // A status read may have finalized the signed birth while the first hatch_view was
         // one block behind. Never apply new-birth checks to that already completed mint.
-        if (flight === 'born') {
-          hatch = await hatchView(c.env, session.accountId);
-          if (hatch.token_id !== null) return c.json({ tokenId: hatch.token_id });
-          return c.json({ pending: true }, 202);
-        }
+        if (typeof flight === 'object') return c.json({ tokenId: flight.tokenId });
       }
     } catch (e) {
       if (e instanceof ChainUnreachable) return unreachable(c);
@@ -224,6 +223,16 @@ hatchRoutes.post('/api/hatch', async (c) => {
       return c.json({ code: 'closed', reason: state.reason, until: state.until }, 409);
     }
 
+    // Birth history is not ownership. A gifted-in pet vetoes even a first hatch.
+    try {
+      if (await ownedCount(c.env, session.accountId) > 0) return already(c);
+    } catch (e) {
+      if (e instanceof ChainUnreachable) return unreachable(c);
+      throw e;
+    }
+
+    // Reserve the worst pool debit and all prepaid mint gas at the current protocol price.
+
     // One birth in flight per account. A second request waits for the first one's outcome and
     // answers the same: it never mints a second pet.
     if (!ownsClaim) {
@@ -234,17 +243,14 @@ hatchRoutes.post('/api/hatch', async (c) => {
       if (claimed.meta.changes === 0) return waitForTheOtherBirth(c.env, session.accountId, name, c);
       ownsClaim = true;
     }
-    mintResponse = await mint(c.env, session.accountId, name, startedAt, c);
+    mintResponse = await mint(c.env, session.accountId, name, startedAt, hatch.token_id, c);
     keepClaim = mintResponse.status === 202;
     return mintResponse;
   } finally {
     if (ownsClaim && !keepClaim) {
       // A thrown error may happen after the signer persisted the hash. In that case the
       // original transaction still needs its journal for later reconciliation.
-      const sql = mintResponse === null
-        ? 'DELETE FROM births_in_flight WHERE account = ? AND started_at = ? AND tx_hash IS NULL'
-        : 'DELETE FROM births_in_flight WHERE account = ? AND started_at = ?';
-      await c.env.DB.prepare(sql)
+      await c.env.DB.prepare('DELETE FROM births_in_flight WHERE account = ? AND started_at = ? AND tx_hash IS NULL')
         .bind(session.accountId, startedAt).run();
     }
   }
@@ -259,9 +265,9 @@ async function waitForTheOtherBirth(env: Env, account: string, name: string, c: 
   }
   try {
     const hatch = await hatchView(env, account);
-    if (hatch.token_id !== null) return c.json({ tokenId: hatch.token_id });
     const flight = await birthFlight(env, account, hatch);
-    if (flight === 'pending' || flight === 'born') return c.json({ pending: true }, 202);
+    if (flight === 'pending') return c.json({ pending: true }, 202);
+    if (typeof flight === 'object') return c.json({ tokenId: flight.tokenId });
     // The other request may have rejected its name before signing. A valid request must
     // compete for a fresh claim and mint; a missing pet alone is not a failed transaction.
     const released = flight === 'failed' && await env.DB.prepare('SELECT 1 AS busy FROM births_in_flight WHERE account = ?')
@@ -270,6 +276,7 @@ async function waitForTheOtherBirth(env: Env, account: string, name: string, c: 
       await gasIsLow(env, Date.now());
       const state = await openness(env, hatch);
       if (!state.open) return c.json({ code: 'closed', reason: state.reason, until: state.until }, 409);
+      if (await ownedCount(env, account) > 0) return already(c);
       const startedAt = Date.now();
       const claimed = await env.DB.prepare(
         'INSERT INTO births_in_flight (account, started_at) VALUES (?, ?) ON CONFLICT (account) DO UPDATE SET started_at = excluded.started_at WHERE started_at < ? AND tx_hash IS NULL',
@@ -277,13 +284,11 @@ async function waitForTheOtherBirth(env: Env, account: string, name: string, c: 
       if (claimed.meta.changes === 0) return c.json({ pending: true }, 202);
       let response: Response | null = null;
       try {
-        response = await mint(env, account, name, startedAt, c);
+        response = await mint(env, account, name, startedAt, hatch.token_id, c);
         return response;
       } finally {
         if (response?.status !== 202) {
-          await env.DB.prepare(response === null
-            ? 'DELETE FROM births_in_flight WHERE account = ? AND started_at = ? AND tx_hash IS NULL'
-            : 'DELETE FROM births_in_flight WHERE account = ? AND started_at = ?')
+          await env.DB.prepare('DELETE FROM births_in_flight WHERE account = ? AND started_at = ? AND tx_hash IS NULL')
             .bind(account, startedAt).run();
         }
       }
@@ -295,7 +300,29 @@ async function waitForTheOtherBirth(env: Env, account: string, name: string, c: 
   return c.json({ code: 'not_hatched' }, 502);
 }
 
-async function mint(env: Env, account: string, name: string, startedAt: number, c: AppContext): Promise<Response> {
+async function reserveNextMint(env: Env, account: string, startedAt: number, priorToken: string | null): Promise<number | null> {
+  const rate = nearUsdRate(env.NEAR_USD_RATE);
+  if (rate === null) return null;
+  let gasPrice: bigint;
+  try { gasPrice = await currentGasPrice(env); }
+  catch (e) {
+    if (e instanceof ChainUnreachable) return null;
+    throw e;
+  }
+  const projected = yoctoToUsdMicros(MAX_BIRTH_COST_YOCTO + PET_MINT_TGAS * 1_000_000_000_000n * gasPrice, rate);
+  const result = await env.DB.prepare(`UPDATE births_in_flight SET prior_token_id = ?1, reserved_usd_micros = ?2, birth_rate_usd_micros = ?7
+    WHERE account = ?3 AND started_at = ?4 AND tx_hash IS NULL
+      AND (SELECT COALESCE(SUM(usd_micros), 0) FROM project_spend) < ?5
+      AND (SELECT COALESCE(SUM(usd_micros), 0) FROM project_spend)
+        + (SELECT COALESCE(SUM(reserved_usd_micros), 0) FROM births_in_flight WHERE account <> ?3 AND (tx_hash IS NOT NULL OR started_at >= ?8))
+        + ?2 <= ?6`)
+    .bind(priorToken, projected, account, startedAt, BUDGET_USD_MICROS, PROJECT_CEILING_USD_MICROS, Math.round(rate * 1_000_000), Date.now() - IN_FLIGHT_STALE_MS).run();
+  return result.meta.changes === 1 ? Math.round(rate * 1_000_000) : null;
+}
+
+async function mint(env: Env, account: string, name: string, startedAt: number, priorToken: string | null, c: AppContext): Promise<Response> {
+  const rateMicros = await reserveNextMint(env, account, startedAt, priorToken);
+  if (rateMicros === null) return c.json({ code: 'closed', reason: 'budget' }, 409);
   const character = assembleCharacter();
   const answer = await env.SERVER_KEY.get(env.SERVER_KEY.idFromName('server')).send({
     methodName: 'pet_mint',
@@ -311,37 +338,55 @@ async function mint(env: Env, account: string, name: string, startedAt: number, 
     return signed?.tx_hash === null || signed === null ? unreachable(c) : c.json({ pending: true }, 202);
   }
 
-  let tokenId: string | null = null;
-  let txHash = '';
-  if (answer.status === 'ok') {
-    tokenId = String(answer.value);
-    txHash = answer.txHash;
-  } else {
+  if (answer.status !== 'ok') {
     if (answer.status === 'failed') {
-      console.log(`mint_failed:${answer.code}`);
-      if (answer.code === 'already_hatched') return c.json({ code: 'already' }, 409);
+      if (isNodeRefusal(answer.code)) {
+        await releaseFailedBirth(env, account, startedAt, answer.txHash);
+        console.log(`mint_failed:${answer.code}`);
+        return c.json({ code: 'not_hatched' }, 502);
+      }
+      let final;
+      try { final = await finalBirthStatus(env, answer.txHash, env.SERVER_ACCOUNT_ID, account); }
+      catch (e) {
+        if (e instanceof ChainUnreachable) return unreachable(c);
+        throw e;
+      }
+      if (final?.status !== 'failed') return c.json({ pending: true }, 202);
+      await releaseFailedBirth(env, account, startedAt, answer.txHash, final.burnt, rateMicros);
+      console.log(`mint_failed:${final.code}`);
+      if (final.code === 'already_owns_pet' || final.code === 'already_hatched') return already(c);
       // The day's 50 or the pool ran out between the check and the mint: the same closed answer.
-      if (answer.code === 'daily_births') return c.json({ code: 'closed', reason: 'daily' }, 409);
-      if (answer.code === 'pool_empty') return c.json({ code: 'closed', reason: 'pool' }, 409);
+      if (final.code === 'daily_births') return c.json({ code: 'closed', reason: 'daily' }, 409);
+      if (final.code === 'pool_empty' || final.code === 'birth_cost_limit') return c.json({ code: 'closed', reason: 'pool' }, 409);
     } else {
       console.log('mint_unknown');
     }
-    // The outcome of a failed or unheard transaction is the network's word, not ours: the
-    // contract says whether the pet was born.
-    try {
-      const after = await hatchView(env, account);
-      tokenId = after.token_id;
-    } catch (e) {
-      // The signed hash is durable. A failed read cannot turn an unknown mint into a failed birth.
-      if (e instanceof ChainUnreachable && answer.status === 'unknown') return c.json({ pending: true }, 202);
-      if (e instanceof ChainUnreachable) return unreachable(c);
-      throw e;
+    if (answer.status === 'unknown') {
+      let seen;
+      try { seen = await finalBirthStatus(env, answer.txHash, env.SERVER_ACCOUNT_ID, account); }
+      catch (e) {
+        if (e instanceof ChainUnreachable) return unreachable(c);
+        throw e;
+      }
+      if (seen?.status === 'ok' && seen.value !== null && seen.value !== priorToken) {
+        await finishBirth(env, account, seen.value, answer.txHash, seen.burnt ?? '0', priorToken, rateMicros);
+        await env.DB.prepare('DELETE FROM births_in_flight WHERE account = ? AND started_at = ? AND tx_hash = ?')
+          .bind(account, startedAt, answer.txHash).run();
+        return c.json({ tokenId: seen.value });
+      }
+      return c.json({ pending: true }, 202);
     }
+    return c.json({ code: 'not_hatched' }, 502);
   }
-  if (tokenId === null) return answer.status === 'unknown'
-    ? c.json({ pending: true }, 202)
-    : c.json({ code: 'not_hatched' }, 502);
-
-  await finishBirth(env, account, tokenId, txHash);
-  return c.json({ tokenId });
+  let final;
+  try { final = await finalBirthStatus(env, answer.txHash, env.SERVER_ACCOUNT_ID, account); }
+  catch (e) {
+    if (e instanceof ChainUnreachable) return unreachable(c);
+    throw e;
+  }
+  if (final?.status !== 'ok' || final.value === null || final.value === priorToken) return c.json({ pending: true }, 202);
+  await finishBirth(env, account, final.value, answer.txHash, final.burnt ?? '0', priorToken, rateMicros);
+  await env.DB.prepare('DELETE FROM births_in_flight WHERE account = ? AND started_at = ? AND tx_hash = ?')
+    .bind(account, startedAt, answer.txHash).run();
+  return c.json({ tokenId: final.value });
 }

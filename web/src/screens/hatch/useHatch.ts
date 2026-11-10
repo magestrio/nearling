@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { cleanName } from '../../lib/nameClean';
+import { dailyResetDelay } from '../../lib/dailyReset';
 import { markNewborn } from '../../pet/newborn';
 import { go, petPath, useLocation } from '../../route';
 import { useAuth } from '../../seams/auth';
@@ -8,21 +9,16 @@ import { takeReturnText } from '../../signin/returnPlace';
 import { fitName } from './name';
 import { activeHatchPost, clearPendingName, keepPendingName, pendingName, trackHatchPost } from './pendingBirth';
 
-// The Hatch screen's state: what the page shows is chosen from the answer of `GET /api/hatch` in the order of
-// design.md › «Closed hatching for everyone»: no connection → Connection rule; closed (any reason, any viewer) → its
-// line and the way out; already hatched → «Go to {name}»; no session → «Sign in with Google to hatch your pet»;
-// otherwise the form. Everything here is the tab's memory: the name, the birth in flight, the friend's name.
+// Current chain ownership decides eligibility. A historical birth is never a successful answer to a pending repeat.
 export type HatchView =
   | { kind: 'checking' }
-  | { kind: 'unreachable'; busy: boolean }
-  /** `noPets`: a signed-in player with no pet of their own; an earlier gift is represented by `lastGifted`. */
-  | { kind: 'closed'; reason: ClosedReason; until?: string; noPets: boolean }
-  | { kind: 'no-pets'; lastGifted: { tokenId: string; name: string }; closed: boolean; reason?: ClosedReason; until?: string }
+  | { kind: 'unreachable' }
+  | { kind: 'closed'; reason: ClosedReason; until?: string }
   | { kind: 'already'; tokenId: string; name: string }
   | { kind: 'signed-out' }
   | { kind: 'form' };
 
-type Check = { kind: 'checking' } | { kind: 'status'; data: HatchStatus } | { kind: 'failed'; busy: boolean };
+type Check = { kind: 'checking' } | { kind: 'status'; data: HatchStatus } | { kind: 'failed' };
 type Birth = 'idle' | 'hatching' | 'not_hatched';
 
 /** How often a page closed by a pause looks again: as the Pet screen polls. */
@@ -44,8 +40,24 @@ export function useHatch(from: string | null) {
   const [nameRefused, setNameRefused] = useState(false);
   // 'loading' while the friend's pet is being read: the way out waits for its name
   const [friend, setFriend] = useState<Friend | null | 'loading'>(from ? 'loading' : null);
-  const inFlight = useRef(false);
+  const [known, setKnown] = useState<NonNullable<HatchStatus['knownPets']>>([]);
+  const inFlightAccount = useRef<{ account: string | null } | null>(null);
   const birthGeneration = useRef(0);
+  const accountRef = useRef(auth.nearAccountId);
+  const isPosting = (account: string | null) => inFlightAccount.current !== null && inFlightAccount.current.account === account;
+
+  useEffect(() => {
+    if (accountRef.current === auth.nearAccountId) return;
+    accountRef.current = auth.nearAccountId;
+    birthGeneration.current += 1;
+    setKnown([]);
+    setNameRaw(pendingName(auth.nearAccountId) ?? '');
+    setBirth(pendingName(auth.nearAccountId) === null ? 'idle' : 'hatching');
+    setNameRefused(false);
+  }, [auth.nearAccountId]);
+  useEffect(() => {
+    if (!auth.authenticated) setKnown([]);
+  }, [auth.authenticated]);
 
   // A remount inherits the unresolved request, including the time spent obtaining its token.
   useEffect(() => {
@@ -57,7 +69,7 @@ export function useHatch(from: string | null) {
     return () => { live = false; };
   }, [auth.nearAccountId]);
 
-  // «Is hatching open, and did this player already hatch» — on load, when the sign-in changes, and on «Try again».
+  // Check current ownership and the original mint attempt on load, session change and «Try again».
   useEffect(() => {
     if (!auth.ready) {
       setCheck({ kind: 'checking' });
@@ -75,27 +87,30 @@ export function useHatch(from: string | null) {
         const data = await workerApi.hatchStatus(token);
         if (live) {
           setCheck({ kind: 'status', data });
+          setKnown(data.knownPets ?? []);
           if (startedWhilePosting || activeHatchPost(auth.nearAccountId) !== null) {
             setBirth('hatching');
           } else if (data.pending) {
             const saved = pendingName(auth.nearAccountId);
             if (saved !== null) setNameRaw(saved);
             setBirth('hatching');
+          } else if (data.tokenId) {
+            clearPendingName(auth.nearAccountId);
+            markNewborn(data.tokenId);
+            go(petPath(data.tokenId, from));
+          } else if (data.currentPet || data.already) {
+            // A gift may have arrived during a pending mint. It is owned, but is not a newborn.
+            clearPendingName(auth.nearAccountId);
+            setBirth('idle');
           } else if (data.failed) {
             const saved = pendingName(auth.nearAccountId);
             if (saved !== null) setNameRaw(saved);
             clearPendingName(auth.nearAccountId);
             setBirth('not_hatched');
-          } else if (data.already) {
-            if (pendingName(auth.nearAccountId) !== null) {
-              clearPendingName(auth.nearAccountId);
-              markNewborn(data.already.tokenId);
-              go(petPath(data.already.tokenId, from));
-            }
           } else {
             // A look begun before the POST, or answered while it is still running, cannot say whether that POST
             // will create a signed birth flight. Only a later look may release the saved name.
-            if (!inFlight.current && requestGeneration === birthGeneration.current) {
+            if (!isPosting(auth.nearAccountId) && requestGeneration === birthGeneration.current) {
               const saved = pendingName(auth.nearAccountId);
               if (saved !== null) {
                 setNameRaw(saved);
@@ -110,7 +125,7 @@ export function useHatch(from: string | null) {
         // a `401` on the first load: nothing to hold, the page is the visitor's at once — `authenticated` turns false and
         // this effect asks again as a visitor
         if (e instanceof WorkerError && e.status === 401) authRef.current.endSession(false);
-        else setCheck({ kind: 'failed', busy: e instanceof WorkerError && e.status === 429 });
+        else setCheck({ kind: 'failed' });
       }
     })();
     return () => {
@@ -125,24 +140,29 @@ export function useHatch(from: string | null) {
     const look = async () => {
       if (document.hidden || !live) return;
       const requestGeneration = birthGeneration.current;
-      const startedWhilePosting = inFlight.current || activeHatchPost(auth.nearAccountId) !== null;
+      const startedWhilePosting = isPosting(auth.nearAccountId) || activeHatchPost(auth.nearAccountId) !== null;
       try {
         const token = await auth.getIdentityToken();
         if (token === null) return;
         const data = await workerApi.hatchStatus(token, { look: true });
         if (!live) return;
+        setCheck({ kind: 'status', data });
+        setKnown(data.knownPets ?? []);
         if (startedWhilePosting || activeHatchPost(auth.nearAccountId) !== null) {
           setBirth('hatching');
-        } else if (data.already) {
+        } else if (data.tokenId) {
           clearPendingName(auth.nearAccountId);
-          markNewborn(data.already.tokenId);
-          go(petPath(data.already.tokenId, from));
+          markNewborn(data.tokenId);
+          go(petPath(data.tokenId, from));
+        } else if (data.currentPet || data.already) {
+          clearPendingName(auth.nearAccountId);
+          setBirth('idle');
         } else if (data.failed) {
           const saved = pendingName(auth.nearAccountId);
           if (saved !== null) setNameRaw(saved);
           clearPendingName(auth.nearAccountId);
           setBirth('not_hatched');
-        } else if (!data.pending && !startedWhilePosting && !inFlight.current && requestGeneration === birthGeneration.current) {
+        } else if (!data.pending && !startedWhilePosting && !isPosting(auth.nearAccountId) && requestGeneration === birthGeneration.current) {
           const saved = pendingName(auth.nearAccountId);
           if (saved !== null) setNameRaw(saved);
           clearPendingName(auth.nearAccountId);
@@ -176,15 +196,28 @@ export function useHatch(from: string | null) {
     };
   }, [from]);
 
-  // Closed for a reason with no hour on it: the pause can lift while the page stands (`Service pause data` ›
-  // «пауза снялась»). A visible tab asks again; the name stays, and the form comes back by itself. A failed look changes
-  // nothing: the page says what it knew.
+  // Pauses are checked every five seconds. A daily closure waits for the Worker's stated reset, then retries if it
+  // still reports closed. A failed look keeps the last known state.
   // A session that ended stops the looks of the page it holds: no new data loads, the page stands as it is (`Session expiry
   // flow`). A visitor's page, past that hold, looks as any visitor's does.
   const held = auth.sessionEnded && auth.authenticated;
   const closedFor = check.kind === 'status' && !check.data.open && !held ? check.data.reason : undefined;
+  const closedUntil = check.kind === 'status' ? check.data.until : undefined;
+  const closedServerTime = check.kind === 'status' ? check.data.serverTime : undefined;
+  const dailyBoundary = useRef<{ until: string | undefined; reached: boolean }>({ until: undefined, reached: false });
+  // A player may receive a gift in another tab while the open form stands. Re-read on return.
   useEffect(() => {
-    if (closedFor === undefined || closedFor === 'daily') return undefined;
+    if (held || birth === 'hatching' || check.kind !== 'status' || !check.data.open) return undefined;
+    const onVisible = () => { if (!document.hidden) setAttempt((a) => a + 1); };
+    document.addEventListener('visibilitychange', onVisible);
+    return () => document.removeEventListener('visibilitychange', onVisible);
+  }, [held, birth, check]);
+  useEffect(() => {
+    if (closedFor === undefined) {
+      dailyBoundary.current = { until: undefined, reached: false };
+      return undefined;
+    }
+    if (closedFor !== 'daily') dailyBoundary.current = { until: undefined, reached: false };
     let live = true;
     const look = async () => {
       if (document.hidden) return;
@@ -192,29 +225,46 @@ export function useHatch(from: string | null) {
         const token = auth.authenticated ? await auth.getIdentityToken() : null;
         if (auth.authenticated && token === null) throw new WorkerError(401, 'signed_out');
         const data = await workerApi.hatchStatus(token, { look: true });
-        if (live) setCheck({ kind: 'status', data });
+        if (live) {
+          setCheck({ kind: 'status', data });
+          setKnown(data.knownPets ?? []);
+        }
       } catch (e) {
         // a `401` ends the session; any other failure: the next look asks again
         if (live && e instanceof WorkerError && e.status === 401) authRef.current.endSession();
       }
     };
-    const timer = setInterval(() => void look(), PAUSE_LOOK_MS);
+    let timer: number | undefined;
+    let retry: number | undefined;
+    if (closedFor === 'daily') {
+      if (dailyBoundary.current.until !== closedUntil) dailyBoundary.current = { until: closedUntil, reached: false };
+      const delay = dailyBoundary.current.reached ? PAUSE_LOOK_MS : dailyResetDelay(closedUntil, closedServerTime);
+      timer = window.setTimeout(() => {
+        dailyBoundary.current.reached = true;
+        void look();
+        retry = window.setInterval(() => void look(), PAUSE_LOOK_MS);
+      }, delay);
+    } else {
+      retry = window.setInterval(() => void look(), PAUSE_LOOK_MS);
+    }
     document.addEventListener('visibilitychange', look);
     return () => {
       live = false;
-      clearInterval(timer);
+      if (timer !== undefined) clearTimeout(timer);
+      if (retry !== undefined) clearInterval(retry);
       document.removeEventListener('visibilitychange', look);
     };
-  }, [closedFor, auth]);
+  }, [closedFor, closedUntil, closedServerTime, auth]);
 
   const view: HatchView = (() => {
     if (birth === 'hatching' && auth.authenticated) return { kind: 'form' };
     if (check.kind === 'checking') return { kind: 'checking' };
-    if (check.kind === 'failed') return { kind: 'unreachable', busy: check.busy };
+    if (check.kind === 'failed') return { kind: 'unreachable' };
     const { data } = check;
-    if (data.noPets && data.lastGifted) return { kind: 'no-pets', lastGifted: data.lastGifted, closed: !data.open, reason: data.reason, until: data.until };
-    if (!data.open) return { kind: 'closed', reason: data.reason ?? 'service', until: data.until, noPets: data.noPets === true };
-    if (data.already) return { kind: 'already', tokenId: data.already.tokenId, name: data.already.name };
+    if (!auth.authenticated && data.open) return { kind: 'signed-out' };
+    const owned = data.currentPet ?? data.already;
+    if (owned) return { kind: 'already', tokenId: owned.tokenId, name: owned.name };
+    if (!data.open) return { kind: 'closed', reason: data.reason ?? 'service', until: data.until };
     if (!auth.authenticated) return { kind: 'signed-out' };
     return { kind: 'form' };
   })();
@@ -237,19 +287,20 @@ export function useHatch(from: string | null) {
 
   const submit = useCallback(async () => {
     // a second tap while a birth is under way makes no second request
-    if (inFlight.current || activeHatchPost(auth.nearAccountId) !== null || birth === 'hatching' || name === '') return;
+    if (isPosting(auth.nearAccountId) || activeHatchPost(auth.nearAccountId) !== null || birth === 'hatching' || name === '' || view.kind !== 'form') return;
     // a session that ended: the line, nothing sent, the name stays
     if (!auth.needSession()) return;
-    inFlight.current = true;
+    const account = auth.nearAccountId;
+    inFlightAccount.current = { account };
     let settlePost!: () => void;
     trackHatchPost(auth.nearAccountId, new Promise<void>((resolve) => { settlePost = resolve; }));
     birthGeneration.current += 1;
     keepPendingName(auth.nearAccountId, name);
     setBirth('hatching');
     setNameRefused(false);
-    let navigated = false;
     try {
       const token = await auth.getIdentityToken();
+      if (authRef.current.nearAccountId !== account || !authRef.current.authenticated) return;
       if (token === null) {
         clearPendingName(auth.nearAccountId);
         auth.endSession(true, true);
@@ -257,14 +308,15 @@ export function useHatch(from: string | null) {
         return;
       }
       const result = await workerApi.hatch(token, name);
+      if (authRef.current.nearAccountId !== account || !authRef.current.authenticated) return;
       if ('pending' in result) return;
       const { tokenId } = result;
       clearPendingName(auth.nearAccountId);
       // the tab stays «Hatching…» until the Pet screen takes over
       markNewborn(tokenId);
       go(petPath(tokenId, from));
-      navigated = true;
     } catch (e) {
+      if (authRef.current.nearAccountId !== account || !authRef.current.authenticated) return;
       const status = e instanceof WorkerError ? e.status : 0;
       const code = e instanceof WorkerError ? e.code : '';
       if (code === 'name_rejected') {
@@ -289,14 +341,14 @@ export function useHatch(from: string | null) {
         if (status !== 0 && code !== 'chain_unreachable') {
           clearPendingName(auth.nearAccountId);
           setBirth('idle');
-          setCheck({ kind: 'failed', busy: status === 429 });
+          setCheck({ kind: 'failed' });
         }
       }
     } finally {
-      if (!navigated) inFlight.current = false;
+      if (inFlightAccount.current?.account === account) inFlightAccount.current = null;
       settlePost();
     }
-  }, [auth, name, from, birth]);
+  }, [auth, name, from, birth, view.kind]);
 
   const tryAgain = useCallback(() => {
     // a session that ended: the line, nothing asked, the view stands
@@ -305,5 +357,5 @@ export function useHatch(from: string | null) {
   }, [held, auth]);
 
   const cleaned = cleanName(name);
-  return { name, setName, cleaned, view, birth, nameRefused, friend, submit, tryAgain };
+  return { name, setName, cleaned, view, birth, nameRefused, friend, known, submit, tryAgain };
 }

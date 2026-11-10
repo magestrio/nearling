@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { calls, openWith, OWNER, PIXEL, setWorker, SIGNED_IN } from './helpers';
+import { calls, openWith, OWNER, PIXEL, reloadHolding, setWorker, SIGNED_IN } from './helpers';
 import type { HireBoard } from '../src/seams/worker-types';
 
 const PRICE = { cents: 0.38, yocto: '380000000000000000000' };
@@ -54,15 +54,13 @@ test('empty board offers showcase visits and a route home', async ({ page }) => 
 });
 
 // spec: add-pet-work › Hire board screen › empty, nothing to visit
-// spec: add-pet-work › Hire board screen › empty, nothing to visit × Try again
-test('empty board with no visits gives a player without a pet a retry and no Home header', async ({ page }) => {
+// spec: add-hatch-again › Petless discovery flow › empty board with no pets to visit
+test('empty board with no visits gives a player without a pet a hatch link and Home header', async ({ page }) => {
   await openWith(page, '/hire', { auth: SIGNED_IN, worker: { hireBoard: board([]) } });
   await expect(page.getByText('No pets with skills are on the board yet.')).toBeVisible();
-  await expect(page.getByRole('link', { name: 'Home' })).toHaveCount(0);
-  await setWorker(page, { hireBoard: board([NORI]) });
-  await page.getByRole('button', { name: 'Try again' }).click();
-  await expect(page.getByRole('link', { name: 'Visit Nori' })).toBeVisible();
-  expect((await calls(page)).filter((call) => call === 'worker:hireBoard')).toHaveLength(2);
+  await expect(page.getByRole('link', { name: 'Home' })).toHaveAttribute('href', '/');
+  await expect(page.getByRole('link', { name: 'Hatch your pet' })).toHaveAttribute('href', '/hatch');
+  expect((await calls(page)).filter((call) => call === 'worker:hireBoard')).toHaveLength(1);
 });
 
 // spec: add-pet-work › Hire board screen › loading
@@ -289,6 +287,7 @@ test('own pet listed × sign-in: signing in comes back to the board and marks th
 });
 
 // spec: add-pet-work › Hire board screen › signed-out × lost return place
+// spec: add-hatch-again › Petless Home screen › success
 test('signed-out × lost return place: a sign-in with no place left in the tab goes where Home sign-in goes, not to a stale board', async ({ page }) => {
   await page.addInitScript(() => {
     const original = history.replaceState.bind(history);
@@ -299,7 +298,9 @@ test('signed-out × lost return place: a sign-in with no place left in the tab g
   });
   await openWith(page, '/hire', { worker: { hireBoard: board([NORI]) } });
   await page.getByRole('button', { name: 'Sign in' }).click();
-  await expect(page).toHaveURL(/\/hatch$/);
+  // a signed-in player with no pet stays on Home (`Petless Home screen`), where Home sign-in leaves them
+  await expect(page).toHaveURL(/\/$/);
+  await expect(page.getByText('No pet of your own right now.').first()).toBeVisible();
 });
 
 // spec: add-pet-work › Hire board screen › own pet listed × gift and reload
@@ -317,13 +318,14 @@ test('own pet listed × gift and reload: after the pet is given away a reload sh
   await expect(page.getByText('Yours')).toHaveCount(0);
 });
 
-// spec: add-pet-work › Hire board screen › empty, nothing to visit × new hatch
-test('empty, nothing to visit × new hatch: «Try again» reads both lists, a new pet appears and the Home header returns', async ({ page }) => {
+// spec: add-hatch-again › Petless discovery flow › empty board with no pets to visit
+test('empty, nothing to visit × new hatch: Hatch is offered and a later reload shows the new listing', async ({ page }) => {
   await openWith(page, '/hire', { auth: SIGNED_IN, worker: { hireBoard: board([]), me: { accountId: 'a'.repeat(64), hatched: null, currentPet: null, ownedCount: 0 } } });
   await expect(page.getByText('No pets with skills are on the board yet.')).toBeVisible();
-  await expect(page.getByRole('link', { name: 'Home' })).toHaveCount(0);
+  await expect(page.getByRole('link', { name: 'Hatch your pet' })).toHaveAttribute('href', '/hatch');
+  await expect(page.getByRole('link', { name: 'Home' })).toHaveAttribute('href', '/');
   await setWorker(page, { hireBoard: board([NORI]), me: { accountId: 'a'.repeat(64), hatched: { tokenId: '9', name: 'Pixel' }, currentPet: { tokenId: '9', name: 'Pixel' }, ownedCount: 1 } });
-  await page.getByRole('button', { name: 'Try again' }).click();
+  await reloadHolding(page);
   await expect(page.getByRole('link', { name: 'Visit Nori' })).toBeVisible();
   await expect(page.getByRole('link', { name: 'Home' })).toBeVisible();
 });

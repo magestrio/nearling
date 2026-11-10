@@ -43,6 +43,12 @@ export const FEEDINGS_COLUMNS = 'id, sub, account, token_id, source, via, deposi
 /** Settles `row` with the outcome the network gave. `false`: another flow had already claimed it. */
 export async function settleFeeding(env: Env, row: FeedingRow, outcome: Outcome): Promise<boolean> {
   const claim = [env.DB.prepare('DELETE FROM feedings WHERE id = ? RETURNING id').bind(row.id)];
+  if (outcome.status === 'ok') {
+    claim.unshift(env.DB.prepare(`INSERT INTO known_pets (account_id, token_id, reason, interacted_at)
+      SELECT ?1, ?2, 'feed', ?3 WHERE EXISTS (SELECT 1 FROM feedings WHERE id = ?4)
+      ON CONFLICT (account_id, token_id) DO UPDATE SET reason = 'feed', interacted_at = excluded.interacted_at`)
+      .bind(row.account, row.token_id, Date.now(), row.id));
+  }
   if (outcome.status === 'ok' && row.via === 'link') {
     // Read the feeder's currently owned pets before claiming the feed. If that chain read is
     // unavailable, leave the feed row for the existing outcome retry instead of losing its bond.

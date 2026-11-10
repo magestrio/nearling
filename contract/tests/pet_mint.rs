@@ -15,6 +15,7 @@ fn longest_character() -> String {
 }
 
 // spec: add-pet › Pet mint contract › чужой вызов
+// spec: add-hatch-again › Repeat pet mint contract › wrong caller
 #[tokio::test]
 async fn a_foreign_caller_cannot_mint() -> anyhow::Result<()> {
     let ctx = setup(BIG_POOL).await?;
@@ -37,24 +38,82 @@ async fn a_foreign_caller_cannot_mint() -> anyhow::Result<()> {
     Ok(())
 }
 
-// spec: add-pet › Pet mint contract › второй рождённый питомец
+// spec: add-hatch-again › Repeat pet mint contract › receiver owns a pet
 #[tokio::test]
-async fn a_receiver_who_hatched_cannot_hatch_again() -> anyhow::Result<()> {
+async fn a_receiver_who_owns_a_pet_cannot_hatch_again() -> anyhow::Result<()> {
     let ctx = setup(BIG_POOL).await?;
     ctx.mint("alice.near", "Pixel", CHARACTER)
         .await?
         .into_result()?;
     let before = ctx.snapshot("alice.near").await?;
     let refused = ctx.mint("alice.near", "Second", CHARACTER).await?;
-    assert_refused(&refused, "already_hatched");
+    assert_refused(&refused, "already_owns_pet");
     assert_eq!(ctx.snapshot("alice.near").await?, before);
-    // The gift case ("даже если подарил") is the unit test
-    // `a_second_mint_fails_even_after_the_pet_was_given` in `src/lib.rs`: `nft_transfer` is not
-    // exposed here, so the move is the standard's internal one.
+    Ok(())
+}
+
+// spec: add-hatch-again › Repeat pet mint contract › accepted repeat
+#[tokio::test]
+async fn a_former_owner_can_hatch_again_without_moving_the_old_pet() -> anyhow::Result<()> {
+    let ctx = setup(BIG_POOL).await?;
+    let alice = ctx.account("alice", 20).await?;
+    let bob = ctx.account("bob", 20).await?;
+    ctx.mint(alice.id().as_str(), "Pixel", CHARACTER)
+        .await?
+        .into_result()?;
+    alice
+        .call(ctx.contract.id(), "nft_transfer")
+        .args_json(json!({ "receiver_id": bob.id(), "token_id": "0" }))
+        .deposit(near_workspaces::types::NearToken::from_yoctonear(1))
+        .transact()
+        .await?
+        .into_result()?;
+    assert_eq!(ctx.supply_for(alice.id().as_str()).await?, "0");
+    let old = ctx.pet_view("0").await?;
+    let before = ctx.hatch_view(alice.id().as_str()).await?;
+    assert_eq!(before["token_id"], "0");
+    let minted = ctx.mint(alice.id().as_str(), "Second", CHARACTER).await?;
+    let events = event_logs(&minted);
+    assert_eq!(minted.into_result()?.json::<String>()?, "1");
+    assert_eq!(ctx.pet_view("0").await?, old);
+    assert_eq!(ctx.pet_view("1").await?["owner_id"], alice.id().as_str());
+    assert_eq!(ctx.hatch_view(alice.id().as_str()).await?["token_id"], "1");
+    assert_eq!(ctx.hatch_view(alice.id().as_str()).await?["born_today"], 2);
+    assert_eq!(ctx.supply_for(alice.id().as_str()).await?, "1");
+    assert_eq!(ctx.supply_for(bob.id().as_str()).await?, "1");
+    let showcase: serde_json::Value = ctx.contract.view("showcase_view").await?.json()?;
+    assert_eq!(showcase["pets_hatched"], 2);
+    assert_eq!(events.len(), 2);
+    assert!(events[0].contains("nft_mint"));
+    assert!(events[1].contains("pet_born"));
+    Ok(())
+}
+
+// spec: add-hatch-again › Repeat pet mint contract › receiver owns a pet
+#[tokio::test]
+async fn a_gifted_in_pet_closes_hatching_at_mint_acceptance() -> anyhow::Result<()> {
+    let ctx = setup(BIG_POOL).await?;
+    let alice = ctx.account("alice", 20).await?;
+    let bob = ctx.account("bob", 20).await?;
+    ctx.mint(alice.id().as_str(), "Pixel", CHARACTER)
+        .await?
+        .into_result()?;
+    alice
+        .call(ctx.contract.id(), "nft_transfer")
+        .args_json(json!({ "receiver_id": bob.id(), "token_id": "0" }))
+        .deposit(near_workspaces::types::NearToken::from_yoctonear(1))
+        .transact()
+        .await?
+        .into_result()?;
+    let before = ctx.snapshot(bob.id().as_str()).await?;
+    let refused = ctx.mint(bob.id().as_str(), "Second", CHARACTER).await?;
+    assert_refused(&refused, "already_owns_pet");
+    assert_eq!(ctx.snapshot(bob.id().as_str()).await?, before);
     Ok(())
 }
 
 // spec: add-pet › Pet mint contract › пул проекта пуст
+// spec: add-hatch-again › Repeat pet mint contract › insufficient pool
 #[tokio::test]
 async fn a_pool_one_yocto_short_of_the_cost_refuses_and_exactly_the_cost_passes()
 -> anyhow::Result<()> {
@@ -82,6 +141,7 @@ async fn a_pool_one_yocto_short_of_the_cost_refuses_and_exactly_the_cost_passes(
 }
 
 // spec: add-pet › Pet mint contract › 51-е рождение за сутки
+// spec: add-hatch-again › Repeat pet mint contract › day full
 #[tokio::test]
 async fn the_fifty_first_birth_of_a_day_is_refused() -> anyhow::Result<()> {
     let ctx = setup(BIG_POOL * 2).await?;
@@ -116,6 +176,7 @@ async fn the_fifty_first_birth_of_a_day_is_refused() -> anyhow::Result<()> {
 }
 
 // spec: add-pet › Pet mint contract › имя длиннее 32 байт
+// spec: add-hatch-again › Repeat pet mint contract › name too long
 #[tokio::test]
 async fn a_name_of_33_bytes_is_refused_and_32_bytes_with_emoji_pass() -> anyhow::Result<()> {
     let ctx = setup(BIG_POOL).await?;
@@ -135,6 +196,7 @@ async fn a_name_of_33_bytes_is_refused_and_32_bytes_with_emoji_pass() -> anyhow:
 }
 
 // spec: add-pet › Pet mint contract › характер длиннее предела
+// spec: add-hatch-again › Repeat pet mint contract › character too long
 #[tokio::test]
 async fn a_character_over_the_longest_assembly_is_refused() -> anyhow::Result<()> {
     let ctx = setup(BIG_POOL).await?;
@@ -283,6 +345,60 @@ async fn storage_of_a_birth() -> anyhow::Result<()> {
         gas < attached_gas().as_gas(),
         "pet_mint burnt {gas} gas, attached {}",
         attached_gas().as_gas()
+    );
+    Ok(())
+}
+
+// spec: add-hatch-again › Repeat pet mint contract › accepted repeat
+// spec: add-hatch-again › Repeat pet mint contract › birth above pool ceiling
+#[tokio::test]
+async fn first_and_repeat_birth_measure_pool_storage_and_gas() -> anyhow::Result<()> {
+    let ctx = setup(BIG_POOL).await?;
+    let alice = ctx.account("alice", 20).await?;
+    let bob = ctx.account("bob", 20).await?;
+    let name = "🚀".repeat(8);
+    let character = longest_character();
+    let first_before_bytes = ctx.storage_usage().await?;
+    let first_before_pool = ctx.pool().await?;
+    let first = ctx.mint(alice.id().as_str(), &name, &character).await?;
+    let first_gas = first.total_gas_burnt.as_gas();
+    first.into_result()?;
+    let first_bytes = ctx.storage_usage().await? - first_before_bytes;
+    let first_debit = first_before_pool - ctx.pool().await?;
+
+    alice
+        .call(ctx.contract.id(), "nft_transfer")
+        .args_json(json!({ "receiver_id": bob.id(), "token_id": "0" }))
+        .deposit(near_workspaces::types::NearToken::from_yoctonear(1))
+        .transact()
+        .await?
+        .into_result()?;
+    let repeat_before_bytes = ctx.storage_usage().await?;
+    let repeat_before_pool = ctx.pool().await?;
+    let repeat = ctx.mint(alice.id().as_str(), &name, &character).await?;
+    let repeat_gas = repeat.total_gas_burnt.as_gas();
+    repeat.into_result()?;
+    let repeat_bytes = ctx.storage_usage().await? - repeat_before_bytes;
+    let repeat_debit = repeat_before_pool - ctx.pool().await?;
+    let byte_cost = 10_000_000_000_000_000_000u128;
+    for (bytes, debit) in [(first_bytes, first_debit), (repeat_bytes, repeat_debit)] {
+        assert_eq!(
+            debit,
+            u128::from(bytes + OWNER_LIST_ENTRY_BYTES + TRANSFER_GENERATION_BYTES) * byte_cost
+                + STARTER_FOOD
+        );
+        assert!(debit <= MAX_BIRTH_COST);
+    }
+    for gas in [first_gas, repeat_gas] {
+        assert!(gas > 0);
+        assert!(gas < attached_gas().as_gas());
+    }
+    assert!(
+        repeat_debit < first_debit,
+        "the existing latest-birth pointer is replaced"
+    );
+    eprintln!(
+        "hatch_again_birth_measurement: first {first_bytes} bytes, {first_debit} yocto pool, {first_gas} burnt gas; repeat {repeat_bytes} bytes, {repeat_debit} yocto pool, {repeat_gas} burnt gas"
     );
     Ok(())
 }

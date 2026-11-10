@@ -1,17 +1,19 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { hatchPath, navigate, petPath, useLocation } from '../../route';
+import { dailyResetDelay } from '../../lib/dailyReset';
+import { navigate, petPath, useLocation } from '../../route';
 import { useAuth } from '../../seams/auth';
-import { WorkerError, workerApi, type SignInGate } from '../../seams/worker';
+import { WorkerError, workerApi, type Me, type SignInGate } from '../../seams/worker';
 import { readGate } from '../../signin/gate';
 import { track } from '../../track';
 import { hasEvidenceIntent } from './evidenceIntent';
 
-// The Home screen's state (add-account › Home screen): a visitor sees what the game is and how to enter it — or, while sign-in
-// is closed, the closed view with the server's word on it. A signed-in player follows their pet unless the README's
-// numbers URL keeps them on Home. A load that gets no answer is `Connection rule` › «сервер недоступен».
+// A signed-in player with no current pet stays here. The Worker derives ownership, links and birth status from fresh reads.
 export type HomeView =
   | { kind: 'loading' }
   | { kind: 'error'; busy: boolean }
+  | { kind: 'petless-loading' }
+  | { kind: 'petless-error' }
+  | { kind: 'petless'; knownPets: NonNullable<Me['knownPets']>; birth: NonNullable<Me['birth']> }
   | { kind: 'signed-out' }
   | { kind: 'closed'; all: boolean; until: string }
   | { kind: 'evidence' }
@@ -22,6 +24,7 @@ type Read =
   | { as: 'visitor' | 'player'; kind: 'asking' }
   | { as: 'visitor' | 'player'; kind: 'failed'; busy: boolean }
   | { as: 'visitor'; kind: 'gate'; gate: SignInGate }
+  | { as: 'player'; kind: 'petless'; data: Me }
   | { as: 'player'; kind: 'evidence' }
   | { as: 'player'; kind: 'leaving' };
 
@@ -34,12 +37,41 @@ export function useHome() {
   const [attempt, setAttempt] = useState(0);
   const who = auth.authenticated ? 'player' : 'visitor';
   const [read, setRead] = useState<Read>({ as: who, kind: 'asking' });
+  const dailyBoundary = useRef<{ until: string | undefined; reached: boolean }>({ until: undefined, reached: false });
 
-  // What the tap on the screen is for: a visitor reads the state of the sign-in, a player reads who their current pet is.
+  // A gift can change ownership while the tab is away.
+  useEffect(() => {
+    if (!auth.authenticated) return undefined;
+    const onVisible = () => { if (document.visibilityState === 'visible') setAttempt((a) => a + 1); };
+    document.addEventListener('visibilitychange', onVisible);
+    return () => {
+      document.removeEventListener('visibilitychange', onVisible);
+    };
+  }, [auth.authenticated]);
+
+  // The Worker's response time anchors the first daily-reset read; only a missed boundary is retried.
+  useEffect(() => {
+    if (!auth.authenticated) return undefined;
+    if (read.kind === 'asking') return undefined;
+    const birth = read.kind === 'petless' ? read.data.birth : undefined;
+    const daily = !birth?.open && birth?.reason === 'daily';
+    if (!daily && !dailyBoundary.current.reached) return undefined;
+    const until = daily ? birth?.until : dailyBoundary.current.until;
+    if (daily && dailyBoundary.current.until !== until) dailyBoundary.current = { until, reached: false };
+    const delay = dailyBoundary.current.reached ? 5000 : dailyResetDelay(until, read.kind === 'petless' ? read.data.serverTime : undefined);
+    const timer = window.setTimeout(() => {
+      dailyBoundary.current.reached = true;
+      if (document.visibilityState === 'visible') setAttempt((a) => a + 1);
+    }, delay);
+    return () => window.clearTimeout(timer);
+  }, [auth.authenticated, read]);
+
+  // A visitor reads admission; a player reads fresh ownership, known links and birth status.
   useEffect(() => {
     // the return from Google is led to its place by `ReturnToPlace`, which has had its turn: the address has moved on
     if (!auth.ready || auth.unreachable || window.location.pathname !== '/') return undefined;
     let live = true;
+    if (who === 'visitor') dailyBoundary.current = { until: undefined, reached: false };
     setRead({ as: who, kind: 'asking' });
     void (async () => {
       try {
@@ -52,9 +84,13 @@ export function useHome() {
           if (token === null) throw new WorkerError(401, 'signed_out');
           const me = await workerApi.me(token);
           if (!live) return;
-          setRead({ as: 'player', kind: 'leaving' });
-          // «Several pets rule» (`add-gift`) rebuilds `currentPet`; with none, the Hatch screen
-          navigate(me.currentPet ? petPath(me.currentPet.tokenId) : hatchPath());
+          if (me.currentPet || me.birth?.open || me.birth?.reason !== 'daily') dailyBoundary.current = { until: undefined, reached: false };
+          if (me.currentPet) {
+            setRead({ as: 'player', kind: 'leaving' });
+            navigate(petPath(me.currentPet.tokenId));
+          } else {
+            setRead({ as: 'player', kind: 'petless', data: me });
+          }
         } else {
           const gate = await readGate();
           if (live) setRead({ as: 'visitor', kind: 'gate', gate });
@@ -73,16 +109,19 @@ export function useHome() {
   }, [auth.ready, auth.unreachable, who, attempt, evidenceIntent]);
 
   const view: HomeView = (() => {
-    if (!auth.ready) return { kind: 'loading' };
-    if (auth.unreachable) return { kind: 'error', busy: false };
-    if (read.as !== who) return { kind: 'loading' };
-    if (read.kind === 'failed') return { kind: 'error', busy: read.busy };
+    if (!auth.ready) return who === 'player' ? { kind: 'petless-loading' } : { kind: 'loading' };
+    if (auth.unreachable) return who === 'player' ? { kind: 'petless-error' } : { kind: 'error', busy: false };
+    if (read.as !== who) return who === 'player' ? { kind: 'petless-loading' } : { kind: 'loading' };
+    if (read.kind === 'failed') return who === 'player' ? { kind: 'petless-error' } : { kind: 'error', busy: read.busy };
     if (read.kind === 'leaving') return { kind: 'leaving' };
     if (read.kind === 'evidence') return { kind: 'evidence' };
     if (read.kind === 'gate') {
       return read.gate.state === 'open' ? { kind: 'signed-out' } : { kind: 'closed', all: read.gate.state === 'closed_all', until: read.gate.until };
     }
-    return { kind: 'loading' };
+    if (read.kind === 'petless') return read.data.birth
+      ? { kind: 'petless', knownPets: read.data.knownPets ?? [], birth: read.data.birth }
+      : { kind: 'petless-error' };
+    return who === 'player' ? { kind: 'petless-loading' } : { kind: 'loading' };
   })();
 
   // `sign_in_blocked` once per load of the closed view, with the reason of the answer

@@ -142,9 +142,9 @@ describe('Skill code data', () => {
     const tk = await petWithSkill(h);
     await env.DB.prepare("INSERT INTO project_spend (at, kind, usd_micros) VALUES (1, 'gas', 99998000)").run();
     const visitor = await other();
-    expect((await api('/api/hatch?look=1', { token: visitor })).body).toEqual({ open: true });
+    expect((await api('/api/hatch?look=1', { token: visitor })).body).toMatchObject({ open: true, ownedCount: 0, noPets: true });
     await testRun(tk, { code: CODE, fn: 'add', values: '1,2' });
-    expect((await api('/api/hatch?look=1', { token: visitor })).body).toEqual({ open: false, reason: 'budget', noPets: true });
+    expect((await api('/api/hatch?look=1', { token: visitor })).body).toMatchObject({ open: false, reason: 'budget', ownedCount: 0, noPets: true });
   });
 
   // spec: add-pet-errands › Skill code data › a version billed

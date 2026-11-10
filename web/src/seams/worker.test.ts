@@ -47,6 +47,12 @@ function blackHole() {
 }
 
 describe('the Worker seam', () => {
+  // spec: add-hatch-again › Repeat ownership data › prior owner reads old memory
+  it('recognizes the former-owner refusal body without exposing private memory', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => Response.json({ error: 'former_owner' }, { status: 403 })));
+    await expect(workerApi.conversation('identity-token', '9')).rejects.toMatchObject({ status: 403, code: 'former_owner' });
+  });
+
   // spec: add-account › Showcase data › one copy for everyone
   it('reads the public Showcase copy without a session or request body', async () => {
     const copy = { pets: [], numbers: null };
@@ -107,6 +113,16 @@ describe('the Worker seam', () => {
     await workerApi.hatchStatus('t');
     await workerApi.hatchStatus('t', { look: true });
     expect(fetchMock.mock.calls.map((c) => (c as unknown as [string])[0])).toEqual(['/api/hatch', '/api/hatch?look=1']);
+  });
+
+  // spec: add-hatch-again › Hatch again screen › birth closed for the day × 00:00 UTC
+  it('carries the Worker response clock with Hatch and Home status reads', async () => {
+    const headers = { date: 'Tue, 10 Nov 2026 23:59:55 GMT' };
+    vi.stubGlobal('fetch', vi.fn(async (path: string) => Response.json(path === '/api/me'
+      ? { accountId: 'a', hatched: null, currentPet: null, ownedCount: 0, birth: { open: false, reason: 'daily' } }
+      : { open: false, reason: 'daily' }, { headers })));
+    expect((await workerApi.hatchStatus('t')).serverTime).toBe(headers.date);
+    expect((await workerApi.me('t')).serverTime).toBe(headers.date);
   });
 
   // spec: add-pet › Connection rule › AI-провайдер недоступен
