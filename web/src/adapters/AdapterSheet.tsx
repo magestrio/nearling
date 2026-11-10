@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Button, Cluster, Divider, Inert, Note, Sheet, Stack, Text, TextField, TextLink, ToolList, ToolRow } from '../ds';
+import { Button, Cluster, Divider, Note, Sheet, Stack, Text, TextField, TextLink, ToolList, ToolRow } from '../ds';
 import { focusButton, sheetTitled } from '../errands/focus';
 import { useMarkErrandSurface } from '../errands/surfaces';
 import { useSignInLines } from '../signin/SignInOutcome';
@@ -44,7 +44,11 @@ import type { useAdapter } from './useAdapter';
 export function AdapterSheet({ name, adapter, tokenId, onClose }: { name: string; adapter: ReturnType<typeof useAdapter>; tokenId: string; onClose: () => void }) {
   const { open, source, tools: checked, ticks, top, busy, variant } = adapter;
   const [confirmRemove, setConfirmRemove] = useState(false);
-  useEffect(() => { if (!open) setConfirmRemove(false); }, [open]);
+  const goingBack = useRef(false);
+  useEffect(() => {
+    if (!open) setConfirmRemove(false);
+    else goingBack.current = false;
+  }, [open]);
   // a session that ended meets the line of `Session expiry flow`: «Sign in» brings the sheet back with the name and the typed address
   const [session] = useSignInLines({ text: JSON.stringify({ label: adapter.label, address: adapter.address, ...(source ? { sid: source.id } : {}) }), action: 'adapter' });
   useMarkErrandSurface(open);
@@ -176,16 +180,17 @@ export function AdapterSheet({ name, adapter, tokenId, onClose }: { name: string
 
   return (
     <>
-    <Inert on={confirmRemove}>
     <Sheet
       title={title}
+      inert={confirmRemove}
       column={step}
       centered={!step}
-      onBack={step ? adapter.back : undefined}
+      onBack={step ? () => { goingBack.current = true; adapter.back(); } : undefined}
       status={statusParts.join(' ')}
       busy={busy === 'save' || busy === 'remove'}
       foot={foot}
       onClose={onClose}
+      returnFocusTo={() => goingBack.current ? null : document.querySelector<HTMLElement>('.ds-hud__nameplate')}
     >
       <Stack gap={5}>
         {topLine}
@@ -232,7 +237,6 @@ export function AdapterSheet({ name, adapter, tokenId, onClose }: { name: string
         {publishBlock}
       </Stack>
     </Sheet>
-    </Inert>
     {confirmRemove && source ? (
       <Sheet title={removeSourceTitle(source.label)} centered alert busy={busy === 'remove'} onClose={() => setConfirmRemove(false)} status={top?.kind === 'failed' ? ADAPTER_ERROR : top?.kind === 'session' ? session?.text : ''}>
         <Stack gap={4}>

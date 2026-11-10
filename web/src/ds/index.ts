@@ -1,4 +1,12 @@
-// The DS components of design/ds/components.js (0.42), ported. `Pet` is web/src/pet/PetFigure.tsx.
+// The DS components of design/ds/components.js (0.48), ported. `Pet` is web/src/pet/PetFigure.tsx.
+export { Stage } from './Stage';
+export { Hud } from './Hud';
+export { Hotbar, type HotbarItem } from './Hotbar';
+export { ActionMenu, type ActionMenuItem } from './ActionMenu';
+export { PetCard } from './PetCard';
+export { Bubble } from './Bubble';
+export { Egg } from './Egg';
+export { DisclosureLine } from './DisclosureLine';
 export { ActionRow } from './ActionRow';
 export { Away } from './Away';
 export { Banner, Nest, Skeleton } from './Feedback';

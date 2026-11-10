@@ -103,6 +103,13 @@ it('keeps empty number space while loading and leaves the explorer reachable', a
   expect(host.querySelector('.ds-meadow__explore a')).not.toBeNull();
 });
 
+// spec: add-hatch-again › Petless Home screen › empty
+it('uses the DS compact meadow ground for a player with no pet of their own', async () => {
+  await act(async () => root.render(<Meadow pets={meadowPets(SAMPLE_SHOWCASE)} compact motion />));
+  expect(host.querySelector('.ds-meadow--compact')).not.toBeNull();
+  expect(host.querySelectorAll('.ds-meadow__link')).toHaveLength(10);
+});
+
 // spec: add-account › Home screen › asleep
 it('keeps sleepers linked and their two z still under a shared pause choice, including the phone icon control', async () => {
   await act(async () => root.render(<Meadow pets={meadowPets(SAMPLE_SHOWCASE)} motion />));

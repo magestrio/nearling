@@ -1,18 +1,18 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
-import { useSeal, type SealState } from '../../verification/seal';
+import { useSeal } from '../../verification/seal';
 import { AccountControl } from '../../account/AccountControl';
 import {
   Away,
   Banner,
+  Bubble,
   Button,
-  Center,
-  Centerpiece,
   Cluster,
   Composer,
   Conversation,
   Dock,
-  Header,
   Heading,
+  Hotbar,
+  Hud,
   IconButton,
   Inert,
   Live,
@@ -20,16 +20,12 @@ import {
   MotionToggle,
   Note,
   Only,
-  Page,
-  PetPlate,
-  PetStage,
-  Progress,
-  Rail,
-  RailItem,
+  PetCard,
+  Seal,
   Shell,
   Skeleton,
   SkillBadge,
-  Split,
+  Stage,
   Stack,
   Text,
   TextLink,
@@ -42,7 +38,7 @@ import { ExperienceNotesPage } from '../../experience/ExperienceNotesPage';
 import { WorkRecordPage } from '../../experience/WorkRecordPage';
 import { useDiary } from '../../diary/useDiary';
 import { useSelfOpen } from '../../diary/useSelfOpen';
-import { nameOf, OUTFITS, wearProps } from '../../wardrobe/catalogue';
+import { nameOf, wearProps } from '../../wardrobe/catalogue';
 import { NewOutfitNotice } from '../../wardrobe/NewOutfitNotice';
 import { useNotice } from '../../wardrobe/useNotice';
 import { useWardrobe } from '../../wardrobe/useWardrobe';
@@ -75,7 +71,7 @@ import { useCode } from '../../adapters/useCode';
 import { useAdapter } from '../../adapters/useAdapter';
 import { formatCents } from '../../lib/price';
 import { resetTime } from '../../lib/time';
-import { experiencePath, relationshipsPath, workRecordPath, hatchPath, navigate, petPath, useLocation } from '../../route';
+import { workRecordPath, hatchPath, navigate, petPath, useLocation } from '../../route';
 import { canUseWebGL } from '../../pet/flat';
 import { makePet } from '../../pet/proto/generator.js';
 import { useMotionPaused } from '../../pet/motion';
@@ -84,8 +80,8 @@ import { PetFigure } from '../../pet/PetFigure';
 import { MS, talkMs } from '../../pet/proto/motion.js';
 import { usePetMotion } from '../../pet/proto/useMotion.js';
 import { useAuth } from '../../seams/auth';
-import { toastHeld, workerApi, type ErrandForm, type PetView, type WishTarget } from '../../seams/worker';
-import { useWishSheet, wishProgress } from '../../will/WishSheet';
+import { toastHeld, workerApi, WorkerError, type ErrandForm, type PetView, type WishTarget } from '../../seams/worker';
+import { useWishSheet } from '../../will/WishSheet';
 import { InvitationCard, useInvitations } from '../../will/InvitationCard';
 import { SignInLines, SignInOutcome, useSignInLines } from '../../signin/SignInOutcome';
 import { useSignIn } from '../../signin/signIn';
@@ -95,12 +91,14 @@ import { takeReturnSheet, takeReturnSkill } from '../../signin/returnPlace';
 import { FORMER_OWNER_LINE, usePetScreen, type Banner as BannerKind, type OwnerView } from './usePetScreen';
 import { useWaking } from './useWaking';
 import { usePetCard } from '../../showcase/usePetCard';
+import { guestStageActions, newestPetReply, ownerConversationDisabled, ownerStageActions, visiblePetReply } from './stageActions';
+import { useProfileCard } from './useProfileCard';
+import { ProfileCard } from './ProfileCard';
+import { sealLine } from './sealLine';
+export { sealLine } from './sealLine';
 
-// Pet screen (add-pet › Pet screen, Connection rule) built from design/bundle/screens/pet.js: the owner's page is two
-// columns — the pet with its rail and plate at the left, the conversation with the input pinned at its bottom at the
-// right; a guest or a visitor gets one centred column. The parts of other changes (energy, stage and traits, the
-// hiring mode, the guest's advice, Account) are slots of `parts.ts`: drawn where the frames have them once their
-// change registers them. The words are the Scenarios' and the frames' `copy`, verbatim.
+// Pet screen (add-pet › Pet screen, Connection rule): one game Stage holds the pet, its conversation and its actions.
+// The owner and guest data paths remain in usePetScreen; overlays keep this Stage mounted beneath them.
 const UNREACHABLE = "We can't reach the game right now. Try again in a moment.";
 const BUSY = 'Lots of visitors right now. Try again in a minute.';
 const NOT_FOUND = "We couldn't find this pet. The link may be broken.";
@@ -131,15 +129,8 @@ function useFigure() {
   return { lost, paused, onLost: () => setLost(true), hub, motion: flat ? null : toggleNode, toggle: toggleNode };
 }
 
-export function sealLine(name: string, state: SealState): string {
-  return state.kind === 'mismatch' ? `${name}'s character no longer matches the hatch record.`
-    : state.kind === 'unavailable' ? `We can't check ${name}'s character on NEAR just now. Try again.`
-      : state.kind === 'checked' ? `This mark checks that ${name} has the character sealed at birth. Game updates may change how we check it.` : '';
-}
-
-/** `start`: the phone owner's intro card, where the line is left-aligned and a mismatch or an unreadable seal is said by the
- *  banner above the page instead (the frames' `checkLink(pet, true)`). */
-function CheckLink({ tokenId, name, seal, start, watching, owner, wish, onWish }: { tokenId: string; name: string; seal: ReturnType<typeof useSeal>; start?: boolean; watching?: string | null; owner?: boolean; wish?: boolean; onWish?: () => void }) {
+/** The guest's public check and record links. `start` keeps the compact intro alignment when used there. */
+function CheckLink({ tokenId, name, seal, start, watching }: { tokenId: string; name: string; seal: ReturnType<typeof useSeal>; start?: boolean; watching?: string | null }) {
   const align = start ? undefined : 'center';
   return (
     <Stack gap={1} align={align}>
@@ -150,76 +141,43 @@ function CheckLink({ tokenId, name, seal, start, watching, owner, wish, onWish }
       {seal.state.kind === 'unavailable' && !start ? <Cluster gap={3}><Note tone="error" silent>{sealLine(name, seal.state)}</Note><Button variant="secondary" size="compact" onClick={seal.retry}>Try again</Button></Cluster> : null}
       <Cluster gap={3} justify={start ? undefined : 'center'}>
         <TextLink href={workRecordPath(tokenId)} tone="quiet" iconEnd="chevron">View work record</TextLink>
-        {owner ? <TextLink href={experiencePath(tokenId)} tone="quiet" iconEnd="chevron">Review experience</TextLink> : null}
-        {owner ? <TextLink href={relationshipsPath(tokenId)} tone="quiet" iconEnd="chevron">Relationships</TextLink> : null}
       </Cluster>
-      {owner && wish ? <TextLink href="#wish" tone="quiet" iconEnd="chevron" onClick={onWish}>{`${name}'s wish`}</TextLink> : null}
     </Stack>
   );
 }
 
-function SealBanner({ name, seal }: { name: string; seal: ReturnType<typeof useSeal> }) {
+/** The owner's frames (pet.js › ownerAwake) draw the banner on both viewports; a guest's line stands under the check link on the desktop. */
+function SealBanner({ name, seal, all }: { name: string; seal: ReturnType<typeof useSeal>; all?: boolean }) {
   if (seal.state.kind !== 'mismatch' && seal.state.kind !== 'unavailable') return null;
-  return <Only on="phone"><Banner action={seal.state.kind === 'unavailable' ? <Button variant="secondary" size="compact" onClick={seal.retry}>Try again</Button> : undefined}>
+  const banner = <Banner action={seal.state.kind === 'unavailable' ? <Button variant="secondary" size="compact" onClick={seal.retry}>Try again</Button> : undefined}>
     {sealLine(name, seal.state)}
-  </Banner></Only>;
+  </Banner>;
+  return all ? banner : <Only on="phone">{banner}</Only>;
 }
 
 function Account({ tokenId, name, viewer, asleep }: { tokenId: string; name: string; viewer: Viewer; asleep: boolean }) {
   return <Slot slot="account" tokenId={tokenId} name={name} viewer={viewer} asleep={asleep} />;
 }
 
-function Gone({ children }: { children: ReactNode }) {
-  return (
-    <Shell fill>
-      <Page fill width="narrow">
-        <Center>{children}</Center>
-      </Page>
-    </Shell>
-  );
-}
-
 /** The dead link: a pet the network does not know, or an address that can't be one. */
 export function PetNotFound() {
-  return (
-    <Gone>
-      <Heading level={1} variant="title-2" align="center">
-        {NOT_FOUND}
-      </Heading>
-      <Button href="/">Go home</Button>
-    </Gone>
-  );
+  return <EmptyPetStage line={NOT_FOUND} action={<Button href="/">Go home</Button>} />;
 }
 
 function LoadingView({ tokenId }: { tokenId: string }) {
-  return (
-    <Shell fill header={<Header end={<AccountControl tokenId={tokenId} />} />}>
-      <Page fill>
-        <Split
-          fill
-          ratio="start"
-          start={
-            <Stack gap={4} align="center">
-              <Skeleton shape="pet" />
-              <Skeleton shape="name" />
-              {/* said by the screen's own live region, which outlives this view */}
-              <Note tone="status" silent>
-                {FINDING}
-              </Note>
-            </Stack>
-          }
-          end={
-            <Stack gap={0} grow>
-              <Stack grow>{null}</Stack>
-              <Dock>
-                <Composer disabled label={FINDING} />
-              </Dock>
-            </Stack>
-          }
-        />
-      </Page>
-    </Shell>
-  );
+  return <EmptyPetStage line={FINDING} tokenId={tokenId} inputOff />;
+}
+
+/** `inputOff`: the loading view's field, off until the pet is known and named by the spec's words (add-pet › Pet screen › loading). */
+function EmptyPetStage({ line, tokenId, action, inputOff }: { line: string; tokenId?: string; action?: ReactNode; inputOff?: boolean }) {
+  return <Shell fill header={<Hud meters={false} routes={tokenId ? <AccountControl tokenId={tokenId} /> : undefined} />}>
+    <Stage pet={<Skeleton shape="pet" />} chat={<Stack gap={3} grow>
+      <Stack gap={3} align="center" justify="center" grow>
+        <Heading level={1} variant="title-2" align="center">{line}</Heading>{action}
+      </Stack>
+      {inputOff ? <Dock><Composer disabled label={line} /></Dock> : null}
+    </Stack>} />
+  </Shell>;
 }
 
 function bannerLine(banner: BannerKind, name: string): string {
@@ -246,6 +204,18 @@ function ConnectionBanner({ banner, name, tryAgain }: { banner: BannerKind; name
 function OwnerPage({ pet, s, seal }: { pet: OwnerView; s: ReturnType<typeof usePetScreen>; seal: ReturnType<typeof useSeal> }) {
   const { tokenId, name } = pet;
   const auth = useAuth();
+  const [lostPet, setLostPet] = useState<{ pet: Exclude<PetView, { viewer: 'owner' }>; ownerChanged: boolean } | null>(null);
+  const readCard = useCallback(async () => {
+    try { return await workerApi.pet(await s.tokenOf(), tokenId); }
+    catch (error) { if (error instanceof WorkerError && error.status === 401) auth.endSession(true, true); throw error; }
+  }, [s.tokenOf, tokenId, auth.endSession]);
+  const ownerLost = useCallback((next: PetView) => {
+    if (next.viewer === 'owner') return;
+    setLostPet({ pet: next, ownerChanged: next.viewer === 'guest' });
+    s.reread();
+  }, [s.reread]);
+  const profile = useProfileCard(readCard, 'owner', ownerLost, auth.authenticated && !auth.sessionEnded, pet);
+  const anchorCardOpen = auth.authenticated && !auth.sessionEnded && profile.phase !== 'closed';
   // the ended session's line, or what a tap on its «Sign in» came to: the first stands in the field's note and its action in
   // «Send»'s place, a second (the phone's way to a real browser) under the Composer
   const signInLines = useSignInLines({ unreachable: offlineLine(name), text: s.draft });
@@ -263,13 +233,16 @@ function OwnerPage({ pet, s, seal }: { pet: OwnerView; s: ReturnType<typeof useP
       const log = document.querySelector<HTMLElement>('[role="log"]');
       const first = [...(log?.querySelectorAll<HTMLElement>('ul[aria-label="Work invitations"] > li') ?? [])]
         .find((item) => item.getClientRects().length > 0);
-      if (log && first) log.scrollTop = first.getBoundingClientRect().top - log.getBoundingClientRect().top + log.scrollTop;
+      if (!log || !first) return;
+      const from = first.getBoundingClientRect();
+      const box = log.getBoundingClientRect();
+      // a card taller than the phone's short log stands with its buttons in view (the frames' scroll), the top is the cut part
+      log.scrollTop += from.height > box.height ? from.bottom - box.bottom : from.top - box.top;
     });
     return () => cancelAnimationFrame(frame);
   }, [invitationIds, invites.ended?.id]);
   const privateWish = auth.authenticated && !auth.sessionEnded && !asleep ? pet.wish : null;
   const wishNode = auth.authenticated && !auth.sessionEnded && !asleep ? wishSheet.node : null;
-  const wishAmount = privateWish ? wishProgress(privateWish, pet.outfitPrice) : null;
   const lastWish = useRef<WishTarget | null>(null);
   const [wishOutcome, setWishOutcome] = useState<{ item: string; source: 'owner' | 'pet_wish' } | null>(null);
   const outfitKey = pet.outfits.join('|');
@@ -308,7 +281,6 @@ function OwnerPage({ pet, s, seal }: { pet: OwnerView; s: ReturnType<typeof useP
   const giftOpen = giftRequest?.tokenId === tokenId;
   const myPetsOpen = useMyPetsOpen() === tokenId;
   const giftGiven = giftOpen && giftRequest?.given === true;
-  const giftTyping = giftOpen && giftRequest?.self && s.draft !== '';
   useEffect(() => { if (!auth.authenticated || auth.sessionEnded) { closeGift(); closeMyPets(); } }, [auth.authenticated, auth.sessionEnded]);
 
   // Skill sheet (`Skill sheet screen`): the badge under the name opens it, over the conversation column like Feed sheet. The label
@@ -501,7 +473,8 @@ function OwnerPage({ pet, s, seal }: { pet: OwnerView; s: ReturnType<typeof useP
   }, [cover.open]);
 
   // A reply landed: the pet says it, once its eyes have opened (`Conversation flow` › «Ответ»).
-  const newest = (s.lines ?? []).filter((l) => l.who === 'pet').at(-1);
+  const newest = newestPetReply(s.lines ?? []);
+  const bubbleReply = visiblePetReply(s.lines ?? [], { busy: s.busy, failed: Boolean(s.failure), asleep, away: s.away });
   const said = newest?.fresh ? newest : null;
   useEffect(() => {
     if (!said) return undefined;
@@ -511,24 +484,17 @@ function OwnerPage({ pet, s, seal }: { pet: OwnerView; s: ReturnType<typeof useP
 
   // Every control that needs a session asks first: with the session ended it shows the line and does nothing else
   // (`Session expiry flow` › «сессия кончилась при открытом экране»).
-  const act = (name: ActionName) => {
+  const act = (name: ActionName, returnFocusTo?: () => HTMLElement | null) => {
     if (!auth.needSession()) return;
     if (name === 'feed') { skill.close(); closeGift(); }
     if (name === 'gift' && feedOpenNow()) return;
-    runAction(name, ctx);
+    runAction(name, { ...ctx, returnFocusTo });
   };
-  const feedButton = (compact: boolean, variant?: 'secondary') => (
-    <Button variant={variant} size={compact ? 'compact' : undefined} icon="feed" role="food" haspopup="dialog" expanded={cover.opener || undefined} onClick={() => act('feed')}>
-      {`Feed ${name}`}
-    </Button>
-  );
 
   // The newest thing the pet said is in its lead voice — while nothing is on its way, nothing failed, and only the
   // note of a reply that stopped at its limit follows it.
   const all = s.lines ?? [];
   // the pet's question to a worker is not the reply the turn waits for, so it never takes the lead voice
-  const lastPet = all.reduce((at, l, i) => (l.who === 'pet' && !l.question ? i : at), -1);
-  const settled = !s.busy && s.failure === null;
   // The Manual offer is a card after the pet's question of its turn: open (with its buttons) while it stands and nothing answers it,
   // its words alone once answered; the tab keeps the words.
   const offer = pet.offer;
@@ -555,8 +521,9 @@ function OwnerPage({ pet, s, seal }: { pet: OwnerView; s: ReturnType<typeof useP
     skill.close();
     errand.openSheet(again);
   };
-  // the will's event lines stand under the history (the frames): the last reply is then an ordinary bubble, not the newest line
-  const willTail = auth.authenticated && !auth.sessionEnded && ((pet.willActivity?.length ?? 0) > 0 || wishOutcome?.source === 'pet_wish');
+  // A sheet keeps this Stage mounted, including its single pet canvas and the current conversation.
+  const stageCovered = share.open || giftGiven || anchorCardOpen || code.open ? true
+    : cover.open || giftOpen || myPetsOpen || !!wishNode ? 'phone' : undefined;
   const history = [
     ...all.flatMap((line, i): ReactNode[] => [
       line.who === 'event' ? (
@@ -594,7 +561,7 @@ function OwnerPage({ pet, s, seal }: { pet: OwnerView; s: ReturnType<typeof useP
           from="pet"
           speaker={name}
           fresh={line.fresh}
-          latest={settled && i === lastPet && !willTail && all.slice(i + 1).every((l) => l.cutNote)}
+          bubbled={line.id === bubbleReply?.id}
           verify={line.noVerify ? undefined : { href: `/pet/${tokenId}/verify/${line.id}`, label: 'Check this thought' }}
           meta={line.meta}
           foot={line.foot}
@@ -608,15 +575,6 @@ function OwnerPage({ pet, s, seal }: { pet: OwnerView; s: ReturnType<typeof useP
     ...offerCards(null),
   ];
 
-  const card = (
-    <Stack gap={3}>
-      <Cluster gap={3}>
-        <Slot slot="growth" {...slot} />
-      </Cluster>
-      <CheckLink tokenId={tokenId} name={name} seal={seal} watching={pet.watch?.target} start owner wish={!!privateWish} onWish={wishSheet.open} />
-      {asleep ? null : <Slot slot="hiring" {...slot} />}
-    </Stack>
-  );
   const invitationCards = (invites.cards.length || invites.ended || invites.readError) ? <ul aria-label="Work invitations" className="ds-stack" style={{ gap: 'var(--space-3)', listStyle: 'none', margin: 'var(--space-0)', padding: 'var(--space-0)' }}>
     {invites.readError ? <li><Note tone="error">Work invitations unavailable. Try again.</Note><Button variant="secondary" size="compact" onClick={invites.retryRead}>Try again</Button></li> : null}
     {invites.cards.map((invitation) => <li key={invitation.id}><InvitationCard card={invitation} busy={invites.busy === invitation.id}
@@ -633,7 +591,7 @@ function OwnerPage({ pet, s, seal }: { pet: OwnerView; s: ReturnType<typeof useP
   // a tap found the session ended: the field is off with its text, the line is the field's note and «Sign in» (or the «Try
   // again» of what became of it) stands in «Send»'s place (frame `session-expired`)
   const signedOut = auth.sessionLine;
-  const off = asleep || tired || paused || signedOut;
+  const off = ownerConversationDisabled(asleep, tired, paused, signedOut);
   const tiredLine = `${name} is tired for today. Back at ${resetTime(pet.until)}.`;
   const hungryLine = `${name} is too hungry to think hard right now.`;
   // with a card sheet open the page under it says the line of `Card eligibility rule` › pet asleep
@@ -678,9 +636,8 @@ function OwnerPage({ pet, s, seal }: { pet: OwnerView; s: ReturnType<typeof useP
               </Button>
             ) : null
           ) : asleep ? (
-            <Button key="feed" size="compact" icon="feed" haspopup="dialog" expanded={cover.opener || undefined} onClick={() => act('feed')}>
-              {`Feed ${name}`}
-            </Button>
+            // the game Stage's Hotbar already carries «Feed {name}»: its Composer has no end button asleep (pet.js › gameOwner)
+            null
           ) : (
             <Button key="send" size="compact" iconEnd="send" type="submit" off={off} busy={s.busy} onClick={() => void s.send(s.draft)}>
               Send
@@ -689,45 +646,16 @@ function OwnerPage({ pet, s, seal }: { pet: OwnerView; s: ReturnType<typeof useP
         }
       />
       {signedOut ? <SignInLines lines={moreLines} /> : null}
-      {asleep ? null : (
-        <Only on="desktop">
-          <Slot slot="hiring" {...slot} row />
-        </Only>
-      )}
     </Stack>
   );
 
-  // A newborn from a friend's pet keeps that route back; an owner with two pets also needs the list.
-  const header = (
-    <Header
-      start={
-        s.friend && pet.ownedCount >= 2 ? <Cluster>
-          <Button variant="ghost" size="compact" icon="back" href={`/pet/${s.friend.tokenId}`}>
-            {`Back to ${s.friend.name}`}
-          </Button>
-          <Button variant="ghost" size="compact" icon="pets" haspopup="dialog" expanded={myPetsOpen} onClick={() => act('myPets')}>
-            My pets
-          </Button>
-        </Cluster> : s.friend ? (
-          <Button variant="ghost" size="compact" icon="back" href={`/pet/${s.friend.tokenId}`}>
-            {`Back to ${s.friend.name}`}
-          </Button>
-        ) : pet.ownedCount >= 2 ? (
-          <Button variant="ghost" size="compact" icon="pets" haspopup="dialog" expanded={myPetsOpen} onClick={() => act('myPets')}>
-            My pets
-          </Button>
-        ) : null
-      }
-      end={<Cluster gap={2} nowrap>
-        <Only on="desktop"><Button variant="secondary" size="compact" icon="search" href="/hire">Find a pet to ask</Button></Only>
-        <Only on="phone"><IconButton variant="secondary" icon="search" label="Find a pet to ask" href="/hire" /></Only>
-        <Account {...slot} />
-      </Cluster>}
-    />
-  );
-
-  // With Feed sheet open the phone's bottom sheet is modal: the header and the pet are out of reach (on the desktop the page stays
-  // live beside the panel); the conversation and its field are covered on both, the sheet takes the column they stand in.
+  const stageActions = ownerStageActions({ tokenId, name, asleep, away: s.away, feedOpen: cover.opener,
+    errandOpen: errand.open, watch: Boolean(pet.watch), watchOpen, giftOpen: giftOpen && !giftRequest?.self, onFeed: () => act('feed'), onErrand: openErrand,
+    onWatch: openWatch, onGift: () => act('gift', () => document.querySelector<HTMLElement>('.ds-hotbar__action[aria-haspopup="menu"]') ?? document.querySelector<HTMLElement>('.ds-hud__nameplate')) });
+  if (auth.sessionEnded) {
+    stageActions.items = stageActions.items.map((item) => item.more ? { ...item, off: true } : item);
+  }
+  if (lostPet) return <OutsiderPage pet={lostPet.pet} s={s} seal={seal} ownerChanged={lostPet.ownerChanged} />;
   if (share.lostOwner) {
     const guestPet: Exclude<PetView, { viewer: 'owner' }> = { ...pet, viewer: 'guest' };
     return <>
@@ -735,187 +663,84 @@ function OwnerPage({ pet, s, seal }: { pet: OwnerView; s: ReturnType<typeof useP
       <div className="ds-only" data-accent={accentOf(tokenId)} style={{ color: 'var(--color-text-primary)', fontFamily: 'var(--font-sans)' }}>{share.sheet}</div>
     </>;
   }
-  return (
-    <Shell accent={accentOf(tokenId)} fill header={<Inert on={giftGiven || share.open ? true : cover.open || giftOpen || myPetsOpen ? 'phone' : undefined}>{header}</Inert>}>
-      {myPetsOpen ? <MyPetsSheet tokenId={tokenId} /> : null}
-      <Inert on={share.open ? true : myPetsOpen ? 'phone' : undefined}><Page fill>
-        <ConnectionBanner banner={s.banner} name={name} tryAgain={s.tryAgain} />
-        <SealBanner name={name} seal={seal} />
-        {paused && !s.banner ? <Banner tone="info">{pausedLine(name)}</Banner> : null}
-        <Split
-          fill
-          ratio="start"
-          start={
-            <Inert on={giftGiven ? true : cover.open || giftOpen || wishNode ? 'phone' : undefined}>
-              <PetStage
-                compact
-                owner
-                pet={
-                  s.away ? (
-                    // the pet is off on an errand: the stage empties but for its light pool and the path (`Errand flow` › «sent»)
-                    <Away paused={figure.paused} />
-                  ) : (
-                    <PetFigure tokenId={tokenId} name={name} state={state} stage={pet.stage} mood={asleep ? null : pet.mood} size="hero" lost={figure.lost} onLost={figure.onLost} hub={hub} birth={birth} {...wearProps(pet.worn)} />
-                  )
-                }
-                // the walker of the errand moves on a flat page too (no WebGL, the context lost): «Pause motion» stops it (DS › Away)
-                motion={s.away ? figure.toggle : figure.motion}
-                rail={
-                  asleep ? <Rail>
-                    <RailItem icon="share" label="Ask friends to fund an errand" haspopup="dialog" expanded={errand.open || undefined} onClick={openErrand} />
-                    <RailItem icon="watch" label={pet.watch ? 'Edit watch' : 'Watch something'} haspopup="dialog" expanded={watchOpen || undefined} onClick={openWatch} />
-                    {share.entry}
-                  </Rail> : (
-                    <Rail>
-                      <RailItem icon="today" label="Today" href={`/pet/${tokenId}/diary`} role="food" />
-                      <RailItem icon="hanger" label="Wardrobe" href={`/pet/${tokenId}/wardrobe`} />
-                      <RailItem
-                        icon="pack"
-                        label={`Send ${name} on an errand`}
-                        role="mind"
-                        haspopup="dialog"
-                        expanded={errand.open || undefined}
-                        off={s.away}
-                        describedBy={s.away ? 'errand-away' : undefined}
-                        onClick={openErrand}
-                      />
-                      <RailItem icon="watch" label={pet.watch ? 'Edit watch' : 'Watch something'} haspopup="dialog" expanded={watchOpen || undefined} onClick={openWatch} />
-                      {share.entry}
-                      <RailItem icon="gift" label={`Give ${name} away`} haspopup="dialog" expanded={giftOpen && !giftRequest?.self} onClick={() => act('gift')} />
-                    </Rail>
-                  )
-                }
-                plate={
-                  <PetPlate
-                    name={name}
-                    seal={seal.state.hash ?? undefined}
-                    compact={hasSlot('energy')}
-                    badge={
-                      asleep && !label ? undefined : (
-                        <SkillBadge name={name} label={label} owner={!asleep} expanded={skillShown || undefined} onClick={openSkill} />
-                      )
-                    }
-                    fullness={{ state: pet.fullness.state, level: hungry ? pet.fullness.level : undefined }}
-                    action={asleep ? null : feedButton(true, 'secondary')}
-                  >
-                    {privateWish ? <Stack gap={2}>
-                      <Stack gap={1}>
-                        <Progress value={wishAmount!.fraction}>{wishAmount!.cents}</Progress>
-                        <Text variant="small" tone="secondary" tabular>{wishAmount!.near}</Text>
-                      </Stack>
-                      <Text variant="small" tone="secondary">{`${name} wants ${nameOf(privateWish.item) ?? privateWish.item}`}</Text>
-                    </Stack> : auth.authenticated && !auth.sessionEnded && wishOutcome?.source === 'owner' ? <Text variant="small" tone="secondary">{`${name} already has ${nameOf(wishOutcome.item) ?? wishOutcome.item}.`}</Text>
-                      : OUTFITS.filter((o) => o.kind === 'bought').every((o) => pet.outfits.includes(o.slug)) ? <Text variant="small" tone="secondary">{`${name} has every outfit for now.`}</Text> : null}
-                    <Only on="desktop">
-                      <Slot slot="growth" {...slot} />
-                    </Only>
-                    <Slot slot="energy" {...slot} />
-                  </PetPlate>
-                }
-                foot={<Stack gap={2} align="center">
-                  <CheckLink tokenId={tokenId} name={name} seal={seal} watching={pet.watch?.target} owner wish={!!privateWish} onWish={wishSheet.open} />
-                  <OldReserveNotice tokenId={tokenId} name={name} reserve={pet.oldSharedReserve} onReleased={s.reread} />
-                </Stack>}
-              />
-            </Inert>
-          }
-          end={
-            <Stack gap={0} grow>
-              <Inert on={cover.open || !!wishNode || (giftOpen && !giftTyping)}>
-                <Conversation intro={invitationCards ? <><Only on="phone"><Stack gap={3}>{card}{invitationCards}</Stack></Only><Only on="desktop">{invitationCards}</Only></> : card} introOn={invitationCards ? undefined : 'phone'}>
-                  {history}
-                  {auth.authenticated && !auth.sessionEnded ? pet.willActivity?.map((activity, index) =>
-                    <Message key={`will-activity-${activity.at}-${index}`} from="event">{`${name} declined a request · ${activity.code}`}</Message>) : null}
-                  {auth.authenticated && !auth.sessionEnded && wishOutcome?.source === 'pet_wish' ? <Message from="event">{`${name} earned ${nameOf(wishOutcome.item) ?? wishOutcome.item}!`}</Message> : null}
-                  {s.failure ? (
-                    <Message
-                      key="failure"
-                      from="error"
-                      actions={
-                        s.failure.noRetry ? undefined : (
-                          <Button variant="secondary" size="compact" onClick={s.retryThought}>
-                            Try again
-                          </Button>
-                        )
-                      }
-                    >
-                      {s.failure.code === 'empty_paid' ? emptyPaidLine(name) : lostLine(name)}
-                    </Message>
-                  ) : null}
-                  {s.ownLost && !s.busy ? <OwnLostMessage key="own-lost" name={name} worker={lastWorker} onTryAgain={s.finishHire} /> : null}
-                  {s.busy ? (
-                    <Thinking key="thinking" id={s.away ? 'errand-away' : undefined} wait={s.waiting ? WAIT_LINE : undefined}>
-                      {s.away ? sentLine(name) : s.asking ? askingLine(name, s.asking) : `${name} is thinking${s.jobMode === 'deep' ? ' hard' : ''}…`}
-                    </Thinking>
-                  ) : null}
-                </Conversation>
-                <Dock>
-                  {field}
-                  <Live>{live}</Live>
-                  <Live alert>{signedOut ? signInLines.map((l) => l.text).join(' ') : ''}</Live>
-                </Dock>
-              </Inert>
-              {/* Feed sheet stands over this one: the errand's sheet is out of reach while it is open, and keeps its form and text */}
-              <Inert on={feedCover.open}>
-                <ErrandSheet name={name} errand={errand} asleep={pet.fullness.state === 'asleep'} onFeed={() => openFeed({ tokenId, name, label: name, elsewhere: false })} />
-              </Inert>
-              <WatchSheet tokenId={tokenId} name={name} open={watchOpen} draft={watchDraft} onDraft={setWatchDraft} onClose={() => setWatchOpen(false)} tokenOf={s.tokenOf} onOwnerLost={s.reread} onChanged={s.reread} />
-              <FeedLayer column pageFullness={pet.fullness} />
-              <GiftSheet tokenId={tokenId} name={name} stage={pet.stage} worn={pet.worn} onGiven={s.reread} />
-              {wishNode}
-              <SkillSheet
-                name={name}
-                skill={skill}
-                hasLabel={label !== null}
-                onClose={skill.close}
-                hidden={adapter.open || code.open}
-                sockets={{ onConnect: () => adapter.openNew(), onSource: (source) => adapter.openSource(source), onCode: () => code.openSheet() }}
-              />
-              <AdapterSheet
-                name={name}
-                adapter={adapter}
-                tokenId={tokenId}
-                onClose={() => {
-                  adapter.close();
-                  skill.close();
-                }}
-              />
-              <CodeSheet
-                name={name}
-                sheet={code}
-                onClose={() => {
-                  code.close();
-                  skill.close();
-                }}
-              />
-            </Stack>
-          }
-        />
-      </Page></Inert>
-      {share.sheet}
-      <Live>{skillSaved ? skillSavedLine(name) : ''}</Live>
-      {skillSaved ? (
-        <Toast icon="check" silent onDone={toastHeld() ? undefined : () => setSkillSaved(false)}>
-          {skillSavedLine(name)}
-        </Toast>
-      ) : null}
-      <Live>{adapterLine ?? ''}</Live>
-      {adapterLine ? (
-        <Toast icon="check" silent onDone={toastHeld() ? undefined : () => setAdapterLine(null)}>
-          {adapterLine}
-        </Toast>
-      ) : null}
-    </Shell>
-  );
+  return <Shell accent={accentOf(tokenId)} fill header={<Inert on={stageCovered}>
+    <Hud name={name} stage={pet.stage === 'baby' ? 'Baby' : pet.stage === 'teen' ? 'Teen' : 'Grown-up'}
+      seal={seal.state.hash ? <Seal hash={seal.state.hash} size="sm" /> : undefined}
+      condition={pet.fullness.state} level={hungry ? pet.fullness.level : undefined} owner energy={pet.energy}
+      cardOpen={anchorCardOpen} onCard={() => { if (auth.needSession()) void profile.open(); }}
+      myPets={pet.ownedCount >= 2 ? <><Only on="desktop"><Button variant="ghost" size="compact" icon="pets" haspopup="dialog" expanded={myPetsOpen} onClick={() => act('myPets')}>My pets</Button></Only>
+        <Only on="phone"><IconButton icon="pets" label="My pets" haspopup="dialog" expanded={myPetsOpen} onClick={() => act('myPets')} /></Only></> : undefined}
+      routes={s.friend ? <Cluster gap={2} nowrap><Only on="desktop"><Button variant="ghost" size="compact" icon="back" href={`/pet/${s.friend.tokenId}`}>{`Back to ${s.friend.name}`}</Button></Only>
+        <Only on="phone"><IconButton variant="ghost" icon="back" label={`Back to ${s.friend.name}`} href={`/pet/${s.friend.tokenId}`} /></Only><Account {...slot} /></Cluster>
+        : <Cluster gap={2} nowrap><Only on="desktop"><Button variant="ghost" size="compact" icon="search" href="/hire">Find a pet to ask</Button></Only>
+        <Only on="phone"><IconButton variant="secondary" icon="search" label="Find a pet to ask" href="/hire" /></Only><Account {...slot} /></Cluster>} />
+  </Inert>}>
+    <Heading level={1} hidden>{name}</Heading>
+    <ConnectionBanner banner={s.banner} name={name} tryAgain={s.tryAgain} />
+    <SealBanner name={name} seal={seal} all />
+    {paused && !s.banner ? <Banner tone="info">{pausedLine(name)}</Banner> : null}
+    <Inert on={stageCovered}><Stage asleep={asleep}
+      pet={s.away ? <Away paused={figure.paused} /> : <PetFigure tokenId={tokenId} name={name} state={state} stage={pet.stage} mood={asleep ? null : pet.mood} size="hero" lost={figure.lost} onLost={figure.onLost} hub={hub} birth={birth} {...wearProps(pet.worn)} />}
+      motion={s.away ? figure.toggle : figure.motion}
+      bubble={bubbleReply ? <Bubble meta={bubbleReply.meta} receipt={bubbleReply.noVerify ? undefined : { href: `/pet/${tokenId}/verify/${bubbleReply.id}`, label: 'Check this thought' }}>{bubbleReply.text}</Bubble> : undefined}
+      edge={asleep ? <Stack gap={1}>{label ? <Text variant="small">{`Good at ${label}`}</Text> : null}<Button variant="secondary" size="compact" icon="share" haspopup="dialog" onClick={openErrand}>Ask friends to fund an errand</Button></Stack>
+        : pet.watch?.target || label ? <Stack gap={1}>{pet.watch?.target ? <Text variant="small" tone="secondary">{`Watching: ${pet.watch.target}`}</Text> : null}{label ? <Text variant="small">{`Good at ${label}`}</Text> : null}</Stack> : undefined}
+      chat={<><Conversation intro={invitationCards ?? undefined}>{history}
+        {auth.authenticated && !auth.sessionEnded ? pet.willActivity?.map((activity, index) => <Message key={`will-activity-${activity.at}-${index}`} from="event">{`${name} declined a request · ${activity.code}`}</Message>) : null}
+        {auth.authenticated && !auth.sessionEnded && wishOutcome?.source === 'pet_wish' ? <Message from="event">{`${name} earned ${nameOf(wishOutcome.item) ?? wishOutcome.item}!`}</Message> : null}
+        {s.failure ? <Message from="error" actions={s.failure.noRetry ? undefined : <Button variant="secondary" size="compact" onClick={s.retryThought}>Try again</Button>}>{s.failure.code === 'empty_paid' ? emptyPaidLine(name) : lostLine(name)}</Message> : null}
+        {s.ownLost && !s.busy ? <OwnLostMessage name={name} worker={lastWorker} onTryAgain={s.finishHire} /> : null}
+        {s.busy ? <Thinking id={s.away ? 'errand-away' : undefined} wait={s.waiting ? WAIT_LINE : undefined}>{s.away ? sentLine(name) : s.asking ? askingLine(name, s.asking) : `${name} is thinking${s.jobMode === 'deep' ? ' hard' : ''}…`}</Thinking> : null}
+      </Conversation><Dock>{field}<Live>{live}</Live><Live>{bubbleReply?.fresh ? `${name}: ${bubbleReply.text}` : ''}</Live><Live alert>{signedOut ? signInLines.map((line) => line.text).join(' ') : ''}</Live></Dock></>}
+      hotbar={<Hotbar items={stageActions.items} menu={stageActions.menu} active={auth.authenticated && !auth.sessionEnded}
+        menuMessage={share.message || undefined} onMenuReset={share.clearMessage}
+        shareItems={[{ icon: 'share', label: 'Share a thought', onClick: () => void share.openKind('thought') },
+          { icon: 'share', label: 'Share growth', onClick: () => void share.openKind('growth') },
+          { icon: 'share', label: 'Share outfit', onClick: () => void share.openKind('outfit') }]} />}
+    /></Inert>
+    {myPetsOpen ? <MyPetsSheet tokenId={tokenId} /> : null}
+    <ErrandSheet name={name} errand={errand} asleep={asleep} inert={feedCover.open} onFeed={() => openFeed({ tokenId, name, label: name, elsewhere: false })} />
+    <WatchSheet tokenId={tokenId} name={name} open={watchOpen} draft={watchDraft} onDraft={setWatchDraft} onClose={() => setWatchOpen(false)} tokenOf={s.tokenOf} onOwnerLost={s.reread} onChanged={s.reread} />
+    <FeedLayer column pageFullness={pet.fullness} />
+    <GiftSheet tokenId={tokenId} name={name} stage={pet.stage} worn={pet.worn} onGiven={s.reread} />
+    {wishNode}
+    <SkillSheet name={name} skill={skill} hasLabel={label !== null} onClose={skill.close} hidden={adapter.open || code.open}
+      sockets={{ onConnect: () => adapter.openNew(), onSource: (source) => adapter.openSource(source), onCode: () => code.openSheet() }} />
+    <AdapterSheet name={name} adapter={adapter} tokenId={tokenId} onClose={() => { adapter.close(); skill.close(); }} />
+    <CodeSheet name={name} sheet={code} onClose={() => { code.close(); skill.close(); }} />
+    {anchorCardOpen && profile.phase === 'loading' ? <PetCard name={name} onClose={profile.close} returnFocusTo={() => document.querySelector('.ds-hud__nameplate')} /> : null}
+    {anchorCardOpen && (profile.phase === 'error' || profile.phase === 'ready') ? <ProfileCard pet={profile.pet?.viewer === 'owner'
+      ? { ...profile.pet, hireMode: pet.hireMode } : pet}
+      boughtByOwner={wishOutcome?.source === 'owner' ? wishOutcome.item : null}
+      error={profile.phase === 'error'} seal={seal.state} onSealRetry={seal.retry} onRetry={() => void profile.open()} onClose={profile.close}
+      onSkill={() => { profile.close(); void skill.open(); }} onMode={(mode) => { if (auth.needSession()) void s.setHireMode(mode); }}
+      onWish={() => { profile.close(); wishSheet.open(); }} onFeed={() => { profile.close(); act('feed', () => document.querySelector<HTMLElement>('.ds-hud__nameplate')); }} /> : null}
+    {share.sheet}
+    <OldReserveNotice tokenId={tokenId} name={name} reserve={pet.oldSharedReserve} onReleased={s.reread} />
+    <Live>{skillSaved ? skillSavedLine(name) : ''}</Live>
+    {skillSaved ? <Toast icon="check" silent onDone={toastHeld() ? undefined : () => setSkillSaved(false)}>{skillSavedLine(name)}</Toast> : null}
+    <Live>{adapterLine ?? ''}</Live>
+    {adapterLine ? <Toast icon="check" silent onDone={toastHeld() ? undefined : () => setAdapterLine(null)}>{adapterLine}</Toast> : null}
+  </Shell>;
 }
 
 /** A signed-in player who isn't the owner, or a visitor with no session: one centred column — the pet, its plate,
  *  «Check it's really {name}», the asleep line, then «Feed {name}» and what the viewer can do next. */
-function OutsiderPage({ pet, s, seal }: { pet: Exclude<PetView, { viewer: 'owner' }>; s: ReturnType<typeof usePetScreen>; seal: ReturnType<typeof useSeal> }) {
+function OutsiderPage({ pet, s, seal, ownerChanged = false }: { pet: Exclude<PetView, { viewer: 'owner' }>;
+  s: ReturnType<typeof usePetScreen>; seal: ReturnType<typeof useSeal>; ownerChanged?: boolean }) {
   const { tokenId, name } = pet;
   const figure = useFigure();
   const { begin } = useSignIn();
   const auth = useAuth();
+  const readCard = useCallback(async () => {
+    try { return await workerApi.pet(await s.tokenOf(), tokenId); }
+    catch (error) { if (error instanceof WorkerError && error.status === 401) auth.endSession(true, true); throw error; }
+  }, [s.tokenOf, tokenId, auth.endSession]);
+  const viewerChanged = useCallback(() => s.reread(), [s.reread]);
+  const profile = useProfileCard(readCard, 'public', viewerChanged, !auth.sessionEnded, pet);
+  const anchorCardOpen = !auth.sessionEnded && profile.phase !== 'closed';
+  const changedLine = ownerChanged || (pet.viewer === 'guest' && s.notice === FORMER_OWNER_LINE)
+    ? `${name} has a new owner. You can still visit ${name}.` : '';
   const viewer: Viewer = pet.viewer;
   const asleep = pet.fullness.state === 'asleep';
   const ctx = { tokenId, name, viewer };
@@ -927,28 +752,9 @@ function OutsiderPage({ pet, s, seal }: { pet: Exclude<PetView, { viewer: 'owner
   const skillBadge = <SkillBadge name={name} label={pet.skill?.label} />;
   // a guest who never hatched is offered a pet of their own
   const fresh = viewer === 'guest' && me !== null && me.hatched === null;
-  // a guest with a pet of their own would have the advice column (add-pet-work); without it the page stands as the visitor's
-  const header =
-    viewer === 'visitor' ? null : (
-      <Header
-        start={
-          home ? (
-            <Button variant="ghost" size="compact" icon="back" href={`/pet/${home.tokenId}`}>
-              {`Go to your ${home.name}`}
-            </Button>
-          ) : null
-        }
-        end={<Account {...slot} />}
-      />
-    );
   const cover = useFeedCover(tokenId);
   const giftRequest = useGiftRequest();
   const givenHere = giftRequest?.tokenId === tokenId && giftRequest.given === true;
-  const feed = (
-    <Button block icon="feed" haspopup="dialog" expanded={cover.opener || undefined} onClick={() => (viewer === 'visitor' ? begin('feed') : auth.needSession() && runAction('feed', ctx))}>
-      {`Feed ${name}`}
-    </Button>
-  );
   // a friend's meal wakes the pet on this screen too: the boot, as on the owner's page
   const waking = useWaking(asleep);
   // what the advice column tells the page: a question on its way gives the friend's pet its thinking face
@@ -978,19 +784,6 @@ function OutsiderPage({ pet, s, seal }: { pet: Exclude<PetView, { viewer: 'owner
   // at the left with «Feed {name}» beside the name on the phone and under the plate on the desktop, the advice log and its field at
   // the right where the owner's conversation stands, Feed sheet taking the column's place when it opens.
   if (viewer === 'guest' && home !== null && hasSlot('advice')) {
-    const feedBeside = (compact: boolean) => (
-      <Button
-        size={compact ? 'compact' : undefined}
-        variant={adviceStatus.cantPay ? 'secondary' : undefined}
-        icon="feed"
-        role={adviceStatus.cantPay ? 'food' : undefined}
-        haspopup="dialog"
-        expanded={cover.opener || undefined}
-        onClick={() => auth.needSession() && runAction('feed', ctx)}
-      >
-        {`Feed ${name}`}
-      </Button>
-    );
     const advice = {
       payer: home,
       tokenOf: s.tokenOf,
@@ -1004,89 +797,69 @@ function OutsiderPage({ pet, s, seal }: { pet: Exclude<PetView, { viewer: 'owner
       carried: s.carried,
       takeCarried: s.takeCarried,
     };
-    return (
-      <Shell accent={accentOf(tokenId)} fill header={<Inert on={givenHere ? true : covered}>{header}</Inert>}>
-        <Page fill>
-          <ConnectionBanner banner={s.banner} name={name} tryAgain={s.tryAgain} />
-          <SealBanner name={name} seal={seal} />
-          <Split
-            fill
-            ratio="start"
-            start={
-              <Inert on={givenHere ? true : covered}>
-                <PetStage
-                  compact
-                  pet={<PetFigure tokenId={tokenId} name={name} state={state} stage={pet.stage} mood={asleep ? null : pet.mood} size="hero" lost={figure.lost} onLost={figure.onLost} hub={figure.hub} {...wearProps(pet.worn)} />}
-                  motion={figure.motion}
-                  plate={
-                    <PetPlate name={name} seal={seal.state.hash ?? undefined} compact badge={skillBadge} fullness={{ state: pet.fullness.state, level: pet.fullness.state === 'hungry' ? pet.fullness.level : undefined }}>
-                      <Only on="phone">{feedBeside(true)}</Only>
-                    </PetPlate>
-                  }
-                  foot={
-                    <Stack gap={2} align="center">
-                      {feedBeside(false)}
-                      <CheckLink tokenId={tokenId} name={name} seal={seal} watching={pet.watch?.target} />
-                    </Stack>
-                  }
-                />
-              </Inert>
-            }
-            end={
-              <Stack gap={0} grow>
-                <Inert on={givenHere}><Slot slot="advice" {...slot} advice={advice} /></Inert>
-                <FeedLayer column pageFullness={pet.fullness} />
-                {givenHere ? <GiftSheet tokenId={tokenId} name={name} stage={pet.stage} worn={pet.worn} onGiven={() => undefined} /> : null}
-              </Stack>
-            }
-          />
-        </Page>
-        {tail}
-      </Shell>
-    );
-  }
-  return (
-    <Shell accent={accentOf(tokenId)} fill header={<Inert on={givenHere ? true : covered}>{header}</Inert>}>
-      <Inert on={givenHere ? true : covered}>
-        <Page fill width="narrow">
-          <ConnectionBanner banner={s.banner} name={name} tryAgain={s.tryAgain} />
-          <SealBanner name={name} seal={seal} />
-          <Centerpiece
-            status={asleep ? asleepLine : ''}
-            actions={
-              <Stack gap={2}>
-                {asleep ? <Text align="center">{asleepLine}</Text> : null}
-                {feed}
-                {viewer === 'visitor' ? (
-                  <Button block variant="secondary" onClick={() => begin('signin')}>
-                    Sign in
-                  </Button>
-                ) : null}
-                {fresh && s.notice !== FORMER_OWNER_LINE ? (
-                  <Button block variant="secondary" href={hatchPath(tokenId)}>
-                    Get your own pet
-                  </Button>
-                ) : null}
-                {s.notice === FORMER_OWNER_LINE ? <Note>{FORMER_OWNER_LINE}</Note> : null}
-                {/* the outcome of a sign-in, and a guest's line of an ended session, under the action */}
-                <SignInOutcome column unreachable={offlineLine(name)} />
-              </Stack>
-            }
-          >
-            <PetStage
-              pet={<PetFigure tokenId={tokenId} name={name} state={state} stage={pet.stage} mood={asleep ? null : pet.mood} size="hero" lost={figure.lost} onLost={figure.onLost} hub={figure.hub} {...wearProps(pet.worn)} />}
-              motion={figure.motion}
-              plate={<PetPlate name={name} seal={seal.state.hash ?? undefined} badge={skillBadge} fullness={{ state: pet.fullness.state, level: pet.fullness.state === 'hungry' ? pet.fullness.level : undefined }} />}
-              foot={<CheckLink tokenId={tokenId} name={name} seal={seal} watching={pet.watch?.target} />}
-            />
-          </Centerpiece>
-        </Page>
-      </Inert>
-      <FeedLayer pageFullness={pet.fullness} />
+    return <Shell accent={accentOf(tokenId)} fill header={<Inert on={anchorCardOpen || givenHere ? true : covered}>
+      <Hud name={name} condition={pet.fullness.state} level={pet.fullness.state === 'hungry' ? pet.fullness.level : undefined}
+        cardOpen={anchorCardOpen} onCard={() => { if (!auth.sessionEnded) void profile.open(); else auth.needSession(); }}
+        routes={<Cluster gap={2} nowrap><Only on="desktop"><Button variant="ghost" size="compact" icon="pets" href={`/pet/${home.tokenId}`}>{`Go to your ${home.name}`}</Button></Only>
+          <Only on="phone"><IconButton variant="secondary" icon="pets" label={`Go to your ${home.name}`} href={`/pet/${home.tokenId}`} /></Only><Account {...slot} /></Cluster>} />
+    </Inert>}>
+      <Heading level={1} hidden>{name}</Heading>
+      {changedLine ? <Banner tone="info">{changedLine}</Banner> : null}
+      <Live>{changedLine}</Live>
+      <ConnectionBanner banner={s.banner} name={name} tryAgain={s.tryAgain} />
+      <SealBanner name={name} seal={seal} />
+      <Inert on={anchorCardOpen || givenHere ? true : covered}><Stage asleep={asleep}
+        pet={<PetFigure tokenId={tokenId} name={name} state={state} stage={pet.stage} mood={asleep ? null : pet.mood} size="hero" lost={figure.lost} onLost={figure.onLost} hub={figure.hub} {...wearProps(pet.worn)} />}
+        motion={figure.motion}
+        edge={<Stack gap={1}>{pet.watch?.target ? <Text variant="small" tone="secondary">{`Watching: ${pet.watch.target}`}</Text> : null}
+          {pet.skill?.label ? <Text variant="small">{`Good at ${pet.skill.label}`}</Text> : null}
+          <TextLink href={`/pet/${tokenId}/verify`} tone="trust" icon="verify">{`Check it's really ${name}`}</TextLink></Stack>}
+        // the Check link stands in the Stage's edge and the work record in the card: the log has no intro card here
+        chat={<Slot slot="advice" {...slot} advice={{ ...advice, check: null }} />}
+        hotbar={<Hotbar items={guestStageActions(name, cover.opener, () => { if (auth.needSession()) runAction('feed', ctx); })} />}
+      /></Inert>
+      <FeedLayer column pageFullness={pet.fullness} />
       {givenHere ? <GiftSheet tokenId={tokenId} name={name} stage={pet.stage} worn={pet.worn} onGiven={() => undefined} /> : null}
+      {anchorCardOpen && profile.phase === 'loading' ? <PetCard name={name} onClose={profile.close} returnFocusTo={() => document.querySelector('.ds-hud__nameplate')} /> : null}
+      {anchorCardOpen && (profile.phase === 'error' || profile.phase === 'ready') ? <ProfileCard pet={profile.pet ?? pet} error={profile.phase === 'error'}
+        seal={seal.state} onSealRetry={seal.retry} onRetry={() => void profile.open()} onClose={profile.close} /> : null}
       {tail}
-    </Shell>
-  );
+    </Shell>;
+  }
+  return <Shell accent={accentOf(tokenId)} fill header={<Inert on={anchorCardOpen || givenHere ? true : covered}>
+    <Hud name={name} condition={pet.fullness.state} level={pet.fullness.state === 'hungry' ? pet.fullness.level : undefined}
+      cardOpen={anchorCardOpen} onCard={() => { if (!auth.sessionEnded) void profile.open(); else auth.needSession(); }}
+      routes={home ? <Cluster gap={2} nowrap><Only on="desktop"><Button variant="ghost" size="compact" icon="pets" href={`/pet/${home.tokenId}`}>{`Go to your ${home.name}`}</Button></Only>
+        <Only on="phone"><IconButton variant="secondary" icon="pets" label={`Go to your ${home.name}`} href={`/pet/${home.tokenId}`} /></Only><Account {...slot} /></Cluster>
+        : <Account {...slot} />} />
+  </Inert>}>
+    <Heading level={1} hidden>{name}</Heading>
+    {changedLine ? <Banner tone="info">{changedLine}</Banner> : null}
+    <Live>{changedLine}</Live>
+    <ConnectionBanner banner={s.banner} name={name} tryAgain={s.tryAgain} />
+    <SealBanner name={name} seal={seal} />
+    <Inert on={anchorCardOpen || givenHere ? true : covered}><Stage asleep={asleep}
+      pet={<PetFigure tokenId={tokenId} name={name} state={state} stage={pet.stage} mood={asleep ? null : pet.mood} size="hero" lost={figure.lost} onLost={figure.onLost} hub={figure.hub} {...wearProps(pet.worn)} />}
+      motion={figure.motion}
+      edge={<Stack gap={1}>{pet.watch?.target ? <Text variant="small" tone="secondary">{`Watching: ${pet.watch.target}`}</Text> : null}
+        {pet.skill?.label ? <Text variant="small">{`Good at ${pet.skill.label}`}</Text> : null}
+        <TextLink href={`/pet/${tokenId}/verify`} tone="trust" icon="verify">{`Check it's really ${name}`}</TextLink></Stack>}
+      chat={<><Conversation label={`Advice from ${name}`}>{s.notice === FORMER_OWNER_LINE ? <Note>{FORMER_OWNER_LINE}</Note> : null}</Conversation>
+        <Dock><Stack gap={2}>{asleep ? <Text>{asleepLine}</Text> : null}
+          {viewer === 'visitor' ? <Button variant="secondary" onClick={() => begin('signin')}>Sign in</Button> : null}
+          {fresh && s.notice !== FORMER_OWNER_LINE ? <Button variant="secondary" href={hatchPath(tokenId)}>Get your own pet</Button> : null}
+          <SignInOutcome column unreachable={offlineLine(name)} /></Stack></Dock></>}
+      hotbar={<Hotbar items={guestStageActions(name, cover.opener, () => {
+        if (viewer === 'visitor') begin('feed'); else if (auth.needSession()) runAction('feed', ctx);
+      })} />}
+    /></Inert>
+    <FeedLayer column pageFullness={pet.fullness} />
+    {givenHere ? <GiftSheet tokenId={tokenId} name={name} stage={pet.stage} worn={pet.worn} onGiven={() => undefined} /> : null}
+    {anchorCardOpen && profile.phase === 'loading' ? <PetCard name={name} onClose={profile.close} returnFocusTo={() => document.querySelector('.ds-hud__nameplate')} /> : null}
+    {anchorCardOpen && (profile.phase === 'error' || profile.phase === 'ready') ? <ProfileCard pet={profile.pet ?? pet} error={profile.phase === 'error'}
+      seal={seal.state} onSealRetry={seal.retry} onRetry={() => void profile.open()} onClose={profile.close} /> : null}
+    {tail}
+  </Shell>;
 }
 
 /** What the page itself came to: one live region that stays through the views, so the outcome of «Finding this pet…» is
@@ -1178,14 +951,7 @@ function PetView({
   if (page.kind === 'loading') return <LoadingView tokenId={s.tokenId} />;
   if (page.kind === 'not_found') return <PetNotFound />;
   if (page.kind === 'unreachable') {
-    return (
-      <Gone>
-        <Heading level={1} variant="title-2" align="center">
-          {page.busy ? BUSY : UNREACHABLE}
-        </Heading>
-        <Button onClick={s.tryAgain}>Try again</Button>
-      </Gone>
-    );
+    return <EmptyPetStage line={page.busy ? BUSY : UNREACHABLE} tokenId={s.tokenId} action={<Button onClick={s.tryAgain}>Try again</Button>} />;
   }
   if (experience) return <ExperienceNotesPage pet={page.pet} tokenOf={s.tokenOf} reread={s.reread} />;
   if (workRecord) return <WorkRecordPage pet={page.pet} />;

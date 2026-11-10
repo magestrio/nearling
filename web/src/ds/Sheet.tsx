@@ -1,4 +1,5 @@
 import { useEffect, useId, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
+import { Button } from './Button';
 import { IconButton } from './IconButton';
 import { cx, useIsDesktop } from './util';
 
@@ -28,7 +29,10 @@ export function Sheet({
   self,
   foot,
   wide,
+  closeText,
   returnFocusTo,
+  inert,
+  hidden,
   children,
 }: {
   title: string;
@@ -47,7 +51,14 @@ export function Sheet({
   /** the Skill code sheet: with `centered` a dialog as wide as the content column on the desktop, on the phone the bottom
    *  sheet at its full height */
   wide?: boolean;
+  /** «Close» as a text button instead of the icon (the Pet card) */
+  closeText?: boolean;
   returnFocusTo?: () => HTMLElement | null;
+  /** a sheet over this one: this one is out of reach. On the layer itself, so a column sheet stays a direct child of the main
+   *  (the Stage's CSS places it by that), which a wrapping `Inert` would break */
+  inert?: boolean;
+  /** kept in the page, not drawn (a step of the sheet stands: its opener stays for the step's «Back») */
+  hidden?: boolean;
   children?: ReactNode;
 }) {
   const titleId = useId();
@@ -62,7 +73,8 @@ export function Sheet({
 
   useEffect(() => {
     const root = sheet.current;
-    if (self && document.activeElement instanceof HTMLTextAreaElement && !root?.contains(document.activeElement)) return;
+    // typing means a field with words in it: the Composer's autofocus on an empty field is not the player's line
+    if (self && document.activeElement instanceof HTMLTextAreaElement && document.activeElement.value !== '' && !root?.contains(document.activeElement)) return;
     const target = root?.querySelector<HTMLElement>('[data-autofocus]') ?? (self ? root?.querySelector<HTMLElement>('h2') : null) ?? root?.querySelector<HTMLElement>(FOCUSABLE);
     target?.focus();
     return () => {
@@ -100,7 +112,8 @@ export function Sheet({
   };
 
   return (
-    <div className={cx('ds-sheet-layer', column && 'ds-sheet-layer--column', popover && 'ds-sheet-layer--popover', centered && 'ds-sheet-layer--centered', wide && 'ds-sheet-layer--wide')}>
+    <div className={cx('ds-sheet-layer', column && 'ds-sheet-layer--column', popover && 'ds-sheet-layer--popover', centered && 'ds-sheet-layer--centered', wide && 'ds-sheet-layer--wide')}
+      inert={inert || undefined} hidden={hidden || undefined} style={hidden ? { display: 'none' } : undefined}>
       <div className="ds-sheet__scrim" aria-hidden="true" onClick={busy ? undefined : onClose} />
       <section
         ref={sheet}
@@ -115,7 +128,8 @@ export function Sheet({
           <h2 id={titleId} className="ds-sheet__title type-title-3" tabIndex={self ? -1 : undefined}>
             {title}
           </h2>
-          <IconButton icon="close" label="Close" size="compact" disabled={busy} onClick={onClose} />
+          {closeText ? <Button variant="ghost" size="compact" disabled={busy} onClick={onClose}>Close</Button>
+            : <IconButton icon="close" label="Close" size="compact" disabled={busy} onClick={onClose} />}
         </div>
         {/* one live region, always there: each outcome is written into it by changing its text */}
         <p className="ds-hidden" role="status">

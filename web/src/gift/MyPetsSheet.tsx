@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState, useSyncExternalStore } from 'react';
-import { Note, PetList, PetRow, Sheet, Stack, Button, Cluster } from '../ds';
+import { Note, PetList, PetRow, Sheet, Button, Cluster } from '../ds';
 import { go, petPath } from '../route';
 import { useAuth } from '../seams/auth';
 import { WorkerError, workerApi, type PetView } from '../seams/worker';
@@ -37,9 +37,9 @@ export function MyPetsSheet({ tokenId }: { tokenId: string }) {
   return <Sheet title="Your pets" popover onClose={closeMyPets}>
     {load.kind === 'ready' ? <PetList label="Your pets">
       {load.rows.map((row) => <PetRow key={row.tokenId} {...row} current={row.tokenId === tokenId} onSelect={() => select(row.tokenId)} />)}
-    </PetList> : load.kind === 'error' ? <Stack gap={3}>
+    </PetList> : load.kind === 'error' ? <Cluster gap={3} justify="space-between">
       <Note tone="error">We couldn't load your pets right now. Try again in a moment.</Note>
-      <Cluster><Button variant="secondary" size="compact" onClick={() => { setLoad({ kind: 'loading' }); setAttempt((value) => value + 1); }}>Try again</Button></Cluster>
-    </Stack> : null}
+      <Button variant="secondary" size="compact" onClick={() => { setLoad({ kind: 'loading' }); setAttempt((value) => value + 1); }}>Try again</Button>
+    </Cluster> : null}
   </Sheet>;
 }

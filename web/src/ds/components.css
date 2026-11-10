@@ -12,6 +12,104 @@
 [data-accent="yellow"] { --color-accent: var(--color-pet-yellow); }
 [data-accent="none"] { --color-accent: var(--color-pet-none); }
 
+/* DS 0.48: the game stage and its attached instruments. */
+.ds-hud { position: relative; z-index: var(--layer-sheet); border-block-end: var(--stroke-hairline) solid var(--color-line-hairline); background: var(--color-bg-canvas); }
+.ds-hud__inner { max-width: var(--size-content-wide); margin-inline: auto; min-height: var(--size-header); padding-inline: var(--space-gutter-phone); display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); }
+.ds-hud__identity, .ds-hud__meters, .ds-hud__routes { display: flex; align-items: center; gap: var(--space-3); min-width: var(--space-0); }
+.ds-hud__meters { flex-wrap: wrap; justify-content: center; }
+.ds-hud__nameplate { display: flex; align-items: center; gap: var(--space-2); min-height: var(--size-target); padding: var(--space-1) var(--space-2); border: var(--stroke-control) solid var(--color-line-border); border-radius: var(--radius-md); background: var(--color-bg-raised); color: var(--color-text-primary); font: inherit; cursor: pointer; }
+.ds-hud__nameplate:hover { background: var(--color-bg-raised-2); }
+.ds-hud__nameplate:active { transform: scale(var(--scale-press)); }
+.ds-hud__nameplate:focus-visible { outline: var(--stroke-focus) solid var(--color-focus); outline-offset: var(--stroke-focus-offset); }
+.ds-hud__name { white-space: nowrap; }
+.ds-hud__stage { color: var(--color-text-secondary); }
+.ds-hud__routes .ds-button { white-space: nowrap; }
+@media (forced-colors: active) { .ds-hud__nameplate { border-color: ButtonText; } }
+
+.ds-stage { box-sizing: border-box; position: relative; display: grid; grid-template-columns: minmax(var(--space-0), 1fr) minmax(var(--space-0), 1fr); grid-template-rows: minmax(var(--space-0), 1fr) auto; gap: var(--space-3); width: 100%; max-width: var(--size-content-wide); min-height: var(--size-game-min-height); margin-inline: auto; padding: var(--space-3) var(--space-gutter-phone) var(--space-4); overflow: hidden; }
+.ds-stage__world { position: relative; display: flex; align-items: flex-end; justify-content: center; min-height: var(--size-game-stage-height); isolation: isolate; }
+.ds-stage__horizon { position: absolute; inset: var(--space-0); z-index: -2; background: linear-gradient(to top, var(--color-accent), transparent); opacity: var(--opacity-stage-horizon); filter: blur(var(--blur-stage-horizon)); }
+.ds-stage__floor { position: absolute; left: var(--space-3); right: var(--space-3); bottom: var(--space-4); height: var(--size-game-pet-height); z-index: -1; border-radius: var(--radius-full); background: radial-gradient(ellipse at bottom, var(--color-accent), transparent); opacity: var(--opacity-stage-pool); transform: scaleY(var(--opacity-stage-edge)); }
+.ds-stage__pet { display: flex; justify-content: center; align-items: flex-end; width: 100%; min-height: var(--size-game-pet-height); }
+.ds-stage__pet .ds-pet--hero .ds-pet__img { max-height: var(--size-game-pet-height); }
+.ds-stage__motion { position: absolute; inset-inline-end: var(--space-3); inset-block-end: var(--space-3); }
+.ds-stage__bubble { position: absolute; inset-inline-start: var(--space-3); inset-block-start: var(--space-4); max-width: var(--size-game-bubble); }
+.ds-stage__edge { position: absolute; inset-inline-start: var(--space-3); inset-block-end: var(--space-2); }
+.ds-stage__chat { display: flex; flex-direction: column; min-height: var(--space-0); padding: var(--space-3); border-inline-start: var(--stroke-hairline) solid var(--color-line-hairline); background: var(--color-bg-raised); }
+.ds-stage__chat .ds-convo-frame { flex: 1 1 auto; min-height: var(--size-game-log); }
+.ds-stage__chat .ds-dock { flex: none; }
+.ds-stage__hotbar { grid-column: 1; display: flex; justify-content: center; align-items: flex-end; }
+.ds-stage--asleep .ds-stage__horizon, .ds-stage--asleep .ds-stage__floor { opacity: var(--opacity-nest-busy); }
+.ds-bubble { padding: var(--space-3) var(--space-4); border: var(--stroke-control) solid var(--color-line-border); border-radius: var(--radius-xl) var(--radius-xl) var(--radius-xl) var(--radius-sm); background: var(--color-bg-raised); color: var(--color-text-primary); }
+
+.ds-hotbar { display: flex; align-items: flex-end; justify-content: center; gap: var(--space-2); width: 100%; }
+.ds-hotbar__slot { position: relative; flex: 1 1 var(--space-0); min-width: var(--space-0); max-width: var(--size-rail-label); }
+.ds-hotbar__action { width: 100%; display: flex; flex-direction: column; align-items: center; gap: var(--space-2); border: var(--space-0); padding: var(--space-1); background: transparent; color: var(--color-text-primary); text-decoration: none; cursor: pointer; font: inherit; }
+.ds-hotbar__disc { display: flex; align-items: center; justify-content: center; width: var(--size-game-hotbar-disc); height: var(--size-game-hotbar-disc); border: var(--stroke-control) solid var(--color-line-border); border-radius: var(--radius-full); background: var(--color-bg-raised-2); }
+.ds-hotbar__label { display: block; text-align: center; font-size: var(--size-game-hotbar-label-font); }
+.ds-hotbar__action[data-role="food"] .ds-icon { color: var(--color-role-food); }
+.ds-hotbar__action[data-role="mind"] .ds-icon { color: var(--color-role-mind); }
+.ds-hotbar__action:hover .ds-hotbar__disc { border-color: var(--color-accent); }
+.ds-hotbar__action:active .ds-hotbar__disc { transform: scale(var(--scale-press)); }
+.ds-hotbar__action:focus-visible { outline: var(--stroke-focus) solid var(--color-focus); outline-offset: var(--stroke-focus-offset); border-radius: var(--radius-md); }
+.ds-hotbar__action--off { opacity: var(--opacity-dim); cursor: default; }
+@media (forced-colors: active) { .ds-hotbar__disc { border-color: ButtonText; } }
+
+.ds-action-menu { position: absolute; inset-inline-end: var(--space-0); inset-block-end: 100%; z-index: var(--layer-sheet); width: var(--size-popover-width); max-width: calc(100vw - var(--space-4)); display: flex; flex-direction: column; padding: var(--space-2); border: var(--stroke-control) solid var(--color-line-border); border-radius: var(--radius-lg); background: var(--color-bg-raised-2); }
+.ds-action-menu__head { padding: var(--space-2); }
+.ds-action-menu__message { margin: var(--space-2); color: var(--color-text-secondary); }
+.ds-action-menu__item, .ds-action-menu__close { display: flex; align-items: center; gap: var(--space-2); min-height: var(--size-target); padding: var(--space-2); border: var(--space-0); border-radius: var(--radius-md); background: transparent; color: var(--color-text-primary); text-align: start; text-decoration: none; cursor: pointer; font: inherit; }
+.ds-action-menu__item:hover, .ds-action-menu__close:hover { background: var(--color-line-hairline); }
+.ds-action-menu__item:focus-visible, .ds-action-menu__close:focus-visible { outline: var(--stroke-focus) solid var(--color-focus); }
+.ds-action-menu__close { color: var(--color-text-secondary); }
+@media (forced-colors: active) { .ds-action-menu { border-color: ButtonText; } }
+
+.ds-pet-card .ds-sheet { width: var(--size-game-sheet-width); max-height: var(--size-viewport-height); border-radius: var(--space-0); }
+.ds-pet-card .ds-sheet__body { flex: 1 1 auto; }
+.ds-pet-card__portrait { display: flex; align-items: center; justify-content: center; min-height: var(--size-pet-md); background: var(--color-bg-canvas); border-radius: var(--radius-lg); }
+.ds-pet-card__identity, .ds-pet-card__traits { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-3); }
+.ds-pet-card__seal, .ds-pet-card__section { display: flex; flex-direction: column; gap: var(--space-2); padding-block: var(--space-3); border-block-start: var(--stroke-hairline) solid var(--color-line-hairline); }
+.ds-pet-card__section h3 { margin: var(--space-0); }
+
+.ds-egg { position: relative; width: var(--size-game-egg-width); height: var(--size-game-egg-height); margin-inline: auto; display: flex; align-items: flex-end; justify-content: center; }
+.ds-egg__ground { position: absolute; inset-inline: var(--space-0); bottom: var(--space-0); height: var(--space-6); border-radius: var(--radius-full); background: var(--color-accent); opacity: var(--opacity-stage-pool); filter: blur(var(--blur-stage-pool)); }
+.ds-egg__shell { position: relative; width: 100%; height: calc(100% - var(--space-4)); border: var(--stroke-selected) solid var(--color-line-border); border-radius: var(--radius-full) var(--radius-full) var(--radius-lg) var(--radius-lg); background: radial-gradient(ellipse at center, var(--color-bg-raised-2), var(--color-bg-canvas)); overflow: hidden; transform: rotate(var(--rotate-egg)); }
+.ds-egg__core { position: absolute; inset: var(--space-6); border-radius: var(--radius-full); background: var(--color-accent); opacity: var(--opacity-egg-light); filter: blur(var(--blur-stage-pool)); }
+.ds-egg__crack { position: absolute; inset-inline-start: var(--space-5); inset-block-start: var(--space-3); width: var(--size-icon); height: var(--size-game-egg-height); border-inline-end: var(--stroke-selected) solid var(--color-text-primary); transform: rotate(var(--rotate-egg)); }
+.ds-egg--cracking .ds-egg__shell { animation: ds-egg-rock var(--duration-medium) var(--easing-standard) infinite alternate; }
+@keyframes ds-egg-rock { to { transform: rotate(var(--rotate-egg-rock)); } }
+@media (prefers-reduced-motion: reduce) { .ds-egg--cracking .ds-egg__shell { animation: none; } }
+@media (forced-colors: active) { .ds-egg__shell { border-color: CanvasText; } .ds-egg__crack { border-color: CanvasText; } }
+
+.ds-disclosure-line { display: flex; flex-direction: column; gap: var(--space-1); padding-block: var(--space-2); border-block-start: var(--stroke-hairline) solid var(--color-line-hairline); }
+.ds-disclosure-line__summary { margin: var(--space-0); }
+.ds-disclosure-line__toggle { display: flex; align-items: center; gap: var(--space-1); align-self: flex-start; min-height: var(--size-target); padding: var(--space-1) var(--space-2); border: var(--stroke-control) solid var(--color-line-border); border-radius: var(--radius-md); background: var(--color-bg-raised-2); color: var(--color-text-primary); cursor: pointer; font: inherit; }
+.ds-disclosure-line__toggle[aria-expanded="true"] .ds-icon { transform: rotate(var(--rotate-egg)); }
+.ds-disclosure-line__toggle:hover { background: var(--color-line-hairline); }
+.ds-disclosure-line__toggle:focus-visible { outline: var(--stroke-focus) solid var(--color-focus); outline-offset: var(--stroke-focus-offset); }
+.ds-disclosure-line__body { color: var(--color-text-secondary); }
+@media (forced-colors: active) { .ds-disclosure-line__toggle { border-color: ButtonText; } }
+
+@media (max-width: 768px) {
+  .ds-hud__inner { flex-wrap: wrap; gap: var(--space-1); padding-block: var(--space-2); }
+  .ds-hud__identity { flex: 1 1 auto; flex-wrap: wrap; }
+  .ds-hud__nameplate { min-height: var(--size-target); max-width: 100%; }
+  .ds-hud__meters { order: 3; flex: 1 1 100%; justify-content: space-between; }
+  .ds-hud__routes .ds-button { display: none; }
+  .ds-stage { display: flex; flex-direction: column; min-height: var(--size-game-mobile-stage); padding-block: var(--space-2); gap: var(--space-2); }
+  .ds-stage__world { flex: 1 1 auto; min-height: var(--size-game-stage-phone); }
+  .ds-stage__pet { min-height: var(--size-game-pet-phone); }
+  .ds-stage__pet .ds-pet--hero .ds-pet__img { max-height: var(--size-game-pet-phone); }
+  .ds-stage__bubble { inset-block-start: var(--space-2); max-width: var(--size-game-bubble); }
+  .ds-stage__chat { flex: 0 0 auto; padding: var(--space-0); border: var(--space-0); background: transparent; }
+  .ds-stage__chat .ds-convo-frame { max-height: var(--size-game-log); min-height: var(--space-0); }
+  .ds-stage__hotbar { flex: none; }
+  .ds-hotbar { gap: var(--space-0); }
+  .ds-hotbar__disc { width: var(--size-target); height: var(--size-target); }
+  .ds-pet-card .ds-sheet { width: 100%; height: var(--size-viewport-height); max-height: var(--size-viewport-height); }
+  .ds-egg { width: var(--size-game-egg-phone-width); height: var(--size-game-egg-phone-height); }
+}
+
 /* ── Role scope: what a hue means — food and the day, the mind, check and hiring. Next to the pet a control is
    dark with its role on the icon only; a role fills a block only away from the pet. */
 [data-role="food"] { --color-role: var(--color-role-food); }
@@ -1012,7 +1110,7 @@
 .ds-convo {
   position: relative;
   flex: 1 1 auto;
-  min-height: var(--space-0);
+  min-height: var(--size-target);
   overflow-y: auto;
   overscroll-behavior: contain;
   border-radius: var(--radius-sm);
@@ -1364,7 +1462,7 @@
   border-radius: var(--radius-md);
   background: var(--color-bg-raised-2);
 }
-.ds-copy__value { flex: 1 1 auto; min-width: var(--space-0); margin: var(--space-0); padding: var(--space-0); border: none; background: transparent; color: var(--color-text-primary); resize: none; field-sizing: content; overflow-wrap: anywhere; }
+.ds-copy__value { box-sizing: border-box; flex: 1 1 auto; min-width: var(--space-0); min-height: var(--size-target); margin: var(--space-0); padding: var(--space-0); border: none; background: transparent; color: var(--color-text-primary); resize: none; field-sizing: content; overflow-wrap: anywhere; }
 .ds-copy__value:focus-visible { outline: var(--stroke-focus) solid var(--color-focus); outline-offset: var(--stroke-focus-offset); border-radius: var(--radius-sm); }
 
 /* ── Sheet: desktop — a panel at the right, the page beside it in view; phone — a bottom sheet over a scrim ── */
@@ -1387,6 +1485,7 @@
 .ds-sheet:has(.ds-sheet__foot) { padding-block-end: var(--space-0); }
 .ds-sheet__head { display: flex; align-items: center; gap: var(--space-2); padding: var(--space-3) var(--space-3) var(--space-2) var(--space-4); }
 .ds-sheet__title { flex: 1 1 auto; margin: var(--space-0); }
+.ds-sheet__head > .ds-button, .ds-sheet__head > .ds-icon-button:last-of-type { order: 1; }
 .ds-sheet__title:focus-visible { outline: none; }
 .ds-sheet__sub { padding-inline: var(--space-4); }
 .ds-sheet__body { display: flex; flex: 0 1 auto; flex-direction: column; gap: var(--space-4); min-height: var(--space-0); overflow-y: auto; overscroll-behavior: contain; padding: var(--space-3) var(--space-4) var(--space-2); }
@@ -1458,6 +1557,7 @@
    below it stays on screen; a pet's x puts it from flush left (0) to flush right (1), its depth from the back (0, small,
    high) to the front (1, large, low); a pet stands on its baseline and is never taller than its share of the ground */
 .ds-meadow { display: flex; flex: 1 1 auto; flex-direction: column; min-height: var(--space-0); }
+.ds-meadow--compact .ds-meadow__ground { flex: 0 0 var(--size-meadow-compact-ground-phone); min-height: var(--size-meadow-compact-ground-phone); }
 .ds-meadow__ground { position: relative; flex: 1 1 auto; min-height: var(--space-0); overflow: hidden; isolation: isolate; container-type: size; }
 .ds-meadow__ground::before {
   content: "";
@@ -1527,6 +1627,7 @@
 .ds-meadow__explore { flex: 1 1 auto; }
 .ds-meadow__motion { display: flex; flex: none; justify-content: flex-end; }
 @media (min-width: 768px) {
+  .ds-meadow--compact .ds-meadow__ground { flex: 1 1 auto; min-height: var(--space-0); }
   .ds-meadow__pet { --ds-meadow-pet: var(--size-meadow-pet); }
   .ds-meadow__pet--wide { display: block; }
   .ds-meadow__foot { padding-block: var(--space-3) var(--space-5); }
@@ -1722,6 +1823,7 @@
 /* ── Desktop ──────────────────────────────────────────────────────────────────────────────────────────────── */
 @media (min-width: 768px) {
   .ds-convo { --ds-fade: var(--fade-edge); }
+  .ds-copy__value { min-height: var(--size-target-compact); }
   .ds-convo__list { padding-block-end: var(--space-3); }
   .ds-header__inner { padding-inline: var(--space-gutter-desktop); }
   .ds-page { padding: var(--space-5) var(--space-gutter-desktop) var(--space-8); }
@@ -1752,6 +1854,9 @@
   .ds-split__end { position: relative; }
   .ds-sheet-layer--column { position: absolute; }
   .ds-sheet-layer--column .ds-sheet { width: 100%; border: var(--stroke-hairline) solid var(--color-line-hairline); border-radius: var(--radius-lg); }
+  /* The game Stage replaced Split. Its conversation occupies the right half of main. */
+  .ds-shell__main:has(.ds-stage--game) { position: relative; }
+  .ds-shell__main:has(.ds-stage--game) > .ds-sheet-layer--column { inset-block: var(--space-2); inset-inline: 50% var(--space-gutter-phone); width: auto; }
   /* centered — a dialog alone on the page: a card in the middle over the scrim */
   .ds-sheet-layer--centered { align-items: center; justify-content: center; padding: var(--space-6); }
   /* the strong scrim: the page's own primary must not read as the dialog's third button */
@@ -1810,4 +1915,133 @@
   .ds-message__verify { width: var(--size-target-compact); height: var(--size-target-compact); }
   .ds-message__foot .ds-message__meta { padding-block-start: calc((var(--size-target-compact) - var(--size-line)) / 2); }
   .ds-segmented__option { min-height: var(--size-target-compact); }
+}
+
+/* DS 0.48 game composition. The legacy PetStage above keeps its own grid. */
+.ds-stage--game {
+  box-sizing: border-box;
+  flex: 1 1 auto;
+  display: grid;
+  grid-template-areas: "world chat" "hotbar chat";
+  grid-template-columns: minmax(var(--space-0), 1fr) minmax(var(--space-0), 1fr);
+  grid-template-rows: minmax(var(--space-0), 1fr) auto;
+  align-items: stretch;
+  justify-content: stretch;
+  gap: var(--space-0);
+  min-width: var(--space-0);
+  min-height: var(--size-game-min-height);
+  height: 100%;
+  padding: var(--space-2) var(--space-gutter-phone) var(--space-2);
+  overflow: visible;
+}
+.ds-stage--game .ds-stage__world { grid-area: world; min-width: var(--space-0); min-height: var(--space-0); }
+.ds-stage--game .ds-stage__pet { min-height: var(--space-0); }
+.ds-stage--game .ds-stage__pet .ds-pet--hero .ds-pet__img { max-width: min(var(--size-game-pet-desktop-view), 100%); max-height: var(--size-game-pet-desktop-view); }
+.ds-stage--game .ds-stage__horizon { background: radial-gradient(ellipse at center, var(--color-accent), transparent); }
+.ds-stage--game .ds-stage__floor { left: var(--space-6); right: var(--space-6); bottom: var(--space-3); height: var(--size-game-egg-floor); background: radial-gradient(ellipse at center, var(--color-accent), transparent); transform: none; filter: blur(var(--blur-stage-pool)); }
+.ds-stage--game .ds-stage__bubble { inset-block-start: auto; inset-block-end: var(--position-game-bubble-desktop); inset-inline-start: var(--space-4); width: max-content; max-width: min(var(--size-game-bubble), calc(100% - var(--space-6))); }
+.ds-stage--game .ds-stage__chat { grid-area: chat; min-width: var(--space-0); min-height: var(--space-0); padding: var(--space-3) var(--space-3) var(--space-0); }
+.ds-stage--game .ds-stage__chat, .ds-stage--game .ds-stage__hotbar, .ds-stage--game .ds-stage__world { box-sizing: border-box; max-width: 100%; }
+.ds-stage--game .ds-stage__chat .ds-convo-frame { min-height: var(--space-0); }
+.ds-stage--game .ds-stage__chat .ds-dock { margin-block-start: auto; padding: var(--space-2) var(--space-0) var(--space-0); }
+.ds-stage--game .ds-stage__hotbar { position: relative; grid-area: hotbar; min-width: var(--space-0); align-items: end; isolation: isolate; }
+.ds-stage--game .ds-stage__hotbar::before { content: ''; position: absolute; inset: var(--space-0); z-index: -1; background: radial-gradient(ellipse at top, var(--color-accent), transparent); opacity: var(--opacity-stage-horizon); }
+.ds-bubble { box-sizing: border-box; position: relative; border-radius: var(--radius-xl); }
+.ds-bubble__foot { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); margin-block-start: var(--space-2); }
+.ds-bubble::after { content: ''; position: absolute; inset-block-end: calc(-1 * var(--size-game-bubble-tail)); inset-inline-end: var(--space-6); width: var(--size-game-bubble-tail); height: var(--size-game-bubble-tail); background: var(--color-bg-raised); border-inline-end: var(--stroke-control) solid var(--color-line-border); border-block-end: var(--stroke-control) solid var(--color-line-border); transform: rotate(var(--rotate-game-bubble-tail)); }
+.ds-hotbar { align-items: end; }
+.ds-hotbar__slot { max-width: none; }
+.ds-hotbar__action { box-sizing: border-box; display: grid; grid-template-rows: var(--size-game-hotbar-primary) var(--size-game-hotbar-label-block); justify-items: center; align-items: end; gap: var(--space-0); height: 100%; padding: var(--space-1); }
+.ds-hotbar__disc { box-sizing: border-box; align-self: end; flex: none; }
+.ds-hotbar__label { align-self: start; display: block; width: 100%; height: var(--size-game-hotbar-label-block); line-height: var(--size-game-hotbar-label-line); }
+.ds-hotbar__label > span { display: block; white-space: nowrap; }
+.ds-hotbar__action--primary .ds-hotbar__disc { width: var(--size-game-hotbar-primary); height: var(--size-game-hotbar-primary); background: var(--color-role-food); border-color: var(--color-role-food); }
+.ds-hotbar__action--primary .ds-icon, .ds-hotbar__action--primary[data-role] .ds-icon { color: var(--color-text-on-accent); }
+.ds-hotbar__action:hover .ds-hotbar__disc { border-color: var(--color-action); }
+.ds-pet-card__section .ds-link { width: 100%; min-height: var(--size-target); box-sizing: border-box; }
+.ds-pet-card__seal .ds-cluster { flex-wrap: nowrap; }
+.ds-pet-card__seal .ds-seal { flex: none; }
+
+/* The egg is a shell lit from within, with its light pooled on the ground. */
+.ds-egg::before { content: ''; position: absolute; inset: var(--space-0); background: radial-gradient(ellipse at center, var(--color-egg-shell), transparent); filter: blur(var(--blur-stage-pool)); opacity: var(--opacity-stage-pool); }
+.ds-egg__ground { inset-inline: var(--space-0); bottom: var(--space-0); height: var(--size-game-egg-floor); background: radial-gradient(ellipse at center, var(--color-egg-core), transparent); opacity: var(--opacity-stage-pool); filter: blur(var(--blur-stage-pool)); }
+.ds-egg__shell { width: 100%; height: calc(100% - var(--space-4)); border: none; border-radius: var(--radius-egg); background: radial-gradient(ellipse at var(--position-game-egg-core), var(--color-egg-core), var(--color-egg-shell) var(--position-game-egg-shell-stop), var(--color-egg-edge)); transform: none; }
+.ds-egg__core { inset: var(--space-4); background: radial-gradient(ellipse at center, var(--color-egg-core), transparent); opacity: var(--opacity-egg-light); }
+.ds-egg__crack, .ds-egg__crack-light { position: absolute; inset-inline-start: var(--space-2); inset-block-start: var(--position-game-egg-crack); width: calc(100% - var(--space-4)); height: var(--size-game-egg-crack); border: none; clip-path: var(--shape-game-egg-crack); transform: none; }
+.ds-egg__crack { background: var(--color-egg-edge); }
+.ds-egg__crack-light { inset-block-start: calc(var(--position-game-egg-crack) + var(--stroke-selected)); background: var(--color-egg-core); filter: drop-shadow(var(--space-0) var(--space-0) var(--space-2) var(--color-egg-core)); }
+.ds-egg--cracking .ds-egg__shell { animation: none; }
+.ds-disclosure-line { display: block; }
+.ds-disclosure-line__summary { line-height: var(--size-line); }
+.ds-disclosure-line__toggle { display: inline-flex; vertical-align: middle; min-height: var(--size-target-compact); margin-inline-start: var(--space-1); padding: var(--space-0) var(--space-1); border: none; border-radius: var(--radius-sm); background: transparent; color: var(--color-text-secondary); text-decoration: underline; text-underline-offset: var(--stroke-underline-offset); }
+.ds-disclosure-line__toggle:hover { background: transparent; color: var(--color-text-primary); }
+.ds-disclosure-line__body { padding-block-start: var(--space-2); }
+
+@media not all and (min-width: 768px) {
+  .ds-shell--fill:has(.ds-stage--game) { height: min(var(--size-viewport-height), var(--size-game-first-fold)); min-height: var(--space-0); }
+  .ds-message--in-bubble { display: none; }
+  .ds-hud__inner { display: grid; grid-template-columns: minmax(var(--space-0), 1fr) auto; grid-template-rows: auto auto; gap: var(--space-1); padding-block: var(--space-1); }
+  .ds-hud__identity { grid-column: 1; grid-row: 1; flex-wrap: wrap; gap: var(--space-1); }
+  .ds-hud__nameplate { gap: var(--space-1); min-width: var(--space-0); padding-inline: var(--space-2); }
+  .ds-hud__name { font-size: var(--size-game-hud-name-phone-font); }
+  .ds-hud__stage { position: static; width: auto; height: auto; overflow: visible; clip-path: none; white-space: nowrap; }
+  .ds-hud__nameplate .ds-seal { inline-size: var(--size-seal-sm); block-size: var(--size-seal-sm); }
+  .ds-hud__routes { grid-column: 2; grid-row: 1; gap: var(--space-1); }
+  .ds-hud__routes .ds-button { display: flex; }
+  .ds-hud__routes .ds-cluster { flex-wrap: nowrap; gap: var(--space-1); }
+  .ds-hud__meters { grid-column: 1 / -1; grid-row: 2; flex: none; justify-content: space-between; flex-wrap: nowrap; gap: var(--space-1); min-width: var(--space-0); }
+  .ds-hud__meters .ds-fullness, .ds-hud__meters .ds-energy { gap: var(--space-1); font-size: var(--size-game-hotbar-label-font); white-space: nowrap; }
+  .ds-hud__meters .ds-fullness__cells, .ds-hud__meters .ds-energy__bars { gap: var(--size-game-meter-gap); }
+  .ds-hud__meters .ds-fullness__cell { width: var(--size-game-meter-cell); }
+  .ds-hud__meters .ds-energy__bar { width: var(--size-game-meter-bar); }
+  .ds-stage--game { display: grid; grid-template-areas: "world" "chat" "hotbar"; grid-template-columns: minmax(var(--space-0), 1fr); grid-template-rows: minmax(var(--space-0), 1fr) minmax(var(--space-0), var(--size-game-chat-phone)) auto; min-height: var(--space-0); max-width: 100%; padding: var(--space-0) var(--space-gutter-phone) max(var(--space-1), env(safe-area-inset-bottom)); }
+  .ds-stage--game .ds-stage__world { width: 100%; min-height: var(--space-0); }
+  .ds-stage--game .ds-stage__pet .ds-pet--hero .ds-pet__img { max-height: var(--size-game-pet-phone-view); max-width: 100%; }
+  .ds-stage--game .ds-stage__bubble { inset-block-start: var(--space-2); inset-block-end: auto; inset-inline-start: var(--space-3); inset-inline-end: var(--space-3); width: auto; max-width: none; padding: var(--space-2) var(--space-3); font-size: var(--size-game-bubble-phone-font); }
+  .ds-stage--game .ds-bubble::after { inset-inline-end: var(--position-game-bubble-tail-phone); }
+  .ds-stage--game .ds-stage__chat { width: 100%; padding: var(--space-0); border: none; background: transparent; }
+  .ds-stage--game .ds-stage__chat .ds-convo-frame { flex: 1 1 auto; max-height: none; min-height: var(--size-target); }
+  .ds-stage--game .ds-stage__chat .ds-dock { padding: var(--space-1) var(--space-0) var(--space-0); }
+  .ds-stage--game .ds-stage__hotbar { width: 100%; }
+  .ds-stage--game .ds-stage__edge { inset-inline-start: var(--space-1); inset-block-end: var(--space-1); max-width: calc(100% - var(--space-9)); }
+  .ds-stage--game.ds-stage--asleep .ds-stage__edge { inset-inline-end: var(--space-2); inset-block-end: calc(var(--size-target) + var(--space-2)); max-width: none; }
+  .ds-stage--game .ds-stage__edge .ds-link { font-size: var(--size-game-hotbar-label-font); }
+  .ds-stage--game .ds-stage__edge .ds-button { justify-content: flex-start; align-items: flex-start; text-align: left; }
+  .ds-stage--game .ds-stage__edge .ds-button .ds-icon { flex: none; }
+  .ds-stage--game .ds-stage__motion { inset-inline-end: var(--space-1); inset-block-end: var(--space-1); }
+  .ds-stage--game .ds-stage__motion .ds-button { padding-inline: var(--space-2); }
+  .ds-stage--game .ds-stage__motion .ds-button__label { font-size: var(--size-game-hotbar-label-font); }
+  .ds-stage--game .ds-composer__bar { flex-wrap: wrap; }
+  .ds-stage--game .ds-composer__start, .ds-stage--game .ds-composer__end { flex-wrap: nowrap; min-width: var(--space-0); }
+  .ds-stage--game .ds-composer .ds-button { white-space: nowrap; }
+  .ds-hotbar__action { padding: var(--space-0); }
+  .ds-hotbar__disc { width: var(--size-target); height: var(--size-target); }
+  .ds-hotbar__action--primary .ds-hotbar__disc { width: var(--size-target); height: var(--size-target); }
+  .ds-hotbar__label { font-size: var(--size-game-hotbar-label-phone-font); }
+  .ds-hotbar__label > span { white-space: normal; overflow-wrap: anywhere; }
+  .ds-action-menu { position: absolute; inset-inline-start: auto; inset-inline-end: var(--space-0); inset-block-end: 100%; width: min(var(--size-game-menu-phone), calc(100vw - var(--space-gutter-phone) - var(--space-gutter-phone))); max-width: none; }
+  .ds-disclosure-line__toggle { min-height: var(--size-target); }
+}
+
+/* 0.48 (fix round 1): the Hatch page's compact phone form and the vacant Stage of an empty board — moved from the screens files into the DS */
+@media not all and (min-width: 768px) {
+  .ds-eggpage__form { gap: var(--space-3) !important; }
+  .ds-eggpage__form .ds-egg { width: calc(var(--size-game-egg-phone-width) - var(--space-6)); height: calc(var(--size-game-egg-phone-height) - var(--space-8) - var(--space-4)); }
+  .ds-eggpage__form .ds-stack { gap: var(--space-0) !important; }
+  .ds-eggpage__form .ds-disclosure-line { padding-block: var(--space-1); }
+  .ds-eggpage .ds-centerpiece--scroll .ds-centerpiece__body { padding-block: var(--space-1); }
+}
+.ds-stage-vacant .ds-page--fill > .ds-stack { flex: 1 1 auto; min-height: var(--space-0); }
+.ds-stage-vacant .ds-stage--game { grid-template-areas: "world" "hotbar"; grid-template-columns: minmax(var(--space-0), 1fr); grid-template-rows: minmax(var(--space-0), 1fr) auto; min-height: var(--size-game-vacant-stage); height: auto; background: radial-gradient(ellipse at center, var(--color-bg-raised), transparent); }
+.ds-stage-vacant .ds-stage__world { align-items: center; min-height: var(--space-0); }
+.ds-stage-vacant .ds-stage__pet { align-items: center; min-height: var(--space-0); text-align: center; }
+.ds-stage-vacant .ds-stage__hotbar { padding-block: var(--space-3) max(var(--space-3), env(safe-area-inset-bottom)); }
+@media (min-width: 768px) {
+  .ds-stage-vacant .ds-stage--game { max-width: var(--size-content); min-height: var(--size-game-vacant-stage-desktop); }
+  .ds-stage-vacant .ds-stage__hotbar { padding-block: var(--space-3) var(--space-5); }
+}
+
+/* 0.48 (recheck): on the phone the game Hotbar is pinned to the viewport's bottom edge like the Dock, so Feed stays in view in the in-app browsers of X and Telegram (≈ 650 px) */
+@media not all and (min-width: 768px) {
+  .ds-stage--game .ds-stage__hotbar { position: sticky; inset-block-end: var(--space-0); z-index: 2; padding-block-end: max(var(--space-1), env(safe-area-inset-bottom)); background: var(--color-bg-canvas); }
 }

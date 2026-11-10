@@ -103,6 +103,7 @@ export function Conversation({ label, intro, introOn, children }: { label?: stri
 export function Message({
   from = 'pet',
   latest,
+  bubbled,
   fresh,
   speaker,
   hue,
@@ -118,6 +119,8 @@ export function Message({
 }: {
   from?: 'pet' | 'player' | 'worker' | 'event' | 'offer' | 'error' | 'report';
   latest?: boolean;
+  /** The latest reply stands beside the pet; on the phone its duplicate log row is hidden by DS 0.48. */
+  bubbled?: boolean;
   fresh?: boolean;
   speaker?: string;
   hue?: Accent;
@@ -192,9 +195,10 @@ export function Message({
   ) : null;
   return (
     <li
-      className={cx('ds-message', `ds-message--${from}`, latest && 'ds-message--latest', fresh && 'ds-message--fresh', extra != null && 'ds-message--has-foot')}
+      className={cx('ds-message', `ds-message--${from}`, latest && 'ds-message--latest', bubbled && 'ds-message--in-bubble', fresh && 'ds-message--fresh', extra != null && 'ds-message--has-foot')}
       data-accent={hue}
       data-reveal={reveal ? '' : undefined}
+      aria-live={bubbled ? 'off' : undefined}
     >
       {who}
       <div className={cx('ds-message__bubble', bubbleType)}>

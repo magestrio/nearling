@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { AccountControl } from '../account/AccountControl';
 import { config } from '../config';
-import { Banner, Block, Button, Center, Cluster, CopyField, Growth, Header, Heading, Live, Mark, Mono, Note, Only, Page,
+import { Banner, Block, Button, Center, Cluster, CopyField, Growth, Header, Heading, Inert, Live, Mark, Mono, Note, Only, Page,
   Receipt, ReceiptCall, ReceiptList, ReceiptRow, Record, RecordItem, Seal, Shell, Skeleton, Split,
   Stack, Surface, Text, TextLink, Sheet, Toast } from '../ds';
 import type { Accent } from '../ds';
@@ -549,10 +549,10 @@ export function VerificationPage({ tokenId, thoughtId, refusalId, code, shared }
     footer={shareFooter} intro={intro} shared={sharedControls} sharedReply={sharedReply} /> : null;
   const signedOut = !auth.authenticated;
   const networkError = proof?.kind === 'unavailable' || record.items.some((item) => item.link === 'unavailable');
-  return <><Live>{state.unread ? `We can't check ${name}'s character on NEAR just now. Try again.` : proof?.kind === 'too-old' ? TOO_OLD : networkError ? UNREACHABLE : proofAnnouncement(selected, proof, record)}</Live>
-    <Shell accent={makePet(tokenId).hue as Accent} header={<Header start={<Button variant="ghost" size="compact" nowrap={name.length <= 12} icon="back" href={petPath(tokenId)}>{`Back to ${name}`}</Button>}
-    end={<AccountControl tokenId={tokenId} name={name} viewer={pet.viewer} />} />}>
-    <Page><Stack gap={5}>
+  return <><Shell accent={makePet(tokenId).hue as Accent} header={<Inert on={Boolean(dialog)}><Header start={<Button variant="ghost" size="compact" nowrap={name.length <= 12} icon="back" href={petPath(tokenId)}>{`Back to ${name}`}</Button>}
+    end={<AccountControl tokenId={tokenId} name={name} viewer={pet.viewer} />} /></Inert>}>
+    <Page><Inert on={Boolean(dialog)}><Stack gap={5}>
+      <Live>{state.unread ? `We can't check ${name}'s character on NEAR just now. Try again.` : proof?.kind === 'too-old' ? TOO_OLD : networkError ? UNREACHABLE : proofAnnouncement(selected, proof, record)}</Live>
       {networkError ? <Banner action={<Button variant="secondary" size="compact" onClick={retry}>Try again</Button>}>{UNREACHABLE}</Banner> : null}
       {record.character === 'mismatch' ? <Note tone="error" silent>{`${name}'s character no longer matches the hatch record.`}</Note> : null}
       {signedOut && !shared ? <Block role="trust" icon="verify" quiet><Text>{`Anyone can check ${name}'s record and receipts. Is ${name} yours? Sign in to check its other thoughts word for word.`}</Text>
@@ -574,7 +574,7 @@ export function VerificationPage({ tokenId, thoughtId, refusalId, code, shared }
       {signedOut && shared ? <Cluster gap={3}>
         <Text variant="small" tone="secondary">{`Anyone can check ${name}'s record and receipts. Is ${name} yours? Sign in to check its other thoughts word for word.`}</Text>
         <Button variant="ghost" size="compact" onClick={() => signIn.begin('signin')}>Sign in</Button></Cluster> : null}
-    </Stack></Page>
+    </Stack></Inert></Page>
     {dialog ? <Sheet title="Share exact bytes" centered busy={dialog.status === 'publishing'}
       status={copyOutcome === 'success' ? 'Link copied — send it to a friend.'
         : copyOutcome === 'failure' ? "Couldn't copy the link. Select it here to copy it."

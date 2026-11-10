@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef } from 'react';
+import { useEffect, useId } from 'react';
 import { Button, Note, Sheet, Stack, Text } from '../ds';
 import { resetTime } from '../lib/time';
 import { useClearMemory } from './useClearMemory';
@@ -69,12 +69,7 @@ export function ClearMemoryDialog({
   const busy = phase.kind === 'clearing';
   const failure = phase.kind === 'error' ? phase.why : null;
   const lineId = useId();
-  const actions = useRef<HTMLDivElement>(null);
-
-  // The safe action takes the focus on open (the Sheet's own focus runs first, on its first control, «Close»).
-  useEffect(() => {
-    actions.current?.querySelector<HTMLElement>('button')?.focus();
-  }, []);
+  // Sheet finds this marker when it moves focus inside the alert dialog.
   // An error is said by its own line, which takes the focus.
   useEffect(() => {
     if (failure) document.getElementById(lineId)?.focus();
@@ -114,9 +109,9 @@ export function ClearMemoryDialog({
       <Text>{forgets(name)}</Text>
       {hasSharedJob ? <Note tone="plain">{SHARED_JOB(name)}</Note> : null}
       <Text>{stays(name, resetTime())}</Text>
-      <div ref={actions}>
+      <div>
         <Stack gap={2}>
-          <Button block disabled={busy} onClick={onClose}>
+          <Button block disabled={busy} focusOnOpen onClick={onClose}>
             Keep memory
           </Button>
           {hasExperience !== false ? <Text variant="small">{EXPERIENCE_WARNING}</Text> : null}

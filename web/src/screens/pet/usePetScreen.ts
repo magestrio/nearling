@@ -434,7 +434,7 @@ export function usePetScreen(tokenId: string, from: string | null, diary = false
         const token = await tokenOf();
         const pet = await workerApi.pet(token, tokenId);
         if (!live) return;
-        if (pageRef.current.kind === 'pet' && pageRef.current.pet.viewer === 'owner' && pet.viewer !== 'owner') {
+        if (pageRef.current.kind === 'pet' && pageRef.current.pet.viewer === 'owner' && pet.viewer === 'guest') {
           setNotice((now) => now ?? FORMER_OWNER_LINE);
         }
         setPage({ kind: 'pet', pet });

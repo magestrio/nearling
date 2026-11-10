@@ -224,7 +224,8 @@ test('success × session ended: the watch meets the 401, nothing changes on scre
     })
     .toBeGreaterThanOrEqual(2);
   const running = await reads(page);
-  await setWorker(page, { sessionExpired: true });
+  // the 401 is the wallet read's own: the Stage's pet polls tick on the same clock and would end the session first, leaving the watch no token to ask with
+  await setWorker(page, { wallet: { fail: { status: 401, code: 'signed_out' } } });
   await page.clock.fastForward(5_100);
   await expect.poll(() => reads(page)).toBeGreaterThan(running);
   const settled = await reads(page);

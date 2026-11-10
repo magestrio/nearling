@@ -2,12 +2,17 @@ import { expect, test, type Locator, type Page } from '@playwright/test';
 
 // the DS keeps a visually hidden live region that repeats a line; a check of what is drawn skips it
 const drawn = (scope: Page | Locator, text: string | RegExp) => scope.getByText(text).and(scope.locator(':not(.ds-hidden)'));
-import { calls, lookAgain, openWith, OWNER, PIXEL, setWorker, SIGNED_IN } from './helpers';
+import { calls, lookAgain, openMore, openWith, OWNER, PIXEL, setWorker, SIGNED_IN } from './helpers';
 import { THINK_ID, verificationFakes } from './verification.fixtures';
 import type { FakeWorkerState } from '../src/seams/fakes';
 import type { VerificationThought } from '../src/seams/worker-types';
 
 test.use({ timezoneId: 'Etc/GMT-2' });
+/** The Watch entry stands in the «More» menu (add-game-layout › Pet actions menu screen); the menu may still be open. */
+const tapWatch = async (page: Page, name: 'Watch something' | 'Edit watch') => {
+  if (!(await page.getByRole('menu', { name: 'More' }).isVisible())) await openMore(page);
+  await page.getByRole('menuitem', { name }).click();
+};
 const saved = { target: 'NEAR price', kind: 'topic' as const, savedHourUtc: 0, paused: false,
   nextCheck: '2026-11-12T00:00:00.000Z', latestResult: 'unchanged' as const,
   latestPriceYocto: '1700000000000000000000', latestReceiptId: THINK_ID,
@@ -17,7 +22,7 @@ const open = async (page: Page, watch: FakeWorkerState['watch'] = saved, time = 
   await page.clock.install({ time: new Date(time) });
   await openWith(page, '/pet/9', { auth: SIGNED_IN, worker: { ...OWNER, verificationThoughts: { [THINK_ID]: pointer },
     pets: { ...OWNER.pets, '9': { ...PIXEL, watch: saved.target ? { target: saved.target, kind: saved.kind } : null } }, watch } });
-  await page.getByRole('button', { name: 'Edit watch' }).click();
+  await tapWatch(page, 'Edit watch');
   return page.getByRole('dialog', { name: 'Watch something' });
 };
 
@@ -99,6 +104,9 @@ test('a read started before Stop cannot restore the removed target', async ({ pa
 // spec: add-pet-errands › Watch target data › previous owner changes a watch
 test('gift during an open sheet refuses the old owner and returns to the public pet', async ({ page }) => {
   const sheet = await open(page);
+  // Freeze the periodic owner reads: on a loaded machine one fired between the fake's change and the click, closed the sheet by
+  // itself and left the click waiting for a button that was gone. The refused «Stop watch» is this test's ownership event.
+  await page.clock.pauseAt(new Date('2026-11-11T12:05:00.000Z'));
   await setWorker(page, { owned: [] });
   await sheet.getByRole('button', { name: 'Stop watch' }).click();
   await expect(sheet).toHaveCount(0);
@@ -111,7 +119,7 @@ test('first and quiet receipts open their exact Verification route', async ({ pa
   const fakes = verificationFakes({ variant: 'errand' });
   await page.clock.install({ time: new Date('2026-11-11T12:00:00.000Z') });
   await openWith(page, '/pet/9', { ...fakes, worker: { ...fakes.worker, ...OWNER, verificationThoughts: { [THINK_ID]: pointer }, watch: { ...saved, latestResult: 'first' } } });
-  await page.getByRole('button', { name: 'Watch something' }).click();
+  await tapWatch(page, 'Watch something');
   const sheet = page.getByRole('dialog', { name: 'Watch something' });
   await expect(drawn(sheet, 'First check saved as a starting point · 0.85¢')).toBeVisible();
   await sheet.getByRole('link', { name: 'Check this thought' }).click();
@@ -123,7 +131,7 @@ test('reload reads the saved target; returning to a visible tab reads the latest
   const sheet = await open(page);
   await sheet.getByLabel('What should Pixel watch?').fill('unsaved words');
   await page.reload();
-  await page.getByRole('button', { name: 'Edit watch' }).click();
+  await tapWatch(page, 'Edit watch');
   await expect(page.getByRole('dialog', { name: 'Watch something' }).getByLabel('What should Pixel watch?')).toHaveValue('NEAR price');
   await setWorker(page, { watch: { ...saved, latestResult: 'first' } });
   await lookAgain(page);
@@ -137,7 +145,7 @@ test('closing an invalid edit discards the draft and field error', async ({ page
   await sheet.getByRole('button', { name: 'Save watch' }).click();
   await expect(drawn(sheet, 'Name a topic, release, account or page to watch.')).toBeVisible();
   await sheet.getByRole('button', { name: 'Close' }).click();
-  await page.getByRole('button', { name: 'Edit watch' }).click();
+  await tapWatch(page, 'Edit watch');
   const reopened = page.getByRole('dialog', { name: 'Watch something' });
   await expect(reopened.getByLabel('What should Pixel watch?')).toHaveValue('NEAR price');
   await expect(drawn(reopened, 'Name a topic, release, account or page to watch.')).toHaveCount(0);

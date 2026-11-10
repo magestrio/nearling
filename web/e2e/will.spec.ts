@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { calls, lookAgain, openDiary, openPet, setPixel, setWorker, SIGNED_IN, OWNER, PIXEL, WARDROBE_OWNS } from './helpers';
+import { calls, inCard, lookAgain, openCard, openDiary, openPet, openWish, setPixel, setWorker, SIGNED_IN, OWNER, PIXEL, WARDROBE_OWNS } from './helpers';
 import { openWith } from './helpers';
 import { sampleDiary } from '../src/seams/diary.sample';
 import type { OutfitSlug } from '../src/seams/worker-types';
@@ -14,10 +14,10 @@ const wishOwner = { wish, wishReserveYocto: wish.reserveYocto, wishActive: true,
 // spec: add-pet-will › Wish sheet screen › success
 test('owner sees cents-first progress, opens the private wish and closes without changing it', async ({ page }) => {
   await openPet(page, wishOwner);
-  await expect(page.getByText('Pixel wants Smart glasses').first()).toBeVisible();
-  await expect(page.getByText('Saved 0.30¢ of 0.76¢').first()).toBeVisible();
-  const opener = page.getByRole('link', { name: "Pixel's wish" }).first();
-  await opener.click();
+  await openCard(page);
+  await expect(inCard(page).getByText('Pixel wants Smart glasses')).toBeVisible();
+  await expect(inCard(page).getByText('Saved 0.30¢ of 0.76¢')).toBeVisible();
+  await inCard(page).getByRole('link', { name: "Pixel's wish" }).click();
   const sheet = page.getByRole('dialog', { name: "Pixel's wish" });
   await expect(sheet).toContainText('I want to see every tiny detail.');
   await expect(sheet).toContainText('0.00066 of 0.00166 NEAR');
@@ -26,24 +26,25 @@ test('owner sees cents-first progress, opens the private wish and closes without
   await expect(sheet).toContainText("Saved food and a bought outfit are public on NEAR forever. The wish's words stay private.");
   await page.keyboard.press('Escape');
   await expect(sheet).toHaveCount(0);
-  await expect(opener).toBeFocused();
+  // the card closed as the sheet opened: the focus goes back to the card's opener, the nameplate
+  await expect(page.locator('.ds-hud__nameplate')).toBeFocused();
   expect((await calls(page)).filter((c) => c === 'worker:cancelWish')).toHaveLength(0);
 });
 
 // spec: add-pet-will › Will chain disclosure data › savings notice × Reload
 test('reload recovers the private wish and public reserve without a browser draft', async ({ page }) => {
   await openPet(page, wishOwner);
-  await expect(page.getByText('Full', { exact: true })).toBeVisible();
-  await expect(page.getByText('Saved 0.30¢ of 0.76¢').first()).toBeVisible();
+  await openCard(page);
+  await expect(inCard(page).getByText('Saved 0.30¢ of 0.76¢')).toBeVisible();
   await page.reload();
-  await page.getByRole('link', { name: "Pixel's wish" }).first().click();
+  await openWish(page);
   await expect(page.getByRole('dialog', { name: "Pixel's wish" })).toContainText('0.00066 of 0.00166 NEAR');
 });
 
 // spec: add-pet-will › Wish sheet screen › error
 test('failed fresh read offers retry and no cancellation', async ({ page }) => {
   await openPet(page, wishOwner, { wish: { fail: { status: 503, code: 'chain_unreachable' } } });
-  await page.getByRole('link', { name: "Pixel's wish" }).first().click();
+  await openWish(page);
   const sheet = page.getByRole('dialog', { name: "Pixel's wish" });
   await expect(sheet).toContainText('Wish unavailable. Try again.');
   await expect(sheet.getByRole('button', { name: 'Cancel wish' })).toHaveCount(0);
@@ -55,7 +56,7 @@ test('failed fresh read offers retry and no cancellation', async ({ page }) => {
 // spec: add-pet-will › Wish pursuit flow › owner cancels
 test('cancellation closes only after the Worker confirms release', async ({ page }) => {
   await openPet(page, wishOwner, { cancelWish: { status: 'pending' } });
-  await page.getByRole('link', { name: "Pixel's wish" }).first().click();
+  await openWish(page);
   const sheet = page.getByRole('dialog', { name: "Pixel's wish" });
   await sheet.getByRole('button', { name: 'Cancel wish' }).click();
   await expect(sheet).toBeVisible();
@@ -70,7 +71,7 @@ test('cancellation closes only after the Worker confirms release', async ({ page
 // spec: add-pet-will › Wish pursuit flow › owner cancels
 test('an unknown release can be closed and a failed release can be retried', async ({ page }) => {
   await openPet(page, wishOwner, { cancelWish: { status: 'pending' } });
-  await page.getByRole('link', { name: "Pixel's wish" }).first().click();
+  await openWish(page);
   const sheet = page.getByRole('dialog', { name: "Pixel's wish" });
   await sheet.getByRole('button', { name: 'Cancel wish' }).click();
   await setWorker(page, { wish: { wish: { ...wish, status: 'paused' }, reserveYocto: wish.reserveYocto,
@@ -81,7 +82,7 @@ test('an unknown release can be closed and a failed release can be retried', asy
   await expect(sheet).toHaveCount(0);
   await setWorker(page, { wish: { wish: { ...wish, status: 'paused' }, reserveYocto: wish.reserveYocto,
     active: false, releaseStatus: 'failed' } });
-  await page.getByRole('link', { name: "Pixel's wish" }).first().click();
+  await openWish(page);
   await expect(sheet.getByRole('alert')).toContainText('Wish cancellation failed. Try again.');
   await expect(sheet.getByRole('button', { name: 'Cancel wish' })).not.toHaveAttribute('aria-disabled', 'true');
   await sheet.getByRole('button', { name: 'Cancel wish' }).click();
@@ -91,7 +92,7 @@ test('an unknown release can be closed and a failed release can be retried', asy
 // spec: add-pet-will › Wish pursuit flow › purchase waits for daily reset
 test('cap-held full reserve says Buying tomorrow without an earned outfit', async ({ page }) => {
   await openPet(page, { ...wishOwner, wish: { ...wish, status: 'waiting_day', reserveYocto: '1660000000000000000000' } });
-  await page.getByRole('link', { name: "Pixel's wish" }).first().click();
+  await openWish(page);
   const sheet = page.getByRole('dialog', { name: "Pixel's wish" });
   await expect(sheet).toContainText('Buying tomorrow');
   await expect(sheet).toContainText('Saved 0.76¢ of 0.76¢');
@@ -101,8 +102,9 @@ test('cap-held full reserve says Buying tomorrow without an earned outfit', asyn
 // spec: add-pet-will › Wish pursuit flow › no target
 test('all purchasable outfits owned shows no target and opens no wish sheet', async ({ page }) => {
   await openPet(page, { outfits: [...WARDROBE_OWNS, 'smart-glasses', 'bow-tie', 'headphones'] });
-  await expect(page.getByText('Pixel has every outfit for now.')).toBeVisible();
-  await expect(page.getByRole('link', { name: "Pixel's wish" })).toHaveCount(0);
+  await openCard(page);
+  await expect(inCard(page).getByText('Pixel has every outfit for now.')).toBeVisible();
+  await expect(inCard(page).getByRole('link', { name: "Pixel's wish" })).toHaveCount(0);
 });
 
 // spec: add-pet-will › Wish pursuit flow › automatic purchase
@@ -120,18 +122,22 @@ test('confirmed wish purchase appears on Pet and Wardrobe without a second Buy',
 // spec: add-pet-will › Wish pursuit flow › target bought by owner
 test('owner Wardrobe buy ends the visible wish after the confirmed release', async ({ page }) => {
   await openPet(page, wishOwner, { wardrobe: { outcome: { id: 'owner-buy', item: 'smart-glasses', status: 'bought', code: null, source: 'owner' } } });
-  await expect(page.getByText('Pixel wants Smart glasses').first()).toBeVisible();
+  await openCard(page);
+  await expect(inCard(page).getByText('Pixel wants Smart glasses')).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(inCard(page)).toHaveCount(0);
   await setPixel(page, { ...wishOwner, wish: null, wishReserveYocto: '0', wishActive: false,
     outfits: [...WARDROBE_OWNS, 'smart-glasses'] });
   await lookAgain(page);
-  await expect(page.getByText('Pixel already has Smart glasses.')).toBeVisible();
-  await expect(page.getByRole('link', { name: "Pixel's wish" })).toHaveCount(0);
+  await openCard(page);
+  await expect(inCard(page).getByText('Pixel already has Smart glasses.')).toBeVisible();
+  await expect(inCard(page).getByRole('link', { name: "Pixel's wish" })).toHaveCount(0);
 });
 
 // spec: add-pet-will › Will ownership rule › former owner opens
 test('gift while sheet is open removes private words and shows the public Pet page', async ({ page }) => {
   await openPet(page, wishOwner);
-  await page.getByRole('link', { name: "Pixel's wish" }).first().click();
+  await openWish(page);
   await expect(page.getByRole('dialog', { name: "Pixel's wish" })).toBeVisible();
   await setWorker(page, { owned: [] });
   await page.evaluate(() => document.dispatchEvent(new Event('visibilitychange')));
@@ -143,7 +149,7 @@ test('gift while sheet is open removes private words and shows the public Pet pa
 // spec: add-pet-will › Will ownership rule › new owner continues
 test('the new owner continues the same paused wish with one request', async ({ page }) => {
   await openPet(page, { ...wishOwner, wish: { ...wish, status: 'paused' }, wishActive: false });
-  await page.getByRole('link', { name: "Pixel's wish" }).first().click();
+  await openWish(page);
   const sheet = page.getByRole('dialog', { name: "Pixel's wish" });
   await expect(sheet).toContainText('Pixel has a wish in progress');
   await sheet.getByRole('button', { name: 'Continue wish' }).click();
@@ -157,7 +163,7 @@ test('the new owner continues the same paused wish with one request', async ({ p
 // spec: add-pet-will › Wish pursuit flow › owner cancels
 test('the new owner can cancel the paused reserve without buying an outfit', async ({ page }) => {
   await openPet(page, { ...wishOwner, wish: { ...wish, status: 'paused' }, wishActive: false });
-  await page.getByRole('link', { name: "Pixel's wish" }).first().click();
+  await openWish(page);
   await page.getByRole('dialog', { name: "Pixel's wish" }).getByRole('button', { name: 'Cancel wish' }).click();
   await expect(page.getByRole('dialog', { name: "Pixel's wish" })).toHaveCount(0);
   expect((await calls(page)).filter((c) => c === 'worker:cancelWish')).toHaveLength(1);
@@ -176,7 +182,7 @@ for (const status of [503, 500]) {
     await expect(dialog.getByRole('alert')).toHaveText("Memory wasn't cleared. Try again.");
     await expect(page.getByRole('log')).toContainText('Start with the chart, then.');
     await dialog.getByRole('button', { name: 'Keep memory' }).click();
-    await page.getByRole('link', { name: "Pixel's wish" }).first().click();
+    await openWish(page);
     await expect(page.getByRole('dialog', { name: "Pixel's wish" })).toContainText('I want to see every tiny detail.');
     expect((await calls(page)).filter((c) => c === 'worker:clearMemory:9')).toHaveLength(1);
   });
@@ -188,18 +194,19 @@ test('feeding reads spendable fullness while the public wish reserve stays separ
   await openWith(page, '/pet/9', { auth: SIGNED_IN, worker: { ...OWNER, pets: {
     '9': { ...PIXEL, fullness: { state: 'hungry', level: 0.25 }, owner: wishOwner }, '2': OWNER.pets['2'],
   } } });
-  await expect(page.getByText('Saved 0.30¢ of 0.76¢').first()).toBeVisible();
+  await openCard(page);
+  await expect(inCard(page).getByText('Saved 0.30¢ of 0.76¢')).toBeVisible();
+  await page.keyboard.press('Escape');
   await expect(page.getByText('Hungry', { exact: true }).first()).toBeVisible();
   await page.getByRole('button', { name: 'Feed Pixel' }).first().click();
   await expect(page.getByRole('dialog', { name: 'Feed Pixel' })).toBeVisible();
   await expect(page.getByRole('dialog', { name: 'Feed Pixel' }).getByText('Hungry', { exact: true })).toBeVisible();
-  await expect(page.getByText('Saved 0.30¢ of 0.76¢').first()).toBeVisible();
 });
 
 // spec: add-pet-will › Will ownership rule › former owner opens × Session expiry
 test('expired session closes the sheet and removes private wish words', async ({ page }) => {
   await openPet(page, wishOwner);
-  await page.getByRole('link', { name: "Pixel's wish" }).first().click();
+  await openWish(page);
   await expect(page.getByRole('dialog', { name: "Pixel's wish" })).toBeVisible();
   await setWorker(page, { sessionExpired: true });
   await page.evaluate(() => document.dispatchEvent(new Event('visibilitychange')));
@@ -401,7 +408,8 @@ test('Manual hire refusal shows the signed reason before the payer pet answers i
       thought: { id: 'h3', text: 'Say what the chart changed for you — one sentence. Then let the room catch up.', cut: null },
       characterRefusal: { id: 'f'.repeat(24), reason: 'I would rather leave this one to Pixel.' } } });
   await expect(page.getByText('I would rather leave this one to Pixel. Pixel will answer instead.')).toBeVisible();
-  await expect(page.getByText('Say what the chart changed for you — one sentence. Then let the room catch up.')).toBeVisible();
+  // the newest reply stands in the Bubble and in the log (DS 0.48)
+  await expect(page.getByText('Say what the chart changed for you — one sentence. Then let the room catch up.').first()).toBeVisible();
   await expect(page.locator(`a[href="/pet/9/verify/refusal/${'f'.repeat(24)}"]`).filter({ visible: true })).toHaveAccessibleName('Check this thought');
   await expect(page.getByText('Pixel asked Nori · 0.38¢')).toHaveCount(0);
 });

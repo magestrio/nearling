@@ -57,6 +57,8 @@ test('проверка питомца: the owner, a guest and a visitor each hav
     ['/pet/2', {}, 'Biscuit'],
   ] as const) {
     await openWith(page, route, fakes);
+    // the owner's Check stands in the Pet card (DS 0.48: the nameplate opens it); a guest's stands on the Stage
+    if (route === '/pet/9') await page.getByRole('button', { name: "Pixel's card" }).click();
     const check = page.getByRole('link', { name: `Check it's really ${name}` }).first();
     await expect(check).toHaveAttribute('href', `${route}/verify`);
   }

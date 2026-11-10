@@ -101,7 +101,7 @@ test('data failed in a hire: the game\'s line before the pet\'s own answer, and 
   ];
   await openWith(page, '/pet/9', { auth: SIGNED_IN, worker: { ...OWNER, conversation: { lines: turn('hire_data_failed'), more: false, before: null } } });
   await expect(page.getByText("Nori's skill couldn't get its data just now, so Pixel answered on its own. No fee was paid.")).toBeVisible();
-  await expect(page.getByText('Check the sky at seven.')).toBeVisible();
+  await expect(page.getByRole('log').getByText('Check the sky at seven.')).toBeVisible();
   await setWorker(page, { conversation: { lines: turn('hire_data_failed_paid'), more: false, before: null } });
   await reloadHolding(page);
   await expect(page.getByText("Nori's skill couldn't get its data just now, so Pixel answered on its own. No fee was paid — the try used a little of Pixel's food.")).toBeVisible();

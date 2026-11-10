@@ -32,7 +32,7 @@ test('долгий ответ: after 10 s «Still working on it…» joins «Pix
   expect((await calls(page)).filter((c) => c === 'worker:say')).toHaveLength(1);
   await setWorker(page, { petState: { thought: { id: 't1', text: 'Once there was a chart nobody understood.', cut: null } } });
   await page.clock.fastForward(2_000);
-  await expect(page.getByText('Once there was a chart nobody understood.')).toBeVisible();
+  await expect(page.getByText('Once there was a chart nobody understood.').first()).toBeVisible();
   await expect(page.getByText(STILL_WORKING)).toHaveCount(0);
   await expect(page.getByText('Pixel is thinking…')).toHaveCount(0);
   await expect(field(page)).toHaveValue('And another thing');
@@ -60,7 +60,7 @@ test('долгий ответ × вкладка скрыта и снова ви�
     Object.defineProperty(document, 'hidden', { configurable: true, get: () => false });
     document.dispatchEvent(new Event('visibilitychange'));
   });
-  await expect(page.getByText('It was ready while you were away.')).toBeVisible();
+  await expect(page.getByText('It was ready while you were away.').first()).toBeVisible();
   await expect(page.getByText('Pixel is thinking…')).toHaveCount(0);
 });
 
@@ -86,8 +86,8 @@ test('перезагрузка посреди мысли: the thought is still o
   await expect(page.getByRole('status').filter({ hasText: 'Pixel is thinking hard…' })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Send', exact: true })).toHaveAttribute('aria-disabled', 'true');
   await setWorker(page, { petState: { thought: { id: 't7', text: 'A deeper answer.', cut: null, price: '1', priceCents: 0.13 } } });
-  await expect(page.getByText('A deeper answer.')).toBeVisible();
-  await expect(page.getByText('Thought hard · 0.13¢')).toBeVisible();
+  await expect(page.getByText('A deeper answer.').first()).toBeVisible();
+  await expect(page.getByText('Thought hard · 0.13¢').first()).toBeVisible();
   await expect(page.getByText('Pixel is thinking hard…')).toHaveCount(0);
 });
 
@@ -101,7 +101,7 @@ test('вторая вкладка шлёт реплику: a tab that finds a th
   await expect(page.getByRole('button', { name: 'Send', exact: true })).toHaveAttribute('aria-disabled', 'true');
   expect((await calls(page)).filter((c) => c === 'worker:say')).toHaveLength(0);
   await setWorker(page, { petState: { thought: { id: 't1', text: 'The first tab\'s answer.', cut: null } } });
-  await expect(page.getByText("The first tab's answer.")).toBeVisible();
+  await expect(page.getByText("The first tab's answer.").first()).toBeVisible();
   // the typed line waited in the field and goes now
   await expect(field(page)).toHaveValue('from tab two');
   await page.getByRole('button', { name: 'Send', exact: true }).click();
@@ -125,7 +125,9 @@ test('разбудил друг при открытой странице × the 
   });
   const log = page.getByRole('log');
   const gap = () => log.evaluate((el) => el.scrollHeight - el.scrollTop - el.clientHeight);
-  await expect(log).toContainText('Start with the chart, then.');
+  // on the phone the newest reply stands in the Bubble and its log row is hidden (DS 0.48)
+  await expect(page.getByRole('complementary')).toContainText('Start with the chart, then.');
+  await expect(log).toContainText('Barely. Big presentation at ten.');
   await setWorker(page, { pets: { '9': ASLEEP }, petState: { events: ['fell_asleep'] } });
   await lookAgain(page);
   await expect(page.getByText('Pixel fell asleep.')).toBeVisible();
@@ -136,7 +138,7 @@ test('разбудил друг при открытой странице × the 
   await lookAgain(page);
   await expect(page.getByText('Maya fed Pixel.')).toBeVisible();
   await setWorker(page, { petState: { thought: { id: 'w1', text: 'Thanks, Maya! While I slept I dreamed I was a lighthouse for moths. They were very polite.', cut: null } } });
-  await expect(page.getByText('Thanks, Maya! While I slept I dreamed')).toBeVisible();
+  await expect(page.getByText('Thanks, Maya! While I slept I dreamed').first()).toBeVisible();
   await expect.poll(gap).toBeLessThan(2);
 });
 
@@ -145,7 +147,7 @@ test('ответ оборван: the reply stops where one thought ends, keeps i
   await openWith(page, '/pet/9', { auth: SIGNED_IN, worker: owned });
   await send(page, 'Tell me a short story about the chart nobody understands.');
   await setWorker(page, { petState: { thought: { id: 'cut1', text: 'Once there was a chart nobody understood. One morning the smallest bar', cut: 'fuse' } } });
-  await expect(page.getByText('One morning the smallest bar')).toBeVisible();
+  await expect(page.getByText('One morning the smallest bar').first()).toBeVisible();
   await expect(page.getByText("That's as far as one thought goes. Ask Pixel to keep going.")).toBeVisible();
   await expect(page.getByRole('link', { name: 'Check this thought' }).last()).toHaveAttribute('href', '/pet/9/verify/cut1');
   // the next thought is a new line
@@ -162,8 +164,8 @@ test('отправлено: «Think hard» sends the line with reasoning, «Pixe
   await expect(page.getByRole('status').filter({ hasText: 'Pixel is thinking hard…' })).toBeVisible();
   await expect(page.getByRole('button', { name: /Think hard/ })).toHaveAttribute('aria-disabled', 'true');
   await setWorker(page, { petState: { thought: { id: 'd1', text: 'Then say why it matters to them.', cut: null, price: '270000000000000000000', priceCents: 0.13 } } });
-  await expect(page.getByText('Then say why it matters to them.')).toBeVisible();
-  await expect(page.getByText('Thought hard · 0.13¢')).toBeVisible();
+  await expect(page.getByText('Then say why it matters to them.').first()).toBeVisible();
+  await expect(page.getByText('Thought hard · 0.13¢').first()).toBeVisible();
   await expect(page.getByText('Pixel is thinking hard…')).toHaveCount(0);
 });
 
@@ -174,10 +176,11 @@ test('переспрос: the same «is thinking hard…» without a change, the
   await page.getByRole('button', { name: /Think hard/ }).click();
   await expect(page.getByRole('status').filter({ hasText: 'Pixel is thinking hard…' })).toBeVisible();
   await setWorker(page, { petState: { thought: { id: 'd2', text: 'Short and clear.', cut: null, price: '400000000000000000000', priceCents: 0.21, reasked: true } } });
-  await expect(page.getByText('Short and clear.')).toBeVisible();
-  await expect(page.getByText('Thought hard · 0.21¢')).toBeVisible();
+  await expect(page.getByText('Short and clear.').first()).toBeVisible();
+  await expect(page.getByText('Thought hard · 0.21¢').first()).toBeVisible();
   // one reply, no error and no cut note
-  await expect(page.getByRole('link', { name: 'Check this thought' })).toHaveCount(3);
+  // the three replies of the log and the Bubble's copy of the newest (DS 0.48)
+  await expect(page.getByRole('link', { name: 'Check this thought' })).toHaveCount(4);
   await expect(page.getByRole('log')).not.toContainText('lost that thought');
   await expect(page.getByRole('log')).not.toContainText("That's as far as one thought goes");
 });
@@ -216,7 +219,7 @@ test('разбудил друг при открытой странице: withou
   await expect(page.getByText('Maya fed Pixel.')).toBeVisible();
   await expect(page.getByRole('status').filter({ hasText: 'Pixel is thinking…' })).toBeVisible();
   await setWorker(page, { petState: { thought: { id: 'w1', text: 'Thanks, Maya! While I slept I dreamed I was a lighthouse for moths.', cut: null } } });
-  await expect(page.getByText('Thanks, Maya! While I slept I dreamed')).toBeVisible();
+  await expect(page.getByText('Thanks, Maya! While I slept I dreamed').first()).toBeVisible();
   await expect(page.getByText('Maya fed Pixel.')).toHaveCount(1);
   await expect(page.getByRole('img', { name: 'Pixel, hungry' })).toBeVisible();
   await expect(input).not.toHaveAttribute('aria-disabled', 'true');

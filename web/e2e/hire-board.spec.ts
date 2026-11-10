@@ -189,7 +189,8 @@ test('loading × navigation away: leaving before the answer shows nothing of the
   await page.getByRole('link', { name: 'Home' }).click();
   await expect(page).not.toHaveURL(/\/hire$/);
   await page.waitForTimeout(2000);
-  await expect(page.getByText('Find a pet to ask')).toHaveCount(0);
+  // the Pet screen's Hud carries a link of the same name: it is the board's heading that must not come
+  await expect(page.getByRole('heading', { name: 'Find a pet to ask' })).toHaveCount(0);
   await expect(page.getByRole('link', { name: 'Visit Nori' })).toHaveCount(0);
 });
 

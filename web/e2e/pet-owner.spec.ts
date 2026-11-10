@@ -18,14 +18,15 @@ test('empty: «Say hi to Pixel…», the greeting asked for once, «Send» busy 
   expect((await calls(page)).filter((c) => c === 'worker:greeting')).toHaveLength(1);
   // the greeting arrives with the next look at the job
   await setWorker(page, { petState: { thought: { id: 'g1', text: "Hi! I'm Pixel. I hatched a minute ago.", cut: null } } });
-  await expect(page.getByText("Hi! I'm Pixel. I hatched a minute ago.")).toBeVisible();
+  // the newest reply stands in the Bubble and in the log (DS 0.48)
+  await expect(page.getByText("Hi! I'm Pixel. I hatched a minute ago.").first()).toBeVisible();
   await expect(page.getByText('Pixel is thinking…')).toHaveCount(0);
   await expect(page.getByRole('button', { name: 'Send', exact: true })).not.toHaveAttribute('aria-disabled', 'true');
-  await expect(page.getByRole('link', { name: 'Check this thought' })).toHaveAttribute('href', '/pet/9/verify/g1');
+  await expect(page.getByRole('link', { name: 'Check this thought' }).first()).toHaveAttribute('href', '/pet/9/verify/g1');
   // the idle looks that follow do not bring it a second time
   await setWorker(page, { petState: {} });
   await lookAgain(page);
-  await expect(page.getByText("Hi! I'm Pixel. I hatched a minute ago.")).toHaveCount(1);
+  await expect(page.getByRole('log').getByText("Hi! I'm Pixel. I hatched a minute ago.")).toHaveCount(1);
 });
 
 // spec: add-pet › Pet screen › empty × the owner's first line
@@ -56,6 +57,7 @@ test('loading: «Finding this pet…» in a status region instead of the pet, th
   await openWith(page, '/pet/9', { auth: SIGNED_IN, worker: { ...OWNER, petDelayMs: 1200 } });
   await expect(page.getByRole('status').filter({ hasText: 'Finding this pet…' })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Account' })).toBeVisible();
+  // the game Stage (frame `pet-loading`) draws the skeleton and the line, with the field off, named by the line
   const input = page.getByLabel('Finding this pet…');
   await expect(input).toHaveAttribute('aria-disabled', 'true');
   await expect(input).toHaveAttribute('readonly', '');
@@ -76,10 +78,15 @@ test('success (владелец): the pet, the name, the fullness, the conversat
   await expect(page.getByRole('button', { name: 'Feed Pixel' }).first()).toBeVisible();
   await expect(page.getByRole('link', { name: 'Today' })).toHaveAttribute('href', '/pet/9/diary');
   await expect(page.getByRole('link', { name: 'Wardrobe' })).toHaveAttribute('href', '/pet/9/wardrobe');
-  await expect(page.getByRole('button', { name: 'Give Pixel away' })).toBeVisible();
-  // only a pet of theirs that has replies has «Check this thought»; the player's line has none
-  await expect(page.getByRole('link', { name: 'Check this thought' })).toHaveCount(2);
+  // «Give Pixel away» is in the More menu and «Check it's really Pixel» in the Pet card (DS 0.48)
+  await page.getByRole('button', { name: 'More' }).click();
+  await expect(page.getByRole('menuitem', { name: 'Give Pixel away' })).toBeVisible();
+  await page.getByRole('button', { name: 'Close' }).click();
+  // only a pet of theirs that has replies has «Check this thought», the newest also in the Bubble; the player's line has none
+  await expect(page.getByRole('link', { name: 'Check this thought' })).toHaveCount(3);
+  await page.getByRole('button', { name: "Pixel's card" }).click();
   await expect(page.getByRole('link', { name: "Check it's really Pixel" }).first()).toHaveAttribute('href', '/pet/9/verify');
+  await page.keyboard.press('Escape');
   await expect(page.getByRole('button', { name: 'Pause motion' })).toBeVisible();
   // one pet: no «My pets»
   await expect(page.getByRole('button', { name: 'My pets' })).toHaveCount(0);
@@ -101,7 +108,7 @@ test('success (владелец): a line goes into the conversation at once and 
   expect(await calls(page)).toContain('worker:say');
   await expect(page.getByRole('status').filter({ hasText: 'Pixel is thinking…' })).toBeVisible();
   await setWorker(page, { petState: { thought: { id: 't2', text: 'Then say why it matters to them.', cut: null } } });
-  await expect(page.getByText('Then say why it matters to them.')).toBeVisible();
+  await expect(page.getByText('Then say why it matters to them.').first()).toBeVisible();
   await expect(page.getByText('Pixel is thinking…')).toHaveCount(0);
 });
 
@@ -158,7 +165,8 @@ test('success (владелец) × питомца подарили при от�
   await setWorker(page, { owned: [] });
   await lookAgain(page);
   await expect(page.getByRole('button', { name: 'Feed Pixel' })).toBeVisible();
-  await expect(page.getByRole('log')).toHaveCount(0);
+  // the guest's Stage keeps a log of its own, the advice (`Advice from Pixel`), never the owner's conversation
+  await expect(page.getByRole('log')).toHaveAccessibleName('Advice from Pixel');
   await expect(page.getByPlaceholder('Talk to Pixel…')).toHaveCount(0);
   await expect(page.getByText('Barely. Big presentation at ten.')).toHaveCount(0);
 });

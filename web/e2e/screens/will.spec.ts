@@ -19,8 +19,9 @@ const history = [
   { id: 'will-c5', who: 'pet' as const, text: 'Start with the chart, then. Say what surprised you about it — people follow a surprise better than a number.', at: 5 },
 ];
 const owns = [...WARDROBE_OWNS];
-const owner = { ownedCount: 2, wish, wishActive: true, wishReserveYocto: wish.reserveYocto, outfits: owns, worn: 'thinking-cap' as const };
-const pixel = (patch: Record<string, unknown> = {}) => ({ ...PIXEL, worn: 'thinking-cap' as const, owner: { ...owner, ...patch } });
+// Pixel bare, as pet.js › OWN draws it since DS 0.48
+const owner = { ownedCount: 2, wish, wishActive: true, wishReserveYocto: wish.reserveYocto, outfits: owns, worn: null };
+const pixel = (patch: Record<string, unknown> = {}) => ({ ...PIXEL, worn: null, owner: { ...owner, ...patch } });
 const worker = (patch: Record<string, unknown> & { wish?: WishTarget | null; wishReserveYocto?: string; wishActive?: boolean } = {}) => ({ ...OWNER, pets: { '9': pixel(patch), '2': OWNER.pets['2'] },
   wish: { wish: patch.wish === undefined ? wish : patch.wish, reserveYocto: patch.wishReserveYocto ?? wish.reserveYocto,
     active: patch.wishActive ?? true, releaseStatus: null },
@@ -34,7 +35,7 @@ const inviteOne = invitation('a'.repeat(24), '2', 'Biscuit', 1);
 const inviteMany = [invitation('c'.repeat(24), '5', 'Sage', 3, 'Good at weather'),
   invitation('b'.repeat(24), '3', 'Nori', 2), inviteOne];
 const adviceQuestion = 'My cat ignores me after I travel. How do I make up for it?';
-const adviceFrame = (code: 'character_refused' | 'screening_failed' | 'screening_exhausted' | 'screening_capacity', expected: string): ScreenFixture => ({
+const adviceFrame = (code: 'character_refused' | 'screening_failed' | 'screening_exhausted' | 'screening_capacity', expected: string, belowFold?: string[]): ScreenFixture => ({
   route: '/pet/2', fakes: { auth: SIGNED_IN, worker: { owned: ['9'], pets: { '9': PIXEL, '2': BISCUIT },
     me: { accountId: 'a'.repeat(64), hatched: { tokenId: '9', name: 'Pixel' }, currentPet: { tokenId: '9', name: 'Pixel' }, ownedCount: 1 },
     advice: { price: { cents: 0.38, yocto: '830000000000000000000' } },
@@ -57,20 +58,8 @@ const adviceFrame = (code: 'character_refused' | 'screening_failed' | 'screening
       (document.activeElement as HTMLElement | null)?.blur();
       return document.activeElement === document.body;
     })).toBe(true);
-    // The refusal fits the phone's log: the intro card and the refusal line stand in view together, as the frame draws them. The
-    // three outcomes with a button under them are taller than the log's 390 px: the frame scrolls the page, the client scrolls the
-    // log to its newest line (design.md › Отклонения от кадров).
-    if (code === 'character_refused' && (page.viewportSize()?.width ?? 1440) < 768) {
-      await page.locator('[role="log"]').evaluate((log) => {
-        log.dispatchEvent(new WheelEvent('wheel', { bubbles: true }));
-        log.scrollTop = 0;
-      });
-      await expect.poll(() => page.locator('[role="log"]').evaluate((log) => {
-        const link = Array.from(log.querySelectorAll('a')).find((item) => item.textContent?.includes("Check it's really Biscuit"));
-        return Boolean(link && link.getBoundingClientRect().top >= log.getBoundingClientRect().top);
-      })).toBe(true);
-    }
   },
+  belowFold,
 });
 const hireLines = [
   ...history,
@@ -80,11 +69,22 @@ const hireLines = [
     hireMode: 'manual' as const, refusal: { id: 'f'.repeat(24), reason: 'I would rather leave this one to Pixel.' }, at: 6 },
   { id: 'will-answer', who: 'pet' as const, text: 'Say what the chart changed for you — one sentence. Then let the room catch up.', at: 7 },
 ];
+/** The nameplate tapped: Pixel's card open over the Stage (add-game-layout › Pet card screen) */
+const openCard = async (page: import('@playwright/test').Page) => {
+  await page.locator('.ds-hud__nameplate').click();
+  await page.getByRole('dialog', { name: "Pixel's card" }).waitFor();
+  await page.mouse.move(0, 0);
+};
+// the frames hold the card at its top (data-scroll top): the Wish section is below its fold, in the card's own scroll
+const WISH_BELOW = ['{name} wants {outfit}', '{name} has every outfit for now.', '{name} already has {outfit}.', "{name}'s wish",
+  'Saved {saved_cents} of {price_cents}', '{saved_near} of {price_near} NEAR'];
+// the card's Wish section opens the Wish sheet; the card closes as the sheet opens
 const openSheet = async (page: import('@playwright/test').Page) => {
-  await page.getByRole('link', { name: "Pixel's wish" }).first().click();
+  await openCard(page);
+  await page.getByRole('link', { name: "Pixel's wish" }).click();
   await page.getByRole('dialog', { name: "Pixel's wish" }).waitFor();
   await page.mouse.move(0, 0);
-  // the click on the phone's intro link scrolled the conversation to its top; the frames keep it on its newest line
+  // the frames keep the conversation on its newest line
   await page.evaluate(() => document.querySelectorAll('[role="log"]').forEach((log) => { log.scrollTop = log.scrollHeight; }));
 };
 
@@ -93,9 +93,9 @@ if (diary.entry.kind !== 'text') throw new Error('sample diary must have a text 
 
 const fixtures: Record<string, ScreenFixture> = {
   // spec: add-pet-will › Work invitation card screen › success
-  'invite-card': { ...signed(), fakes: { auth: SIGNED_IN, worker: { ...worker(noWish), invitations: { invitations: [inviteOne] } } } },
+  'invite-card': { ...signed(), fakes: { auth: SIGNED_IN, worker: { ...worker(noWish), invitations: { invitations: [inviteOne] } } }, belowFold: ['Work invitation'] },
   // spec: add-pet-will › Work invitation card screen › several valid invitations
-  'invite-cards': { ...signed(), fakes: { auth: SIGNED_IN, worker: { ...worker(noWish), invitations: { invitations: inviteMany } } } },
+  'invite-cards': { ...signed(), fakes: { auth: SIGNED_IN, worker: { ...worker(noWish), invitations: { invitations: inviteMany } } }, belowFold: ['Work invitation'] },
   // spec: add-pet-will › Work invitation card screen › error
   'invite-ended': { ...signed(), fakes: { auth: SIGNED_IN, worker: { ...worker(noWish), invitations: { invitations: [inviteOne] },
     acceptInvitation: { fail: { status: 409, code: 'invitation_ended' } } } }, prepare: async (page) => {
@@ -109,7 +109,7 @@ const fixtures: Record<string, ScreenFixture> = {
     conversation: { lines: hireLines, more: false, before: null } } } },
   'work-character-refused-auto': { ...signed(), fakes: { auth: SIGNED_IN, worker: { ...worker({ ...noWish, hireMode: 'auto' }),
     conversation: { lines: hireLines, more: false, before: null } } }, prepare: async (page) => {
-      const answer = page.getByText('Say what the chart changed for you — one sentence. Then let the room catch up.', { exact: true });
+      const answer = page.getByText('Say what the chart changed for you — one sentence. Then let the room catch up.', { exact: true }).first();
       await answer.waitFor();
       await answer.evaluate(async (element) => {
         await document.fonts.ready;
@@ -118,13 +118,13 @@ const fixtures: Record<string, ScreenFixture> = {
       });
     } },
   // spec: add-pet-will › Character refusal flow › character declines player advice
-  'advice-character-refused': adviceFrame('character_refused', 'No food was spent.'),
+  'advice-character-refused': adviceFrame('character_refused', 'No food was spent.', ['No food was spent.']),
   // spec: add-pet-will › Character refusal flow › no signed answer
-  'advice-screening-lost': adviceFrame('screening_failed', 'lost that thought. Nothing was spent — try again.'),
+  'advice-screening-lost': adviceFrame('screening_failed', 'lost that thought. Nothing was spent — try again.', ['{name} lost that thought. Nothing was spent — try again.']),
   // spec: add-pet-will › Character refusal flow › third screening fails
-  'advice-screening-third': adviceFrame('screening_exhausted', 'unavailable until tomorrow.'),
+  'advice-screening-third': adviceFrame('screening_exhausted', 'unavailable until tomorrow.', ['{name} lost that thought. Nothing was spent.', '{name} is unavailable until tomorrow.']),
   // spec: add-pet-will › Character refusal flow › refusal capacity reached
-  'advice-refusal-cap': adviceFrame('screening_capacity', 'unavailable until tomorrow.'),
+  'advice-refusal-cap': adviceFrame('screening_capacity', 'unavailable until tomorrow.', ['{name} is unavailable until tomorrow.']),
   // spec: add-pet-will › Refusal privacy data › receipt read
   'verify-refusal': (() => { const proof = verificationFakes(); return { route: `/pet/9/verify/refusal/${'f'.repeat(24)}`,
     fakes: { ...proof, worker: { ...proof.worker, refusalEvidence: { id: 'f'.repeat(24), reason: "I can't answer that as myself. I need to know them better first.",
@@ -139,9 +139,9 @@ const fixtures: Record<string, ScreenFixture> = {
       })).toBe(true);
     } }; })(),
   // spec: add-pet-will › Wish pursuit flow › wish chosen
-  'pet-wish': { ...signed(), belowFold: ["{name}'s wish"] },
+  'pet-wish': { ...signed(), prepare: openCard, belowFold: WISH_BELOW },
   // spec: add-pet-will › Wish pursuit flow › no target
-  'pet-wish-none': signed({ wish: null, wishActive: false, wishReserveYocto: '0', outfits: [...owns, 'smart-glasses', 'bow-tie', 'headphones'] }),
+  'pet-wish-none': { ...signed({ wish: null, wishActive: false, wishReserveYocto: '0', outfits: [...owns, 'smart-glasses', 'bow-tie', 'headphones'] }), prepare: openCard, belowFold: WISH_BELOW },
   // spec: add-pet-will › Wish pursuit flow › automatic purchase
   'pet-wish-earned': { route: '/pet/9', fakes: { auth: SIGNED_IN, worker: { ...worker({ wish: null, wishActive: false, wishReserveYocto: '0', outfits: [...owns, 'smart-glasses'] }),
     wardrobe: { outcome: { id: 'wish-buy', item: 'smart-glasses', status: 'bought', code: null, source: 'pet_wish' } } } },
@@ -149,17 +149,18 @@ const fixtures: Record<string, ScreenFixture> = {
   // spec: add-pet-will › Wish pursuit flow › target bought by owner
   'pet-wish-owner-bought': { ...signed(), fakes: { auth: SIGNED_IN, worker: { ...worker(), wardrobe: { outcome: { id: 'owner-buy', item: 'smart-glasses', status: 'bought', code: null, source: 'owner' } } } },
     prepare: async (page) => {
-      await page.getByText('Pixel wants Smart glasses').waitFor();
+      await page.getByText('Start with the chart, then.').first().waitFor();
       await setPixel(page, { ...owner, wish: null, wishActive: false, wishReserveYocto: '0', outfits: [...owns, 'smart-glasses'] });
       await lookAgain(page);
+      await openCard(page);
       await page.getByText('Pixel already has Smart glasses.').waitFor();
-    } },
+    }, belowFold: WISH_BELOW },
   // spec: add-pet-will › Work seeking flow › pet asleep
   'pet-work-seeking-asleep': { ...signed(), prepare: async (page) => {
     // the food ran out under the open page, as the frame shows it: the typed line stays in the field, the line says why
     await page.getByText('Start with the chart, then.').first().waitFor();
     await page.getByPlaceholder('Talk to Pixel…').fill('And if they ask why the chart matters?');
-    await setWorker(page, { pets: { '9': { ...ASLEEP_PIXEL, worn: 'thinking-cap', owner }, '2': OWNER.pets['2'] }, petState: { events: ['fell_asleep'] } });
+    await setWorker(page, { pets: { '9': { ...ASLEEP_PIXEL, worn: null, owner }, '2': OWNER.pets['2'] }, petState: { events: ['fell_asleep'] } });
     await lookAgain(page);
     await page.getByText('Feed Pixel to wake them.').filter({ visible: true }).first().waitFor();
     await page.getByText('Pixel fell asleep.').filter({ visible: true }).first().waitFor();
@@ -168,7 +169,8 @@ const fixtures: Record<string, ScreenFixture> = {
   } },
   // spec: add-pet-will › Will ownership rule › former owner opens
   'pet-former-owner': { ...signed(), fakes: { auth: SIGNED_IN, worker: { ...worker(), toastHeld: true } }, prepare: async (page) => {
-    await page.getByRole('link', { name: "Pixel's wish" }).first().click();
+    await openCard(page);
+    await page.getByRole('link', { name: "Pixel's wish" }).click();
     await page.getByRole('dialog', { name: "Pixel's wish" }).waitFor();
     await setWorker(page, { owned: [] });
     await page.evaluate(() => document.dispatchEvent(new Event('visibilitychange')));

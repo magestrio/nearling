@@ -398,15 +398,15 @@ export function DiaryPage({
     const answerHandoff = asleep ? {} : { id: HANDOFF_ID, tabIndex: -1 };
     const riddleBlock = (
       <Block role="mind" icon="puzzle">
-        {d.late !== null && !asleep && riddle.today.kind !== 'answered' ? (
-          <Text id={HANDOFF_ID} tabIndex={-1}>
-            {lateLine(d.late, riddle.today.kind === 'open')}
-          </Text>
-        ) : null}
         {riddle.yesterday !== null ? (
           <Text variant="small" tone="secondary">
             {riddle.yesterday}
           </Text>
+        ) : null}
+        {d.late !== null && !asleep && riddle.today.kind !== 'answered' ? (
+          <Note tone="plain" silent id={HANDOFF_ID} tabIndex={-1}>
+            {lateLine(d.late, riddle.today.kind === 'open')}
+          </Note>
         ) : null}
         {riddle.today.kind === 'held' ? <Text>{HELD_LINE}</Text> : null}
         {riddle.today.kind !== 'held' ? (

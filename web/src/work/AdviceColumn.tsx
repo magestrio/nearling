@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react';
-import { Button, Composer, Conversation, Inert, Live, Message, Note, Only, Stack, Text, Thinking, type Accent } from '../ds';
+import { Button, Composer, Conversation, Inert, Live, Message, Note, Stack, Text, Thinking, type Accent } from '../ds';
 import { useFeedRequest } from '../feeding/feedRequest';
 import { resetTime } from '../lib/time';
 import { formatCents } from '../lib/price';
@@ -36,7 +36,6 @@ import {
 } from './lines';
 import { useAdvice, type Entry } from './useAdvice';
 import { AdviceDock } from './AdviceDock';
-import './advice.css';
 
 // The guest's advice column (add-pet-work › Advice flow), drawn from design/bundle/screens/pet.js › guestAdvice and work.js: the
 // log where the owner's conversation stands, the field with «Ask {name} · {price}» in the Composer's end, and under it who pays.
@@ -143,9 +142,8 @@ function Column({ tokenId, name, asleep, advice }: SlotProps & { advice: NonNull
     }
   })();
 
-  const asked = a.entries.length > 0;
   const pays = (
-    <Stack gap={2}>
+    <Stack gap={1}>
       <Text variant="small" tone="secondary">
         {paysLine(myPet, name)}
       </Text>
@@ -209,7 +207,6 @@ function Column({ tokenId, name, asleep, advice }: SlotProps & { advice: NonNull
     <Button
       size="compact"
       variant="secondary"
-      iconEnd="send"
       type="submit"
       price={price}
       busy={a.busy}
@@ -225,16 +222,7 @@ function Column({ tokenId, name, asleep, advice }: SlotProps & { advice: NonNull
       <Inert on={advice.covered}>
         <Conversation
           label={adviceLabel(name)}
-          intro={
-            asked ? (
-              <Stack gap={3}>
-                {advice.check}
-                {pays}
-              </Stack>
-            ) : (
-              advice.check
-            )
-          }
+          intro={advice.check}
           introOn="phone"
         >
           {a.entries.map((entry) => (
@@ -258,7 +246,7 @@ function Column({ tokenId, name, asleep, advice }: SlotProps & { advice: NonNull
               end={blocker === 'relationship' ? <Button size="compact" variant="secondary" href="/hire">Ask another pet</Button> : end}
             />
             {signedOut ? <SignInLines lines={moreLines} /> : null}
-            {asked ? <Only on="desktop">{pays}</Only> : pays}
+            {pays}
             <Live>{signedOut ? '' : (line ?? '')}</Live>
             <Live alert>{signedOut ? signInLines.map((l) => l.text).join(' ') : ''}</Live>
           </Stack>

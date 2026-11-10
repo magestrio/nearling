@@ -232,9 +232,8 @@ test('sent: the sheet closes, the job under «You» with its form, the pet is aw
   await expect(log).toContainText('Read this');
   await expect(log).toContainText(DREAMS);
   await expect(drawn(page, 'Pixel is off on your errand — back soon, usually within a minute.')).toBeVisible();
-  await expect(rail(page)).toHaveAttribute('aria-disabled', 'true');
-  // the focus returns to the rail item, now off (DS › Sheet › Focus)
-  await expect(rail(page)).toBeFocused();
+  await expect(rail(page)).toBeDisabled();
+  // the Hotbar's item is a disabled button now (DS › Hotbar `off`): the focus can not return to it
 });
 
 // spec: add-pet-errands › Errand flow › sent × no network at «Send»
@@ -260,7 +259,7 @@ test('blocked after Send: the server refuses what held at the tap — the block 
   await expect(drawn(page,'Pixel is tired for today. Back at 02:00.')).toBeVisible();
   await expect(send(page)).toHaveCount(0);
   await expect(field(page, 'Paste a link or some text')).toHaveValue(DREAMS);
-  await expect(rail(page)).not.toHaveAttribute('aria-disabled', 'true');
+  await expect(rail(page)).toBeEnabled();
   // a block in «Send»'s place keeps the focus in the field (DS › Sheet › Focus)
   await expect(field(page, 'Paste a link or some text')).toBeFocused();
 });
@@ -276,7 +275,7 @@ test('sent × another tab sent an errand: «Send» is answered that the pet is a
   await send(page).click();
   await expect(sheet(page)).toHaveCount(0);
   await expect(drawn(page, 'Pixel is off on your errand — back soon, usually within a minute.')).toBeVisible();
-  await expect(rail(page)).toHaveAttribute('aria-disabled', 'true');
+  await expect(rail(page)).toBeDisabled();
 });
 
 // spec: add-pet-errands › Errand sheet screen › success × the session ends and sign-in returns
@@ -322,7 +321,9 @@ test('success × the pet given away: the pet is not theirs any more — the shee
   await setWorker(page, { owned: [], errand: { fail: { status: 403, code: 'not_owner' } } });
   await lookAgain(page);
   await expect(sheet(page)).toHaveCount(0);
-  await expect(page.getByRole('log')).toHaveCount(0);
+  // the guest's page has no owner conversation: no field to talk to Pixel in, only the advice log
+  await expect(page.getByPlaceholder('Talk to Pixel…')).toHaveCount(0);
+  await expect(page.getByRole('log')).toHaveAccessibleName('Advice from Pixel');
   await expect(page.getByRole('button', { name: 'Feed Pixel' }).first()).toBeVisible();
 });
 

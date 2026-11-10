@@ -38,3 +38,17 @@
 @media (min-width: 768px) {
   .pet-figure--hero, .ds-stage--compact .pet-figure--hero { --pet-h: var(--size-pet-hero-max-height-desktop); }
 }
+
+/* A compact Centerpiece around a Stage that is not itself compact (the shared errand's page, as the frames draw it): the live pet takes
+   the cap the DS gives the still there (components.css › `.ds-centerpiece--compact .ds-pet--hero .ds-pet__img`) */
+.ds-centerpiece--compact .ds-stage:not(.ds-stage--compact) .pet-figure--hero { --pet-h: var(--size-pet-compact-owner-max-height); }
+@media (min-width: 768px) {
+  .ds-centerpiece--compact .ds-stage:not(.ds-stage--compact) .pet-figure--hero { --pet-h: var(--size-pet-hero-max-height-desktop); }
+}
+
+/* The game Stage (DS 0.48): the live pet takes the cap the stills get from `.ds-stage--game .ds-pet--hero .ds-pet__img`
+   (components.css) — 52dvh on the desktop, 26dvh on the phone — and no wider than the Stage's world. */
+.ds-stage--game .pet-figure--hero { --pet-h: var(--size-game-pet-desktop-view); max-width: min(var(--size-game-pet-desktop-view), 100%); }
+@media not all and (min-width: 768px) {
+  .ds-stage--game .pet-figure--hero { --pet-h: var(--size-game-pet-phone-view); max-width: 100%; }
+}

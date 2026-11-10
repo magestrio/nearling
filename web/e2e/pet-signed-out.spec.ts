@@ -12,7 +12,9 @@ test('signed-out: the pet in its state, its name and fullness, no conversation; 
   await expect(page.getByRole('button', { name: 'Sign in' })).toBeVisible();
   await expect(page.getByRole('link', { name: "Check it's really Biscuit" })).toHaveAttribute('href', '/pet/2/verify');
   await expect(page.getByRole('button', { name: 'Pause motion' })).toBeVisible();
-  await expect(page.getByRole('log')).toHaveCount(0);
+  // the visitor's Stage keeps the advice log (frame `pet-signed-out`), empty: no conversation lines
+  await expect(page.getByRole('log')).toHaveAccessibleName('Advice from Biscuit');
+  await expect(page.getByRole('log').getByRole('listitem')).toHaveCount(0);
   await expect(page.getByRole('textbox')).toHaveCount(0);
 });
 

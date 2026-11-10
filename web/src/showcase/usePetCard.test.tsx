@@ -13,6 +13,7 @@ vi.mock('./shareEvent', () => ({ sendCardShared: mocks.event }));
 vi.mock('../errands/VerdictCard', () => ({ canShareFile: () => true }));
 
 import { WorkerError } from '../seams/worker';
+import { Hotbar } from '../ds/Hotbar';
 import { usePetCard } from './usePetCard';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -25,16 +26,27 @@ let active = true;
 
 function Harness() {
   const card = usePetCard(currentPet, [], async () => 'token', active);
-  return <>{card.entry}{card.sheet}</>;
+  return <>
+    <Hotbar items={[{ icon: 'more', label: 'More', more: true }]}
+      menu={[{ icon: 'share', label: `Share ${currentPet.name}` }]}
+      shareItems={([
+        ['thought', 'Share a thought'], ['growth', 'Share growth'], ['outfit', 'Share outfit'],
+      ] as const).map(([kind, label]) => ({ icon: 'share', label, onClick: () => void card.openKind(kind) }))}
+      menuMessage={card.message || undefined} onMenuReset={card.clearMessage} active={active} />
+    {card.sheet}
+  </>;
 }
 
 const button = (name: string) => [...host.querySelectorAll('button')].find((item) => item.textContent?.trim() === name);
+const preview = () => host.querySelector('[role="dialog"]');
+const previewButton = (name: string) => [...(preview()?.querySelectorAll('button') ?? [])].find((item) => item.textContent?.trim() === name);
 const click = async (target: Element | undefined) => {
   expect(target).toBeTruthy();
   await act(async () => target!.dispatchEvent(new MouseEvent('click', { bubbles: true })));
 };
 const settle = async () => { await act(async () => { await Promise.resolve(); await Promise.resolve(); }); };
-const openThought = async () => { await click(button('Share Pixel')); await click(button('Share a thought')); await settle(); expect(button('Share')).toBeTruthy(); };
+const openShareChoices = async () => { await click(button('More')); await click(button('Share Pixel')); };
+const openThought = async () => { await openShareChoices(); await click(button('Share a thought')); await settle(); expect(previewButton('Share')).toBeTruthy(); };
 
 beforeEach(async () => {
   currentPet = pet;
@@ -64,7 +76,7 @@ describe('Pet card delivery', () => {
     const before = mocks.cardSource.mock.calls.length;
     let checksAtShare = 0;
     mocks.share.mockImplementation(async () => { checksAtShare = mocks.cardSource.mock.calls.length; });
-    await click(button('Share'));
+    await click(previewButton('Share'));
     expect(checksAtShare).toBe(before + 1);
     expect(mocks.share).toHaveBeenCalledOnce();
     expect(mocks.share.mock.calls[0]![0].files[0]).toBeInstanceOf(File);
@@ -75,7 +87,7 @@ describe('Pet card delivery', () => {
   it('does not open native Share after a gift between readiness and the tap', async () => {
     await openThought();
     mocks.cardSource.mockRejectedValueOnce(new WorkerError(403, 'not_owner'));
-    await click(button('Share'));
+    await click(previewButton('Share'));
     expect(mocks.share).not.toHaveBeenCalled();
     expect(host.textContent).toContain("Pixel has a new owner. This card can't be shared from here.");
   });
@@ -84,25 +96,25 @@ describe('Pet card delivery', () => {
   it('does not send erased words after Share was enabled', async () => {
     await openThought();
     mocks.cardSource.mockRejectedValueOnce(new WorkerError(409, 'thought_erased'));
-    await click(button('Share'));
+    await click(previewButton('Share'));
     expect(mocks.share).not.toHaveBeenCalled();
     expect(host.textContent).toContain('No thoughts to share yet. Talk with Pixel to hear one.');
-    expect(host.querySelector('[role="dialog"]')).toBeNull();
+    expect(preview()).toBeNull();
   });
 
   // spec: add-showcase › Pet card sharing flow › share image
   it('offers Share now only after activation refusal and logs the completed retry', async () => {
     await openThought();
-    const originalShare = button('Share');
+    const originalShare = previewButton('Share');
     originalShare?.focus();
     mocks.share.mockRejectedValueOnce(new DOMException('activation expired', 'NotAllowedError'));
-    await click(button('Share'));
-    expect(button('Share now')).toBeTruthy();
-    expect(button('Share now')).toBe(originalShare);
+    await click(previewButton('Share'));
+    expect(previewButton('Share now')).toBeTruthy();
+    expect(previewButton('Share now')).toBe(originalShare);
     expect(document.activeElement).toBe(originalShare);
-    expect(host.querySelector('[role="status"]')?.textContent).toContain('Share now');
+    expect(preview()?.querySelector(':scope > [role="status"]')?.textContent).toContain('Share now');
     expect(mocks.event).not.toHaveBeenCalled();
-    await click(button('Share now'));
+    await click(previewButton('Share now'));
     expect(mocks.share).toHaveBeenCalledTimes(2);
     expect(mocks.event).toHaveBeenCalledWith('token', 'thought', 'share');
   });
@@ -111,11 +123,11 @@ describe('Pet card delivery', () => {
   it('removes Share now when the ready card loses memory', async () => {
     await openThought();
     mocks.share.mockRejectedValueOnce(new DOMException('activation expired', 'NotAllowedError'));
-    await click(button('Share'));
-    expect(button('Share now')).toBeTruthy();
+    await click(previewButton('Share'));
+    expect(previewButton('Share now')).toBeTruthy();
     currentPet = { ...pet, memoryEpoch: 1 };
     await act(async () => root.render(<Harness />));
-    expect(button('Share now')).toBeUndefined();
+    expect(previewButton('Share now')).toBeUndefined();
     expect(mocks.share).toHaveBeenCalledTimes(1);
   });
 
@@ -123,11 +135,11 @@ describe('Pet card delivery', () => {
   it('removes Share now when ownership changes', async () => {
     await openThought();
     mocks.share.mockRejectedValueOnce(new DOMException('activation expired', 'NotAllowedError'));
-    await click(button('Share'));
-    expect(button('Share now')).toBeTruthy();
+    await click(previewButton('Share'));
+    expect(previewButton('Share now')).toBeTruthy();
     active = false;
     await act(async () => root.render(<Harness />));
-    expect(button('Share now')).toBeUndefined();
+    expect(previewButton('Share now')).toBeUndefined();
     expect(mocks.share).toHaveBeenCalledTimes(1);
   });
 
@@ -135,10 +147,10 @@ describe('Pet card delivery', () => {
   it('invalidates Share now when focus returns from a tab that cleared memory', async () => {
     await openThought();
     mocks.share.mockRejectedValueOnce(new DOMException('activation expired', 'NotAllowedError'));
-    await click(button('Share'));
+    await click(previewButton('Share'));
     mocks.cardSource.mockRejectedValueOnce(new WorkerError(409, 'thought_erased'));
     await act(async () => window.dispatchEvent(new Event('focus')));
-    expect(button('Share now')).toBeUndefined();
+    expect(previewButton('Share now')).toBeUndefined();
     expect(host.textContent).toContain('No thoughts to share yet. Talk with Pixel to hear one.');
     expect(mocks.share).toHaveBeenCalledTimes(1);
   });
@@ -147,10 +159,10 @@ describe('Pet card delivery', () => {
   it('rechecks the fallback tap so an erased thought never reaches native Share', async () => {
     await openThought();
     mocks.share.mockRejectedValueOnce(new DOMException('activation expired', 'NotAllowedError'));
-    await click(button('Share'));
-    expect(button('Share now')).toBeTruthy();
+    await click(previewButton('Share'));
+    expect(previewButton('Share now')).toBeTruthy();
     mocks.cardSource.mockRejectedValueOnce(new WorkerError(409, 'thought_erased'));
-    await click(button('Share now'));
+    await click(previewButton('Share now'));
     expect(mocks.share).toHaveBeenCalledTimes(1);
     expect(mocks.event).not.toHaveBeenCalled();
     expect(host.textContent).toContain('No thoughts to share yet. Talk with Pixel to hear one.');
@@ -159,12 +171,12 @@ describe('Pet card delivery', () => {
   // spec: add-showcase › Pet card sharing flow › no thought to choose
   it('closes the empty sheet when the last listed thought was erased before preview', async () => {
     mocks.cardSource.mockRejectedValueOnce(new WorkerError(409, 'thought_erased'));
-    await click(button('Share Pixel'));
+    await openShareChoices();
     await click(button('Share a thought'));
     await settle();
     expect(host.textContent).toContain('That thought is no longer here. Choose another one.');
     expect(host.textContent).toContain('No thoughts to share yet. Talk with Pixel to hear one.');
-    expect(host.querySelector('[role="dialog"]')).toBeNull();
+    expect(preview()).toBeNull();
     expect(mocks.render).not.toHaveBeenCalled();
   });
 
@@ -172,9 +184,9 @@ describe('Pet card delivery', () => {
   it('shows the erased notice when the last ready thought disappears on delivery', async () => {
     await openThought();
     mocks.cardSource.mockRejectedValueOnce(new WorkerError(409, 'thought_erased'));
-    await click(button('Share'));
+    await click(previewButton('Share'));
     expect(host.textContent).toContain('That thought is no longer here. Choose another one.');
-    expect(host.querySelector('[role="dialog"]')).toBeNull();
+    expect(preview()).toBeNull();
     expect(mocks.share).not.toHaveBeenCalled();
   });
 
@@ -182,12 +194,12 @@ describe('Pet card delivery', () => {
   it('clears fallback readiness and redraws a thought preview when worn outfit changes', async () => {
     await openThought();
     mocks.share.mockRejectedValueOnce(new DOMException('activation expired', 'NotAllowedError'));
-    await click(button('Share'));
-    expect(button('Share now')).toBeTruthy();
+    await click(previewButton('Share'));
+    expect(previewButton('Share now')).toBeTruthy();
     const draws = mocks.render.mock.calls.length;
     currentPet = { ...pet, worn: 'daisy-crown' };
     await act(async () => root.render(<Harness />));
-    expect(button('Share now')).toBeUndefined();
+    expect(previewButton('Share now')).toBeUndefined();
     await settle();
     expect(mocks.render.mock.calls.length).toBeGreaterThan(draws);
     expect(mocks.render.mock.lastCall?.[1]).toMatchObject({ worn: 'daisy-crown' });
@@ -197,12 +209,12 @@ describe('Pet card delivery', () => {
   it('clears fallback readiness and redraws a thought preview when growth stage changes', async () => {
     await openThought();
     mocks.share.mockRejectedValueOnce(new DOMException('activation expired', 'NotAllowedError'));
-    await click(button('Share'));
-    expect(button('Share now')).toBeTruthy();
+    await click(previewButton('Share'));
+    expect(previewButton('Share now')).toBeTruthy();
     const draws = mocks.render.mock.calls.length;
     currentPet = { ...pet, stage: 'teen' };
     await act(async () => root.render(<Harness />));
-    expect(button('Share now')).toBeUndefined();
+    expect(previewButton('Share now')).toBeUndefined();
     await settle();
     expect(mocks.render.mock.calls.length).toBeGreaterThan(draws);
     expect(mocks.render.mock.lastCall?.[1]).toMatchObject({ stage: 'teen' });

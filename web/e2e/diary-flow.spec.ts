@@ -442,7 +442,8 @@ test('«Back to Pixel» with the job on its way: it goes on and the reply lands 
   await expect(page).toHaveURL(/\/pet\/9$/);
   await expect(page.getByText(ANSWER)).toBeVisible();
   await setWorker(page, { petState: { thought: THOUGHT } });
-  await expect(drawn(page, THOUGHT.text)).toBeVisible();
+  // the pet's latest words also stand in the Stage's Bubble; the conversation holds the line
+  await expect(page.locator('.ds-message__bubble', { hasText: THOUGHT.text })).toBeVisible();
 });
 
 // spec: add-daily-ritual › Daily ritual flow › отвечает на вопрос дня × 00:00 UTC, the draft stays

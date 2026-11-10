@@ -21,7 +21,7 @@ let root: Root;
 function Harness() {
   const [open, setOpen] = useState(true);
   const [draft, setDraft] = useState('');
-  return <><button onClick={() => setOpen(true)}>Open watch</button><WatchSheet tokenId="9" name="Pixel" open={open} draft={draft}
+  return <><button onClick={() => setOpen(true)}>Open watch</button><button className="ds-hotbar__action" aria-haspopup="menu">More</button><WatchSheet tokenId="9" name="Pixel" open={open} draft={draft}
     onDraft={setDraft} onClose={() => setOpen(false)} tokenOf={tokenOf} onOwnerLost={() => undefined} onChanged={() => undefined} /></>;
 }
 
@@ -32,6 +32,23 @@ beforeEach(async () => {
   await act(async () => root.render(<Harness />));
 });
 afterEach(async () => { await act(async () => root.unmount()); host.remove(); });
+
+// spec: add-game-layout › Pet actions menu screen › success (awake owner) × Close Watch sheet
+it('returns focus to More after its Watch sheet closes', async () => {
+  await act(async () => host.querySelector<HTMLButtonElement>('.ds-sheet__head button[aria-label="Close"]')!.click());
+  expect(document.activeElement).toBe(host.querySelector('.ds-hotbar__action'));
+});
+
+// spec: add-pet-errands › Watch sheet screen › success
+it('uses the Stage column sheet with the public notice beside the watch actions', () => {
+  const sheet = host.querySelector('.ds-sheet-layer--column');
+  expect(sheet).not.toBeNull();
+  expect(sheet?.querySelector('.ds-sheet__body textarea')).not.toBeNull();
+  const foot = sheet?.querySelector('.ds-sheet__foot');
+  expect(foot?.textContent).toContain("Your target is public on Pixel's page.");
+  expect(foot?.textContent).toContain('Stop watch');
+  expect(foot?.textContent).toContain('Save watch');
+});
 
 // spec: add-pet-errands › Watch sheet screen › success × close and reopen
 it('discards an invalid draft when closed and reloads the saved target on reopen', async () => {

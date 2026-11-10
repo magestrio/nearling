@@ -1,6 +1,12 @@
-import { expect, test } from '@playwright/test';
-import { calls, openPet, setWorker, SIGNED_IN, OWNER, UA } from './helpers';
+import { expect, test, type Page } from '@playwright/test';
+import { calls, openMore, openPet, setWorker, SIGNED_IN, OWNER, UA } from './helpers';
 import { openWith } from './helpers';
+
+/** «More» opened and its «Give {name} away» tapped (add-game-layout › Pet actions menu screen) */
+const openGive = async (page: Page) => {
+  await openMore(page);
+  await page.getByRole('menuitem', { name: 'Give Pixel away' }).click();
+};
 import { actions, createTransaction } from 'near-api-js';
 import { publicKeyFromImplicitAccount } from '../src/near/privySigner';
 import { buildEnvFor } from '../build-env';
@@ -25,8 +31,8 @@ const shown = (scope: import('@playwright/test').Locator, text: string) => scope
 // spec: add-gift › Gift sheet screen › рождённый питомец
 test('shows the whole pet and public-gift warnings before creating a link', async ({ page }) => {
   await openPet(page, {}, { me: { accountId: 'a'.repeat(64), hatched: { tokenId: '9', name: 'Pixel' }, currentPet: { tokenId: '9', name: 'Pixel' }, ownedCount: 1 } });
-  await page.getByRole('button', { name: 'Give Pixel away' }).click();
-  await expect(page.getByRole('button', { name: 'Give Pixel away' })).toHaveAttribute('aria-expanded', 'true');
+  await openGive(page);
+  await expect(page.getByRole('menuitem', { name: 'Give Pixel away' })).toHaveAttribute('aria-expanded', 'true');
   await expect(dialog(page).getByText('Pixel goes to them whole:', { exact: false })).toBeVisible();
   await expect(dialog(page).getByText("Pixel won't be yours anymore", { exact: false })).toBeVisible();
   await expect(dialog(page).getByText('Send this link only to your friend', { exact: false })).toBeVisible();
@@ -37,7 +43,8 @@ test('shows the whole pet and public-gift warnings before creating a link', asyn
 // spec: add-gift › Gift flow › друг принял
 test('selects a manually opened Gift rail item but not a self-opened accepted sheet', async ({ page }) => {
   await openPet(page);
-  const trigger = page.getByRole('button', { name: 'Give Pixel away' });
+  await openMore(page);
+  const trigger = page.getByRole('menuitem', { name: 'Give Pixel away' });
   await trigger.click();
   await expect(trigger).toHaveAttribute('aria-expanded', 'true');
   await dialog(page).getByRole('button', { name: 'Close' }).click();
@@ -51,7 +58,7 @@ test('selects a manually opened Gift rail item but not a self-opened accepted sh
 // spec: add-gift › Gift flow › ссылка ждёт
 test('creates one link, offers it to share, and can cancel it', async ({ page }) => {
   await openPet(page, {}, { createGift: { status: 'waiting', code } });
-  await page.getByRole('button', { name: 'Give Pixel away' }).click();
+  await openGive(page);
   await dialog(page).getByRole('button', { name: 'Create gift link' }).click();
   await expect(shown(dialog(page), 'Your gift link is ready.')).toBeVisible();
   await expect(calls(page)).resolves.toContain('worker:createGift');
@@ -68,7 +75,7 @@ test('passes the exact gift invitation and URL to the system share menu', async 
       (globalThis as { __giftShare?: ShareData }).__giftShare = item;
     } });
   });
-  await page.getByRole('button', { name: 'Give Pixel away' }).click();
+  await openGive(page);
   await dialog(page).getByRole('button', { name: 'Create gift link' }).click();
   await expect.poll(() => page.evaluate(() => (globalThis as { __giftShare?: ShareData }).__giftShare)).toEqual({
     text: "I'm giving you Pixel! Open this link to take Pixel home:",
@@ -112,7 +119,7 @@ test('keeps the accepted friend on a paused gift and a definite failure', async 
 // spec: add-gift › Gift sheet screen › success × Clear memory
 test('opens Clear memory and returns to the Gift sheet', async ({ page }) => {
   await openPet(page);
-  await page.getByRole('button', { name: 'Give Pixel away' }).click();
+  await openGive(page);
   await dialog(page).getByRole('button', { name: 'Clear memory' }).click();
   await expect(page.getByRole('alertdialog')).toBeVisible();
   await page.getByRole('alertdialog').getByRole('button', { name: 'Keep memory' }).click();
@@ -123,7 +130,7 @@ test('opens Clear memory and returns to the Gift sheet', async ({ page }) => {
 test('copies the link when system share is absent and shows manual copy when clipboard fails', async ({ page }) => {
   await openPet(page, {}, { giftLink: { status: 'waiting', code } });
   await page.evaluate(() => { Object.defineProperty(navigator, 'share', { value: undefined, configurable: true }); Object.defineProperty(navigator.clipboard, 'writeText', { value: async () => undefined, configurable: true }); });
-  await page.getByRole('button', { name: 'Give Pixel away' }).click();
+  await openGive(page);
   await dialog(page).getByRole('button', { name: 'Share gift link' }).click();
   // the visible line is the Toast (a span); the sheet's status region repeats it for a screen reader and is hidden on screen
   await expect(page.locator('span', { hasText: 'Link copied — send it to a friend.' })).toBeVisible();
@@ -139,7 +146,7 @@ test('copies the link when system share is absent and shows manual copy when cli
 test('keeps focus inside the sheet as link and transfer controls are replaced', async ({ page }) => {
   await openPet(page, {}, { createGift: { status: 'waiting', code } });
   await page.evaluate(() => { Object.defineProperty(navigator, 'share', { configurable: true, value: async () => undefined }); });
-  await page.getByRole('button', { name: 'Give Pixel away' }).click();
+  await openGive(page);
   await dialog(page).getByRole('button', { name: 'Create gift link' }).click();
   await expect(dialog(page).getByRole('button', { name: 'Share gift link' })).toBeFocused();
   await dialog(page).getByRole('button', { name: 'Cancel gift' }).click();
@@ -385,7 +392,8 @@ test('keeps My pets beside Back to a friend when the owner has two pets', async 
 test('uses the selected pet on Home and the remaining pet beneath a confirmed gift', async ({ page }) => {
   const me = { accountId: 'a'.repeat(64), hatched: { tokenId: '9', name: 'Pixel' }, currentPet: { tokenId: '9', name: 'Pixel' }, ownedCount: 2 };
   await openWith(page, '/pet/2', { auth: SIGNED_IN, worker: { ...OWNER, owned: ['9', '2'], me } });
-  await expect(page.getByRole('button', { name: 'Give Biscuit away' })).toBeVisible();
+  await openMore(page);
+  await expect(page.getByRole('menuitem', { name: 'Give Biscuit away' })).toBeVisible();
   await page.evaluate(() => { history.pushState(null, '', '/'); window.dispatchEvent(new Event('nearling:navigate')); });
   await expect(page).toHaveURL(/\/pet\/2$/);
 
@@ -403,7 +411,8 @@ test('makes a received pet current when the receiver opens it', async ({ page })
   const me = { accountId: 'a'.repeat(64), hatched: { tokenId: '2', name: 'Biscuit' }, currentPet: { tokenId: '2', name: 'Biscuit' }, ownedCount: 2 };
   await openWith(page, `/gift/${code}`, { auth: SIGNED_IN, worker: { ...OWNER, owned: ['9', '2'], me, publicGift: receiverGift('transferred') } });
   await page.getByRole('link', { name: 'Go to Pixel' }).click();
-  await expect(page.getByRole('button', { name: 'Give Pixel away' })).toBeVisible();
+  await openMore(page);
+  await expect(page.getByRole('menuitem', { name: 'Give Pixel away' })).toBeVisible();
   await page.evaluate(() => { history.pushState(null, '', '/'); window.dispatchEvent(new Event('nearling:navigate')); });
   await expect(page).toHaveURL(/\/pet\/9$/);
 });
@@ -435,7 +444,7 @@ test('turns an open giver Pet screen and Feed sheet into the guest view after tr
   await setWorker(page, { owned: [] });
   await page.evaluate(() => document.dispatchEvent(new Event('visibilitychange')));
   await expect(page.getByPlaceholder('Talk to Pixel…')).toHaveCount(0);
-  await expect(page.getByRole('button', { name: 'Give Pixel away' })).toHaveCount(0);
+  await expect(page.getByRole('menuitem', { name: 'Give Pixel away' })).toHaveCount(0);
   await expect(page.getByRole('link', { name: 'Wardrobe' })).toHaveCount(0);
   await expect(feed).toBeVisible();
   await expect(feed.getByRole('button', { name: 'Give Pixel a free snack' })).toBeVisible();

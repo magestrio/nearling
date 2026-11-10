@@ -9,7 +9,7 @@ export function MotionToggle({ paused, onToggle, icon = false }: { paused: boole
   const words = paused ? 'Play motion' : 'Pause motion';
   if (icon) return <IconButton variant="secondary" icon={paused ? 'play' : 'pause'} label={words} onClick={onToggle} />;
   return (
-    <Button variant="secondary" size="compact" icon={paused ? 'play' : 'pause'} onClick={onToggle}>
+    <Button variant="secondary" size="compact" nowrap icon={paused ? 'play' : 'pause'} onClick={onToggle}>
       {words}
     </Button>
   );

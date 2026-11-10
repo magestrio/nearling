@@ -3,6 +3,7 @@ import { cx } from './util';
 /* 24-unit stroke icons, drawn in currentColor (design/ds/components.js › ICONS). No emoji, no sparkles, no coins. */
 const ICONS = {
   send: ['M12 19V5', 'M5.5 11.5 12 5l6.5 6.5'],
+  more: ['M5 12h.01', 'M12 12h.01', 'M19 12h.01'],
   bolt: ['M13 3 5 13.5h6L10 21l8-10.5h-6z'],
   today: ['M7.5 3v3', 'M16.5 3v3', 'M4 7.5A2.5 2.5 0 0 1 6.5 5h11A2.5 2.5 0 0 1 20 7.5v10a2.5 2.5 0 0 1-2.5 2.5h-11A2.5 2.5 0 0 1 4 17.5z', 'M4 10h16', 'M12 13.5v3'],
   hanger: ['M10 6.5a2 2 0 1 1 3 1.73c-.6.35-1 .9-1 1.6V11', 'M12 11 3.6 16.4a1.4 1.4 0 0 0 .76 2.6h15.28a1.4 1.4 0 0 0 .76-2.6z'],

@@ -194,3 +194,19 @@ describe('IconButton', () => {
     expect(onClick).toHaveBeenCalledTimes(1);
   });
 });
+
+describe('Sheet layer', () => {
+  // spec: add-game-layout › Pet stage rule › owner entries × Skill sheet opens
+  it('puts `inert` and `hidden` on its own layer, never on a wrapper, so a column sheet stays a direct child of the main', async () => {
+    await show(<Sheet title="Send Pixel on an errand" column inert hidden onClose={() => undefined}>body</Sheet>);
+    const layer = host.firstElementChild as HTMLElement;
+    expect(layer.classList.contains('ds-sheet-layer--column')).toBe(true);
+    expect(layer.hasAttribute('inert')).toBe(true);
+    expect(layer.hasAttribute('hidden')).toBe(true);
+    expect(layer.style.display).toBe('none');
+    await act(async () => root!.render(<Sheet title="Send Pixel on an errand" column onClose={() => undefined}>body</Sheet>));
+    expect(layer.hasAttribute('inert')).toBe(false);
+    expect(layer.hasAttribute('hidden')).toBe(false);
+    expect(layer.style.display).toBe('');
+  });
+});

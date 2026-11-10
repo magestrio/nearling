@@ -3,8 +3,8 @@ import { openAddNear, openFeed, type AddNearRequest, type FeedRequest } from './
 
 // «Feed {name}» of the Pet screen opens Feed sheet (add-pet › design: the parts other changes own). A tap after a sign-in
 // runs through the same handler (`queueAction`/`takePendingAction`), as the owner's or as a guest's.
-registerAction('feed', ({ tokenId, name, elsewhere }) =>
-  openFeed({ tokenId, name, label: elsewhere ? `your ${name}` : name, elsewhere: Boolean(elsewhere) }),
+registerAction('feed', ({ tokenId, name, elsewhere, returnFocusTo }) =>
+  openFeed({ tokenId, name, label: elsewhere ? `your ${name}` : name, elsewhere: Boolean(elsewhere), returnFocusTo }),
 );
 
 // e2e and screens only (VITE_FAKES): the way a test reaches «Feed your {my_pet}» and the Gift sheet's «Add NEAR» before

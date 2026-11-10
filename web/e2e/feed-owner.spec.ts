@@ -165,12 +165,12 @@ test('разбудил: the sheet closes by itself, and Pixel wakes on the page'
   // the page reads the pet at once and shows it awake (the boot first)
   await expect.poll(polls).toBeGreaterThan(before);
   await expect(page.getByRole('img', { name: 'Pixel, full' })).toBeVisible();
-  // the Dock's button changed under the focus: the focus comes back to the field, as `useWaking` says
-  await expect(page.locator('.ds-composer__field')).toBeFocused();
+  // the Hotbar's «Feed Pixel» stays through the wake: the sheet returns the focus to it, and nothing takes it away
+  await expect(page.getByRole('button', { name: 'Feed Pixel' })).toBeFocused();
 });
 
 // spec: add-feeding › Own pet feeding flow › разбудил
-test('разбудил: the page learns of the wake while the sheet is still open — the focus comes to the field once the sheet closes', async ({ page }) => {
+test('разбудил: the page learns of the wake while the sheet is still open — the focus returns to the Hotbar Feed once the sheet closes', async ({ page }) => {
   await openWith(page, '/pet/9', {
     auth: SIGNED_IN,
     worker: { ...ownerWith(ASLEEP_PIXEL), feedSheet: { fullness: { state: 'asleep', level: 0 }, snack: { state: 'ready' } } },
@@ -185,7 +185,7 @@ test('разбудил: the page learns of the wake while the sheet is still ope
   await expect(dialog).toBeVisible();
   await page.keyboard.press('Escape');
   await expect(dialog).toHaveCount(0);
-  await expect(page.locator('.ds-composer__field')).toBeFocused();
+  await expect(page.getByRole('button', { name: 'Feed Pixel' })).toBeFocused();
 });
 
 // spec: add-feeding › Own pet feeding flow › открыл кормление

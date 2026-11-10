@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
-import { BISCUIT, calls, lookAgain, openWith, OWNER, PIXEL, setWorker, SIGNED_IN } from './helpers';
+import { BISCUIT, calls, lookAgain, openMore, openWith, OWNER, PIXEL, setWorker, SIGNED_IN } from './helpers';
 
 const dialog = (page: Page) => page.getByRole('alertdialog', { name: "Clear Pixel's memory?" });
 const field = (page: Page) => page.getByRole('textbox');
@@ -44,7 +44,8 @@ test('Account opener warns of an unsettled link and signs before one atomic clea
 // spec: add-account › Clear memory dialog screen › success (unsettled shared job)
 test('Gift opener carries the same warning and returns to the Gift sheet after clear', async ({ page }) => {
   await openWith(page, '/pet/9', { auth: SIGNED_IN, worker: { ...OWNER, sharedErrand: SHARED_JOB } });
-  await page.getByRole('button', { name: 'Give Pixel away' }).click();
+  await openMore(page);
+  await page.getByRole('menuitem', { name: 'Give Pixel away' }).click();
   const gift = page.getByRole('dialog', { name: 'Give Pixel to a friend' });
   await gift.getByRole('button', { name: 'Clear memory' }).click();
   await expect(dialog(page).getByText(SHARED_WARNING)).toBeVisible();

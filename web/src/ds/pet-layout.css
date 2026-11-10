@@ -3,4 +3,24 @@
 @media not all and (min-width: 768px) {
   .ds-plate--compact .ds-plate__head { max-inline-size: 100%; }
   .ds-plate--compact .ds-plate__name { min-inline-size: var(--space-0); }
+
+  /* A long reply stays inside the world; its words and receipt remain reachable by scrolling. */
+  .ds-stage--game .ds-stage__bubble {
+    box-sizing: border-box;
+    /* the scroll box would clip the tail that hangs below the Bubble */
+    padding-block-end: calc(var(--size-game-bubble-tail) * 1.25);
+    max-height: calc(100% - var(--space-4));
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    overflow-wrap: anywhere;
+  }
+}
+
+/* The upstream DS 0.48 rule at the end of components.css cancels its own pending rock. */
+.ds-action-menu__message:empty { margin: var(--space-0); }
+.ds-egg--cracking .ds-egg__shell { animation: ds-egg-rock var(--duration-medium) var(--easing-standard) infinite alternate; }
+
+@media (prefers-reduced-motion: reduce) {
+  .ds-egg--cracking .ds-egg__shell { animation: none; }
+  .ds-hud__nameplate:active, .ds-hotbar__action:active .ds-hotbar__disc { transform: none; }
 }

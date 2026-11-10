@@ -1,14 +1,20 @@
 import { expect, test } from '@playwright/test';
 import { readFile } from 'node:fs/promises';
-import { calls, lookAgain, openPet, openWith, OWNER, PIXEL, SIGNED_IN, setWorker } from './helpers';
+import { calls, lookAgain, openMore, openPet, openWith, OWNER, PIXEL, SIGNED_IN, setWorker } from './helpers';
 
-const menu = (page: import('@playwright/test').Page) => page.getByRole('button', { name: 'Share Pixel' });
+// «Share {name}» stands in the «More» menu and its choices in the same menu (add-game-layout › Pet actions menu screen).
 // The sheet also announces its status line in a visually hidden live region: match the shown copy only.
 const shown = (scope: import('@playwright/test').Locator | import('@playwright/test').Page, text: string) =>
   scope.getByText(text).and(scope.locator(':not(.ds-hidden)'));
 const choose = async (page: import('@playwright/test').Page, kind: 'a thought' | 'growth' | 'outfit') => {
-  await menu(page).click();
-  await page.getByRole('menuitem', { name: `Share ${kind}` }).click();
+  const item = page.getByRole('menuitem', { name: `Share ${kind}` });
+  if (!(await item.isVisible())) {
+    if (!(await page.getByRole('menu', { name: 'More' }).isVisible())) await openMore(page);
+    // the choices a message replaced come back with «Back», then «Share {name}»
+    if (!(await page.getByRole('menuitem', { name: 'Share Pixel' }).isVisible())) await page.getByRole('menuitem', { name: 'Back' }).click();
+    await page.getByRole('menuitem', { name: 'Share Pixel' }).click();
+  }
+  await item.click();
 };
 
 test.describe('owner pet cards', () => {
@@ -65,10 +71,8 @@ test.describe('owner pet cards', () => {
     await choose(page, 'a thought');
     await expect(page.getByText('No thoughts to share yet. Talk with Pixel to hear one.')).toBeVisible();
     await expect(page.getByRole('dialog')).toHaveCount(0);
-    await menu(page).click();
     await choose(page, 'growth');
     await expect(page.getByText("Pixel hasn't reached a new stage yet.")).toBeVisible();
-    await menu(page).click();
     await choose(page, 'outfit');
     await expect(page.getByText("Pixel isn't wearing an outfit to share.")).toBeVisible();
   });
@@ -258,6 +262,6 @@ test.describe('owner pet cards', () => {
     await page.getByRole('dialog', { name: 'Share a thought' }).getByRole('button', { name: 'Close' }).click();
     await setWorker(page, { owned: [] });
     await lookAgain(page);
-    await expect(page.getByRole('button', { name: 'Share Pixel' })).toHaveCount(0);
+    await expect(page.getByRole('menuitem', { name: 'Share Pixel' })).toHaveCount(0);
   });
 });

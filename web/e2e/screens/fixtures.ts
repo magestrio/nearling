@@ -4,7 +4,7 @@ import type { AdviceRead, CatalogEntryView, ConversationLine, ErrandForm, Errand
 import { SAMPLE_DAY, sampleDiary } from '../../src/seams/diary.sample';
 import type { DiaryView } from '../../src/seams/worker-types';
 import type { HireBoard } from '../../src/seams/worker-types';
-import { CLOSED_ALL, CLOSED_NEW, lookAgain, setWorker, UA } from '../helpers';
+import { CLOSED_ALL, CLOSED_NEW, inSampleDay, lookAgain, setWorker, UA } from '../helpers';
 import { THINK_ID, verificationFakes } from '../verification.fixtures';
 import { SAMPLE_SHOWCASE } from '../../src/seams/showcase.sample';
 
@@ -29,6 +29,8 @@ export interface ScreenFixture {
   belowFold?: string[];
   /** Lines of the frame's `copy` that only a screen reader gets (a speaker's word the DS draws as Hidden): asserted in the page's text, not drawn. */
   hiddenCopy?: string[];
+  /** Lines of the frame's `copy` the frame draws as a sheet's title (its first sentence) and the text under it: the capture asserts the two halves. */
+  splitCopy?: string[];
 }
 
 /**
@@ -50,6 +52,8 @@ const typeName = async (page: Page, name: string) => {
   const field = page.getByLabel('Name your pet');
   await field.fill(name);
   await field.blur();
+  // the frames hold the form at its top (data-scroll top); typing scrolled the phone's form to its field
+  await page.evaluate(() => document.querySelectorAll('*').forEach((el) => { if (el.scrollTop > 0) el.scrollTop = 0; }));
 };
 const tapHatch = async (page: Page) => {
   await page.getByRole('button', { name: 'Hatch my pet' }).click();
@@ -97,6 +101,7 @@ const HISTORY = [
   { id: 'c4:you', who: 'player' as const, text: "It's the chart nobody understands." },
   { id: 'c5', who: 'pet' as const, text: 'Start with the chart, then. Say what surprised you about it — people follow a surprise better than a number.' },
 ].map((l, i) => ({ ...l, at: 1_700_000_000_000 + i }));
+export { HISTORY as FRAME_HISTORY };
 
 /** The next 00:00 UTC of the frames: 02:00 at UTC+2 (BRIEF.md §1) */
 const MIDNIGHT_UTC = '2026-11-02T00:00:00.000Z';
@@ -151,12 +156,19 @@ const MANUAL_OFFER = { hireMode: 'manual' as const, offer: { worker: 'Nori', que
 function owner(extra: Record<string, unknown> = {}, fullness: Fullness = PIXEL.fullness): FakeWorkerState {
   return {
     owned: ['9'],
-    pets: { '9': { ...PIXEL, worn: 'thinking-cap', fullness, owner: { ownedCount: 2, outfits: WARDROBE_OWNS, ...extra } }, '2': BISCUIT },
+    // bare, as pet.js › OWN draws Pixel since DS 0.48 (the Wardrobe frames put the cap on through `wardrobeWorker`)
+    pets: { '9': { ...PIXEL, worn: null, fullness, owner: { ownedCount: 2, outfits: WARDROBE_OWNS, ...extra } }, '2': BISCUIT },
     conversation: { lines: HISTORY, more: false, before: null },
   };
 }
 
-// add-pet-work, the frames of a pet with a skill (design/bundle/screens/work.js › SAGE): «Sage» (seed 7, lavender), «Good at weather»;
+/** The game-redesign anchors draw Pixel bare: pet.js › OWN carries no outfit since DS 0.48 (the Wardrobe frames keep the cap) */
+const bareOwner = (): FakeWorkerState => {
+  const state = owner();
+  return { ...state, pets: { ...state.pets, '9': { ...PIXEL, fullness: PIXEL.fullness, worn: null, owner: { ownedCount: 2, outfits: WARDROBE_OWNS } } } };
+};
+
+// add-pet-work, the frames of a pet with a skill (design/bundle/screens/work.js › SAGE):«Sage» (seed 7, lavender), «Good at weather»;
 // its price climbs ≈ 0.18¢ a job of the day from 0.38¢ (Hire price rule): 0.56¢ after one job, 0.74¢ after two. Its data source
 // (the lines of add-pet-errands) is drawn on the frames below.
 const BIKE = 'Should I bike to the office tomorrow?';
@@ -173,7 +185,7 @@ const SAGE_ADVICE = "Dry until about two, then light rain from the west. Go earl
 const SAGE_OFFER = { hireMode: 'manual' as const, offer: { worker: 'Sage', question: SAGE_Q, price: SAGE_PRICE_NOW } };
 /** Pixel, Biscuit and Sage, Pixel with the owner fields `ownerExtra` lays over */
 const sagePets = (ownerExtra: Record<string, unknown> = {}, fullness: Fullness = PIXEL.fullness): NonNullable<FakeWorkerState['pets']> => ({
-  '9': { ...PIXEL, worn: 'thinking-cap', fullness, owner: { ownedCount: 2, outfits: WARDROBE_OWNS, ...ownerExtra } },
+  '9': { ...PIXEL, worn: null, fullness, owner: { ownedCount: 2, outfits: WARDROBE_OWNS, ...ownerExtra } },
   '2': BISCUIT,
   '7': SAGE_PET,
 });
@@ -208,11 +220,18 @@ const SKILL_LABEL = 'opening lines';
 const SKILL_INSTRUCTION = 'Give one surprising opening line, then say in one sentence why it works. Count the words: twelve at most in the opener.';
 /** Pixel with its skill written: the badge «Good at opening lines» and the owner's read that holds both fields */
 function skillWorker(label: string): FakeWorkerState {
-  return { ...owner(), pets: { '9': { ...PIXEL, worn: 'thinking-cap', skill: { label }, owner: { ownedCount: 2, outfits: WARDROBE_OWNS } }, '2': BISCUIT }, skill: { skill: { label, instruction: SKILL_INSTRUCTION } } };
+  return { ...owner(), pets: { '9': { ...PIXEL, worn: null, skill: { label }, owner: { ownedCount: 2, outfits: WARDROBE_OWNS } }, '2': BISCUIT }, skill: { skill: { label, instruction: SKILL_INSTRUCTION } } };
 }
-/** the badge under the name tapped, the sheet open and at rest */
+/** the entry in the Work section of the pet's card tapped (the card closes as it opens the sheet) */
+const tapSkillEntry = async (page: Page, name: RegExp | string = /Teach Pixel a skill|Pixel's skill/) => {
+  await page.locator('.ds-hud__nameplate').click();
+  const card = page.getByRole('dialog', { name: "Pixel's card" });
+  await card.waitFor();
+  await card.getByRole('button', { name }).click();
+};
+/** the skill entry tapped, the sheet open and at rest */
 const openSkillSheet = async (page: Page) => {
-  await page.getByRole('button', { name: /Teach Pixel a skill|Pixel's skill: Good at/ }).click();
+  await tapSkillEntry(page);
   await page.getByRole('dialog').getByLabel('What is Pixel good at?').waitFor();
   await page.mouse.move(0, 0);
   await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
@@ -252,6 +271,11 @@ const atRest = async (page: Page) => {
   await settle(page);
 };
 /** Skill sheet open, then «Add data» tapped: the empty form */
+/** The Watch entry stands in the «More» menu (add-game-layout › Pet actions menu screen): the menu opened, the item tapped. */
+const openWatch = async (page: Page) => {
+  await page.getByRole('button', { name: 'More' }).click();
+  await page.getByRole('menuitem', { name: /^(Watch something|Edit watch)$/ }).click();
+};
 const openConnect = async (page: Page) => {
   await openSkillSheet(page);
   await dialog(page).getByRole('button', { name: 'Add data' }).first().click();
@@ -375,7 +399,14 @@ const openClearDialog = async (page: Page) => {
 /** the owner's other pet, as the guest's page of the frame `clear-memory-new-owner` offers «Go to your Juno» */
 const JUNO_ME = { accountId: 'a'.repeat(64), hatched: { tokenId: '1', name: 'Juno' }, currentPet: { tokenId: '1', name: 'Juno' }, ownedCount: 1 };
 
-const ownerReady = (page: Page) => page.getByText('Start with the chart, then.').waitFor();
+// the last reply is said twice on the Stage: in the Bubble and in the conversation log (the log's copy is the bubbled one)
+const ownerReady = (page: Page) => page.getByText('Start with the chart, then.').first().waitFor();
+/** The nameplate tapped: the pet's card open over the Stage (add-game-layout › Pet card screen), the page under it still */
+const openCard = async (page: Page) => {
+  await page.locator('.ds-hud__nameplate').click();
+  await page.getByRole('dialog', { name: /'s card$/ }).waitFor();
+  await atRest(page);
+};
 
 const sealOnPet = (variant: 'character-mismatch' | 'unread'): ScreenFixture => {
   const chain = verificationFakes({ variant });
@@ -623,7 +654,7 @@ function errandOwner(
   return {
     ...base,
     pets: o.skill
-      ? { '9': { ...PIXEL, worn: 'thinking-cap', fullness: o.fullness ?? PIXEL.fullness, skill: { label: o.skill }, owner: { ownedCount: 2, outfits: WARDROBE_OWNS, ...o.ownerExtra } }, '2': BISCUIT }
+      ? { '9': { ...PIXEL, worn: null, fullness: o.fullness ?? PIXEL.fullness, skill: { label: o.skill }, owner: { ownedCount: 2, outfits: WARDROBE_OWNS, ...o.ownerExtra } }, '2': BISCUIT }
       : base.pets,
     conversation: { lines: [...HISTORY, ...tail], more: false, before: null },
     // the frames' sample ceiling for a shared job: «Friends need 2.1¢ of food for this job»
@@ -812,7 +843,8 @@ const giftWorker = (extra: Partial<FakeWorkerState> = {}, asleep = false): FakeW
 const giftDialog = (page: Page) => page.getByRole('dialog', { name: 'Give Pixel to a friend' });
 /** The sheet's words as drawn, not the copy of them in its hidden status line. */
 const giftShown = (page: Page, text: string) => giftDialog(page).getByText(text, { exact: false }).and(page.locator(':not([role="status"])'));
-const openGiftSheet = async (page: Page) => { await page.getByRole('button', { name: 'Give Pixel away' }).click(); await giftDialog(page).waitFor(); await atRest(page); };
+// The «Give {name} away» entry stands in the «More» menu (add-game-layout › Pet actions menu screen).
+const openGiftSheet = async (page: Page) => { await page.getByRole('button', { name: 'More' }).click(); await page.getByRole('menuitem', { name: 'Give Pixel away' }).click(); await giftDialog(page).waitFor(); await atRest(page); };
 const acceptedGiftSheet = async (page: Page) => { await giftDialog(page).waitFor(); await atRest(page); };
 const tapGiftGive = async (page: Page) => { await acceptedGiftSheet(page); await giftDialog(page).getByRole('button', { name: 'Give Pixel to Maya' }).click(); await atRest(page); };
 
@@ -824,8 +856,10 @@ const BOARD_PETS: HireBoard['pets'] = [
   { tokenId: '1', opaqueId: 'mochi', name: 'Mochi', label: 'moon phases', price: BOARD_PRICE, status: 'available', yours: false },
   { tokenId: '9', opaqueId: 'pixel', name: 'Pixel', label: 'plot twists', price: BOARD_PRICE, status: 'available', yours: true },
 ];
+// «Share {name}» stands in the «More» menu (add-game-layout › Pet actions menu screen); its three choices replace the rows.
 const openShareMenu = async (page: Page) => {
-  await page.getByRole('button', { name: 'Share Pixel' }).click();
+  await page.getByRole('button', { name: 'More' }).click();
+  await page.getByRole('menuitem', { name: 'Share Pixel' }).click();
   await page.mouse.move(0, 0);
 };
 const clickShareKind = async (page: Page, kind: 'thought' | 'growth' | 'outfit') => {
@@ -917,11 +951,11 @@ export const fixtures: Record<string, ScreenFixture> = {
   // spec: add-pet-society › Society diary flow › settled gossip
   'diary-gossip': { route: '/pet/9/diary', fakes: { auth: SIGNED_IN, worker: diaryWorker({ entry: { ...entryWithWork(), socialLines: ['I have a story about helping Nori yesterday.'] } as DiaryView['entry'], streak: STREAK_2 }) }, prepare: diaryReady },
   // spec: add-pet-society › Society hire flow › manual quote
-  'work-offer-liked': { route: '/pet/9', fakes: { auth: SIGNED_IN, worker: { ...owner({ hireMode: 'manual', offer: { worker: 'Biscuit', question: HIRE_QUESTION, price: LIKED_PRICE, discounted: true } }), conversation: likedTurn() } }, prepare: async (page) => { await page.getByText('Pixel likes Biscuit. Ask Biscuit · 0.34¢').waitFor(); await atNewest(page); } },
+  'work-offer-liked': { route: '/pet/9', fakes: { auth: SIGNED_IN, worker: { ...owner({ hireMode: 'manual', offer: { worker: 'Biscuit', question: HIRE_QUESTION, price: LIKED_PRICE, discounted: true } }), conversation: likedTurn() } }, prepare: async (page) => { await page.getByText('Pixel likes Biscuit. Ask Biscuit · 0.34¢').waitFor(); await atNewest(page); }, belowFold: ['{name} likes {worker}. Ask {worker} · {price}'] },
   // spec: add-pet-society › Society hire flow › manual hire refused
   'work-refused-pair': { route: '/pet/9', fakes: { auth: SIGNED_IN, worker: { ...owner({ hireMode: 'manual' }), conversation: pairTurn('Mochi', { id: 'w2', who: 'event', code: 'society_refused', hireMode: 'manual', worker: { tokenId: '1', name: 'Mochi' }, refusalUntil: PAIR_BREAK, at: 0 }, pixelSays(PET_ALONE, null)) } }, prepare: async (page) => { await page.getByText('Mochi needs a break until 18:00. No hire fee was paid.').waitFor(); await atNewest(page); }, belowFold: ['Ask'] },
   // spec: add-pet-society › Society hire flow › auto paid
-  'work-auto-paid': { route: '/pet/9', fakes: { auth: SIGNED_IN, worker: { ...owner({ hireMode: 'auto' }), conversation: likedTurn({ id: 'w2', who: 'worker', text: NORI_SAYS, worker: { tokenId: '2', name: 'Biscuit' }, at: 0 }, pixelSays(PET_SAYS.replace('Nori says:', 'Biscuit says:'), LIKED_PAID)) } }, prepare: async (page) => { await page.getByText(/I asked Biscuit\. It cost 0\.34¢\./).waitFor(); await atNewest(page); } },
+  'work-auto-paid': { route: '/pet/9', fakes: { auth: SIGNED_IN, worker: { ...owner({ hireMode: 'auto' }), conversation: likedTurn({ id: 'w2', who: 'worker', text: NORI_SAYS, worker: { tokenId: '2', name: 'Biscuit' }, at: 0 }, pixelSays(PET_SAYS.replace('Nori says:', 'Biscuit says:'), LIKED_PAID)) } }, prepare: async (page) => { await page.getByText(/I asked Biscuit\. It cost 0\.34¢\./).first().waitFor(); await atNewest(page); } },
   // spec: add-pet-society › Society hire flow › auto hire refused
   'work-auto-refused': { route: '/pet/9', fakes: { auth: SIGNED_IN, worker: { ...owner({ hireMode: 'auto' }), conversation: { lines: [...HISTORY, { id: 'w1:you', who: 'player', text: TYPED, at: 1_700_000_000_100 }, { id: 'w2', who: 'event', code: 'society_refused', hireMode: 'auto', worker: { tokenId: '1', name: 'Mochi' }, refusalUntil: PAIR_BREAK, at: 1_700_000_000_102 }, { ...pixelSays(PET_ALONE, null), at: 1_700_000_000_103 }], more: false, before: null } } }, prepare: async (page) => { await page.getByText("Mochi needs a break today. I'll answer you myself.").waitFor(); await atNewest(page); } },
   // spec: add-pet-society › Society hire price contract › post-answer hire rejection
@@ -962,15 +996,17 @@ export const fixtures: Record<string, ScreenFixture> = {
       yours: false, experience: { field: WORK_RECORD.field!.wording, ...WORK_RECORD.counts } } : pet) } } },
     prepare: async (page) => { await page.getByText(WORK_RECORD.field!.wording).waitFor(); } },
   // spec: add-pet-errands › Watch sheet screen › success
-  'watch-success': { route: '/pet/9', fakes: { auth: SIGNED_IN, worker: ACTIVE_WATCH }, beforeLoad: (page) => page.clock.install({ time: new Date('2026-11-11T12:00:00.000Z') }), prepare: async (page) => { await page.getByRole('button', { name: 'Watch something' }).click(); await page.getByRole('dialog', { name: 'Watch something' }).getByLabel('What should Pixel watch?').waitFor(); } },
+  'watch-success': { route: '/pet/9', fakes: { auth: SIGNED_IN, worker: ACTIVE_WATCH }, beforeLoad: (page) => page.clock.install({ time: new Date('2026-11-11T12:00:00.000Z') }), prepare: async (page) => { await openWatch(page); await page.getByRole('dialog', { name: 'Watch something' }).getByLabel('What should Pixel watch?').waitFor(); } },
   // spec: add-pet-errands › Watch sheet screen › error
-  'watch-error': { route: '/pet/9', fakes: { auth: SIGNED_IN, worker: { ...owner(), watch: { fail: { status: 503, code: 'chain_unreachable' } } } }, prepare: async (page) => { await page.getByRole('button', { name: 'Watch something' }).click(); await page.getByRole('dialog', { name: 'Watch something' }).getByLabel('What should Pixel watch?').fill('NEAR price'); } },
+  'watch-error': { route: '/pet/9', fakes: { auth: SIGNED_IN, worker: { ...owner(), watch: { fail: { status: 503, code: 'chain_unreachable' } } } }, prepare: async (page) => { await openWatch(page); await page.getByRole('dialog', { name: 'Watch something' }).getByLabel('What should Pixel watch?').fill('NEAR price'); } },
   // spec: add-pet-errands › Watch sheet screen › empty target
-  'watch-empty-target': { route: '/pet/9', fakes: { auth: SIGNED_IN, worker: ACTIVE_WATCH }, beforeLoad: (page) => page.clock.install({ time: new Date('2026-11-11T12:00:00.000Z') }), prepare: async (page) => { await page.getByRole('button', { name: 'Watch something' }).click(); const sheet = page.getByRole('dialog', { name: 'Watch something' }); await sheet.getByLabel('What should Pixel watch?').fill('   '); await sheet.getByRole('button', { name: 'Save watch' }).click(); } },
+  'watch-empty-target': { route: '/pet/9', fakes: { auth: SIGNED_IN, worker: ACTIVE_WATCH }, beforeLoad: (page) => page.clock.install({ time: new Date('2026-11-11T12:00:00.000Z') }), prepare: async (page) => { await openWatch(page); const sheet = page.getByRole('dialog', { name: 'Watch something' }); await sheet.getByLabel('What should Pixel watch?').fill('   '); await sheet.getByRole('button', { name: 'Save watch' }).click(); } },
   // spec: add-pet-errands › Watch sheet screen › target too long
-  'watch-target-too-long': { route: '/pet/9', fakes: { auth: SIGNED_IN, worker: ACTIVE_WATCH }, beforeLoad: (page) => page.clock.install({ time: new Date('2026-11-11T12:00:00.000Z') }), prepare: async (page) => { await page.getByRole('button', { name: 'Watch something' }).click(); const sheet = page.getByRole('dialog', { name: 'Watch something' }); await sheet.getByLabel('What should Pixel watch?').fill('NEAR price '.repeat(46) + 'NEAR price'); await sheet.getByRole('button', { name: 'Save watch' }).click(); } },
+  'watch-target-too-long': { route: '/pet/9', fakes: { auth: SIGNED_IN, worker: ACTIVE_WATCH }, beforeLoad: (page) => page.clock.install({ time: new Date('2026-11-11T12:00:00.000Z') }), prepare: async (page) => { await openWatch(page); const sheet = page.getByRole('dialog', { name: 'Watch something' }); await sheet.getByLabel('What should Pixel watch?').fill('NEAR price '.repeat(46) + 'NEAR price'); await sheet.getByRole('button', { name: 'Save watch' }).click(); } },
   // spec: add-pet-errands › Daily watch flow › target on Pet screen
-  'watch-target-owner': { route: '/pet/9', fakes: { auth: SIGNED_IN, worker: { ...owner(), pets: { '9': { ...PIXEL, worn: 'thinking-cap', watch: { target: 'NEAR price', kind: 'topic' }, owner: { ownedCount: 2, outfits: WARDROBE_OWNS } }, '2': BISCUIT } } } },
+  'watch-target-owner': { route: '/pet/9', fakes: { auth: SIGNED_IN, worker: { ...owner(), pets: { '9': { ...PIXEL, worn: null, watch: { target: 'NEAR price', kind: 'topic' }, owner: { ownedCount: 2, outfits: WARDROBE_OWNS } }, '2': BISCUIT } } },
+    // the frame draws the More menu open with «Edit watch» in it
+    prepare: async (page) => { await page.getByRole('button', { name: 'More' }).click(); await page.getByRole('menuitem', { name: 'Edit watch' }).waitFor(); } },
   // spec: add-pet-errands › Daily watch flow › target on Pet screen
   // the frame's visitor looks at Biscuit
   'watch-target-visitor': { route: '/pet/2', fakes: { worker: { pets: { '2': { ...BISCUIT, watch: { target: 'Rust compiler releases', kind: 'release' } } } } } },
@@ -991,41 +1027,41 @@ export const fixtures: Record<string, ScreenFixture> = {
     await page.mouse.move(0, 0);
   } },
   // spec: add-pet-errands › Shared errand screen › success
-  'shared-success': { route: `/pet/9/errand/${'c'.repeat(64)}`, fakes: { auth: SIGNED_IN, worker: { pets: { '9': { ...PIXEL, worn: 'thinking-cap' } }, sharedErrand: { tokenId: '9', name: 'Pixel', state: 'funding', form: 'find', job: 'When does the next NEAR protocol upgrade ship?', viewer: 'visitor', funded: '1350000000000000000000', needed: '4330000000000000000000', chainState: 'Funding', fullness: PIXEL.fullness } } } , // the frame clips this line under the pinned action too: the phone's text region is cut right below its first words
-  belowFold: ["A NEAR meal uses your NEAR. A free snack uses the project's food."] },
+  'shared-success': { route: `/pet/9/errand/${'c'.repeat(64)}`, fakes: { auth: SIGNED_IN, worker: { pets: { '9': { ...PIXEL, worn: null } }, sharedErrand: { tokenId: '9', name: 'Pixel', state: 'funding', form: 'find', job: 'When does the next NEAR protocol upgrade ship?', viewer: 'visitor', funded: '1350000000000000000000', needed: '4330000000000000000000', chainState: 'Funding', fullness: PIXEL.fullness } } } , // the frame clips this line under the pinned action too: the phone's text region is cut right below its first words
+  belowFold: ['Help {name} find out: {job}', '{funded} of {needed} food reserved for this errand', "A NEAR meal uses your NEAR. A free snack uses the project's food."] },
   // spec: add-pet-errands › Shared errand screen › owner views a waiting job
   // the frame cuts the progress line's second words and the line after it under the pinned actions: the text region ends there
-  'shared-owner-views-a-waiting-job': { route: `/pet/9/errand/${'c'.repeat(64)}`, fakes: { auth: SIGNED_IN, worker: { owned: ['9'], pets: { '9': { ...PIXEL, worn: 'thinking-cap' } } } } , belowFold: ['{funded} of {needed} food reserved for this errand', "Friends' food pays for this job"] },
+  'shared-owner-views-a-waiting-job': { route: `/pet/9/errand/${'c'.repeat(64)}`, fakes: { auth: SIGNED_IN, worker: { owned: ['9'], pets: { '9': { ...PIXEL, worn: null } } } } , belowFold: ['{funded} of {needed} food reserved for this errand', "Friends' food pays for this job"] },
   // spec: add-pet-errands › Shared errand screen › owner views a failed job with no paid call
-  'shared-owner-views-a-failed-job-with-no-paid-call': { route: `/pet/9/errand/${'c'.repeat(64)}`, fakes: { auth: SIGNED_IN, worker: { owned: ['9'], pets: { '9': { ...PIXEL, worn: 'thinking-cap' } }, sharedErrand: { tokenId: '9', name: 'Pixel', state: 'failed', form: 'find', job: 'When does the next NEAR protocol upgrade ship?', viewer: 'owner', funded: '1350000000000000000000', needed: '4330000000000000000000', chainState: 'Funding', fullness: PIXEL.fullness, receiptId: null } } } },
+  'shared-owner-views-a-failed-job-with-no-paid-call': { route: `/pet/9/errand/${'c'.repeat(64)}`, fakes: { auth: SIGNED_IN, worker: { owned: ['9'], pets: { '9': { ...PIXEL, worn: null } }, sharedErrand: { tokenId: '9', name: 'Pixel', state: 'failed', form: 'find', job: 'When does the next NEAR protocol upgrade ship?', viewer: 'owner', funded: '1350000000000000000000', needed: '4330000000000000000000', chainState: 'Funding', fullness: PIXEL.fullness, receiptId: null } } } },
   // spec: add-pet-errands › Shared errand screen › funding closed
-  'shared-funding-closed': { route: `/pet/9/errand/${'c'.repeat(64)}`, fakes: { auth: SIGNED_IN, worker: { pets: { '9': { ...PIXEL, worn: 'thinking-cap' } }, sharedErrand: { tokenId: '9', name: 'Pixel', state: 'running', form: 'find', job: 'When does the next NEAR protocol upgrade ship?', viewer: 'visitor', funded: '1350000000000000000000', needed: '4330000000000000000000', chainState: 'Running', fullness: PIXEL.fullness } } } },
+  'shared-funding-closed': { route: `/pet/9/errand/${'c'.repeat(64)}`, fakes: { auth: SIGNED_IN, worker: { pets: { '9': { ...PIXEL, worn: null } }, sharedErrand: { tokenId: '9', name: 'Pixel', state: 'running', form: 'find', job: 'When does the next NEAR protocol upgrade ship?', viewer: 'visitor', funded: '1350000000000000000000', needed: '4330000000000000000000', chainState: 'Running', fullness: PIXEL.fullness } } } },
   // spec: add-pet-errands › Shared errand screen › signed-out
-  'shared-signed-out': { route: `/pet/9/errand/${'c'.repeat(64)}`, fakes: { worker: { pets: { '9': { ...PIXEL, worn: 'thinking-cap' } } } } },
+  'shared-signed-out': { route: `/pet/9/errand/${'c'.repeat(64)}`, fakes: { worker: { pets: { '9': { ...PIXEL, worn: null } } } } },
   // spec: add-pet-errands › Shared errand screen › asleep
-  'shared-asleep': { route: `/pet/9/errand/${'c'.repeat(64)}`, fakes: { auth: SIGNED_IN, worker: { pets: { '9': { ...PIXEL, worn: 'thinking-cap', fullness: ASLEEP } }, sharedErrand: { tokenId: '9', name: 'Pixel', state: 'funding', form: 'find', job: 'When does the next NEAR protocol upgrade ship?', viewer: 'visitor', funded: '1350000000000000000000', needed: '4330000000000000000000', chainState: 'Funding', fullness: ASLEEP } } } },
+  'shared-asleep': { route: `/pet/9/errand/${'c'.repeat(64)}`, fakes: { auth: SIGNED_IN, worker: { pets: { '9': { ...PIXEL, worn: null, fullness: ASLEEP } }, sharedErrand: { tokenId: '9', name: 'Pixel', state: 'funding', form: 'find', job: 'When does the next NEAR protocol upgrade ship?', viewer: 'visitor', funded: '1350000000000000000000', needed: '4330000000000000000000', chainState: 'Funding', fullness: ASLEEP } } } },
   // spec: add-pet-errands › Shared errand screen › funded while waking
-  'shared-funded-while-waking': { route: `/pet/9/errand/${'c'.repeat(64)}`, fakes: { auth: SIGNED_IN, worker: { pets: { '9': { ...PIXEL, worn: 'thinking-cap', fullness: ASLEEP } }, sharedErrand: { tokenId: '9', name: 'Pixel', state: 'funding', form: 'find', job: 'When does the next NEAR protocol upgrade ship?', viewer: 'visitor', funded: '4330000000000000000000', needed: '4330000000000000000000', chainState: 'Funding', fullness: ASLEEP } } } },
+  'shared-funded-while-waking': { route: `/pet/9/errand/${'c'.repeat(64)}`, fakes: { auth: SIGNED_IN, worker: { pets: { '9': { ...PIXEL, worn: null, fullness: ASLEEP } }, sharedErrand: { tokenId: '9', name: 'Pixel', state: 'funding', form: 'find', job: 'When does the next NEAR protocol upgrade ship?', viewer: 'visitor', funded: '4330000000000000000000', needed: '4330000000000000000000', chainState: 'Funding', fullness: ASLEEP } } } },
   // spec: add-pet-errands › Shared errand screen › error
-  'shared-error': { route: `/pet/9/errand/${'c'.repeat(64)}`, fakes: { auth: SIGNED_IN, worker: { pets: { '9': { ...PIXEL, worn: 'thinking-cap' } }, sharedErrand: { fail: { status: 503, code: 'chain_unreachable' } } } } },
+  'shared-error': { route: `/pet/9/errand/${'c'.repeat(64)}`, fakes: { auth: SIGNED_IN, worker: { pets: { '9': { ...PIXEL, worn: null } }, sharedErrand: { fail: { status: 503, code: 'chain_unreachable' } } } } },
   // spec: add-pet-errands › Shared errand screen › loading
-  'shared-loading': { route: `/pet/9/errand/${'c'.repeat(64)}`, fakes: { auth: SIGNED_IN, worker: { pets: { '9': { ...PIXEL, worn: 'thinking-cap' } }, sharedErrandDelayMs: FOREVER } } },
+  'shared-loading': { route: `/pet/9/errand/${'c'.repeat(64)}`, fakes: { auth: SIGNED_IN, worker: { pets: { '9': { ...PIXEL, worn: null } }, sharedErrandDelayMs: FOREVER } } },
   // spec: add-pet-errands › Shared errand screen › empty
-  'shared-empty': { route: `/pet/9/errand/${'c'.repeat(64)}`, fakes: { auth: SIGNED_IN, worker: { pets: { '9': { ...PIXEL, worn: 'thinking-cap' } }, sharedErrand: { tokenId: '9', name: 'Pixel', state: 'empty' } } } },
+  'shared-empty': { route: `/pet/9/errand/${'c'.repeat(64)}`, fakes: { auth: SIGNED_IN, worker: { pets: { '9': { ...PIXEL, worn: null } }, sharedErrand: { tokenId: '9', name: 'Pixel', state: 'empty' } } } },
   // spec: add-pet-errands › Friend-funded errand flow › owner asks to close an unsettled job
-  'shared-owner-asks-to-close-an-unsettled-job': { route: `/pet/9/errand/${'c'.repeat(64)}`, fakes: { auth: SIGNED_IN, worker: { owned: ['9'], pets: { '9': { ...PIXEL, worn: 'thinking-cap' } } } }, prepare: async (page) => { await page.getByRole('button', { name: 'Close job' }).click(); await page.getByText('Close this job? Food already given will stay with Pixel for ordinary use.').and(page.locator(':not(.ds-hidden)')).waitFor(); } },
+  'shared-owner-asks-to-close-an-unsettled-job': { route: `/pet/9/errand/${'c'.repeat(64)}`, fakes: { auth: SIGNED_IN, worker: { owned: ['9'], pets: { '9': { ...PIXEL, worn: null } } } }, prepare: async (page) => { await page.getByRole('button', { name: 'Close job' }).click(); await page.getByText('Close this job? Food already given will stay with Pixel for ordinary use.').and(page.locator(':not(.ds-hidden)')).waitFor(); } },
   // spec: add-pet-errands › Friend-funded errand flow › owner confirms closing an unsettled job
-  'shared-owner-confirms-closing-an-unsettled-job': { route: `/pet/9/errand/${'c'.repeat(64)}`, fakes: { auth: SIGNED_IN, worker: { owned: ['9'], pets: { '9': { ...PIXEL, worn: 'thinking-cap' } },
+  'shared-owner-confirms-closing-an-unsettled-job': { route: `/pet/9/errand/${'c'.repeat(64)}`, fakes: { auth: SIGNED_IN, worker: { owned: ['9'], pets: { '9': { ...PIXEL, worn: null } },
     // the chain read behind the close approval stands on the open shared job
     sharedErrand: { tokenId: '9', name: 'Pixel', state: 'funding', form: 'find', job: 'When does the next NEAR protocol upgrade ship?', viewer: 'owner', funded: '1350000000000000000000', needed: '4330000000000000000000', chainState: 'Funding', fullness: PIXEL.fullness }, closeSharedErrandDelayMs: FOREVER } }, prepare: async (page) => { await page.getByRole('button', { name: 'Close job' }).click(); await page.getByRole('button', { name: 'Confirm close' }).click(); await page.getByText('Closing job…').first().waitFor(); } },
   // spec: add-pet-errands › Friend-funded errand flow › owner close fails
-  'shared-owner-close-fails': { route: `/pet/9/errand/${'c'.repeat(64)}`, fakes: { auth: SIGNED_IN, worker: { owned: ['9'], pets: { '9': { ...PIXEL, worn: 'thinking-cap' } }, closeSharedErrand: { fail: { status: 409, code: 'close_refused' } } } }, prepare: async (page) => { await page.getByRole('button', { name: 'Close job' }).click(); await page.getByRole('button', { name: 'Confirm close' }).click(); await page.getByText("We couldn't close this job. Try again.").first().waitFor(); } },
+  'shared-owner-close-fails': { route: `/pet/9/errand/${'c'.repeat(64)}`, fakes: { auth: SIGNED_IN, worker: { owned: ['9'], pets: { '9': { ...PIXEL, worn: null } }, closeSharedErrand: { fail: { status: 409, code: 'close_refused' } } } }, prepare: async (page) => { await page.getByRole('button', { name: 'Close job' }).click(); await page.getByRole('button', { name: 'Confirm close' }).click(); await page.getByText("We couldn't close this job. Try again.").first().waitFor(); } },
   // spec: add-showcase › Pet card sharing flow › choose a thought
   'pet-share-menu': { route: '/pet/9', fakes: { auth: SIGNED_IN, worker: owner() }, prepare: async (page) => { await ownerReady(page); await openShareMenu(page); } },
   // spec: add-showcase › Pet card sharing flow › no thought to choose
-  'share-no-thought': { route: '/pet/9', fakes: { auth: SIGNED_IN, worker: { ...owner({ hello: true }), conversation: { lines: [], more: false, before: null }, greeting: { job: null } } }, prepare: async (page) => { await page.getByRole('button', { name: 'Share Pixel' }).waitFor(); await clickShareKind(page, 'thought'); } },
+  'share-no-thought': { route: '/pet/9', fakes: { auth: SIGNED_IN, worker: { ...owner({ hello: true }), conversation: { lines: [], more: false, before: null }, greeting: { job: null } } }, prepare: async (page) => { await page.getByRole('button', { name: 'More' }).waitFor(); await clickShareKind(page, 'thought'); } },
   // spec: add-showcase › Pet card sharing flow › growth not reached
-  'share-no-growth': { route: '/pet/9', fakes: { auth: SIGNED_IN, worker: { ...owner(), conversation: { lines: [], more: false, before: null }, greeting: { job: null }, pets: { '9': { ...PIXEL, stage: 'baby', worn: null, owner: { ownedCount: 1, hello: true, energy: 10 } }, '2': BISCUIT } } }, prepare: async (page) => { await page.getByRole('button', { name: 'Share Pixel' }).waitFor(); await clickShareKind(page, 'growth'); } },
+  'share-no-growth': { route: '/pet/9', fakes: { auth: SIGNED_IN, worker: { ...owner(), conversation: { lines: [], more: false, before: null }, greeting: { job: null }, pets: { '9': { ...PIXEL, stage: 'baby', worn: null, owner: { ownedCount: 1, hello: true, energy: 10 } }, '2': BISCUIT } } }, prepare: async (page) => { await page.getByRole('button', { name: 'More' }).waitFor(); await clickShareKind(page, 'growth'); } },
   // spec: add-showcase › Pet card sharing flow › no outfit worn
   'share-no-outfit': { route: '/pet/9', fakes: { auth: SIGNED_IN, worker: { ...owner(), pets: { '9': { ...PIXEL, worn: null, owner: { ownedCount: 2 } }, '2': BISCUIT } } }, prepare: async (page) => { await ownerReady(page); await clickShareKind(page, 'outfit'); } },
   // spec: add-showcase › Pet card sharing flow › choose a thought
@@ -1035,7 +1071,8 @@ export const fixtures: Record<string, ScreenFixture> = {
   // spec: add-showcase › Pet card sharing flow › choose growth
   'share-card-growth': shareFixture('growth'),
   // spec: add-showcase › Pet card sharing flow › choose outfit
-  'share-card-outfit': shareFixture('outfit'),
+  // the outfit card needs the worn cap: `owner()` draws Pixel bare since DS 0.48
+  'share-card-outfit': shareFixture('outfit', { ...owner(), pets: { '9': { ...PIXEL, worn: 'thinking-cap', owner: { ownedCount: 2, outfits: WARDROBE_OWNS } }, '2': BISCUIT } }),
   // spec: add-showcase › Card eligibility rule › pet asleep
   'share-asleep': selectedThoughtFixture(owner({}, { state: 'asleep', level: 0 })),
   // spec: add-showcase › Card eligibility rule › memory cleared
@@ -1158,7 +1195,9 @@ export const fixtures: Record<string, ScreenFixture> = {
     route: '/hatch',
     fakes: { auth: SIGNED_IN, worker: { hatchStatus: { open: false, reason: 'service' } } },
     prepare: (page) => typeName(page, 'Pixel'),
-    belowFold: [NEAR_AI_NOTICE, 'Go home'],
+    // the frame draws only the line and «Find a pet to ask»; `add-pet` › «выход на главную» keeps «Go home» above it, which
+    // pushes the link below the desktop's fold
+    belowFold: [NEAR_AI_NOTICE, 'Go home', 'Find a pet to ask'],
   },
 
   // all for today, a visitor without a session who came from Biscuit: «Back to Biscuit»; {time} 02:00 at UTC+2
@@ -1166,10 +1205,11 @@ export const fixtures: Record<string, ScreenFixture> = {
   // spec: add-pet › Hatch screen › выход к питомцу друга
   'hatch-closed-today': {
     route: '/hatch?from=2',
-    fakes: { worker: { hatchStatus: { open: false, reason: 'daily' } } },
+    // the frame draws the Account button: a signed-in player who came from Biscuit
+    fakes: { auth: SIGNED_IN, worker: { hatchStatus: { open: false, reason: 'daily' } } },
     prepare: async (page) => {
-      await typeName(page, 'Pixel');
       await page.getByRole('link', { name: 'Back to Biscuit' }).waitFor();
+      await typeName(page, 'Pixel');
     },
     belowFold: [NEAR_AI_NOTICE],
   },
@@ -1212,14 +1252,16 @@ export const fixtures: Record<string, ScreenFixture> = {
     prepare: async (page) => {
       await typeName(page, 'Pixel');
       await page.getByRole('button', { name: 'Try again' }).waitFor();
+      // the frame holds the form at its top (data-scroll top)
+      await page.evaluate(() => document.querySelectorAll('*').forEach((el) => { if (el.scrollTop > 0) el.scrollTop = 0; }));
     },
-    belowFold: ['Hatch my pet'],
+    belowFold: ['Hatch my pet', 'Find a pet to ask', "Your words and your pet's memories about you and friends who feed it go to NEAR AI.", 'Read what goes to NEAR AI'],
   },
 
   // spec: add-pet › Pet screen › success (владелец)
   'pet-success-owner': {
     route: '/pet/9',
-    fakes: { auth: SIGNED_IN, worker: owner() },
+    fakes: { auth: SIGNED_IN, worker: bareOwner() },
     prepare: ownerReady,
     otherChange: OWNER_ELSEWHERE,
     belowFold: OWNER_BELOW_FOLD,
@@ -1239,12 +1281,10 @@ export const fixtures: Record<string, ScreenFixture> = {
     fakes: { auth: SIGNED_IN, worker: owner() },
     prepare: async (page) => {
       await ownerReady(page);
-      await page.locator('[role="log"]').evaluate((el) => {
-        el.scrollTop = 0;
-      });
+      await openCard(page);
     },
     otherChange: OWNER_ELSEWHERE,
-    belowFold: [...OWNER_BELOW_FOLD, 'Auto', 'Ask me first'],
+    belowFold: [...OWNER_BELOW_FOLD, 'Auto', 'Ask me first', 'Friends', 'Wish'],
     hiddenCopy: ['You'],
   },
 
@@ -1299,12 +1339,12 @@ export const fixtures: Record<string, ScreenFixture> = {
   // spec: add-pet › Pet screen › asleep (владелец)
   'pet-asleep-owner': {
     route: '/pet/9',
-    fakes: { auth: SIGNED_IN, worker: owner() },
+    fakes: { auth: SIGNED_IN, worker: bareOwner() },
     prepare: async (page) => {
       await ownerReady(page);
       await typeLine(page, TYPED);
       // the food ran out under the open page: the next look at the pet shows it asleep
-      await setWorker(page, { pets: { '9': { ...PIXEL, worn: 'thinking-cap', fullness: { state: 'asleep', level: 0 }, owner: { ownedCount: 2, outfits: WARDROBE_OWNS } } }, petState: { events: ['fell_asleep'] } });
+      await setWorker(page, { pets: { '9': { ...PIXEL, worn: null, fullness: { state: 'asleep', level: 0 }, owner: { ownedCount: 2, outfits: WARDROBE_OWNS } } }, petState: { events: ['fell_asleep'] } });
       await lookAgain(page);
       // drawn once, and said by the Dock's Live
       await page.getByText('Pixel is asleep. A meal will wake Pixel up.').first().waitFor();
@@ -1332,7 +1372,10 @@ export const fixtures: Record<string, ScreenFixture> = {
         waitLineMs: FOREVER,
       },
     },
-    prepare: (page) => page.getByText('Pixel is thinking…').first().waitFor(),
+    prepare: async (page) => {
+      await page.getByText('Pixel is thinking…').first().waitFor();
+      await openCard(page);
+    },
     belowFold: ['Baby'],
   },
 
@@ -1379,7 +1422,10 @@ export const fixtures: Record<string, ScreenFixture> = {
     route: '/pet/9',
     fakes: { auth: SIGNED_IN, worker: owner() },
     beforeLoad: refuseWebGL,
-    prepare: ownerReady,
+    prepare: async (page) => {
+      await ownerReady(page);
+      await openCard(page);
+    },
     otherChange: OWNER_ELSEWHERE,
     belowFold: OWNER_BELOW_FOLD,
     hiddenCopy: ['You'],
@@ -1448,7 +1494,7 @@ export const fixtures: Record<string, ScreenFixture> = {
     prepare: async (page) => {
       await ownerReady(page);
       await typeLine(page, TYPED);
-      await setWorker(page, { pets: { '9': { ...PIXEL, worn: 'thinking-cap', owner: { ownedCount: 2, outfits: WARDROBE_OWNS, paused: true } } } });
+      await setWorker(page, { pets: { '9': { ...PIXEL, worn: null, owner: { ownedCount: 2, outfits: WARDROBE_OWNS, paused: true } } } });
       await lookAgain(page);
       await page.getByText('Chatting is paused on our side while we top up.').first().waitFor();
     },
@@ -1493,7 +1539,7 @@ export const fixtures: Record<string, ScreenFixture> = {
       await page.getByRole('button', { name: /Think hard/ }).click();
       await page.getByText('Pixel is thinking hard…').waitFor();
       await setWorker(page, { petState: { thought: { id: 'r', text: DEEP_REPLY, cut: null, price: '270000000000000000000', priceCents: 0.13 } } });
-      await page.getByText('Thought hard · 0.13¢').waitFor();
+      await page.getByText('Thought hard · 0.13¢').first().waitFor();
       await setWorker(page, { petState: {} });
     },
     otherChange: OWNER_ELSEWHERE,
@@ -1536,17 +1582,17 @@ export const fixtures: Record<string, ScreenFixture> = {
     fakes: { auth: SIGNED_IN, worker: owner() },
     prepare: async (page) => {
       await ownerReady(page);
-      await setWorker(page, { pets: { '9': { ...PIXEL, worn: 'thinking-cap', fullness: { state: 'asleep', level: 0 }, owner: { ownedCount: 2, outfits: WARDROBE_OWNS } } }, petState: { events: ['fell_asleep'] } });
+      await setWorker(page, { pets: { '9': { ...PIXEL, worn: null, fullness: { state: 'asleep', level: 0 }, owner: { ownedCount: 2, outfits: WARDROBE_OWNS } } }, petState: { events: ['fell_asleep'] } });
       await lookAgain(page);
-      await page.getByText('Pixel fell asleep.').waitFor();
+      await page.getByText('Pixel fell asleep.').first().waitFor();
       await setWorker(page, {
-        pets: { '9': { ...PIXEL, worn: 'thinking-cap', owner: { ownedCount: 2, outfits: WARDROBE_OWNS, pendingJob: 'wake-1', pendingMode: 'chat' } } },
+        pets: { '9': { ...PIXEL, worn: null, owner: { ownedCount: 2, outfits: WARDROBE_OWNS, pendingJob: 'wake-1', pendingMode: 'chat' } } },
         petState: { events: ['woke'], friend: 'Maya' },
       });
       await lookAgain(page);
       await page.getByText('Maya fed Pixel.').waitFor();
       await setWorker(page, { petState: { thought: { id: 'w', text: WAKE_REPLY, cut: null } } });
-      await page.getByText('Thanks, Maya! While I slept I dreamed').waitFor();
+      await page.getByText('Thanks, Maya! While I slept I dreamed').first().waitFor();
       await atNewest(page);
       await setWorker(page, { petState: {} });
     },
@@ -1582,8 +1628,9 @@ export const fixtures: Record<string, ScreenFixture> = {
       },
     },
     prepare: async (page) => {
-      await page.getByText('Hi! I\'m Pixel.').waitFor();
+      await page.getByText('Hi! I\'m Pixel.').first().waitFor();
       await page.getByRole('link', { name: 'Back to Biscuit' }).waitFor();
+      await openCard(page);
     },
     belowFold: ['Baby', '{name} gets a trait when it grows up.'],
   },
@@ -1598,6 +1645,7 @@ export const fixtures: Record<string, ScreenFixture> = {
       await page.getByRole('dialog').waitFor();
       await settle(page);
     },
+    splitCopy: ["We're full for new players this month. Sign-ups open again on {month} 1 — until then, you can still look around."],
   },
   // spec: add-account › Sign-in closed sheet screen › success (закрыт для всех)
   'signin-closed-all': {
@@ -1608,6 +1656,7 @@ export const fixtures: Record<string, ScreenFixture> = {
       await page.getByRole('dialog').waitFor();
       await settle(page);
     },
+    splitCopy: ['Sign-in is closed for everyone until {month} 1. You can still look around, and any pet you have is safe.'],
   },
 
   // spec: add-showcase › Judge admission flow › ordinary entry closed
@@ -1845,12 +1894,11 @@ export const fixtures: Record<string, ScreenFixture> = {
   // spec: add-account › Account menu screen › success
   'menu-guest': {
     route: '/pet/2',
-    fakes: { auth: SIGNED_IN, worker: { me: ME_PIXEL } },
+    fakes: { auth: SIGNED_IN, worker: guestAdvice() },
     prepare: async (page) => {
       await page.getByRole('link', { name: 'Go to your Pixel' }).waitFor();
       await openMenu(page);
     },
-    otherChange: GUEST_ELSEWHERE,
   },
 
   // Clear memory dialog over the owner's Pet screen: opened from the menu, what stays (the dialog's end on the phone), the
@@ -1864,19 +1912,21 @@ export const fixtures: Record<string, ScreenFixture> = {
       await openClearDialog(page);
     },
   },
-  // The signed-close path is built by the errands stage. This capture sets the dialog's public state directly so its
-  // warning and safe action can be checked before that path is wired to Account.
+  // The owner's pet has a shared link that is still funding: Account's «Clear Pixel's memory» opens the dialog with its warning.
   // spec: add-account › Clear memory dialog screen › success (unsettled shared job)
   'clear-memory-unsettled-shared-job': {
     route: '/pet/9',
-    fakes: { auth: SIGNED_IN, worker: owner() },
+    fakes: {
+      auth: SIGNED_IN,
+      worker: {
+        ...owner(),
+        sharedErrand: { tokenId: '9', name: 'Pixel', state: 'funding', form: 'find', job: 'When does the next NEAR release ship?', viewer: 'owner',
+          funded: '1700000000000000000000', needed: '4330000000000000000000', chainState: 'Funding', fullness: PIXEL.fullness },
+      },
+    },
     prepare: async (page) => {
       await ownerReady(page);
-      await page.evaluate(async () => {
-        const modulePath = '/src/account/clearMemory.ts';
-        const { openClearMemory } = await import(modulePath);
-        openClearMemory({ tokenId: '9', name: 'Pixel', unsettledSharedJob: true });
-      });
+      await openClearDialog(page);
       await page.getByRole('alertdialog').getByText("Clearing memory will close this shared link. You'll sign approval so unused food can return to Pixel.").waitFor();
       await page.mouse.move(0, 0);
       await settle(page);
@@ -1890,6 +1940,9 @@ export const fixtures: Record<string, ScreenFixture> = {
       await ownerReady(page);
       await openClearDialog(page);
     },
+    // add-pet-experience's spec moved the words to «what's on the chain about {name}»; the frame still has «what's public about
+    // {name}»; web/e2e/clear-memory.spec.ts and ClearMemoryDialog.test.tsx assert the spec's words
+    staleCopy: ["{name}'s name, character, growth, streak, outfits and food stay, and what's public about {name} stays public forever. An answer to today's riddle is cleared too and won't be checked at {time}. Old thought receipts can't be fully checked after this. This can't be undone."],
   },
   // spec: add-account › Clear memory dialog screen › error
   'clear-memory-error': {
@@ -1933,6 +1986,22 @@ export const fixtures: Record<string, ScreenFixture> = {
     },
     otherChange: OWNER_ELSEWHERE,
   },
+  // the erase was confirmed while the shared job's close is still being retried: the event line says the food is still reserved
+  // spec: add-account › Memory deletion flow › close retry after memory clear
+  'clear-memory-close-retry': {
+    route: '/pet/9',
+    fakes: { auth: SIGNED_IN, worker: { ...owner(), clearMemory: { code: 'close_retry' } } },
+    prepare: async (page) => {
+      await ownerReady(page);
+      await typeLine(page, TYPED);
+      await openClearDialog(page);
+      await page.getByRole('button', { name: 'Clear memory' }).click();
+      await page.getByText("Memory cleared. This job's food is still reserved while we retry closing it.").first().waitFor();
+      await page.mouse.move(0, 0);
+      await settle(page);
+    },
+    otherChange: OWNER_ELSEWHERE,
+  },
   // spec: add-account › Memory deletion flow › уже не владелец
   'clear-memory-new-owner': {
     route: '/pet/9',
@@ -1941,14 +2010,13 @@ export const fixtures: Record<string, ScreenFixture> = {
       await ownerReady(page);
       await openClearDialog(page);
       // the fake's `me` follows the owner view it served (add-gift): the player's own pet is Juno again once Pixel is gone
-      await setWorker(page, { owned: [], me: JUNO_ME, clearMemory: { fail: { status: 403, code: 'not_owner' } } });
+      await setWorker(page, { owned: [], me: JUNO_ME, advice: { price: ADVICE_PRICE, payer: { tokenId: '1', name: 'Juno' } }, clearMemory: { fail: { status: 403, code: 'not_owner' } } });
       await page.getByRole('button', { name: 'Clear memory' }).click();
       await page.getByRole('link', { name: 'Go to your Juno' }).waitFor();
       await page.locator('.ds-toast').waitFor();
       await page.mouse.move(0, 0);
       await settle(page);
     },
-    otherChange: GUEST_ELSEWHERE,
   },
 
   // Session expiry flow: the session ended under the owner's page, the typed line kept, «Sign in» in «Send»'s place
@@ -2025,20 +2093,21 @@ export const fixtures: Record<string, ScreenFixture> = {
     otherChange: GUEST_ELSEWHERE,
   },
 
-  // «Pay with NEAR» opened: every portion out of reach, «Add 0.01 NEAR to give this meal.» under the smallest
+  // the owner's asleep Pixel, a wallet with only the project's gas, «Pay with NEAR» opened: every portion out of reach,
+  // «Add 0.01 NEAR to give this meal.» under the smallest
   // spec: add-feeding › Feed sheet screen › без NEAR
   'feed-no-near-open': {
-    route: '/pet/2',
-    fakes: guestFeed(NO_NEAR_SHEET),
+    route: '/pet/9',
+    fakes: { auth: SIGNED_IN, worker: { ...owner({}, ASLEEP), feedSheet: { fullness: ASLEEP, snack: { state: 'ready' }, ...NO_NEAR_SHEET } } },
     prepare: async (page) => {
-      await page.getByRole('link', { name: 'Go to your Pixel' }).waitFor();
-      await openFeedSheet(page, 'Feed Biscuit');
+      await ownerReady(page);
+      await openFeedSheet(page, 'Feed Pixel');
       await page.getByRole('button', { name: 'Pay with NEAR' }).click();
       await page.getByText('Add 0.01 NEAR to give this meal.').waitFor();
       await page.mouse.move(0, 0);
       await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
     },
-    otherChange: GUEST_ELSEWHERE,
+    otherChange: OWNER_ELSEWHERE,
   },
 
   // 0.08 NEAR: the 0.2 portion is short by 0.13
@@ -2093,6 +2162,40 @@ export const fixtures: Record<string, ScreenFixture> = {
       await settle(page);
     },
     otherChange: GUEST_ELSEWHERE,
+  },
+
+  // the owner's sheet open while Pixel was given away: the page and the sheet become a guest's, the notice before the portions
+  // spec: add-feeding › Feed sheet screen › лист обновляется сам
+  'feed-updates-itself': {
+    route: '/pet/9',
+    fakes: { auth: SIGNED_IN, worker: owner({}, HUNGRY) },
+    prepare: async (page) => {
+      await ownerReady(page);
+      await openFeedSheet(page, 'Feed Pixel');
+      await setWorker(page, { owned: [], me: JUNO_ME });
+      await lookAgain(page);
+      await page.getByText(/will learn your first name from Google/).first().waitFor();
+      await page.getByRole('button', { name: /free snack/ }).waitFor();
+      await restAfterTap(page);
+    },
+    otherChange: GUEST_ELSEWHERE,
+  },
+
+  // 0.05 NEAR tapped, the send held past 10 s: the row's «Feeding Pixel…» became the checking line, every portion off
+  // spec: add-feeding › Feeding outcome rule › исход неизвестен
+  'feed-still-checking': {
+    route: '/pet/9',
+    fakes: { auth: SIGNED_IN, worker: { ...owner({}, HUNGRY), feedSendDelayMs: FOREVER } },
+    beforeLoad: (page) => page.clock.install(),
+    prepare: async (page) => {
+      await ownerReady(page);
+      await openFeedSheet(page, 'Feed Pixel');
+      await page.getByRole('button', { name: /^Feed · 23¢/ }).click();
+      await page.getByRole('button', { name: 'Feeding Pixel…' }).waitFor();
+      await page.clock.fastForward(10_500);
+      await page.getByRole('button', { name: 'Still checking — this can take a moment.' }).waitFor();
+      await restAfterTap(page);
+    },
   },
 
   // 0.05 NEAR tapped, the send held: the row says «Feeding Pixel…», the others are off
@@ -2258,6 +2361,35 @@ export const fixtures: Record<string, ScreenFixture> = {
       await openFeedSheet(page, 'Feed Pixel');
       await page.getByRole('button', { name: 'Ask friends to feed Pixel' }).click();
       await page.getByLabel('Copy this link and send it to a friend:').waitFor();
+      await page.mouse.move(0, 0);
+      await settle(page);
+    },
+  },
+
+  // an answer reached the server after 00:00 UTC, today's riddle not sealed yet: the field cleared, the late line, the held-up line
+  // spec: add-daily-ritual › Riddle rule › ответ опоздал
+  'diary-riddle-late': {
+    route: '/pet/9/diary',
+    fakes: { auth: SIGNED_IN, worker: diaryWorker({ entry: entryWithWork(), streak: STREAK_2 }, { answerRiddle: { status: 'late' } }) },
+    // the sample day's clock: on any other day the page meets 00:00 UTC by itself and redraws under the tap
+    beforeLoad: (page) => inSampleDay(page),
+    prepare: async (page) => {
+      await diaryReady(page);
+      await typeDiary(page, null, DIARY_TYPED);
+      const next = SAMPLE_DAY + 1;
+      await setWorker(page, {
+        diary: {
+          day: next,
+          closedAt: new Date(next * 86_400_000).toISOString(),
+          until: new Date((next + 1) * 86_400_000).toISOString(),
+          entry: { kind: 'writing' },
+          riddle: { kind: 'held' },
+          yesterday: { kind: 'waiting' },
+          parts: [],
+        },
+      });
+      await page.getByRole('button', { name: 'Send answer' }).click();
+      await page.getByText(/^That riddle closed at \d\d:\d\d\.$/).first().waitFor();
       await page.mouse.move(0, 0);
       await settle(page);
     },
@@ -2573,6 +2705,8 @@ export const fixtures: Record<string, ScreenFixture> = {
       await page.getByText('Pixel is asking Nori…').waitFor();
       await atNewest(page);
     },
+    // the frame's own picture cuts the conversation under the Stage: these lines stand above the visible part of its scroll
+    belowFold: ["To {worker}: {question}"],
   },
 
   // spec: add-pet-work › Pet hire flow › спросил
@@ -2580,7 +2714,7 @@ export const fixtures: Record<string, ScreenFixture> = {
     route: '/pet/9',
     fakes: { auth: SIGNED_IN, worker: { ...owner(), conversation: hireTurn(nori(), pixelSays(PET_SAYS, NORI_PAID)) } },
     prepare: async (page) => {
-      await page.getByText('Pixel asked Nori · 0.38¢').waitFor();
+      await page.getByText('Pixel asked Nori · 0.38¢').first().waitFor();
       await atNewest(page);
     },
     belowFold: ['To {worker}: {question}'],
@@ -2595,7 +2729,7 @@ export const fixtures: Record<string, ScreenFixture> = {
       await atNewest(page);
       await page.mouse.move(0, 0);
     },
-    belowFold: ['Ask me first'],
+    belowFold: ['Ask me first', "To {worker}: {question}", "{name} wants to ask {worker} about this. It costs {price}."],
   },
 
   // spec: add-pet-work › Pet hire flow › отказ в Manual
@@ -2608,10 +2742,10 @@ export const fixtures: Record<string, ScreenFixture> = {
       // the server dropped the offer and the pet answered on its own, nothing spent
       await setWorker(page, {
         conversation: hireTurn(pixelSays(PET_ALONE, null)),
-        pets: { '9': { ...PIXEL, worn: 'thinking-cap', owner: { ownedCount: 2, outfits: WARDROBE_OWNS, hireMode: 'manual', offer: null } }, '2': BISCUIT },
+        pets: { '9': { ...PIXEL, worn: null, owner: { ownedCount: 2, outfits: WARDROBE_OWNS, hireMode: 'manual', offer: null } }, '2': BISCUIT },
         petState: { offer: null, thought: { id: 'w3', text: PET_ALONE, cut: null } },
       });
-      await page.getByText(PET_ALONE).waitFor();
+      await page.getByText(PET_ALONE).first().waitFor();
       await setWorker(page, { petState: {} });
       await atNewest(page);
       await page.mouse.move(0, 0);
@@ -2644,6 +2778,8 @@ export const fixtures: Record<string, ScreenFixture> = {
       await page.getByText("Nori couldn't help just now, so Pixel answered on its own. No fee was paid.").waitFor();
       await atNewest(page);
     },
+    // the frame's own picture cuts the conversation under the Stage: these lines stand above the visible part of its scroll
+    belowFold: ["To {worker}: {question}"],
   },
 
   // spec: add-pet-work › Pet hire flow › работник ответил пусто
@@ -2654,6 +2790,8 @@ export const fixtures: Record<string, ScreenFixture> = {
       await page.getByText("Nori came up empty, so Pixel answered on its own. No fee was paid — the try used a little of Pixel's food.").waitFor();
       await atNewest(page);
     },
+    // the frame's own picture cuts the conversation under the Stage: these lines stand above the visible part of its scroll
+    belowFold: ["To {worker}: {question}"],
   },
 
   // spec: add-pet-work › Pet hire flow › свой ответ не пришёл
@@ -2673,7 +2811,7 @@ export const fixtures: Record<string, ScreenFixture> = {
       await atNewest(page);
       await page.mouse.move(0, 0);
     },
-    belowFold: ['To {worker}: {question}'],
+    belowFold: ['To {worker}: {question}', "{name} asked {worker} · {price}", "{name} lost its own reply. {worker}'s answer is kept and paid for — Try again finishes {name}'s reply, with no new fee."],
   },
 
   // spec: add-pet-work › Pet hire flow › найм не записан в сети
@@ -2681,7 +2819,7 @@ export const fixtures: Record<string, ScreenFixture> = {
     route: '/pet/9',
     fakes: { auth: SIGNED_IN, worker: { ...owner(), conversation: hireTurn(nori(), pixelSays(PET_SAYS, { worker: 'Nori', noFee: true })) } },
     prepare: async (page) => {
-      await page.getByText('Pixel asked Nori · no fee').waitFor();
+      await page.getByText('Pixel asked Nori · no fee').first().waitFor();
       await atNewest(page);
     },
     belowFold: ['To {worker}: {question}'],
@@ -2751,6 +2889,8 @@ export const fixtures: Record<string, ScreenFixture> = {
       await page.getByRole('button', { name: /^Ask Biscuit/ }).and(page.locator(':not([aria-busy])')).waitFor();
       await page.getByPlaceholder('Ask Biscuit for advice…').blur();
     },
+    // the frame's own picture cuts the conversation under the Stage: these lines stand above the visible part of its scroll
+    belowFold: ["{name} lost that answer. No fee was paid, but the try used a little of your {my_pet}'s food. Your question is kept — try again."],
   },
 
   // Biscuit fell asleep after the question went: the sent question is back in the field, the line why «Ask» is off
@@ -2766,6 +2906,8 @@ export const fixtures: Record<string, ScreenFixture> = {
       await page.getByText('Asleep', { exact: true }).first().waitFor();
       await page.getByPlaceholder('Ask Biscuit for advice…').blur();
     },
+    // the frame's own picture cuts the conversation under the Stage: these lines stand above the visible part of its scroll
+    belowFold: ["{name} couldn't help just now. Nothing was spent — your question is kept."],
   },
 
   // Pixel is at its day's limit: the line in the button's place, the question kept
@@ -2839,6 +2981,8 @@ export const fixtures: Record<string, ScreenFixture> = {
       await page.getByText(SAGE_ADVICE).waitFor();
       await page.mouse.move(0, 0);
     },
+    // the frame's own picture cuts the conversation under the Stage: these lines stand above the visible part of its scroll
+    belowFold: ["Saved in your {my_pet}'s chat — only its owner can see it."],
   },
 
   // the paying pet's memory was cleared while the answer was on its way: the line in place of the answer, the question in the field
@@ -2853,6 +2997,8 @@ export const fixtures: Record<string, ScreenFixture> = {
       await page.getByRole('button', { name: /^Ask Biscuit/ }).and(page.locator(':not([aria-busy])')).waitFor();
       await page.getByPlaceholder('Ask Biscuit for advice…').blur();
     },
+    // the frame's own picture cuts the conversation under the Stage: these lines stand above the visible part of its scroll
+    belowFold: ["{my_pet}'s memory was cleared, so this answer wasn't kept. It used a little of your {my_pet}'s food."],
   },
 
   // Sage answered in Auto with its skill: the line in the answer's foot beside its receipt, the price on Pixel's reply
@@ -2861,9 +3007,11 @@ export const fixtures: Record<string, ScreenFixture> = {
     route: '/pet/9',
     fakes: { auth: SIGNED_IN, worker: { ...owner(), pets: sagePets(), conversation: sageTurn(sageSays(), pixelSays(PET_ON_SAGE, SAGE_PAID)) } },
     prepare: async (page) => {
-      await page.getByText('Pixel asked Sage · 0.56¢').waitFor();
+      await page.getByText('Pixel asked Sage · 0.56¢').first().waitFor();
       await atNewest(page);
     },
+    // the frame's own picture cuts the conversation under the Stage: these lines stand above the visible part of its scroll
+    belowFold: ["A private skill shaped this answer. Checking the thought can't show that part."],
   },
 
   // Sage's data did not answer in a hire: no answer, no fee, the game's line, then Pixel's own answer
@@ -2898,6 +3046,8 @@ export const fixtures: Record<string, ScreenFixture> = {
       await page.getByText("Sage's skill couldn't get its data just now. Nothing was spent — your question is kept.").first().waitFor();
       await settleAdviceField(page);
     },
+    // the frame's own picture cuts this line under the visible part of its scroll or sheet body
+    belowFold: ["{name}'s skill couldn't get its data just now. Nothing was spent — your question is kept."],
   },
 
   // past the third failed call of the day: the paying pet's food paid for the try
@@ -2910,6 +3060,8 @@ export const fixtures: Record<string, ScreenFixture> = {
       await page.getByText("Sage's skill couldn't get its data just now. No fee was paid, but the try used a little of your Pixel's food. Your question is kept — try again.").first().waitFor();
       await settleAdviceField(page);
     },
+    // the frame's own picture cuts this line under the visible part of its scroll or sheet body
+    belowFold: ["{name}'s skill couldn't get its data just now. No fee was paid, but the try used a little of your {my_pet}'s food. Your question is kept — try again."],
   },
 
   // the Manual tap met a price that rose: nothing spent, the card says the new price, its buttons at it
@@ -2927,6 +3079,8 @@ export const fixtures: Record<string, ScreenFixture> = {
       await atNewest(page);
       await page.mouse.move(0, 0);
     },
+    // the frame's own picture cuts the conversation under the Stage: these lines stand above the visible part of its scroll
+    belowFold: ["{worker} is busier now — it's {price}. Nothing was spent."],
   },
 
   // the pet fell asleep before the owner answered: the card keeps its words, its buttons gone; the page asleep
@@ -2945,6 +3099,8 @@ export const fixtures: Record<string, ScreenFixture> = {
       await atNewest(page);
       await page.mouse.move(0, 0);
     },
+    // the frame's own picture cuts the conversation under the Stage: these lines stand above the visible part of its scroll
+    belowFold: ["{name} wants to ask {worker} about this. It costs {price}."],
   },
 
   // the owner cleared Pixel's memory while it was asking Nori: the cleared conversation holds the line that says the answer was not kept
@@ -2988,7 +3144,7 @@ export const fixtures: Record<string, ScreenFixture> = {
     route: '/pet/9',
     fakes: { auth: SIGNED_IN, worker: { ...owner(), skill: { fail: { status: 0, code: 'unreachable' } } } },
     prepare: async (page) => {
-      await page.getByRole('button', { name: 'Teach Pixel a skill' }).click();
+      await tapSkillEntry(page, 'Teach Pixel a skill');
       await page.getByText("We couldn't open Pixel's skill right now. Try again in a moment.").last().waitFor();
       await page.mouse.move(0, 0);
       await settle(page);
@@ -3001,11 +3157,11 @@ export const fixtures: Record<string, ScreenFixture> = {
     route: '/pet/9',
     fakes: { auth: SIGNED_IN, worker: { ...owner(), skill: { skill: null }, toastHeld: true } },
     prepare: async (page) => {
-      await page.getByRole('button', { name: 'Teach Pixel a skill' }).click();
+      await tapSkillEntry(page, 'Teach Pixel a skill');
       await page.getByLabel('What is Pixel good at?').fill(SKILL_LABEL);
       await page.getByLabel('How should Pixel do it?').fill(SKILL_INSTRUCTION);
       await page.getByRole('button', { name: 'Save skill' }).click();
-      await page.getByRole('button', { name: `Pixel's skill: Good at ${SKILL_LABEL}` }).waitFor();
+      await page.getByText(`Good at ${SKILL_LABEL}`).first().waitFor({ state: 'attached' });
       // the drawn toast, not the page's Live region that says the same words
       await page.locator('.ds-toast').filter({ hasText: 'Saved. Pixel will use this from its next job.' }).waitFor();
       await page.mouse.move(0, 0);
@@ -3019,7 +3175,7 @@ export const fixtures: Record<string, ScreenFixture> = {
     route: '/pet/9',
     fakes: { auth: SIGNED_IN, worker: { ...owner(), skill: { skill: null }, saveSkill: { fail: { status: 400, code: 'bad_label' } } } },
     prepare: async (page) => {
-      await page.getByRole('button', { name: 'Teach Pixel a skill' }).click();
+      await tapSkillEntry(page, 'Teach Pixel a skill');
       await page.getByLabel('What is Pixel good at?').fill('   ');
       await page.getByLabel('How should Pixel do it?').fill(SKILL_INSTRUCTION);
       await page.getByRole('button', { name: 'Save skill' }).click();
@@ -3170,6 +3326,8 @@ export const fixtures: Record<string, ScreenFixture> = {
       await atNewest(page);
       await settle(page);
     },
+    // the frame's own picture cuts this line under the visible part of its scroll or sheet body
+    belowFold: ["Find out"],
   },
 
   // spec: add-pet-errands › Errand flow › report
@@ -3178,7 +3336,7 @@ export const fixtures: Record<string, ScreenFixture> = {
     fakes: { auth: SIGNED_IN, worker: awayOn(REPORT_TAIL, { fullness: ERRAND_LOWER }) },
     prepare: (page) => landReport(page, REPORT_TAIL, { fullness: ERRAND_LOWER }),
     // the phone frame lands the card from its top: its price line stands at the fold, under the field
-    belowFold: ['{n} searches · {price}'],
+    belowFold: ['{n} searches · {price}', "Sources"],
   },
 
   // spec: add-pet-errands › Errand flow › report
@@ -3191,6 +3349,8 @@ export const fixtures: Record<string, ScreenFixture> = {
       }),
     },
     prepare: (page) => errandLines(page, 'Read · 0.14¢'),
+    // the frame's own picture cuts this line under the visible part of its scroll or sheet body
+    belowFold: ["Sources"],
   },
 
   // spec: add-pet-errands › Errand flow › report
@@ -3203,6 +3363,8 @@ export const fixtures: Record<string, ScreenFixture> = {
       }),
     },
     prepare: (page) => errandLines(page, 'Read · 0.11¢'),
+    // the frame's own picture cuts this line under the visible part of its scroll or sheet body
+    belowFold: ["Your text"],
   },
 
   // spec: add-pet-errands › Errand flow › came back empty
@@ -3210,6 +3372,8 @@ export const fixtures: Record<string, ScreenFixture> = {
     route: '/pet/9',
     fakes: { auth: SIGNED_IN, worker: errandOwner([errandJob('find', LEONIDS), errandEmpty(0.62)], { fullness: ERRAND_LOWER, state: EMPTY_KEPT }) },
     prepare: (page) => errandLines(page, /came back empty-handed/),
+    // the frame's own picture cuts this line under the visible part of its scroll or sheet body
+    belowFold: ["{name} came back empty-handed. Its searches still cost {price}. Your errand is kept — try again."],
   },
 
   // not back in 3 minutes, no search run: nothing spent, the lines come from the errand kept for «Try again»
@@ -3268,6 +3432,8 @@ export const fixtures: Record<string, ScreenFixture> = {
       ]),
     },
     prepare: (page) => errandLines(page, '2 searches · 0.98¢'),
+    // the frame's own picture cuts this line under the visible part of its scroll or sheet body
+    belowFold: ["{name} looked but found nothing solid on this."],
   },
 
   // spec: add-pet-errands › Find out flow › web search down
@@ -3283,7 +3449,7 @@ export const fixtures: Record<string, ScreenFixture> = {
     fakes: { auth: SIGNED_IN, worker: awayOn(VERDICT_TAIL) },
     prepare: (page) => landReport(page, VERDICT_TAIL),
     // the phone's frame ends under the card's sources: «Share card» stands below the fold there
-    belowFold: ['Share card'],
+    belowFold: ['Share card', "Sources"],
   },
 
   // spec: add-pet-errands › Is it true flow › unclear
@@ -3291,6 +3457,8 @@ export const fixtures: Record<string, ScreenFixture> = {
     route: '/pet/9',
     fakes: { auth: SIGNED_IN, worker: awayOn(UNCLEAR_TAIL) },
     prepare: (page) => landReport(page, UNCLEAR_TAIL),
+    // the frame's own picture cuts this line under the visible part of its scroll or sheet body
+    belowFold: ["Share card"],
   },
 
   // the report went on without a source that did not answer: its line under the words
@@ -3308,6 +3476,8 @@ export const fixtures: Record<string, ScreenFixture> = {
       ),
     },
     prepare: (page) => errandLines(page, /Daybook didn't answer/),
+    // the frame's own picture cuts this line under the visible part of its scroll or sheet body
+    belowFold: ["{label} didn't answer, so {name} went on without it."],
   },
 
   // the card the browser draws, over the «Is it true?» report: «Save image», and «Share» where the browser shares files (the capture's
@@ -3767,13 +3937,14 @@ export const fixtures: Record<string, ScreenFixture> = {
   // spec: add-gift › Gift flow › chain rejected for gas
   'gift-sheet-gas': { route: '/pet/9', fakes: { auth: SIGNED_IN, worker: giftWorker({ giftLink: GIFT_ACCEPTED, prepareGift: { status: 'gas_rejected', missingYocto: '1' } }) }, prepare: tapGiftGive },
   // spec: add-gift › Gift screen › success
-  'gift-success': { route: `/gift/${GIFT_CODE}`, fakes: { auth: SIGNED_IN, worker: receiverGiftWorker() } },
+  // the phone's frame is as tall as its Stage: the words stand under the fold of the frame and of the capture alike
+  'gift-success': { route: `/gift/${GIFT_CODE}`, fakes: { auth: SIGNED_IN, worker: receiverGiftWorker() }, belowFold: ['{name} is a gift for you!', "Once your friend hands {name} over, you'll be {name}'s owner — that's public forever, even if this game shuts down. {name}'s owner will see your first name from Google."] },
   // spec: add-gift › Gift screen › signed-out
-  'gift-signed-out': { route: `/gift/${GIFT_CODE}`, fakes: { worker: receiverGiftWorker({ publicGift: publicGift('waiting', 'visitor') }) } },
+  'gift-signed-out': { route: `/gift/${GIFT_CODE}`, fakes: { worker: receiverGiftWorker({ publicGift: publicGift('waiting', 'visitor') }) }, belowFold: ['{name} is a gift for you!'] },
   // spec: add-gift › Gift screen › signed-out (подарок уже принят)
   'gift-signed-out-accepted': { route: `/gift/${GIFT_CODE}`, fakes: { worker: receiverGiftWorker({ publicGift: publicGift('accepted', 'visitor') }) } },
   // spec: add-gift › Gift screen › ссылку открыл дарящий
-  'gift-own-link': { route: `/gift/${GIFT_CODE}`, fakes: { auth: SIGNED_IN, worker: receiverGiftWorker({ publicGift: publicGift('waiting', 'giver') }) } },
+  'gift-own-link': { route: `/gift/${GIFT_CODE}`, fakes: { auth: SIGNED_IN, worker: receiverGiftWorker({ publicGift: publicGift('waiting', 'giver') }) }, belowFold: ["This is your gift link for {name}. Send it to the friend you're giving {name} to."] },
   // spec: add-gift › Gift screen › loading
   'gift-loading': { route: `/gift/${GIFT_CODE}`, fakes: { auth: SIGNED_IN, worker: receiverGiftWorker({ publicGiftDelayMs: 30_000 }) } },
   // spec: add-gift › Gift screen › error
@@ -3783,14 +3954,14 @@ export const fixtures: Record<string, ScreenFixture> = {
   // spec: add-gift › Gift accept flow › получил
   'gift-received': { route: `/gift/${GIFT_CODE}`, fakes: { auth: SIGNED_IN, worker: receiverGiftWorker({ publicGift: publicGift('transferred') }) } },
   // spec: add-gift › Gift screen › asleep
-  'gift-asleep': { route: `/gift/${GIFT_CODE}`, fakes: { auth: SIGNED_IN, worker: receiverGiftWorker({ publicGift: publicGift('waiting', 'receiver', true), pets: { '9': { ...PIXEL, worn: 'thinking-cap', fullness: { state: 'asleep', level: 0 } } } }) } },
+  'gift-asleep': { route: `/gift/${GIFT_CODE}`, fakes: { auth: SIGNED_IN, worker: receiverGiftWorker({ publicGift: publicGift('waiting', 'receiver', true), pets: { '9': { ...PIXEL, worn: 'thinking-cap', fullness: { state: 'asleep', level: 0 } } } }) }, belowFold: ['{name} is a gift for you!', '{name} is asleep right now. Once {name} is yours, a meal will wake {name} up.', 'Asleep'] },
   // spec: add-gift › Gift screen › errand still running
-  'gift-errand-running': { route: `/gift/${GIFT_CODE}`, fakes: { auth: SIGNED_IN, worker: receiverGiftWorker({ publicGift: { ...publicGift(), errand: { running: true, maxCents: 2 } } }) } },
+  'gift-errand-running': { route: `/gift/${GIFT_CODE}`, fakes: { auth: SIGNED_IN, worker: receiverGiftWorker({ publicGift: { ...publicGift(), errand: { running: true, maxCents: 2 } } }) }, belowFold: ['{name} is a gift for you!'] },
   // spec: add-gift › My pets sheet screen › success
   'my-pets': { route: '/pet/9', fakes: { auth: SIGNED_IN, worker: {
     ...giftWorker(),
     owned: ['9', '0', '1'], pets: {
-      '9': { ...PIXEL, worn: 'thinking-cap', owner: { ownedCount: 3 } },
+      '9': { ...PIXEL, worn: null, owner: { ownedCount: 3 } },
       '0': { tokenId: '0', name: 'Juno', stage: 'adult', fullness: { state: 'hungry', level: 0.125 }, mood: 'happy' },
       '1': { tokenId: '1', name: 'Mochi', stage: 'adult', fullness: { state: 'asleep', level: 0 }, mood: null },
     }, myPets: { pets: [{ tokenId: '9', name: 'Pixel', born: true }, { tokenId: '0', name: 'Juno', born: false }, { tokenId: '1', name: 'Mochi', born: false }], currentPet: PIXEL_REF },
@@ -3803,7 +3974,7 @@ export const fixtures: Record<string, ScreenFixture> = {
     { id: 'advice:you', who: 'player', text: 'My cat ignores me after I travel. How do I make up for it?', at: Date.parse('2026-11-11T10:00:00Z'), previousOwner: true },
     { id: 'advice:reply', who: 'worker', text: "Don't chase. Sit on the floor near the cat's spot with a book and wait — let the cat come to you. Treats only after the first head-bump.", at: Date.parse('2026-11-11T10:00:01Z'), worker: { tokenId: '2', name: 'Biscuit' }, previousOwner: true },
     { id: 'gift:1', who: 'event', code: 'gift', name: 'Pixel', at: Date.parse('2026-11-12T10:00:00Z') },
-  ], more: false, before: null }, pets: { '9': { ...PIXEL, worn: 'thinking-cap', owner: { ownedCount: 2, hello: true } }, '2': BISCUIT } }) }, hiddenCopy: ['Previous owner'] },
+  ], more: false, before: null }, pets: { '9': { ...PIXEL, worn: null, owner: { ownedCount: 2, hello: true } }, '2': BISCUIT } }) }, hiddenCopy: ['Previous owner'] },
   // spec: add-gift › Gift rule › дневник до подарка
   'diary-before-gift': { route: '/pet/9/diary', fakes: { auth: SIGNED_IN, worker: giftWorker({ diary: { entry: { kind: 'text', id: 'diary-gift', lines: ['Yesterday you told me about the chart nobody understands. After you left I counted the fridge again — forty-three hums this time, two more than the night before.', 'I think the fridge is getting nervous about your presentation too.'], question: 'Did the chart surprise anyone?', work: null, previousOwner: true } } }) }, belowFold: ["Today's streak still needs {parts}."] },
   // spec: add-gift › Several pets rule › питомцев не осталось
@@ -3906,3 +4077,29 @@ export const fixtures: Record<string, ScreenFixture> = {
     return { route: `/pet/5/verify/${THINK_ID}`, fakes: proof };
   })(),
 };
+
+// Lines of the Diary and Wardrobe frames that the frame's own picture holds below its fold: the Diary page and the Wardrobe's tiles
+// run past the 900 px desktop and the 844 px phone viewport of the frame, and the capture is cut at the same place.
+const BELOW_FOLD: Record<string, string[]> = {
+  'diary-success': ['Up to 40 characters.', "Today's streak still needs {parts}.", 'You solved the riddle that closed at {time}! It was "{answer}".', 'Send answer'],
+  'diary-error': ['Up to 40 characters.'],
+  'diary-signed-out': ['Up to 40 characters.', 'Send answer', 'Answer {name}'],
+  'diary-asleep': ['All done for today!'],
+  'diary-asleep-typed': ['All done for today!'],
+  'diary-done': ['All done for today!', 'Answer in! Find out if you got it after {time}.'],
+  'diary-streak-saved': ['Up to 40 characters.', "Today's streak still needs {parts}."],
+  'diary-streak-reset': ['Up to 40 characters.', "Today's streak still needs {parts}."],
+  'diary-tired': ['Up to 40 characters.', 'Send answer', "Today's streak still needs {parts}."],
+  'wardrobe-success': ['Wear', 'Take off', 'Reach a {n}-day streak', 'Buy · {price}'],
+  'wardrobe-empty': ['Nothing to wear yet! {name} earns outfits for daily rituals and riddles — and a well-fed {name} can buy one below.', 'Reach a {n}-day streak', 'Solve your first riddle', 'Buy · {price}', '{name} needs a little more food before buying this.'],
+  'wardrobe-loading': ["Opening {name}'s wardrobe…", 'Wear', 'Take off', 'Buy · {price}'],
+  'wardrobe-error': ["We couldn't open {name}'s wardrobe right now. Try again in a moment.", 'Try again'],
+  'wardrobe-signed-out': ["You've been signed out. Sign in to get back to {name}'s wardrobe.", 'Sign in'],
+  'wardrobe-asleep': ['{name} fell asleep. A meal will wake {name} up — you can still change outfits.', 'Wear', 'Take off', 'Buy · {price}'],
+  'wardrobe-bought': ['Take off'],
+  'wardrobe-shop-paused': ["Shopping is paused on our side while we top up. {name}'s outfits still work.", 'Buy · {price}', 'Wear'],
+};
+for (const [id, lines] of Object.entries(BELOW_FOLD)) {
+  const fixture = fixtures[id];
+  if (fixture) fixture.belowFold = [...(fixture.belowFold ?? []), ...lines];
+}

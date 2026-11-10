@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { calls, openWith, PIXEL, setWorker, SIGNED_IN } from './helpers';
+import { calls, inCard, openCard, openWith, PIXEL, setWorker, SIGNED_IN } from './helpers';
 import type { WorkRecord } from '../src/seams/worker-types';
 
 const DATE = Date.UTC(2026, 10, 7) * 1_000_000;
@@ -18,7 +18,8 @@ test('a direct public record compares its count with NEAR and links the receipt 
   await expect(page.getByRole('link', { name: 'Check receipt' })).toHaveAttribute('href', `/pet/9/verify/${RECEIPT}`);
   await page.getByRole('link', { name: 'Back to Pixel' }).click();
   await expect(page).toHaveURL('/pet/9');
-  await expect(page.getByRole('link', { name: 'View work record' }).first()).toHaveAttribute('href', '/pet/9/work');
+  await openCard(page);
+  await expect(inCard(page).getByRole('link', { name: 'View work record' })).toHaveAttribute('href', '/pet/9/work');
 });
 
 // spec: add-pet-experience › Experience events data › public record opened

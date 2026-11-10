@@ -30,7 +30,7 @@ import { formatCents } from '../lib/price';
 
 const OPTIONS = FORMS.map((value) => ({ value, label: FORM_WORD[value], icon: FORM_ICON[value] }));
 
-export function ErrandSheet({ name, errand, onFeed, asleep = false }: { name: string; errand: ReturnType<typeof useErrand>; onFeed: () => void; asleep?: boolean }) {
+export function ErrandSheet({ name, errand, onFeed, asleep = false, inert = false }: { name: string; errand: ReturnType<typeof useErrand>; onFeed: () => void; asleep?: boolean; inert?: boolean }) {
   const { open, form, job, quote, error, sending, session: ended, block, price } = errand;
   // a session that ended meets the line of `Session expiry flow`: «Sign in» brings the sheet back with the form and the text
   const [line] = useSignInLines({ text: JSON.stringify({ form, job }), action: 'errand' });
@@ -112,7 +112,7 @@ export function ErrandSheet({ name, errand, onFeed, asleep = false }: { name: st
   </Stack>;
 
   return (
-    <Sheet title={errandTitle(name)} column foot={foot} status={ended ? (line?.text ?? '') : errand.sendFailed ? offlineLine(name) : (blockText ?? '')} onClose={errand.close}>
+    <Sheet title={errandTitle(name)} column inert={inert} foot={foot} status={ended ? (line?.text ?? '') : errand.sendFailed ? offlineLine(name) : (blockText ?? '')} onClose={errand.close}>
       <Stack gap={5}>
         {asleep ? <Note tone="plain">{`${name} is asleep. Share one Find out or Is it true? job for friends to fund.`}</Note> : null}
         {top}

@@ -80,12 +80,15 @@ test.describe('on a phone', () => {
   test.use({ viewport: { width: 390, height: 844 } });
 
   // spec: add-pet-work › Advice flow › совет открыт
-  test('совет открыт: the visitor\'s pet takes the hero height, rises over the header\'s room and leaves «Go to your Pixel» tappable', async ({ page }) => {
+  test('совет открыт: the visitor\'s pet stands on the Stage in the first screen above the pinned Hotbar and leaves «Go to your Pixel» tappable', async ({ page }) => {
     await open(page);
-    const pet = page.locator('.ds-stage--compact:not(.ds-stage--owner) .pet-figure--hero');
-    // the frames (guestAdvice, 2026-11-07) draw the pet in a box of 20dvh less one space-6 above the pinned Dock
-    const box = await pet.evaluate((el) => el.getBoundingClientRect().height - (innerHeight * 0.2 - 32));
-    expect(Math.abs(box)).toBeLessThan(2);
+    const pet = page.locator('.ds-stage--game .ds-stage__pet .pet-figure--hero');
+    await expect(pet).toBeVisible();
+    const figure = (await pet.boundingBox())!;
+    const bar = (await page.locator('.ds-stage__hotbar').boundingBox())!;
+    expect(figure.height).toBeGreaterThan(100);
+    expect(figure.y).toBeGreaterThanOrEqual(0);
+    expect(figure.y + figure.height).toBeLessThanOrEqual(bar.y + 1);
     const reached = await page.getByRole('link', { name: 'Go to your Pixel' }).evaluate((link) => {
       const r = link.getBoundingClientRect();
       return link.contains(document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2));
@@ -312,9 +315,9 @@ test('свой питомец не может заплатить: the line and �
   await expect(visible(page, `Biscuit's price drops back at ${RESETS}.`).first()).toBeVisible();
   await expect(page.getByRole('button', { name: /^Ask Biscuit/ })).toHaveCount(0);
   await expect(field(page)).toHaveValue(QUESTION);
-  // the state's one filled action is «Feed your Pixel»; «Feed Biscuit» steps down
+  // «Feed your Pixel» is the Composer's one filled button; «Feed Biscuit» stays the Hotbar's (the frames draw it primary in every state)
   await expect(page.getByRole('button', { name: 'Feed your Pixel' })).toHaveClass(/ds-button--primary/);
-  await expect(page.getByRole('button', { name: 'Feed Biscuit' }).filter({ visible: true })).toHaveClass(/ds-button--secondary/);
+  await expect(page.getByRole('button', { name: 'Feed Biscuit' }).filter({ visible: true })).toHaveClass(/ds-hotbar__action--primary/);
   await page.getByRole('button', { name: 'Feed your Pixel' }).click();
   await expect(page.getByRole('dialog', { name: 'Feed your Pixel' })).toBeVisible();
   expect(await asks(page)).toEqual([]);
@@ -459,15 +462,15 @@ test('совет открыт: a visitor and a player with no pet of their own g
 });
 
 // spec: add-pet-work › Advice flow › свой питомец не может заплатить × fed elsewhere
-test('свой питомец не может заплатить × fed elsewhere: the paying pet fed in another tab or by a friend — «Ask» comes back by itself, «Feed Biscuit» is primary again', async ({ page }) => {
+test('свой питомец не может заплатить × fed elsewhere: the paying pet fed in another tab or by a friend — «Ask» comes back by itself, «Feed Biscuit» stays in the Hotbar', async ({ page }) => {
   await open(page, { payer: { tokenId: '9', name: 'Pixel', state: 'short', until: null } });
   await field(page).fill(QUESTION);
   await expect(page.getByRole('button', { name: 'Feed your Pixel' })).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Feed Biscuit' }).filter({ visible: true })).toHaveClass(/ds-button--secondary/);
+  await expect(page.getByRole('button', { name: 'Feed Biscuit' }).filter({ visible: true })).toHaveClass(/ds-hotbar__action--primary/);
   await setWorker(page, { advice: { payer: { tokenId: '9', name: 'Pixel', state: 'ok', until: null } } });
   await expect(ask(page)).toBeEnabled({ timeout: 15_000 });
   await expect(page.getByRole('button', { name: 'Feed your Pixel' })).toHaveCount(0);
-  await expect(page.getByRole('button', { name: 'Feed Biscuit' }).filter({ visible: true })).toHaveClass(/ds-button--primary/);
+  await expect(page.getByRole('button', { name: 'Feed Biscuit' }).filter({ visible: true })).toHaveClass(/ds-hotbar__action--primary/);
   await expect(field(page)).toHaveValue(QUESTION);
 });
 

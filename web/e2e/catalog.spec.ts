@@ -1,6 +1,6 @@
 import { expect, test, type Page } from '@playwright/test';
 import type { CatalogEntryView, SourceView, ToolView } from '../src/seams/worker-types';
-import { ASLEEP_PIXEL, BISCUIT, calls, openWith, OWNER, PIXEL, setWorker, SIGNED_IN } from './helpers';
+import { ASLEEP_PIXEL, BISCUIT, calls, inCard, openCard, openWith, OWNER, PIXEL, setWorker, SIGNED_IN } from './helpers';
 
 // Adapter catalog (add-pet-errands › Adapter catalog screen, Catalog flow): `/adapters`, or `/adapters?pet=<token_id>` from a pet's Skill
 // sheet — every published adapter with the pet it came from, «Connect to {name}'s skill» for the pet's owner, nothing to connect for
@@ -253,7 +253,8 @@ test('signed-out × sign-in: a player with a pet of their own, by the address, r
 // spec: add-pet-errands › Adapter sheet screen › success × Browse the catalog
 test('success × Browse the catalog: the link opens `/adapters?pet=9`; «Back to Pixel» returns to Skill sheet and the typed fields are gone', async ({ page }) => {
   await openWith(page, '/pet/9', { auth: SIGNED_IN, worker: ownerWorker() });
-  await page.getByRole('button', { name: `Pixel's skill: Good at ${LABEL}` }).click();
+  await openCard(page);
+  await inCard(page).getByRole('button', { name: "Pixel's skill" }).click();
   await skillSheet(page).getByRole('button', { name: 'Add data' }).first().click();
   await connectSheet(page).getByLabel('Name it').fill('Typed name');
   await connectSheet(page).getByRole('link', { name: 'Browse the catalog' }).click();

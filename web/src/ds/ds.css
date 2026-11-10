@@ -1,6 +1,6 @@
 /* The game's design system, ported. tokens.css matches design/bundle/ds/tokens.css and components.css matches
    design/ds/components.css. Web-only layout rules live in the imported local stylesheets below.
-   DS version note (design/bundle/manifest.json): 0.46 · 2026-11-05 — the source CSS includes the in-flow Meadow foot, Menu message, RailItem describedby, ShareCard growth and outfit, and Sheet foot. 0.43 · 2026-11-04 — CopyField's read-only textarea and Button `nowrap` are in the CSS; the React components wait for the change that uses them. 0.39 · 2026-11-03 — Meadow gives way first, Pause motion below its ground,
+   DS version note (design/ds/README.md): 0.48 · 2026-11-08 — game Stage, Hud, pinned phone Hotbar, ActionMenu, PetCard, Bubble, Egg, DisclosureLine, compact Hatch form and Stage sheet placement. 0.46 · 2026-11-05 — the source CSS includes the in-flow Meadow foot, Menu message, RailItem describedby, ShareCard growth and outfit, and Sheet foot. 0.43 · 2026-11-04 — CopyField's read-only textarea and Button `nowrap` are in the CSS; the React components wait for the change that uses them. 0.39 · 2026-11-03 — Meadow gives way first, Pause motion below its ground,
    and Toast stays below the header on the phone. 0.28 (the prototype's P6): Pet's Motion and Reduced
    motion lines per moment. 0.27: a notice is always Block `quiet`, a filled role block is for what the player acts
    on or gets. 0.26: ItemNote and ItemGrid
@@ -55,3 +55,11 @@
 /* the page under the shell, as the frames' runner sets it (design/bundle/frame.js): no browser margin, the canvas
    colour behind everything */
 html, body { margin: 0; background: var(--color-bg-canvas, var(--color-bg-ground)); }
+
+/* The game Stage's shell is `min(viewport, first fold)` tall on the phone (components.css); the frames' runner stretches it to
+   the viewport (frame.js: a flex column of 100vh whose page grows). Here the same stretch is what pins the Hotbar to the
+   viewport's bottom like the Dock (the user, 2026-11-08), and a longer page still grows past it. */
+@media not all and (min-width: 768px) {
+  #root { display: flex; flex-direction: column; min-height: var(--size-viewport-height); }
+  #root .ds-shell--fill:has(.ds-stage--game) { flex: 1 0 auto; }
+}

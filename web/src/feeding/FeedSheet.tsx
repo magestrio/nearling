@@ -4,6 +4,7 @@ import { resetTime } from '../lib/time';
 import { useAuth } from '../seams/auth';
 import type { FeedSheetData, SheetPortion } from '../seams/worker-types';
 import { hatchPath } from '../route';
+import { makePet } from '../pet/proto/generator.js';
 import { AddNearBody } from './AddNearSheet';
 import { Failure } from './Failure';
 import { balance, dateAndTime, sentenceName, usd } from './format';
@@ -212,11 +213,11 @@ function shownSheet(phase: Phase): FeedSheetData | null {
 }
 
 /** The pet's fullness, in the head of the sheet: the phone's bottom sheet covers the plate. */
-function FullnessHead({ fullness, elsewhere }: { fullness: FeedSheetData['fullness']; elsewhere: boolean }) {
+function FullnessHead({ fullness, elsewhere, tokenId }: { fullness: FeedSheetData['fullness']; elsewhere: boolean; tokenId: string }) {
   const { state, level } = fullness;
   const cells = <Fullness state={state} level={state === 'hungry' ? level : undefined} />;
   // the own pet over a friend's page is not on the plate at all: its fullness stands in the head on the desktop too
-  return elsewhere ? cells : <Only on="phone">{cells}</Only>;
+  return elsewhere ? <div data-accent={makePet(tokenId).hue}>{cells}</div> : <Only on="phone">{cells}</Only>;
 }
 
 /** The words of the outcome that stands: for the sheet's live region, and for the line the sheet draws. */
@@ -264,7 +265,7 @@ export function FeedSheet({ request, onClose, column, pageFullness }: { request:
   // page's plate in its head, as the frame does
   const headFullness = sheet ? sheet.fullness : (failedRead || noNetwork || blind) && !elsewhere ? pageFullness : undefined;
   const stepOpen = phase.kind === 'addNear';
-  const arrivedFrom = useRef(false);
+  const returnedFrom = useRef<'back' | 'arrived' | null>(null);
 
   // Where the focus goes after an outcome (DS › Sheet › After an outcome): a sent portion keeps it on its row, a failure puts it on
   // «Try again», «Yum!» and the thanks on «Done» (or «Get your own pet», which stands there), copying that failed on the link.
@@ -285,11 +286,16 @@ export function FeedSheet({ request, onClose, column, pageFullness }: { request:
     });
   }, [link]);
 
-  // A step back from Add NEAR lands on the sheet it came from: «Add NEAR» there again, or its first control.
+  // Back restores the Add NEAR control; after an arrival that control may disappear, so focus the persistent title.
   useEffect(() => {
-    if (kind === 'open' && arrivedFrom.current) {
-      arrivedFrom.current = false;
-      focusIn((root) => buttonNamed('Add NEAR')(root) ?? root.querySelector<HTMLElement>('button:not([disabled])'));
+    if (kind === 'open' && returnedFrom.current) {
+      const returned = returnedFrom.current;
+      returnedFrom.current = null;
+      focusIn((root) => {
+        const title = root.querySelector<HTMLElement>('.ds-sheet__title');
+        if (title) title.tabIndex = -1;
+        return returned === 'arrived' ? title : buttonNamed('Add NEAR')(root) ?? title;
+      });
     }
   }, [kind]);
 
@@ -319,7 +325,7 @@ export function FeedSheet({ request, onClose, column, pageFullness }: { request:
   const status = stepOpen ? step : outcome !== '' ? outcome : link === 'copied' ? LINK_COPIED : link === 'manual' ? COPY_BY_HAND : '';
 
   const leaveStep = (arrived: boolean) => {
-    arrivedFrom.current = true;
+    returnedFrom.current = arrived ? 'arrived' : 'back';
     void back(arrived);
   };
 
@@ -330,9 +336,10 @@ export function FeedSheet({ request, onClose, column, pageFullness }: { request:
       // (`Add NEAR sheet screen` › «Закрытый без перевода, лист возвращает туда, откуда открыт»)
       onClose={stepOpen ? () => leaveStep(false) : onClose}
       onBack={stepOpen ? () => leaveStep(false) : undefined}
+      returnFocusTo={request.returnFocusTo}
       column={column}
       status={status}
-      head={headFullness && !stepOpen ? <FullnessHead fullness={headFullness} elsewhere={elsewhere} /> : undefined}
+      head={headFullness && !stepOpen ? <FullnessHead fullness={headFullness} elsewhere={elsewhere} tokenId={tokenId} /> : undefined}
     >
       {stepOpen ? <AddNearBody from="feed" onStatus={setStep} onArrived={() => leaveStep(true)} onClose={onClose} /> : null}
       {failedRead && !stepOpen ? <Failure onRetry={tryAgain}>{OPEN_ERROR}</Failure> : null}

@@ -3,8 +3,8 @@ import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { AuthContext, type AuthApi } from '../../seams/auth-context';
-import type { PetState, PetView } from '../../seams/worker-types';
-import { usePetScreen } from './usePetScreen';
+import { WorkerError, type PetState, type PetView } from '../../seams/worker-types';
+import { FORMER_OWNER_LINE, usePetScreen } from './usePetScreen';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -79,6 +79,38 @@ afterEach(async () => {
 });
 
 describe('look: a read the screen asks for', () => {
+  // spec: add-game-layout › Pet stage rule › guest entries × owner-to-guest read
+  it('replaces the owner view and drops the private conversation after ownership changes', async () => {
+    await act(async () => {
+      root = createRoot(document.createElement('div'));
+      root.render(<AuthContext.Provider value={auth}><Probe /></AuthContext.Provider>);
+    });
+    await vi.waitFor(() => expect(screen.page.kind === 'pet' && screen.page.pet.viewer).toBe('owner'));
+    await vi.waitFor(() => expect(mocks.petState).toHaveBeenCalledTimes(1));
+    await act(async () => screen.setDraft('private draft'));
+    mocks.pet.mockResolvedValueOnce({ ...OWNER, viewer: 'guest' });
+    mocks.petState.mockRejectedValueOnce(new WorkerError(403, 'not_owner'));
+    await act(async () => void screen.look());
+    await vi.waitFor(() => expect(screen.page.kind === 'pet' && screen.page.pet.viewer).toBe('guest'));
+    expect(screen.draft).toBe('');
+    expect(screen.lines).toBeNull();
+    expect(screen.notice).toBe(FORMER_OWNER_LINE);
+  });
+
+  // spec: add-game-layout › Pet card screen › error (owner changed) × sign-out
+  it('does not announce a new owner when the owner simply signs out', async () => {
+    await act(async () => {
+      root = createRoot(document.createElement('div'));
+      root.render(<AuthContext.Provider value={auth}><Probe /></AuthContext.Provider>);
+    });
+    await vi.waitFor(() => expect(screen.page.kind === 'pet' && screen.page.pet.viewer).toBe('owner'));
+    mocks.pet.mockResolvedValueOnce({ ...OWNER, viewer: 'visitor' });
+    const signedOut = { ...auth, authenticated: false, getIdentityToken: async () => null } as AuthApi;
+    await act(async () => root!.render(<AuthContext.Provider value={signedOut}><Probe /></AuthContext.Provider>));
+    await vi.waitFor(() => expect(screen.page.kind === 'pet' && screen.page.pet.viewer).toBe('visitor'));
+    expect(screen.notice).not.toBe(FORMER_OWNER_LINE);
+  });
+
   // spec: add-wardrobe › New outfit notice screen › success
   it('follows a poll that was already in flight, so the poll that began before the wear does not leave the old outfit', async () => {
     await act(async () => {

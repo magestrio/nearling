@@ -61,6 +61,9 @@ it('keeps the warning after both experience reads fail', async () => {
           onRetry={() => undefined} onNotOwner={() => undefined} returnFocusTo={() => null} />
       </AuthContext.Provider>,
     ));
+    // spec: add-account › Clear memory dialog screen › success
+    expect(document.activeElement?.textContent).toBe('Keep memory');
+    expect(host.querySelector('button[data-autofocus]')?.textContent).toBe('Keep memory');
     await vi.waitFor(() => expect(fetchMock.mock.calls.filter(([path]) => String(path).includes('/experience') || String(path).endsWith('/work'))).toHaveLength(2));
     await act(async () => { await Promise.resolve(); });
     expect(host.textContent).toContain('Work notes and the public field will be erased. Paid work counts and receipts stay public forever.');

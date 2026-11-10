@@ -28,15 +28,19 @@ test('relationship refusal keeps advice unsent and offers another pet', async ({
 });
 
 // spec: add-pet-society › Society hire flow › player advice refused × phone Dock
-test('on a phone the advice action stays at the viewport bottom while the pet scrolls', async ({ page }) => {
+test('on a phone the Hotbar stays at the viewport bottom while the page scrolls, and «Ask another pet» is in reach', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await openWith(page, '/pet/2', { auth: SIGNED_IN, worker: { owned: ['9'], pets: { '9': PIXEL, '2': BISCUIT }, me, advice: { refusalUntil: breakUntil } } });
-  const dock = page.locator('.advice-dock-wrap');
+  const hotbar = page.locator('.ds-stage__hotbar');
   await expect(page.getByRole('link', { name: 'Ask another pet' })).toBeVisible();
-  const bottom = await dock.evaluate((el) => el.getBoundingClientRect().bottom);
-  expect(bottom).toBeCloseTo(844, 0);
+  const resting = await hotbar.evaluate((el) => el.getBoundingClientRect().bottom);
+  expect(resting).toBeGreaterThan(844 - 8);
   await page.evaluate(() => window.scrollBy(0, 500));
-  expect(await dock.evaluate((el) => el.getBoundingClientRect().bottom)).toBeCloseTo(844, 0);
+  expect(await hotbar.evaluate((el) => el.getBoundingClientRect().bottom)).toBeCloseTo(resting, 0);
+  await page.getByRole('link', { name: 'Ask another pet' }).scrollIntoViewIfNeeded();
+  const link = await page.getByRole('link', { name: 'Ask another pet' }).boundingBox();
+  const bar = (await hotbar.boundingBox())!;
+  expect(link!.y + link!.height).toBeLessThanOrEqual(bar.y + 1);
 });
 
 // spec: add-pet-society › Society hire flow › manual quote
@@ -79,26 +83,23 @@ test('diary shows gossip only when the Worker returns a settled social line', as
 
 
 // spec: add-pet-society › Society hire flow › player advice refused × phone Dock
-test('on a short zoomed phone the question field stays reachable and the page keeps the Dock height', async ({ page }) => {
+test('on a short zoomed phone the question field stays reachable at the end of the page', async ({ page }) => {
   await page.setViewportSize({ width: 360, height: 225 });
   await openWith(page, '/pet/2', { auth: SIGNED_IN, worker: { owned: ['9'], pets: { '9': PIXEL, '2': BISCUIT }, me,
     advice: { price: { yocto: '747000000000000000000', cents: 0.34 }, discounted: true } } });
   const field = page.getByPlaceholder('Ask Biscuit for advice…');
-  const dock = page.locator('.advice-dock-wrap');
   await field.fill('Can you help me find the words for a long, long message? '.repeat(12));
-  await field.scrollIntoViewIfNeeded();
-  const inView = async (box: Promise<{ top: number; bottom: number }>) => {
-    const { top, bottom } = await box;
-    expect(top).toBeGreaterThanOrEqual(0);
-    expect(bottom).toBeLessThanOrEqual(225.5);
-  };
-  await inView(dock.evaluate((el) => el.getBoundingClientRect()));
-  await inView(field.evaluate((el) => el.getBoundingClientRect()));
+  // scrolled to the page's end the field's last line is in the viewport with nothing over it: the sticky Hotbar leaves with its Stage
+  // at this height (DS finding), it never hides the field for good
+  await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight));
   await field.focus();
-  await inView(field.evaluate((el) => el.getBoundingClientRect()));
-  const dockHeight = await dock.evaluate((el) => el.getBoundingClientRect().height);
-  const space = await page.locator('.advice-phone-dock-space').evaluate((el) => el.getBoundingClientRect().height);
-  expect(Math.abs(space - dockHeight)).toBeLessThanOrEqual(1);
+  const reached = await field.evaluate((el) => {
+    const r = el.getBoundingClientRect();
+    const y = Math.min(r.bottom - 4, innerHeight - 4);
+    return { inView: r.bottom > 0 && r.bottom <= innerHeight + 0.5, hit: el.contains(document.elementFromPoint(r.x + r.width / 2, y)) };
+  });
+  expect(reached).toEqual({ inView: true, hit: true });
+  await expect(field).toBeFocused();
 });
 
 // spec: add-pet-society › Society playtest data › social diary seen

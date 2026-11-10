@@ -70,7 +70,7 @@ test('спросил: Nori\'s answer under its name with its receipt, then the p
     conversation: conversation(you, question, workerSays(), ownReply()),
     petState: { pendingProgress: null, thought: { id: 'h3', text: PET_SAYS, cut: null } },
   });
-  await expect(page.getByText(PET_SAYS)).toBeVisible();
+  await expect(log(page).getByText(PET_SAYS)).toBeVisible();
   await expect(page.getByText('Pixel is asking Nori…')).toHaveCount(0);
   // the worker's answer in its own voice, with its receipt at the worker's token id
   const answer = log(page).locator('li', { hasText: WORKER_SAYS });
@@ -117,7 +117,7 @@ test('спрашивает × reload: a reloaded page shows «Pixel is asking No
   await expect(sendButton(page)).toHaveAttribute('aria-disabled', 'true');
   // the turn ends while the page is open
   await setWorker(page, { conversation: conversation(you, question, workerSays(), ownReply()), petState: { pendingProgress: null, thought: { id: 'h3', text: PET_SAYS, cut: null } } });
-  await expect(page.getByText(PET_SAYS)).toBeVisible();
+  await expect(log(page).getByText(PET_SAYS)).toBeVisible();
   await expect(log(page).getByText(WORKER_SAYS)).toBeVisible();
 });
 
@@ -166,7 +166,7 @@ test('спрашивает: «Ask Nori» sends the price the card named, the but
     pets: { '9': { ...OWNER.pets['9'], owner: { hireMode: 'manual' as const, offer: null } }, '2': BISCUIT },
     petState: { pendingProgress: null, offer: null, thought: { id: 'h3', text: PET_SAYS, cut: null } },
   });
-  await expect(page.getByText(PET_SAYS)).toBeVisible();
+  await expect(log(page).getByText(PET_SAYS)).toBeVisible();
   await expect(log(page).getByText(OFFER_WORDS)).toBeVisible();
   await expect(log(page).getByRole('button', { name: 'Ask Nori' })).toHaveCount(0);
 });
@@ -204,7 +204,7 @@ test('отказ в Manual: «No thanks» takes the buttons, keeps the words, pu
     pets: { '9': { ...OWNER.pets['9'], owner: { hireMode: 'manual' as const, offer: null } }, '2': BISCUIT },
     petState: { offer: null, thought: { id: 'h3', text: PET_ALONE, cut: null } },
   });
-  await expect(page.getByText(PET_ALONE)).toBeVisible();
+  await expect(log(page).getByText(PET_ALONE)).toBeVisible();
   await expect(log(page).getByText(OFFER_WORDS)).toBeVisible();
   await expect(log(page)).not.toContainText('Pixel asked Nori');
 });
@@ -327,7 +327,7 @@ test('свой ответ заново: «Try again» asks for the own reply onl
     conversation: conversation(you, question, workerSays(), ownReply()),
     petState: { code: undefined, ownLost: undefined, thought: { id: 'h3', text: PET_SAYS, cut: null } },
   });
-  await expect(page.getByText(PET_SAYS)).toBeVisible();
+  await expect(log(page).getByText(PET_SAYS)).toBeVisible();
   await expect(log(page).getByText(WORKER_SAYS)).toHaveCount(1);
   expect((await calls(page)).filter((c) => c === 'worker:say')).toHaveLength(1);
 });

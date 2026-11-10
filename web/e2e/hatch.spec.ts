@@ -5,6 +5,23 @@ const HATCH = 'Hatch my pet';
 const hatchButton = (page: import('@playwright/test').Page) => page.getByRole('button', { name: HATCH });
 const nameField = (page: import('@playwright/test').Page) => page.getByLabel('Name your pet');
 const PUBLIC_FIRST = "Your pet's name, character, ID, hatch date";
+// DS 0.48: both notices start folded to one line each; their complete text opens by «Read what's public» / «Read what goes to NEAR AI»
+const expandNotices = async (page: import('@playwright/test').Page) => {
+  await page.getByRole('button', { name: "Read what's public" }).click();
+  await page.getByRole('button', { name: 'Read what goes to NEAR AI' }).click();
+};
+
+// spec: add-pet › Birth flow › birth pending
+test('the pending Egg rocks for ordinary motion and holds still for reduced motion', async ({ page }) => {
+  await openWith(page, '/hatch', { auth: SIGNED_IN, worker: { hatchDelayMs: 60_000 } });
+  await nameField(page).fill('Pixel');
+  await hatchButton(page).click();
+  const shell = page.locator('.ds-egg--cracking .ds-egg__shell');
+  await expect(shell).toBeVisible();
+  await expect.poll(() => shell.evaluate((node) => getComputedStyle(node).animationName)).toBe('ds-egg-rock');
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  await expect.poll(() => shell.evaluate((node) => getComputedStyle(node).animationName)).toBe('none');
+});
 
 // spec: add-pet › Hatch screen › empty
 test('empty: the name field, the limit line, the first notice without a name, «Hatch my pet» inactive', async ({ page }) => {
@@ -14,6 +31,7 @@ test('empty: the name field, the limit line, the first notice without a name, «
   await expect(nameField(page)).toHaveAttribute('placeholder', 'e.g. Pixel');
   await expect(page.getByText('Up to 32 characters — fewer with emoji or accents.')).toBeVisible();
   await expect(page.getByText('This name is public forever — even if this game shuts down.')).toHaveCount(0);
+  await expandNotices(page);
   await expect(page.getByText(PUBLIC_FIRST)).toBeVisible();
   await expect(hatchButton(page)).toBeDisabled();
 });
@@ -23,6 +41,7 @@ test('loading: the notices, «Hatch my pet» inactive, the line «Checking if ha
   await openWith(page, '/hatch', { auth: SIGNED_IN, worker: { hatchStatusDelayMs: 1200 } });
   const line = page.getByRole('status').filter({ hasText: 'Checking if hatching is open…' });
   await expect(line).toHaveCount(1);
+  await expandNotices(page);
   await expect(page.getByText(PUBLIC_FIRST)).toBeVisible();
   await expect(hatchButton(page)).toBeDisabled();
   await expect(page.getByText('Checking if hatching is open…')).toHaveCount(0);
@@ -34,6 +53,7 @@ test('success: a name makes the second line and the button active; «Hatch my pe
   await openWith(page, '/hatch', { auth: SIGNED_IN, worker: { hatchDelayMs: 600 } });
   await nameField(page).fill('Pixel');
   await expect(page.getByText('This name is public forever — even if this game shuts down.')).toBeVisible();
+  await expandNotices(page);
   await expect(page.getByText('Your pet\'s name "Pixel", character, ID')).toBeVisible();
   await expect(page.getByText("A thought's receipt shows how long the reply was and whether your pet thought hard — never what was said.")).toBeVisible();
   await expect(page.getByText("To write your pet's replies, we send NEAR AI")).toBeVisible();
@@ -57,6 +77,7 @@ test('signed-out: the form is there, «Sign in with Google to hatch your pet» i
   });
   await openWith(page, '/hatch', {});
   await expect(nameField(page)).toBeVisible();
+  await expandNotices(page);
   await expect(page.getByText("To write your pet's replies, we send NEAR AI")).toBeVisible();
   await expect(hatchButton(page)).toHaveCount(0);
   await page.getByRole('button', { name: 'Sign in with Google to hatch your pet' }).click();
@@ -99,6 +120,7 @@ test('the name is cleaned in the browser for the notice and goes to the server o
   await openWith(page, '/hatch', { auth: SIGNED_IN, worker: { hatchDelayMs: 300 } });
   const typed = 'Pi\u200Bxel ';
   await nameField(page).fill(typed);
+  await expandNotices(page);
   await expect(page.getByText('Your pet\'s name "Pixel", character, ID')).toBeVisible();
   expect((await calls(page)).filter((c) => c.startsWith('worker:hatch:'))).toEqual([]);
   await hatchButton(page).click();
@@ -110,6 +132,7 @@ test('the name is cleaned in the browser for the notice and goes to the server o
 test('the public-data notice names every public item, the skill included, with the cleaned name', async ({ page }) => {
   await openWith(page, '/hatch', { auth: SIGNED_IN });
   await nameField(page).fill('Pixel');
+  await expandNotices(page);
   await expect(
     page.getByText(
       'Your pet\'s name "Pixel", character, ID, hatch date, owner and who gave it to whom, growth, traits, streak and freezes (so the days you finish its ritual), every outfit, meal and thought receipt, every pet it asks for help or helps, whether a skill shaped it, and every price and fee are public forever — even if this game shuts down.',
@@ -122,6 +145,7 @@ test('the public-data notice names every public item, the skill included, with t
 test('only blanks or invisibles in the field: the notice has no name, the button is active, the refusal keeps the text', async ({ page }) => {
   await openWith(page, '/hatch', { auth: SIGNED_IN });
   await nameField(page).fill('   \u200B ');
+  await expandNotices(page);
   await expect(page.getByText(PUBLIC_FIRST)).toBeVisible();
   await expect(page.getByText('This name is public forever — even if this game shuts down.')).toHaveCount(0);
   await expect(hatchButton(page)).toBeEnabled();
@@ -266,6 +290,7 @@ test('error: paused — the line and «Go home» in the button\'s place, the nam
   await nameField(page).fill('Pixel');
   await expect(page.getByText('New pets are paused for now. You can still feed and visit pets you know.').first()).toBeVisible();
   await expect(hatchButton(page)).toHaveCount(0);
+  await expect(page.getByRole('link', { name: 'Go home' })).toBeVisible();
   await expect(nameField(page)).toHaveValue('Pixel');
 });
 
@@ -279,6 +304,8 @@ test('closed for today: the line with the reset time in the player\'s clock, the
 // spec: add-pet › Hatch screen › выход к питомцу друга
 test('closed, from a friend\'s pet: «Back to Biscuit» leads to the friend\'s Pet screen', async ({ page }) => {
   await openWith(page, '/hatch?from=2', { worker: { hatchStatus: { open: false, reason: 'daily' } } });
+  // the frame `hatch-closed-today` draws «Find a pet to ask» beside «Back to Biscuit»
+  await expect(page.getByRole('link', { name: 'Find a pet to ask' })).toHaveCount(1);
   await page.getByRole('link', { name: 'Back to Biscuit' }).click();
   await expect(page).toHaveURL(/\/pet\/2$/);
 });
@@ -331,6 +358,7 @@ test('exit to the board: a signed-in player who never hatched can find a pet to 
   await expect(page.getByText(/^That's all the new pets for today\. Hatching is back at \d\d:\d\d\. You can still feed and visit pets you know\.$/).first()).toBeVisible();
   await expect(page.getByRole('link', { name: 'Go home' })).toHaveCount(0);
   await expect(page.getByRole('link', { name: /^Back to/ })).toHaveCount(0);
+  await expect(page.getByRole('link', { name: 'Find a pet to ask' })).toHaveCount(1);
   await expect(page.getByRole('link', { name: 'Find a pet to ask' })).toHaveAttribute('href', '/hire');
   await expect(hatchButton(page)).toHaveCount(0);
   await expect(page.getByRole('button', { name: 'Account' })).toBeVisible();
@@ -373,4 +401,171 @@ test('the game can\'t be reached on a fresh load: the line, «Try again», «Hat
   await setWorker(page, { hatchStatus: { open: true } });
   await page.getByRole('button', { name: 'Try again' }).click();
   await expect(hatchButton(page)).toBeVisible();
+});
+
+// ── add-game-layout › Hatch notice rule ──────────────────────────────────────────────────────────────────────
+
+const PUBLIC_LINE = "Your pet's name, character and on-chain history are public forever.";
+const AI_LINE = "Your words and your pet's memories about you and friends who feed it go to NEAR AI.";
+const SAVED = "Saved food and a bought outfit are public on NEAR forever. The wish's words stay private.";
+const AI_FULL = "To write your pet's replies, we send NEAR AI what you say";
+const publicOpener = (page: import('@playwright/test').Page) => page.getByRole('button', { name: "Read what's public" });
+const aiOpener = (page: import('@playwright/test').Page) => page.getByRole('button', { name: 'Read what goes to NEAR AI' });
+const hide = (page: import('@playwright/test').Page) => page.getByRole('button', { name: 'Hide details' });
+// with a name in the field the full notice carries it: Your pet's name "Pixel", character, ID, hatch date …
+const fullPublic = (page: import('@playwright/test').Page) => page.getByText(/^Your pet's name( ".*")?, character, ID, hatch date/);
+const fullAi = (page: import('@playwright/test').Page) => page.getByText(AI_FULL);
+
+// spec: add-game-layout › Hatch notice rule › public notice folded
+test('public notice folded: its short line and «Read what\'s public»; the full text comes only with the tap', async ({ page }) => {
+  await openWith(page, '/hatch', { auth: SIGNED_IN });
+  await expect(page.getByText(PUBLIC_LINE)).toBeVisible();
+  await expect(publicOpener(page)).toHaveAttribute('aria-expanded', 'false');
+  await expect(fullPublic(page)).toHaveCount(0);
+  await expect(page.getByText(SAVED)).toHaveCount(0);
+  await publicOpener(page).click();
+  await expect(fullPublic(page)).toBeVisible();
+  await expect(page.getByText(SAVED)).toBeVisible();
+  await expect(page.getByText("A thought's receipt shows how long the reply was and whether your pet thought hard — never what was said.")).toBeVisible();
+});
+
+// spec: add-game-layout › Hatch notice rule › AI notice folded
+test('AI notice folded: its short line and «Read what goes to NEAR AI»; the full provider notice comes with the tap', async ({ page }) => {
+  await openWith(page, '/hatch', { auth: SIGNED_IN });
+  await expect(page.getByText(AI_LINE)).toBeVisible();
+  await expect(aiOpener(page)).toHaveAttribute('aria-expanded', 'false');
+  await expect(fullAi(page)).toHaveCount(0);
+  await aiOpener(page).click();
+  await expect(fullAi(page)).toBeVisible();
+});
+
+// spec: add-game-layout › Hatch notice rule › public notice folded × expand public
+// spec: add-game-layout › Hatch notice rule › AI notice folded × expand AI
+test('expanding one notice opens only its own full text', async ({ page }) => {
+  await openWith(page, '/hatch', { auth: SIGNED_IN });
+  await publicOpener(page).click();
+  await expect(fullPublic(page)).toBeVisible();
+  await expect(fullAi(page)).toHaveCount(0);
+  await hide(page).click();
+  await expect(fullPublic(page)).toHaveCount(0);
+  await aiOpener(page).click();
+  await expect(fullAi(page)).toBeVisible();
+  await expect(fullPublic(page)).toHaveCount(0);
+});
+
+// spec: add-game-layout › Hatch notice rule › notice expanded
+// spec: add-game-layout › Hatch notice rule › notice expanded × expand other
+// spec: add-game-layout › Hatch notice rule › notice expanded × Hide details
+test('notice expanded: its short line stays, «Hide details» folds only that notice, the other one is its own', async ({ page }) => {
+  await openWith(page, '/hatch', { auth: SIGNED_IN });
+  await nameField(page).fill('Pixel');
+  await publicOpener(page).click();
+  await aiOpener(page).click();
+  await expect(page.getByText(PUBLIC_LINE)).toBeVisible();
+  await expect(page.getByText(AI_LINE)).toBeVisible();
+  await expect(fullPublic(page)).toBeVisible();
+  await expect(fullAi(page)).toBeVisible();
+  await expect(hide(page)).toHaveCount(2);
+  await hide(page).first().click();
+  await expect(fullPublic(page)).toHaveCount(0);
+  await expect(fullAi(page)).toBeVisible();
+  await expect(page.getByText(PUBLIC_LINE)).toBeVisible();
+  await expect(nameField(page)).toHaveValue('Pixel');
+});
+
+// spec: add-game-layout › Hatch notice rule › notice expanded × name edit
+test('a name edit with a notice open puts the current name in the full text and leaves the other notice as it was', async ({ page }) => {
+  await openWith(page, '/hatch', { auth: SIGNED_IN });
+  await publicOpener(page).click();
+  await nameField(page).fill('Pixel');
+  await expect(page.getByText('Your pet\'s name "Pixel", character, ID')).toBeVisible();
+  await nameField(page).fill('Nori');
+  await expect(page.getByText('Your pet\'s name "Nori", character, ID')).toBeVisible();
+  await expect(aiOpener(page)).toHaveAttribute('aria-expanded', 'false');
+  await expect(fullAi(page)).toHaveCount(0);
+});
+
+// spec: add-game-layout › Hatch notice rule › public notice folded × submit
+// spec: add-game-layout › Hatch notice rule › notice expanded × submit
+test('the button below both lines stays the consent: the birth starts folded or expanded', async ({ page }) => {
+  await openWith(page, '/hatch', { auth: SIGNED_IN, worker: { hatchDelayMs: 600 } });
+  await nameField(page).fill('Pixel');
+  await publicOpener(page).click();
+  await expect(hatchButton(page)).toBeEnabled();
+  await hatchButton(page).click();
+  await expect(page.getByRole('button', { name: 'Hatching…' })).toHaveAttribute('aria-disabled', 'true');
+  expect((await calls(page)).filter((call) => call === 'worker:hatch')).toHaveLength(1);
+  await expect(page).toHaveURL(/\/pet\/9$/);
+});
+
+// spec: add-game-layout › Hatch notice rule › public notice folded × submit
+test('folded notices: the consent button still hatches, and the full texts were never needed to ask it', async ({ page }) => {
+  await openWith(page, '/hatch', { auth: SIGNED_IN, worker: { hatchDelayMs: 300 } });
+  await nameField(page).fill('Pixel');
+  await expect(publicOpener(page)).toHaveAttribute('aria-expanded', 'false');
+  await expect(aiOpener(page)).toHaveAttribute('aria-expanded', 'false');
+  await hatchButton(page).click();
+  await expect(page).toHaveURL(/\/pet\/9$/);
+});
+
+// spec: add-game-layout › Hatch notice rule › notice expanded × sign-out
+test('sign-out with a notice open: the signed-out Hatch, folded again', async ({ page }) => {
+  await openWith(page, '/hatch', { auth: SIGNED_IN });
+  await publicOpener(page).click();
+  await expect(fullPublic(page)).toBeVisible();
+  await page.getByRole('button', { name: 'Account' }).click();
+  await page.getByRole('menuitem', { name: 'Sign out' }).click();
+  await expect(page).toHaveURL(/\/$/);
+  await page.goto('/hatch');
+  await expect(publicOpener(page)).toHaveAttribute('aria-expanded', 'false');
+  await expect(fullPublic(page)).toHaveCount(0);
+});
+
+// spec: add-game-layout › Hatch notice rule › notice expanded × session expiry
+test('a session that ends with a notice open leaves the signed-out Hatch with the notices folded', async ({ page }) => {
+  await openWith(page, '/hatch', { auth: SIGNED_IN });
+  await aiOpener(page).click();
+  await expect(fullAi(page)).toBeVisible();
+  // Privy loses the session from under the open page (another tab signed out); the next tap on «Account» finds it
+  await page.evaluate(() => window.dispatchEvent(new Event('nearling:fake-session-lost')));
+  await page.getByRole('button', { name: 'Account' }).click();
+  await expect(page.getByText("You've been signed out. Sign in to pick up where you left off.").first()).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Sign in' })).toBeVisible();
+  // the next entry to Hatch has the notices folded
+  await page.goto('/hatch');
+  await expect(aiOpener(page)).toHaveAttribute('aria-expanded', 'false');
+  await expect(fullAi(page)).toHaveCount(0);
+});
+
+// spec: add-game-layout › Hatch notice rule › notice expanded × reload
+// spec: add-game-layout › Hatch notice rule › notice expanded × site data erased
+test('a reload or erased site data brings the notices back folded', async ({ page, context }) => {
+  await openWith(page, '/hatch', { auth: SIGNED_IN });
+  await publicOpener(page).click();
+  await aiOpener(page).click();
+  await page.reload();
+  await expect(fullPublic(page)).toHaveCount(0);
+  await expect(fullAi(page)).toHaveCount(0);
+  await publicOpener(page).click();
+  await context.clearCookies();
+  await page.evaluate(() => { localStorage.clear(); sessionStorage.clear(); });
+  await page.reload();
+  await expect(fullPublic(page)).toHaveCount(0);
+  await expect(publicOpener(page)).toHaveAttribute('aria-expanded', 'false');
+});
+
+// spec: add-game-layout › Hatch notice rule › notice expanded × tab hidden then back
+// spec: add-game-layout › Hatch notice rule › notice expanded × UTC midnight
+test('the tab coming back or midnight passing leaves the eligibility to the Hatch read and the open notice open', async ({ page }) => {
+  await openWith(page, '/hatch', { auth: SIGNED_IN });
+  await nameField(page).fill('Pixel');
+  await publicOpener(page).click();
+  await page.evaluate(() => document.dispatchEvent(new Event('visibilitychange')));
+  await expect(fullPublic(page)).toBeVisible();
+  await expect(hatchButton(page)).toBeEnabled();
+  // hatching closed meanwhile (the day's pool is spent): the tap is the authority, as without a notice open
+  await setWorker(page, { hatchResult: { fail: { status: 409, code: 'closed' } }, hatchStatus: { open: false, reason: 'pool' } });
+  await hatchButton(page).click();
+  await expect(page.getByText('New pets are paused for now. You can still feed and visit pets you know.').first()).toBeVisible();
+  await expect(nameField(page)).toHaveValue('Pixel');
 });

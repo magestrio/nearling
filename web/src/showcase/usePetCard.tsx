@@ -1,5 +1,5 @@
 import { useEffect, useReducer, useRef, useState } from 'react';
-import { Actions, Button, ChoiceList, Menu, MenuItem, Note, RailItem, Sheet, Stack } from '../ds';
+import { Actions, Button, ChoiceList, Note, Sheet, Stack } from '../ds';
 import { WorkerError, workerApi, type CardKind, type CardSource, type Token } from '../seams/worker';
 import { renderShowcaseCard, shareCardError, showcaseFacts } from './card';
 import { cardState, emptyCard } from './cardState';
@@ -13,7 +13,6 @@ type Pet = { tokenId: string; name: string; stage: 'baby' | 'teen' | 'adult'; wo
 /** Card selection and preview live only for this mounted owner page. */
 export function usePetCard(pet: Pet, _lines: Line[], tokenOf: () => Promise<Token>, active: boolean) {
   const [draft, dispatch] = useReducer(cardState, emptyCard);
-  const [menu, setMenu] = useState(false);
   const [message, setMessage] = useState('');
   const [choices, setChoices] = useState<Array<{ value: string; text: string }>>([]);
   const [showChoices, setShowChoices] = useState(false);
@@ -31,7 +30,7 @@ export function usePetCard(pet: Pet, _lines: Line[], tokenOf: () => Promise<Toke
   const choicesRef = useRef<Array<{ value: string; text: string }>>([]);
   const focusAfterDraw = useRef(false);
   const lastVisual = useRef({ stage: pet.stage, worn: pet.worn, fullness: pet.fullness.state });
-  const close = () => { const refresh = lostOwner; request.current += 1; dispatch({ type: 'reset' }); setMenu(false); setMessage(''); setChoices([]); choicesRef.current = []; setShowChoices(false); setShareFailure(false); setShareReady(false); setShareNowReady(false); setErasedNotice(false); setLostOwner(false); if (refresh) document.dispatchEvent(new Event('visibilitychange')); };
+  const close = () => { const refresh = lostOwner; request.current += 1; dispatch({ type: 'reset' }); setMessage(''); setChoices([]); choicesRef.current = []; setShowChoices(false); setShareFailure(false); setShareReady(false); setShareNowReady(false); setErasedNotice(false); setLostOwner(false); if (refresh) document.dispatchEvent(new Event('visibilitychange')); };
 
   // A gift, a memory clear, an ended session and a different pet invalidate every old source and image.
   useEffect(() => { close(); }, [active, pet.tokenId, pet.memoryEpoch]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -44,7 +43,6 @@ export function usePetCard(pet: Pet, _lines: Line[], tokenOf: () => Promise<Toke
     if (remaining.length === 0) {
       close();
       setMessage(`That thought is no longer here. Choose another one. No thoughts to share yet. Talk with ${pet.name} to hear one.`);
-      setMenu(true);
       return;
     }
     setChoices(remaining);
@@ -68,14 +66,13 @@ export function usePetCard(pet: Pet, _lines: Line[], tokenOf: () => Promise<Toke
       if (seq !== request.current) return;
       if (e instanceof WorkerError && e.code === 'thought_erased') await dropErased(thoughtId);
       else if (e instanceof WorkerError && e.code === 'not_owner') close();
-      else if (e instanceof WorkerError && e.code === 'growth_not_reached') { close(); setMessage(`${pet.name} hasn't reached a new stage yet.`); setMenu(true); }
-      else if (e instanceof WorkerError && e.code === 'no_outfit') { close(); setMessage(`${pet.name} isn't wearing an outfit to share.`); setMenu(true); }
-      else { close(); setMessage(shareCardError); setMenu(true); }
+      else if (e instanceof WorkerError && e.code === 'growth_not_reached') { close(); setMessage(`${pet.name} hasn't reached a new stage yet.`); }
+      else if (e instanceof WorkerError && e.code === 'no_outfit') { close(); setMessage(`${pet.name} isn't wearing an outfit to share.`); }
+      else { close(); setMessage(shareCardError); }
     }
   };
   const open = async (kind: CardKind) => {
     const seq = ++request.current;
-    setMenu(false);
     setMessage('');
     if (kind === 'thought') {
       try {
@@ -83,7 +80,7 @@ export function usePetCard(pet: Pet, _lines: Line[], tokenOf: () => Promise<Toke
         const available = await workerApi.cardLines(token, pet.tokenId);
         if (seq !== request.current) return;
         const retained = available.lines.filter((line) => line.text).map(({ id, text }) => ({ value: id, text }));
-        if (retained.length === 0) { setMessage(`No thoughts to share yet. Talk with ${pet.name} to hear one.`); setMenu(true); return; }
+        if (retained.length === 0) { setMessage(`No thoughts to share yet. Talk with ${pet.name} to hear one.`); return; }
         choicesRef.current = retained;
         setChoices(retained);
         setShowChoices(true);
@@ -92,7 +89,7 @@ export function usePetCard(pet: Pet, _lines: Line[], tokenOf: () => Promise<Toke
       } catch (e) {
         if (seq !== request.current) return;
         if (e instanceof WorkerError && e.code === 'not_owner') close();
-        else { setMessage(shareCardError); setMenu(true); }
+        else { setMessage(shareCardError); }
       }
       return;
     }
@@ -247,16 +244,8 @@ export function usePetCard(pet: Pet, _lines: Line[], tokenOf: () => Promise<Toke
       if (delivery === 'share' && !activationFallback && seq === request.current) setValidationEpoch((now) => now + 1);
     }
   };
-  const entry = <RailItem icon="share" label={`Share ${pet.name}`} haspopup={message ? undefined : 'menu'} expanded={menu || undefined}
-    controls={message ? undefined : 'pet-share-menu'} describedby={message ? 'pet-share-menu-message' : undefined}
-    onClick={() => { setMenu((was) => !was); setMessage(''); }} onClose={() => { setMenu(false); setMessage(''); }}
-    menu={<Menu id="pet-share-menu" label={`Share ${pet.name}`} message={message || undefined} onClose={() => { setMenu(false); setMessage(''); }}>
-      <MenuItem first onClick={() => void open('thought')}>Share a thought</MenuItem>
-      <MenuItem onClick={() => void open('growth')}>Share growth</MenuItem>
-      <MenuItem onClick={() => void open('outfit')}>Share outfit</MenuItem>
-    </Menu>} />;
   const sheet = draft.phase === 'closed' ? null : <div className="ds-only" ref={preview}>
-    <Sheet title={title} centered onClose={close} status={draft.phase === 'error' ? shareCardError : lostOwner ? `${pet.name} has a new owner. This card can't be shared from here.` : shareFailure ? "Couldn't share the card. Save the image and try from your browser." : erasedNotice ? 'That thought is no longer here. Choose another one.' : shareNowReady ? 'Share now' : draft.phase === 'selecting' ? draft.note : ''}
+    <Sheet title={title} centered onClose={close} returnFocusTo={() => document.querySelector<HTMLElement>('.ds-hotbar__action[aria-haspopup="menu"]') ?? document.querySelector<HTMLElement>('.ds-hud__nameplate')} status={draft.phase === 'error' ? shareCardError : lostOwner ? `${pet.name} has a new owner. This card can't be shared from here.` : shareFailure ? "Couldn't share the card. Save the image and try from your browser." : erasedNotice ? 'That thought is no longer here. Choose another one.' : shareNowReady ? 'Share now' : draft.phase === 'selecting' ? draft.note : ''}
       foot={lostOwner ? <Note tone="error">{`${pet.name} has a new owner. This card can't be shared from here.`}</Note> : draft.phase === 'ready' ? <Stack gap={3}><Actions stackPhone><Button variant="secondary" icon="download" busy={delivering} onClick={() => void deliver('save')}>Save image</Button>{canShare ? <Button icon="share" busy={delivering} onClick={() => void deliver('share')}>{shareNowReady ? 'Share now' : 'Share'}</Button> : null}</Actions>{shareFailure ? <Note tone="error" silent>Couldn't share the card. Save the image and try from your browser.</Note> : null}</Stack> : undefined}>
       <Stack gap={4}>
         {draft.kind === 'thought' && (showChoices || draft.phase === 'selecting') ? <ChoiceList label="Share a thought" options={choices} value={draft.thoughtId ?? ''} note={erasedNotice ? 'That thought is no longer here. Choose another one.' : draft.phase === 'selecting' ? draft.note : undefined} onChange={(id) => choose(id)} onSelect={() => { setShowChoices(false); requestAnimationFrame(() => { Array.from(preview.current?.querySelectorAll<HTMLButtonElement>('button') ?? []).find((button) => button.textContent?.includes('Save image'))?.focus(); }); }} /> : null}
@@ -266,5 +255,5 @@ export function usePetCard(pet: Pet, _lines: Line[], tokenOf: () => Promise<Toke
       </Stack>
     </Sheet>
   </div>;
-  return { entry, sheet, open: draft.phase !== 'closed', lostOwner, close };
+  return { sheet, open: draft.phase !== 'closed', lostOwner, close, openKind: open, message, clearMessage: () => setMessage('') };
 }

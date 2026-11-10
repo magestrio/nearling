@@ -272,13 +272,13 @@ export function GiftSheet({ tokenId, name, stage, worn, onGiven }: { tokenId: st
     clearButton.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     void sharedJobOf(tokenId).then((pet) => {
       if (!activeRef.current) return;
-      openClearMemory({ tokenId, name, unsettledSharedJob: Boolean(pet?.shared_job && pet.shared_job.state !== 'settled'), returnFocusTo: () => clearButton.current, onDone: () => openGift({ tokenId, name }) });
+      openClearMemory({ tokenId, name, unsettledSharedJob: Boolean(pet?.shared_job && pet.shared_job.state !== 'settled'), returnFocusTo: () => clearButton.current, onDone: () => openGift({ tokenId, name, returnFocusTo: request?.returnFocusTo }) });
     }).catch(() => {
       if (!activeRef.current) return;
-      openClearMemory({ tokenId, name, returnFocusTo: () => clearButton.current, onDone: () => openGift({ tokenId, name }) });
+      openClearMemory({ tokenId, name, returnFocusTo: () => clearButton.current, onDone: () => openGift({ tokenId, name, returnFocusTo: request?.returnFocusTo }) });
     });
   };
-  const add = () => { closeGift(); openAddNear({ from: 'gift', onBack: () => openGift({ tokenId, name }) }); };
+  const add = () => { closeGift(); openAddNear({ from: 'gift', onBack: () => openGift({ tokenId, name, returnFocusTo: request?.returnFocusTo }) }); };
   const start = <>
     <Text>{`${name} goes to them whole: its name, character, food, growth and traits, streak and freezes, outfits — and its chats, its memories, the advice it paid for and any skill you taught it. Its new owner can read them.`}</Text>
     <Block role="trust" icon="globe" quiet><Text variant="small">{`${name} won't be yours anymore — you can still visit and feed ${name}. Who gave ${name} to whom is public forever — even if this game shuts down.`}</Text></Block>
@@ -287,7 +287,7 @@ export function GiftSheet({ tokenId, name, stage, worn, onGiven }: { tokenId: st
     <Text>{ONLY(name)}</Text><div data-gift-create><Button block icon="share" onClick={() => void create()}>Create gift link</Button></div>
   </>;
   const cancelLabel = unnamed ? 'Not sure? Cancel gift' : `Not ${friend}? Cancel gift`;
-  return <Sheet title={`Give ${name} to a friend`} column self={request?.self} busy={pending} onClose={close} status={status} returnFocusTo={() => request?.self ? document.querySelector<HTMLElement>('h1') : opener.current}>
+  return <Sheet title={`Give ${name} to a friend`} column self={request?.self} busy={pending} onClose={close} status={status} returnFocusTo={() => request?.self ? document.querySelector<HTMLElement>('h1') : request?.returnFocusTo?.() ?? opener.current}>
     <div ref={focusRoot}><Stack gap={4}>
       {phase === 'error' ? <Cluster gap={3} justify="space-between"><Note tone="error">{LOADING_ERROR}</Note><div data-gift-retry><Button variant="secondary" size="compact" onClick={() => void load()}>Try again</Button></div></Cluster> : null}
       {phase === 'initial' ? start : null}

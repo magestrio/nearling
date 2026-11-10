@@ -15,6 +15,7 @@ export interface FeedRequest {
   label: string;
   /** the sheet's pet is not the page's: the own pet over a friend's page. Its fullness stands in the sheet's head on the desktop too */
   elsewhere: boolean;
+  returnFocusTo?: () => HTMLElement | null;
   /** A shared errand's validated public code; every meal/snack request carries it. */
   sharedCode?: string;
   /** Done returns to the shared link after the thank-you has been shown. */

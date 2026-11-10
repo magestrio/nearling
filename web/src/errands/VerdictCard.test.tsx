@@ -44,6 +44,19 @@ afterEach(async () => {
 });
 
 describe('the Verdict card sheet', () => {
+  // spec: add-pet-errands › Verdict card screen › success
+  it('keeps the card in the scroll body and its actions in the pinned sheet foot', async () => {
+    mocks.render.mockResolvedValue(new Blob(['png'], { type: 'image/png' }));
+    await mount();
+    const sheet = host.querySelector('.ds-sheet')!;
+    const body = sheet.querySelector('.ds-sheet__body')!;
+    const foot = sheet.querySelector('.ds-sheet__foot')!;
+    expect(body.querySelector('.ds-share-card')).not.toBeNull();
+    expect(body.contains(foot)).toBe(false);
+    expect(body.nextElementSibling).toBe(foot);
+    expect(foot.contains(button('Save image')!)).toBe(true);
+  });
+
   // spec: add-pet-errands › Errand events data › card shared
   it('sends report_shared on «Save image», once a tap, and nothing before it', async () => {
     mocks.render.mockResolvedValue(new Blob(['png'], { type: 'image/png' }));

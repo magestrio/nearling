@@ -149,7 +149,8 @@ export function CodeSheet({ name, sheet, onClose }: { name: string; sheet: Retur
   return (
     <>
     <Inert on={confirmRemove}>
-    <Sheet title={codeSocket(name)} centered wide status={status ?? ''} busy={busy === 'save' || busy === 'remove'} foot={foot} onClose={onClose}>
+    <Sheet title={codeSocket(name)} centered wide status={status ?? ''} busy={busy === 'save' || busy === 'remove'} foot={foot} onClose={onClose}
+      returnFocusTo={() => document.querySelector<HTMLElement>('.ds-hud__nameplate')}>
       <Stack gap={5}>
         {topLine ? <div ref={topRef}>{topLine}</div> : null}
         <TextField label={codeFieldLabel(name)} error={sheet.tooLong ? `${CODE_FIELD}.` : undefined} value={sheet.code} onChange={sheet.setCode} multiline grow mono rows={6} readOnly={!loaded} />

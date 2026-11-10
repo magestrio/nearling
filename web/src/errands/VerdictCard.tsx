@@ -90,6 +90,18 @@ export function VerdictCard({ request, pet }: { request: VerdictRequest; pet: Ca
 
   const sharable = blob !== null && canShareFile(blob, pet.name);
   const failed = drawing.kind === 'error';
+  const actions = failed ? undefined : (
+    <Cluster gap={2} justify="center">
+      <Button icon="download" busy={drawing.kind === 'drawing'} onClick={save}>
+        {SAVE}
+      </Button>
+      {sharable ? (
+        <Button variant="secondary" icon="share" onClick={() => void share()}>
+          {SHARE}
+        </Button>
+      ) : null}
+    </Cluster>
+  );
 
   // «Try again» goes with the card that stands in its place: the focus to «Save image», or to «Try again» once more when the card
   // fails again (DS › Sheet › Focus)
@@ -99,7 +111,7 @@ export function VerdictCard({ request, pet }: { request: VerdictRequest; pet: Ca
   }, [attempt, drawing.kind, failed]);
 
   return (
-    <Sheet title="Share card" centered status={failed ? cardError : ''} onClose={closeVerdict}>
+    <Sheet title="Share card" centered foot={actions} status={failed ? cardError : ''} onClose={closeVerdict}>
       {failed ? (
         <Stack gap={3}>
           <Note tone="error" silent>
@@ -112,31 +124,19 @@ export function VerdictCard({ request, pet }: { request: VerdictRequest; pet: Ca
           </Cluster>
         </Stack>
       ) : (
-        <Stack gap={4}>
-          <div ref={figure}>
-            <ShareCard
-              pet={<PetFigure tokenId={pet.tokenId} name={pet.name} state={pet.state} stage={pet.stage} size="sm" decorative still {...wearProps(pet.worn)} />}
-              name={facts.name}
-              form={facts.form}
-              claim={facts.claim}
-              verdict={facts.stamp ?? undefined}
-              verdictLine={facts.line ?? undefined}
-              meta={facts.meta}
-              limit={facts.limit}
-              link={facts.link}
-            />
-          </div>
-          <Cluster gap={2} justify="center">
-            <Button icon="download" busy={drawing.kind === 'drawing'} onClick={save}>
-              {SAVE}
-            </Button>
-            {sharable ? (
-              <Button variant="secondary" icon="share" onClick={() => void share()}>
-                {SHARE}
-              </Button>
-            ) : null}
-          </Cluster>
-        </Stack>
+        <div ref={figure}>
+          <ShareCard
+            pet={<PetFigure tokenId={pet.tokenId} name={pet.name} state={pet.state} stage={pet.stage} size="sm" decorative still {...wearProps(pet.worn)} />}
+            name={facts.name}
+            form={facts.form}
+            claim={facts.claim}
+            verdict={facts.stamp ?? undefined}
+            verdictLine={facts.line ?? undefined}
+            meta={facts.meta}
+            limit={facts.limit}
+            link={facts.link}
+          />
+        </div>
       )}
     </Sheet>
   );

@@ -1,7 +1,7 @@
 import { useSyncExternalStore } from 'react';
 import { registerAction } from '../screens/pet/parts';
 
-export interface GiftRequest { tokenId: string; name: string; self?: boolean; given?: boolean; friend?: string }
+export interface GiftRequest { tokenId: string; name: string; self?: boolean; given?: boolean; friend?: string; returnFocusTo?: () => HTMLElement | null }
 let current: GiftRequest | null = null;
 const listeners = new Set<() => void>();
 function publish(next: GiftRequest | null) { current = next; for (const listener of listeners) listener(); }
@@ -12,4 +12,4 @@ export function markGiftGiven(tokenId: string, friend: string) { if (current?.to
 export function useGiftRequest() {
   return useSyncExternalStore((listener) => { listeners.add(listener); return () => listeners.delete(listener); }, () => current, () => null);
 }
-registerAction('gift', ({ tokenId, name }) => openGift({ tokenId, name }));
+registerAction('gift', ({ tokenId, name, returnFocusTo }) => openGift({ tokenId, name, returnFocusTo }));

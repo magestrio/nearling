@@ -56,13 +56,18 @@ export function SkillSheet({
   const [session] = useSignInLines({ text: JSON.stringify({ label, instruction }), action: 'skill' });
   // A step's outcome — a source or code saved or removed — lands on the sheet's outcome line at the body's top (DS › Sheet › Focus)
   const lineId = useId();
+  const outcomeRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
-    if (top?.kind === 'line' && !hidden) document.getElementById(lineId)?.focus();
-    // a new line, not the sheet coming back from a step's «Back» with the old one
+    if (hidden) return;
+    if (top?.kind === 'line') document.getElementById(lineId)?.focus();
+    if (top?.kind === 'failed') outcomeRef.current?.querySelector('button')?.focus();
+    // A step's Back keeps the old line, and must not focus it again.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [top]);
+  useEffect(() => {
+    if (labelError && !hidden) document.querySelector<HTMLElement>('.ds-sheet-layer--column .ds-field__input[aria-invalid="true"]')?.focus();
+  }, [labelError, hidden]);
   // «Save skill» and «Forget this skill» sit at the body's end, their outcome line at its top: on a phone it would stay out of sight
-  const outcomeRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     if (top !== null && !hidden) outcomeRef.current?.scrollIntoView?.({ block: 'nearest' });
   }, [top, hidden]);
@@ -71,13 +76,13 @@ export function SkillSheet({
   if (phase === 'error') {
     const line = skillOpenFailedLine(name);
     return (
-      <Sheet title={skillTitle(name, hasLabel)} column status={line} onClose={onClose}>
+      <Sheet title={skillTitle(name, hasLabel)} column status={line} onClose={onClose} returnFocusTo={() => document.querySelector<HTMLElement>('.ds-hud__nameplate')}>
         <Stack gap={3}>
           <Note tone="error" silent>
             {line}
           </Note>
           <Cluster>
-            <Button variant="secondary" size="compact" onClick={() => void skill.open()}>
+            <Button variant="secondary" size="compact" focusOnOpen onClick={() => void skill.open()}>
               Try again
             </Button>
           </Cluster>
@@ -165,7 +170,7 @@ export function SkillSheet({
   });
 
   const sheet = (
-    <Sheet title={title} column status={status} busy={busy} onClose={onClose}>
+    <Sheet title={title} column hidden={hidden} status={status} busy={busy} onClose={onClose} returnFocusTo={() => document.querySelector<HTMLElement>('.ds-hud__nameplate')}>
       <Stack gap={5}>
         {outcome ? <div ref={outcomeRef}>{outcome.node}</div> : null}
         <Stack gap={4}>
@@ -217,5 +222,5 @@ export function SkillSheet({
     </Sheet>
   );
   // hidden, not gone, while a step stands: the step's opener (a socket) stays in the page, so «Back» returns the focus to it
-  return <div hidden={hidden || undefined}>{sheet}</div>;
+  return sheet;
 }

@@ -20,7 +20,7 @@ export function wishProgress(wish: WishTarget, price: { cents: number; yocto: st
   };
 }
 
-/** The nested Wish surface from design/bundle/screens/will.js, DS 0.47. */
+/** The nested Wish surface from design/bundle/screens/will.js, placed over the Stage with DS 0.48. */
 export function WishSheet({ name, price, read, error, busy, pending, onClose, onRetry, onCancel, onContinue }: {
   name: string;
   price: { cents: number; yocto: string };
@@ -42,7 +42,9 @@ export function WishSheet({ name, price, read, error, busy, pending, onClose, on
     {inherited ? <Actions stackPhone><Button variant="secondary" off={busy || pending} onClick={onCancel}>Cancel wish</Button><Button off={busy || pending} onClick={onContinue}>Continue wish</Button></Actions>
       : <Button variant="secondary" block off={busy || pending} onClick={onCancel}>Cancel wish</Button>}
   </Stack> : undefined;
+  // the Pet card's «{name}'s wish» opens it and the card closes as it does: the focus goes back to the card's opener
   return <Sheet title={`${name}'s wish`} column foot={foot} busy={busy} onClose={onClose}
+    returnFocusTo={() => document.querySelector<HTMLElement>('.ds-hud__nameplate')}
     status={error ? UNAVAILABLE : waiting ? 'Buying tomorrow' : inherited ? `${name} has a wish in progress` : ''}>
     {error || !wish ? <Stack gap={3}><Note tone="error" silent>{UNAVAILABLE}</Note><Button variant="secondary" block onClick={onRetry}>Try again</Button></Stack> :
       <Stack gap={4}>

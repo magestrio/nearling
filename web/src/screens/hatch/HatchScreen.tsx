@@ -1,5 +1,5 @@
 import { useId, type FormEvent, type ReactNode } from 'react';
-import { Block, Button, Center, Centerpiece, Cluster, Header, Heading, Nest, Note, Page, Shell, Stack, Text, TextField } from '../../ds';
+import { Block, Button, Center, Centerpiece, Cluster, DisclosureLine, Egg, Header, Heading, Nest, Note, Page, Shell, Stack, Text, TextField, TextLink } from '../../ds';
 import { AccountControl } from '../../account/AccountControl';
 import { resetTime } from '../../lib/time';
 import { petPath } from '../../route';
@@ -10,12 +10,13 @@ import { useHatch } from './useHatch';
 import './hatch.css';
 
 // Hatch screen (add-pet › Hatch screen, Birth flow) built from design/bundle/screens/hatch.js: one centred column — the
-// Nest, the heading, the name field with its lines, the two notices, then «Hatch my pet» or what stands in its place.
+// Egg, the heading, the name field with its lines, the two notices, then «Hatch my pet» or what stands in its place.
 // On the phone the form scrolls and that action is pinned to the bottom (Centerpiece `scroll`). No pet yet: the accent
 // of «no pet». The words are the Scenarios' and the frames' `copy`, verbatim.
 const LIMIT_HINT = 'Up to 32 characters — fewer with emoji or accents.';
 const PUBLIC_HINT = 'This name is public forever — even if this game shuts down.';
 const RECEIPTS_LINE = "A thought's receipt shows how long the reply was and whether your pet thought hard — never what was said.";
+const SAVED_LINE = "Saved food and a bought outfit are public on NEAR forever. The wish's words stay private.";
 const AI_NOTICE =
   "To write your pet's replies, we send NEAR AI what you say and what your pet remembers about you and the friends who feed it. When your pet asks another pet for help, the question it writes goes to that pet too.";
 const PAUSED = 'New pets are paused for now. You can still feed and visit pets you know.';
@@ -34,8 +35,22 @@ function publicNotice(name: string): string {
 /** The two notices beside a pet on the Gift screen are the Hatch screen's own words. */
 export function HatchNotices({ name }: { name: string }) {
   return <Stack gap={3}>
-    <Block role="trust" icon="globe" quiet><Text variant="small">{publicNotice(name)}</Text><Text variant="small">Saved food and a bought outfit are public on NEAR forever. The wish's words stay private.</Text><Text variant="small">{RECEIPTS_LINE}</Text></Block>
+    <Block role="trust" icon="globe" quiet><Text variant="small">{publicNotice(name)}</Text><Text variant="small">{SAVED_LINE}</Text><Text variant="small">{RECEIPTS_LINE}</Text></Block>
     <Block role="mind" icon="bulb" quiet><Text variant="small">{AI_NOTICE}</Text></Block>
+  </Stack>;
+}
+
+/** The Hatch consent stays in its button; each short notice opens its existing complete text independently. */
+export function HatchDisclosureNotices({ name, sessionKey }: { name: string; sessionKey: string }) {
+  return <Stack gap={2} key={sessionKey}>
+    <DisclosureLine summary="Your pet's name, character and on-chain history are public forever." label="Read what's public">
+      <Text variant="small">{publicNotice(name)}</Text>
+      <Text variant="small">{SAVED_LINE}</Text>
+      <Text variant="small">{RECEIPTS_LINE}</Text>
+    </DisclosureLine>
+    <DisclosureLine summary="Your words and your pet's memories about you and friends who feed it go to NEAR AI." label="Read what goes to NEAR AI">
+      <Text variant="small">{AI_NOTICE}</Text>
+    </DisclosureLine>
   </Stack>;
 }
 
@@ -103,10 +118,13 @@ export function HatchScreen({ from }: { from: string | null }) {
 
   // The way out of a closed screen: a player who never hatched and has no friend link can find a pet to ask.
   const noExit = view.kind === 'closed' && view.noPets;
+  // «Find a pet to ask» stands under every Hatch state (frames `hatch-closed-today`: beside «Back to {friend_pet}»); in the
+  // no-exit state it is the exit itself, so the line is not drawn a second time
+  const showDiscoveryLink = !noExit;
+  // The friend's pet is the exit of a closed screen: a quiet link under «Find a pet to ask» (frame `hatch-closed-today`)
+  const friendExit = view.kind === 'closed' && hatch.friend && hatch.friend !== 'loading' ? hatch.friend : null;
   const wayOut =
-    from && hatch.friend === 'loading' ? null : hatch.friend && hatch.friend !== 'loading' ? (
-      <Button block href={petPath(hatch.friend.tokenId)}>{`Back to ${hatch.friend.name}`}</Button>
-    ) : noExit ? <Button block variant="secondary" href="/hire">Find a pet to ask</Button> : (
+    from && hatch.friend === 'loading' ? null : friendExit ? null : noExit ? <Button block variant="secondary" href="/hire">Find a pet to ask</Button> : (
       <Button block href="/">
         Go home
       </Button>
@@ -133,7 +151,7 @@ export function HatchScreen({ from }: { from: string | null }) {
       line = view.busy ? BUSY : UNREACHABLE;
       action = (
         <Why line={line} tone="error">
-          <Button block variant="secondary" onClick={hatch.tryAgain}>
+          <Button block onClick={hatch.tryAgain}>
             Try again
           </Button>
           {hatchButton(true)}
@@ -179,7 +197,7 @@ export function HatchScreen({ from }: { from: string | null }) {
   }
 
   return (
-    <Shell accent="none" fill header={header}>
+    <div className="ds-eggpage"><Shell accent="none" fill header={header}>
       <Page fill width="narrow">
         <form className="hatch-form" onSubmit={onSubmit} noValidate>
           {/* under the action in every view: the session can end under any of them, and a tap on «Account» then has the line
@@ -188,15 +206,19 @@ export function HatchScreen({ from }: { from: string | null }) {
             scroll
             labelledBy={titleId}
             actions={
-              <Stack gap={3}>
+              <Stack gap={2}>
                 {action}
+                {showDiscoveryLink || friendExit ? <Stack gap={1}>
+                  {showDiscoveryLink ? <TextLink href="/hire" tone="quiet" hit>Find a pet to ask</TextLink> : null}
+                  {friendExit ? <TextLink href={petPath(friendExit.tokenId)} tone="quiet" hit>{`Back to ${friendExit.name}`}</TextLink> : null}
+                </Stack> : null}
                 <SignInOutcome text={name} />
               </Stack>
             }
             status={line}
           >
-            <Stack gap={5}>
-              <Nest busy={birth === 'hatching'} />
+            <div className="ds-eggpage__form ds-stack" style={{ gap: 'var(--space-5)' }}>
+              <Egg cracking={birth === 'hatching'} />
               <Heading level={1} align="center" id={titleId}>
                 Hatch your pet
               </Heading>
@@ -209,11 +231,11 @@ export function HatchScreen({ from }: { from: string | null }) {
                 error={hatch.nameRefused ? "Let's pick a different name." : undefined}
                 hint={cleaned ? [LIMIT_HINT, PUBLIC_HINT] : LIMIT_HINT}
               />
-              <HatchNotices name={cleaned} />
-            </Stack>
+              <HatchDisclosureNotices name={cleaned} sessionKey={auth.authenticated ? auth.nearAccountId ?? 'pending-account' : 'signed-out'} />
+            </div>
           </Centerpiece>
         </form>
       </Page>
-    </Shell>
+    </Shell></div>
   );
 }

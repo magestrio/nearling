@@ -1,6 +1,6 @@
 import { expect, test, type Page } from '@playwright/test';
 import type { ToolView } from '../src/seams/worker-types';
-import { BISCUIT, calls, drawn, lookAgain, openWith, OWNER, PIXEL, reloadHolding, setWorker, SIGNED_IN } from './helpers';
+import { BISCUIT, calls, drawn, inCard, lookAgain, openCard, openWith, OWNER, PIXEL, reloadHolding, setWorker, SIGNED_IN } from './helpers';
 
 // Skill code sheet (add-pet-errands › Skill code sheet screen, Skill code flow): where the owner writes the skill's code, runs one of its
 // functions on sample values, ticks the functions the pet may call and saves it. The fakes answer the reads, the test runs and the saves.
@@ -22,6 +22,13 @@ const OPENER: ToolView = {
 const RAW: ToolView = { name: 'rawFeed', description: 'The feed as it is.', params: [{ name: 'query', type: 'text', required: true }], tickable: false, reason: 'free_text' };
 const FUNCTIONS = [OPENER, RAW];
 
+// The skill entry stands in the Work section of the pet's card (add-game-layout › Pet card screen › success (Work)); the card closes as the
+// sheet opens, and the focus returns to the nameplate that opened the card.
+const nameplate = (page: Page) => page.locator('.ds-hud__nameplate');
+const openSkillSheet = async (page: Page) => {
+  await openCard(page);
+  await inCard(page).getByRole('button', { name: "Pixel's skill" }).click();
+};
 const skillSheet = (page: Page) => page.getByRole('dialog', { name: "Pixel's skill" });
 const codeSheet = (page: Page) => page.getByRole('dialog', { name: "Pixel's code" });
 const codeField = (page: Page) => codeSheet(page).getByLabel('JavaScript, up to 32 KB');
@@ -42,7 +49,7 @@ const open = async (page: Page, written: boolean, extra: Record<string, unknown>
       ...extra,
     },
   });
-  await page.getByRole('button', { name: `Pixel's skill: Good at ${LABEL}` }).click();
+  await openSkillSheet(page);
   await expect(skillSheet(page)).toBeVisible();
   await skillSheet(page).getByRole('button', { name: written ? "Pixel's code" : 'Add code' }).click();
   await expect(codeSheet(page)).toBeVisible();
@@ -350,20 +357,20 @@ test('success × reload: a reload closes the sheet and what was typed is gone; t
   await open(page, true);
   await codeField(page).fill(EDITED);
   await reloadHolding(page);
-  await expect(page.getByRole('button', { name: `Pixel's skill: Good at ${LABEL}` })).toBeVisible();
+  await expect(nameplate(page)).toBeVisible();
   await expect(page.getByRole('dialog')).toHaveCount(0);
-  await page.getByRole('button', { name: `Pixel's skill: Good at ${LABEL}` }).click();
+  await openSkillSheet(page);
   await skillSheet(page).getByRole('button', { name: "Pixel's code" }).click();
   await expect(codeField(page)).toHaveValue(SAVED);
   await expect(fnField(page)).toHaveValue('');
 });
 
 // spec: add-pet-errands › Skill code sheet screen › success × Esc
-test('success × Esc: Esc closes the code sheet and Skill sheet under it, and the focus goes back to the skill badge', async ({ page }) => {
+test('success × Esc: Esc closes the code sheet and Skill sheet under it, and the focus goes back to the nameplate', async ({ page }) => {
   await open(page, true);
   await page.keyboard.press('Escape');
   await expect(page.getByRole('dialog')).toHaveCount(0);
-  await expect(page.getByRole('button', { name: `Pixel's skill: Good at ${LABEL}` })).toBeFocused();
+  await expect(nameplate(page)).toBeFocused();
 });
 
 // spec: add-pet-errands › Skill code sheet screen › success
@@ -372,9 +379,9 @@ test('success: Close keeps what was typed for the next opening while the page st
   await codeField(page).fill(EDITED);
   await codeSheet(page).getByRole('button', { name: 'Close' }).click();
   await expect(page.getByRole('dialog')).toHaveCount(0);
-  // closed, the focus goes back to what opened the sheets: the skill badge (DS › Sheet › Focus)
-  await expect(page.getByRole('button', { name: `Pixel's skill: Good at ${LABEL}` })).toBeFocused();
-  await page.getByRole('button', { name: `Pixel's skill: Good at ${LABEL}` }).click();
+  // closed, the focus goes back to what opened the sheets: the nameplate that opened the card (DS › Sheet › Focus)
+  await expect(nameplate(page)).toBeFocused();
+  await openSkillSheet(page);
   await skillSheet(page).getByRole('button', { name: 'Add code' }).click();
   await expect(codeField(page)).toHaveValue(EDITED);
 });

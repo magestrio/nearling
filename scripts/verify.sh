@@ -123,7 +123,7 @@ step_screens() {
   if [ -n "$CHANGE" ]; then
     ids="$(change_frames)"
     for id in $ids; do
-      printf '%s\n' "$listing" | grep -q -F " › $id · " || missing="$missing $id"
+      grep -q -F " › $id · " <<<"$listing" || missing="$missing $id"
     done
     if [ -n "$missing" ]; then
       echo "no capture test for frame(s):$missing"

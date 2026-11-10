@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { calls, lookAgain, openWith, PIXEL, setWorker, SIGNED_IN } from './helpers';
+import { calls, inCard, lookAgain, openCard, openWith, PIXEL, setWorker, SIGNED_IN } from './helpers';
 import type { ExperienceNotes } from '../src/seams/worker-types';
 
 const A = 'a'.repeat(24);
@@ -13,7 +13,8 @@ const worker = (experience: ExperienceNotes | { fail: { status: number; code: st
 // spec: add-pet-experience › Experience notes screen › success
 test('owner reads source reports and changes one approval', async ({ page }) => {
   await openWith(page, '/pet/9', { auth: SIGNED_IN, worker: worker() });
-  await page.getByRole('link', { name: 'Review experience' }).first().click();
+  await openCard(page);
+  await inCard(page).getByRole('link', { name: 'Review experience' }).click();
   await expect(page.getByText(NOTES.notes[0]!.text).first()).toBeVisible();
   await expect(page.getByRole('link', { name: /Find out · Nov 11, 2026/ }).first()).toHaveAttribute('href', `/pet/9/verify/${A}`);
   await page.getByRole('button', { name: /Use in outside answers for/ }).click();

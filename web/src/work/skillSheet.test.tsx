@@ -38,7 +38,7 @@ const onSaved = vi.fn();
 function Harness() {
   const skill = useSkill('9', { tokenOf: async () => 'token', refused: vi.fn() }, onSaved);
   useEffect(() => void skill.open(), []);
-  return <SkillSheet name="Pixel" skill={skill} hasLabel={false} onClose={skill.close} />;
+  return <><button className="ds-hud__nameplate">Pixel's card</button><SkillSheet name="Pixel" skill={skill} hasLabel={false} onClose={skill.close} /></>;
 }
 
 async function mount() {
@@ -70,6 +70,13 @@ afterEach(async () => {
 });
 
 describe('Skill sheet', () => {
+  // spec: add-game-layout › Pet card screen › success (Work) × Close Skill sheet
+  it('returns focus to the persistent nameplate after opening Skill from the card', async () => {
+    await mount();
+    await click(host.querySelector('.ds-sheet__head button')!);
+    expect(document.activeElement).toBe(host.querySelector('.ds-hud__nameplate'));
+  });
+
   // spec: add-pet-work › Skill sheet screen › success × fields
   it('holds what is typed in both fields and takes no more than 40 and 1,000 characters', async () => {
     await mount();
@@ -160,5 +167,33 @@ describe('Skill sheet', () => {
     expect(document.body.textContent).toContain("Let's pick different words.");
     expect(field('What is Pixel good at?').value).toBe('x');
     expect(onSaved).not.toHaveBeenCalled();
+  });
+
+  // spec: add-pet-work › Skill sheet screen › error × focus
+  it('focuses Try again when the skill read fails', async () => {
+    mocks.skill.mockRejectedValue(new WorkerError(0, 'unreachable'));
+    await mount();
+    expect(document.activeElement).toBe(button('Try again'));
+  });
+
+  // spec: add-pet-work › Skill writing flow › label not accepted × focus
+  it('focuses the invalid label after a rejected save', async () => {
+    mocks.saveSkill.mockRejectedValue(new WorkerError(400, 'bad_label'));
+    await mount();
+    await type(field('What is Pixel good at?'), '   ');
+    await type(field('How should Pixel do it?'), 'A short instruction');
+    await click(button('Save skill'));
+    expect(document.activeElement).toBe(field('What is Pixel good at?'));
+  });
+
+  // spec: add-pet-work › Skill writing flow › save failed × focus
+  it('focuses Try again after the save failed while keeping the typed fields', async () => {
+    mocks.saveSkill.mockRejectedValue(new WorkerError(0, 'unreachable'));
+    await mount();
+    await type(field('What is Pixel good at?'), 'opening lines');
+    await type(field('How should Pixel do it?'), 'A short instruction');
+    await click(button('Save skill'));
+    expect(document.activeElement).toBe(button('Try again'));
+    expect(field('What is Pixel good at?').value).toBe('opening lines');
   });
 });

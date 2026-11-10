@@ -134,5 +134,25 @@ export async function reloadHolding(page: Page): Promise<void> {
  *  (the DS `Only` draws both the phone and the desktop variant, one of them `display: none`). */
 export const drawn = (page: Page, text: string | RegExp, options?: { exact?: boolean }) => page.getByText(text, options).and(page.locator(':not(.ds-hidden)')).filter({ visible: true });
 
+/** The nameplate tapped: the pet's card open over the Stage (add-game-layout › Pet card screen). */
+export async function openCard(page: Page, name = 'Pixel'): Promise<void> {
+  await page.locator('.ds-hud__nameplate').click();
+  await page.getByRole('dialog', { name: `${name}'s card` }).waitFor();
+}
+/** The pet's card as a dialog, to look for its controls in. */
+export const inCard = (page: Page, name = 'Pixel') => page.getByRole('dialog', { name: `${name}'s card` });
+/** The Hotbar's «More» tapped: the Pet actions menu open. */
+export async function openMore(page: Page): Promise<void> {
+  await page.getByRole('button', { name: 'More' }).click();
+  await page.getByRole('menu', { name: 'More' }).waitFor();
+  // the menu takes the focus on the next frame: Escape and the arrow keys work from there
+  await page.waitForFunction(() => document.activeElement?.closest('[role="menu"]') != null);
+}
+/** The card opened, then its «{name}'s wish» tapped: the Wish sheet (the card closes as it opens). */
+export async function openWish(page: Page, name = 'Pixel'): Promise<void> {
+  await openCard(page, name);
+  await inCard(page, name).getByRole('link', { name: `${name}'s wish` }).click();
+}
+
 /** The privy and worker calls the fakes were asked, without the rest. */
 export const privyCalls = async (page: Page): Promise<string[]> => (await calls(page)).filter((c) => c.startsWith('privy:'));

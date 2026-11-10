@@ -67,8 +67,7 @@ test('sent: the stage empties, the job under «You» with its form, the thinking
   await expect(log(page)).toContainText(LEONIDS);
   await expect(drawn(page, AWAY_LINE)).toBeVisible();
   await expect(page.getByRole('button', { name: 'Send', exact: true })).toHaveAttribute('aria-disabled', 'true');
-  await expect(rail(page)).toHaveAttribute('aria-disabled', 'true');
-  await expect(rail(page)).toHaveAccessibleDescription(AWAY_LINE);
+  await expect(rail(page)).toBeDisabled();
 });
 
 // spec: add-pet-errands › Errand flow › sent × no WebGL
@@ -105,14 +104,12 @@ test("sent × the Composer's send while away: «Send» and «Think hard» do not
 });
 
 // spec: add-pet-errands › Errand flow › sent × the rail's errand item while away
-test("sent × the rail's errand item while away: it keeps the focus and Enter opens nothing", async ({ page }) => {
+test("sent × the rail's errand item while away: the Hotbar's item is disabled and a tap on it opens nothing", async ({ page }) => {
   await open(page, { petState: { errand: AWAY } });
-  await expect(rail(page)).toHaveAttribute('aria-disabled', 'true');
-  await rail(page).focus();
-  await expect(rail(page)).toBeFocused();
-  await rail(page).press('Enter');
+  await expect(rail(page)).toBeDisabled();
+  await rail(page).dispatchEvent('click');
   await expect(sheet(page)).toHaveCount(0);
-  await expect(rail(page)).toBeFocused();
+  await expect(rail(page)).toBeDisabled();
 });
 
 // spec: add-pet-errands › Errand flow › sent × Feed while away
@@ -128,13 +125,13 @@ test('tab closed while away: a page opened again finds the pet away, with the jo
   await expect(page.locator('.ds-away')).toHaveCount(1);
   await expect(log(page)).toContainText(LEONIDS);
   await expect(drawn(page, AWAY_LINE)).toBeVisible();
-  await expect(rail(page)).toHaveAttribute('aria-disabled', 'true');
+  await expect(rail(page)).toBeDisabled();
   await setWorker(page, { petState: { errand: null }, conversation: conversation(job('find', LEONIDS), report({})) });
   await lookAgain(page);
   await expect(page.locator('.ds-away')).toHaveCount(0);
   await expect(log(page)).toContainText(FIND_SAYS);
   await expect(drawn(page, AWAY_LINE)).toHaveCount(0);
-  await expect(rail(page)).not.toHaveAttribute('aria-disabled', 'true');
+  await expect(rail(page)).toBeEnabled();
 });
 
 // spec: add-pet-errands › Errand flow › tab closed while away × reload

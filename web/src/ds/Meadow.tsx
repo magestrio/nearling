@@ -31,9 +31,9 @@ function FlatSample({ pet }: { pet: MeadowPet }) {
 export type MeadowVisit = MeadowPet & { href?: string; name?: string; tag?: string; tagged?: boolean };
 export type MeadowNumber = { value: string; label: string; since?: string };
 
-/** DS 0.46: one scene, linked pets in reading order, and five contract-backed public numbers. */
-export function Meadow({ pets, motion = true, numbers, explore, label }: {
-  pets: MeadowVisit[]; motion?: boolean | ReactNode; numbers?: MeadowNumber[] | 'loading'; explore?: ReactNode; label?: string;
+/** DS 0.48: one scene, linked pets in reading order, and a compact ground for petless Home. */
+export function Meadow({ pets, motion = true, numbers, explore, label, compact = false }: {
+  pets: MeadowVisit[]; motion?: boolean | ReactNode; numbers?: MeadowNumber[] | 'loading'; explore?: ReactNode; label?: string; compact?: boolean;
 }) {
   const ground = useRef<HTMLDivElement>(null);
   const targets = useRef<Array<HTMLDivElement | null>>([]);
@@ -70,7 +70,7 @@ export function Meadow({ pets, motion = true, numbers, explore, label }: {
     return () => observer.disconnect();
   }, []);
   return (
-    <div className={cx('ds-meadow', (paused || lost) && 'ds-meadow--paused')}>
+    <div className={cx('ds-meadow', compact && 'ds-meadow--compact', (paused || lost) && 'ds-meadow--paused')}>
       <div className="ds-meadow__ground" aria-hidden={live ? undefined : true} role={live ? 'list' : undefined} aria-label={live ? label : undefined} data-illustration="" ref={ground}>
         {size.width > 0 && size.height > 0 && !lost ? (
           <FigureBoundary onFail={() => setLost(true)}>

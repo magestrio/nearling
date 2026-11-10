@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { calls, lookAgain, openWith, PIXEL, setWorker, SIGNED_IN } from './helpers';
+import { calls, inCard, lookAgain, openCard, openWith, PIXEL, setWorker, SIGNED_IN } from './helpers';
 import type { RelationshipSummary } from '../src/seams/worker-types';
 
 const summary: RelationshipSummary = { tokenId: '9', name: 'Pixel', relationships: [
@@ -11,7 +11,8 @@ const worker = (relationships: RelationshipSummary | { fail: { status: number; c
 // spec: add-pet-society › Society summary screen › success
 test('owner entry opens the private summary and Back returns to the pet', async ({ page }) => {
   await openWith(page, '/pet/9', { auth: SIGNED_IN, worker: worker() });
-  await page.getByRole('link', { name: 'Relationships' }).first().click();
+  await openCard(page);
+  await inCard(page).getByRole('link', { name: 'Relationships' }).click();
   await expect(page).toHaveURL(/\/pet\/9\/relationships$/);
   await expect(page.getByText('Biscuit')).toBeVisible();
   await expect(page.getByText('Likes')).toBeVisible();

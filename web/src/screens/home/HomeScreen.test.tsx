@@ -1,23 +1,26 @@
 // @vitest-environment jsdom
 import { act } from 'react';
+import type { ReactNode } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { HomeScreen } from './HomeScreen';
 import { SAMPLE_SHOWCASE } from '../../seams/showcase.sample';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
-const mocks = vi.hoisted(() => ({ view: { kind: 'signed-out' } as { kind: string; all?: boolean; until?: string }, begin: vi.fn(), tryAgain: vi.fn() }));
+const mocks = vi.hoisted(() => ({ view: { kind: 'signed-out' } as { kind: string; all?: boolean; until?: string }, begin: vi.fn(), openJudge: vi.fn(), tryAgain: vi.fn() }));
 vi.mock('./useHome', () => ({ useHome: () => ({ view: mocks.view, tryAgain: mocks.tryAgain }) }));
-vi.mock('../../signin/signIn', () => ({ useSignIn: () => ({ begin: mocks.begin }) }));
+vi.mock('../../signin/signIn', () => ({ useSignIn: () => ({ begin: mocks.begin, openJudge: mocks.openJudge }) }));
 vi.mock('../../signin/SignInOutcome', () => ({ SignInOutcome: () => null }));
+vi.mock('../../account/AccountControl', () => ({ AccountControl: () => <button type="button">Account</button> }));
 vi.mock('./useShowcase', () => ({ useShowcase: () => ({ kind: 'ready', copy: SAMPLE_SHOWCASE }) }));
-vi.mock('../../ds/Meadow', () => ({ Meadow: ({ pets }: { pets: unknown[] }) => <div data-meadow={pets.length} /> }));
+vi.mock('../../ds/Meadow', () => ({ Meadow: ({ pets, numbers, explore }: { pets: unknown[]; numbers?: unknown[] | string; explore: ReactNode }) => <div data-meadow={pets.length} data-numbers={Array.isArray(numbers) ? numbers.length : numbers}>{explore}</div> }));
 
 let root: Root;
 let host: HTMLElement;
 beforeEach(() => {
   mocks.view = { kind: 'signed-out' };
   mocks.begin.mockClear();
+  mocks.openJudge.mockClear();
   mocks.tryAgain.mockClear();
   host = document.createElement('div');
   document.body.append(host);
@@ -53,6 +56,27 @@ it('keeps the meadow and hire entry while sign-in closes, with the returning act
   expect(host.querySelector('.ds-dock button')).toBeNull();
   expect(host.querySelector('.ds-dock a')?.getAttribute('href')).toBe('/hire');
   expect(host.querySelector('.ds-dock a')?.textContent).toBe('Find a pet to ask');
+});
+
+// spec: add-showcase › Home evidence flow › public totals
+// spec: add-showcase › Public demo flow › README numbers link with a session
+it('keeps public totals and the explorer link on Home for a signed-in numbers visitor', async () => {
+  mocks.view = { kind: 'evidence' };
+  await show();
+  expect(host.querySelector('[data-meadow]')?.getAttribute('data-numbers')).toBe('5');
+  expect(host.querySelector('[data-meadow] a')?.textContent).toBe('See it on the NEAR explorer');
+  expect(host.textContent).not.toContain('Hatch your pet');
+  expect(host.querySelector('.ds-dock')).toBeNull();
+});
+
+// spec: add-showcase › Judge admission flow › ordinary entry closed
+it('opens judge admission from the closed Home below the returning action', async () => {
+  mocks.view = { kind: 'closed', all: false, until: '2026-12-01T00:00:00.000Z' };
+  await show();
+  const link = [...host.querySelectorAll('a')].find((node) => node.textContent === 'Enter judge code');
+  expect(link).toBeTruthy();
+  await act(async () => link!.click());
+  expect(mocks.openJudge).toHaveBeenCalledOnce();
 });
 
 // spec: add-account › Home screen › loading

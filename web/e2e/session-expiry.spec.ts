@@ -118,7 +118,9 @@ test('session ended, no tap yet × 401 на первой загрузке: nothi
   await expect(page.getByRole('button', { name: 'Sign in' })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Account' })).toHaveCount(0);
   await expect(page.getByText(LINE)).toHaveCount(0);
-  await expect(page.getByRole('log')).toHaveCount(0);
+  // the visitor's Stage keeps the advice log, never the owner's conversation
+  await expect(page.getByRole('log')).toHaveAccessibleName('Advice from Pixel');
+  await expect(page.getByText('Barely. Big presentation at ten.')).toHaveCount(0);
 });
 
 // spec: add-account › Session expiry flow › сессия кончилась при открытом экране

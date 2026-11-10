@@ -84,13 +84,21 @@ export async function captureFrame(page: Page, frame: ManifestFrame, viewport: V
   }
 
   const elsewhere = new Set([...(fixture.otherChange ?? []).map((o) => o.line), ...(fixture.staleCopy ?? [])]);
-  for (const line of frame.copy ?? []) {
+  // a line the frame draws as a title and a body (a sheet named by the first sentence of its words) is two texts on the page: each
+  // half is asserted, cut after the first sentence
+  const splitCopy = new Set(fixture.splitCopy ?? []);
+  const lines = (frame.copy ?? []).flatMap((line) => {
+    if (!splitCopy.has(line) || elsewhere.has(line)) return [line];
+    const cut = line.indexOf('. ') + 1;
+    return [line.slice(0, cut), line.slice(cut + 1)];
+  });
+  for (const line of lines) {
     if (elsewhere.has(line)) continue;
-    // a line is on the page as text, or as a field's placeholder
+    // a line is on the page as text, as a field's placeholder, or as the name of an icon-only control (the phone's «My pets»)
     const pattern = copyPattern(line);
     // One occurrence must actually be in the visible part of every scrolling ancestor and the viewport.
     // Playwright's visible filter alone also accepts text that has scrolled out of an inner sheet body.
-    const candidates = page.getByText(pattern).or(page.getByPlaceholder(pattern)).filter({ visible: true });
+    const candidates = page.getByText(pattern).or(page.getByPlaceholder(pattern)).or(page.locator('[aria-label]').and(page.getByLabel(pattern))).filter({ visible: true });
     if (fixture.hiddenCopy?.includes(line)) {
       await expect(page.getByText(pattern).first(), `copy «${line}» of ${frame.id} in the page's text for a screen reader`).toBeAttached();
       continue;

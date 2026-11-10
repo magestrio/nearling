@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
-import { BISCUIT, calls, lookAgain, openWith, OWNER, PIXEL, setWorker, SIGNED_IN } from './helpers';
+import { BISCUIT, calls, inCard, lookAgain, openCard, openWith, OWNER, PIXEL, setWorker, SIGNED_IN } from './helpers';
 
 const MIDNIGHT = '2026-11-02T00:00:00.000Z';
 const OUT_LINE = /^Pixel worked hard today and is out of energy for big thoughts until \d\d:\d\d\. Chatting still works\.$/;
@@ -148,10 +148,14 @@ test('энергия на нуле × a stale page taps Think hard: the line goe
 // spec: add-pet-life › Pet life display rule › владелец
 test('владелец: a grown-up shows its stage word, its two traits and the «Energy» meter', async ({ page }) => {
   await openWith(page, '/pet/9', { auth: SIGNED_IN, worker: withPixel({ traits: ['clever', 'sociable'], energy: 7 }) });
+  // the nameplate says the stage; the traits and the meter are in the pet's card too (add-game-layout › Pet card screen)
   await expect(seen(page, 'Grown-up').first()).toBeVisible();
-  await expect(seen(page, 'clever').first()).toBeVisible();
-  await expect(seen(page, 'sociable').first()).toBeVisible();
   await expect(meter(page)).toHaveAttribute('aria-valuenow', '7');
+  await openCard(page);
+  await expect(inCard(page).getByText('Grown-up')).toBeVisible();
+  await expect(inCard(page).getByText('clever')).toBeVisible();
+  await expect(inCard(page).getByText('sociable')).toBeVisible();
+  await expect(inCard(page).getByRole('meter', { name: 'Energy' })).toHaveAttribute('aria-valuenow', '7');
   await expect(page.getByText('gets a trait when it grows up.')).toHaveCount(0);
 });
 
@@ -159,14 +163,18 @@ test('владелец: a grown-up shows its stage word, its two traits and the 
 test('владелец: a baby shows «Baby» and its line in the traits\' place; a teen shows «Teen» and its trait', async ({ page }) => {
   await openWith(page, '/pet/9', { auth: SIGNED_IN, worker: withPixel({ traits: [], energy: 10 }, { stage: 'baby' }) });
   await expect(seen(page, 'Baby').first()).toBeVisible();
-  await expect(seen(page, 'Pixel gets a trait when it grows up.').first()).toBeVisible();
   await expect(page.getByText('Grown-up')).toHaveCount(0);
   await expect(meter(page)).toHaveAttribute('aria-valuenow', '10');
+  await openCard(page);
+  await expect(inCard(page).getByText('Pixel gets a trait when it grows up.')).toBeVisible();
+  await expect(inCard(page).getByRole('meter', { name: 'Energy' })).toHaveAttribute('aria-valuenow', '10');
+  await page.keyboard.press('Escape');
   // it grew while the page was open: the next look brings the stage and the trait, and the baby's line goes
   await setWorker(page, withPixel({ traits: ['cozy'], energy: 9 }, { stage: 'teen' }));
   await lookAgain(page);
   await expect(seen(page, 'Teen').first()).toBeVisible();
-  await expect(seen(page, 'cozy').first()).toBeVisible();
+  await openCard(page);
+  await expect(inCard(page).getByText('cozy')).toBeVisible();
   await expect(page.getByText('gets a trait when it grows up.')).toHaveCount(0);
   await expect(page.getByText('Baby', { exact: true })).toHaveCount(0);
 });
@@ -175,7 +183,8 @@ test('владелец: a baby shows «Baby» and its line in the traits\' place
 test('черта уже есть × the owner\'s screen: a trait held twice is named once', async ({ page }) => {
   await openWith(page, '/pet/9', { auth: SIGNED_IN, worker: withPixel({ traits: ['clever', 'clever'] }) });
   await expect(seen(page, 'Grown-up').first()).toBeVisible();
-  await expect(page.getByText('clever', { exact: true }).filter({ visible: true })).toHaveCount(1);
+  await openCard(page);
+  await expect(inCard(page).getByText('clever', { exact: true }).filter({ visible: true })).toHaveCount(1);
 });
 
 // spec: add-pet-life › Mood rule › новые сутки × the owner's page

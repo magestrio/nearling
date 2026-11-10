@@ -121,7 +121,7 @@ export function WatchSheet({ tokenId, name, open, draft, onDraft, onClose, token
         : <Button off={busy} onClick={() => void act('save')}>Save watch</Button>}
     </Cluster>
   </Stack>;
-  return <Sheet title="Watch something" column foot={foot} status={fieldError ?? error ?? notice ?? pause?.text ?? latest ?? ''} onClose={closeSheet} busy={busy}>
+  return <Sheet title="Watch something" column foot={foot} status={fieldError ?? error ?? notice ?? pause?.text ?? latest ?? ''} onClose={closeSheet} busy={busy} returnFocusTo={() => document.querySelector<HTMLElement>('.ds-hotbar__action[aria-haspopup="menu"]') ?? document.querySelector<HTMLElement>('.ds-hud__nameplate')}>
     <Stack gap={4}>
       {error ? <Stack gap={2}><Note tone="error" silent>{error}</Note><Cluster justify="flex-end"><Button variant="secondary" size="compact" onClick={() => void load()}>Try again</Button></Cluster></Stack> : null}
       {auth.sessionLine && signInLine?.action ? <Stack gap={2}><Note tone="plain">{signInLine.text}</Note><Button variant="secondary" onClick={signInLine.action.onClick}>{signInLine.action.label}</Button></Stack> : null}

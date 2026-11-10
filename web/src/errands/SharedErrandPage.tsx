@@ -63,14 +63,21 @@ export function SharedErrandPage({ tokenId, code }: { tokenId: string; code: str
   const [lost, setLost] = useState(false);
   const [paused, toggleMotion] = useMotionPaused();
   const alive = useRef(true);
+  const readSeq = useRef(0);
+  const reading = useRef(false);
   const lastFunding = useRef<'near' | 'snack'>('near');
-  const read = useCallback(async () => {
+  const read = useCallback(async (force = false) => {
+    if (reading.current && !force) return;
+    const seq = ++readSeq.current;
+    reading.current = true;
+    const current = () => alive.current && seq === readSeq.current;
     try {
       const token = authRef.current.authenticated ? await authRef.current.getIdentityToken() : null;
       const nextPet = await workerApi.pet(token, tokenId);
-      if (alive.current) setPet(nextPet);
+      if (!current()) return;
+      setPet(nextPet);
       const next = await workerApi.sharedErrand(token, tokenId, code);
-      if (!alive.current) return;
+      if (!current()) return;
       setView(next);
       if (next.state === 'empty' || next.viewer !== 'owner' || (next.state !== 'opening' && next.state !== 'funding' && !(next.state === 'failed' && next.receiptId == null))) changeCloseStep('idle');
       setPet(nextPet);
@@ -79,25 +86,28 @@ export function SharedErrandPage({ tokenId, code }: { tokenId: string; code: str
         billingRead.current = next.receiptId;
         void workerApi.verificationThought(token, tokenId, next.receiptId).then((pointer) => {
           const words = billedWords(pointer.priceYocto, pointer.nearUsdRate, pointer.searches);
-          if (alive.current && words) setBilled({ receiptId: next.receiptId!, ...words });
+          if (current() && words) setBilled({ receiptId: next.receiptId!, ...words });
         }).catch(() => {}).finally(() => { billingRead.current = null; });
       }
     } catch (e) {
+      if (!current()) return;
       if (e instanceof WorkerError && e.status === 401) {
         authRef.current.endSession(true, true);
         try {
           const [nextPet, next] = await Promise.all([workerApi.pet(null, tokenId), workerApi.sharedErrand(null, tokenId, code)]);
-          if (alive.current) { setPet(nextPet); setView(next); changeCloseStep('idle'); setError(false); }
+          if (current()) { setPet(nextPet); setView(next); changeCloseStep('idle'); setError(false); }
           return;
         } catch { /* public read failed too */ }
       }
-      if (alive.current && closeStepRef.current !== 'pending') setError(true);
+      if (current() && closeStepRef.current !== 'pending') setError(true);
+    } finally {
+      if (seq === readSeq.current) reading.current = false;
     }
   }, [auth.authenticated, tokenId, code, billed?.receiptId]);
 
-  useEffect(() => { alive.current = true; void read(); return () => { alive.current = false; }; }, [read]);
+  useEffect(() => { alive.current = true; void read(true); return () => { alive.current = false; readSeq.current++; }; }, [read]);
   useEffect(() => {
-    const onVisible = () => { if (!document.hidden) void read(); };
+    const onVisible = () => { if (!document.hidden) void read(true); };
     document.addEventListener('visibilitychange', onVisible);
     const timer = setInterval(() => { if (!document.hidden) void read(); }, 5000);
     return () => { document.removeEventListener('visibilitychange', onVisible); clearInterval(timer); };
@@ -110,7 +120,7 @@ export function SharedErrandPage({ tokenId, code }: { tokenId: string; code: str
     if (event.kind !== 'ended' || event.flight.tokenId !== tokenId) return;
     if (event.end.status === 'ok') lastFunding.current = event.flight.source;
     if (event.end.status === 'funding_closed') setNotice("Enough food is already reserved for this errand. Your NEAR wasn't spent.");
-    if (event.end.status === 'ok' || event.end.status === 'funding_closed') void read();
+    if (event.end.status === 'ok' || event.end.status === 'funding_closed') void read(true);
   }), [read, tokenId]);
 
   // a run that failed without a paid call keeps its reserve for the owner's close, and offers no food to anyone
@@ -123,7 +133,7 @@ export function SharedErrandPage({ tokenId, code }: { tokenId: string; code: str
     if (!view || view.state === 'empty') return;
     openFeed({ tokenId, name: view.name, label: view.name, elsewhere: false, sharedCode: code, onDone: () => {
       setNotice(lastFunding.current === 'near' ? `You fed ${view.name}! Your NEAR is reserved for this errand.` : `You gave ${view.name} a free snack. The project paid for it; its food is reserved for this errand.`);
-      void read();
+      void read(true);
     } });
   };
   useEffect(() => {
@@ -158,13 +168,13 @@ export function SharedErrandPage({ tokenId, code }: { tokenId: string; code: str
       const approval = await closeApproval(tokenId, auth.nearAccountId, auth.signNearHash);
       submitted = true;
       await workerApi.closeSharedErrand(token, tokenId, code, approval);
-      await read();
+      await read(true);
     } catch (e) {
       if (e instanceof WorkerError && e.status === 401) auth.endSession(true, true);
       else {
         if (!submitted || (e instanceof WorkerError && e.code === 'close_refused')) changeCloseStep('failed');
         // A sent approval with no confirmed refusal may already have closed the chain job.
-        void read();
+        void read(true);
       }
     }
   };
@@ -178,7 +188,7 @@ export function SharedErrandPage({ tokenId, code }: { tokenId: string; code: str
   if (error) {
     status = LOAD_ERROR;
     body = <Heading level={1} variant="title-2" id="shared-title">{LOAD_ERROR}</Heading>;
-    actions = <Button block onClick={() => { setError(false); void read(); }}>Try again</Button>;
+    actions = <Button block onClick={() => { setError(false); void read(true); }}>Try again</Button>;
   } else if (view === null) {
     status = `Getting ${name}'s errand…`;
     loadingObject = <Stack gap={4} align="center"><Skeleton shape="pet" /><Skeleton shape="name" /></Stack>;
@@ -240,7 +250,7 @@ export function SharedErrandPage({ tokenId, code }: { tokenId: string; code: str
     const compact = error || (view !== null && (view.state === 'empty' || (!(waiting && funded && view.fullness.state === 'asleep') && closeStep !== 'pending')));
   // the 3D pet is sized by the stage's compact and owner classes, as the frames' still is by the centerpiece's compact cap (the
   // owner's phone cap): both follow `compact`
-  const figure = view && view.state !== 'empty' && !error ? <PetStage compact={compact} owner={compact} pet={<PetFigure tokenId={tokenId} name={name} stage={pet?.stage ?? 'adult'} state={view.fullness.state} outfit={pet?.worn ?? undefined} size="hero" lost={lost} onLost={() => setLost(true)} />} motion={!lost && canUseWebGL() ? <MotionToggle paused={paused} onToggle={toggleMotion} /> : undefined} plate={<PetPlate name={name} fullness={view.fullness} />} /> : null;
+  const figure = view && view.state !== 'empty' && !error ? <PetStage pet={<PetFigure tokenId={tokenId} name={name} stage={pet?.stage ?? 'adult'} state={view.fullness.state} outfit={pet?.worn ?? undefined} size="hero" lost={lost} onLost={() => setLost(true)} />} motion={!lost && canUseWebGL() ? <MotionToggle paused={paused} onToggle={toggleMotion} /> : undefined} plate={<PetPlate name={name} fullness={view.fullness} />} /> : null;
   return <Shell accent={figure ? makePet(tokenId).hue : 'none'} fill header={auth.authenticated ? <Header end={<AccountControl tokenId={tokenId} name={name} viewer={view && view.state !== 'empty' && view.viewer === 'owner' ? 'owner' : 'guest'} />} /> : undefined}>
     <Page fill width={figure || loadingObject ? undefined : 'narrow'}><Centerpiece labelledBy="shared-title" text={figure || loadingObject ? body : undefined} actions={actions} status={status} compact={compact} immediate={error || view?.state === 'empty'}>{figure ?? loadingObject ?? body}</Centerpiece></Page>
     <FeedLayer pageFullness={view && view.state !== 'empty' ? view.fullness : undefined} />

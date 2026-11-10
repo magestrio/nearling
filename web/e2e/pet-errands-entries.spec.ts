@@ -1,11 +1,13 @@
 import { expect, test } from '@playwright/test';
-import { ASLEEP_PIXEL, calls, drawn, openWith, OWNER, PIXEL, SIGNED_IN } from './helpers';
+import { ASLEEP_PIXEL, calls, drawn, openMore, openWith, OWNER, PIXEL, SIGNED_IN } from './helpers';
 
 // spec: add-pet › Pet screen › success (владелец)
 test('awake owner without a target opens Watch something', async ({ page }) => {
   await openWith(page, '/pet/9', { auth: SIGNED_IN, worker: OWNER });
-  await expect(page.getByRole('button', { name: 'Edit watch' })).toHaveCount(0);
-  await page.getByRole('button', { name: 'Watch something' }).click();
+  // the entry stands in the «More» menu (add-game-layout › Pet actions menu screen)
+  await openMore(page);
+  await expect(page.getByRole('menuitem', { name: 'Edit watch' })).toHaveCount(0);
+  await page.getByRole('menuitem', { name: 'Watch something' }).click();
   await expect(page.getByRole('dialog', { name: 'Watch something' })).toBeVisible();
 });
 
@@ -15,8 +17,9 @@ test('awake owner with a target sees it named and opens Edit watch', async ({ pa
   await openWith(page, '/pet/9', { auth: SIGNED_IN, worker: { ...OWNER, pets: { ...OWNER.pets, '9': { ...PIXEL, watch: watched } } } });
   // the page draws the line in both layouts (the phone intro card is hidden at this width), so only the shown one counts
   await expect(drawn(page, 'Watching: Rust compiler releases')).toHaveCount(1);
-  await expect(page.getByRole('button', { name: 'Watch something' })).toHaveCount(0);
-  await page.getByRole('button', { name: 'Edit watch' }).click();
+  await openMore(page);
+  await expect(page.getByRole('menuitem', { name: 'Watch something' })).toHaveCount(0);
+  await page.getByRole('menuitem', { name: 'Edit watch' }).click();
   await expect(page.getByRole('dialog', { name: 'Watch something' })).toBeVisible();
 });
 
@@ -32,7 +35,9 @@ test('a signed-out visitor sees the named target without owner controls', async 
 test('asleep owner can prepare a friend-funded search while ordinary Send stays unavailable', async ({ page }) => {
   await openWith(page, '/pet/9', { auth: SIGNED_IN, worker: { ...OWNER, pets: { '9': ASLEEP_PIXEL } } });
   await expect(page.getByRole('button', { name: 'Send Pixel on an errand' })).toHaveCount(0);
-  await expect(page.getByRole('button', { name: 'Watch something' })).toBeVisible();
+  await openMore(page);
+  await expect(page.getByRole('menuitem', { name: 'Watch something' })).toBeVisible();
+  await page.keyboard.press('Escape');
   await page.getByRole('button', { name: 'Ask friends to fund an errand' }).click();
   const sheet = page.getByRole('dialog', { name: 'Send Pixel on an errand' });
   await sheet.getByRole('radio', { name: 'Find out' }).check();

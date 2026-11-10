@@ -161,6 +161,6 @@ test('ссылку открыли: a visitor sees the Pet screen of the pet in i
   await expect(page.getByRole('button', { name: 'Feed Biscuit' })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Sign in' })).toBeVisible();
   await expect(page.getByRole('dialog')).toHaveCount(0);
-  // the pet's own address, not the sharer's: no call that names a player
-  expect((await calls(page)).filter((c) => c.startsWith('worker:') && c !== 'worker:pet')).toEqual([]);
+  // the pet's own address, not the sharer's: no call that names a player (the Seal on the stage reads the pet's public index)
+  expect((await calls(page)).filter((c) => c.startsWith('worker:') && c !== 'worker:pet' && c !== 'worker:verificationIndex')).toEqual([]);
 });

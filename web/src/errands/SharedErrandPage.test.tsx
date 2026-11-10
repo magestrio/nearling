@@ -111,3 +111,20 @@ it('keeps closing pending after an unknown outcome until a read confirms closure
   await act(async () => document.dispatchEvent(new Event('visibilitychange')));
   expect(host.textContent).toContain('This shared errand is no longer here.');
 });
+
+// spec: add-pet-errands › Shared errand screen › funded before start
+it('keeps the newest full reserve when an older funding read finishes later', async () => {
+  await show('visitor');
+  let resolveOlder!: (value: typeof WAITING) => void;
+  mocks.sharedErrand.mockImplementationOnce(() => new Promise<typeof WAITING>((resolve) => { resolveOlder = resolve; }))
+    .mockResolvedValue({ ...WAITING, funded: WAITING.needed });
+
+  await act(async () => { document.dispatchEvent(new Event('visibilitychange')); });
+  await act(async () => { document.dispatchEvent(new Event('visibilitychange')); });
+  expect(host.textContent).toContain('Enough food is already reserved for this errand.');
+  expect(host.querySelector('.ds-centerpiece__actions')?.textContent).not.toContain('Feed Pixel');
+
+  await act(async () => { resolveOlder(WAITING); });
+  expect(host.textContent).toContain('Enough food is already reserved for this errand.');
+  expect(host.querySelector('.ds-centerpiece__actions')?.textContent).not.toContain('Feed Pixel');
+});

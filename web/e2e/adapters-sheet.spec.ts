@@ -1,6 +1,6 @@
 import { expect, test, type Page } from '@playwright/test';
 import type { SourceView, ToolView } from '../src/seams/worker-types';
-import { ASLEEP_PIXEL, BISCUIT, calls, drawn, lookAgain, openWith, OWNER, PIXEL, reloadHolding, setWorker, SIGNED_IN } from './helpers';
+import { ASLEEP_PIXEL, BISCUIT, calls, drawn, inCard, lookAgain, openCard, openWith, OWNER, PIXEL, reloadHolding, setWorker, SIGNED_IN } from './helpers';
 
 // Adapter sheet and the sockets of Skill sheet (add-pet-errands › Adapter sheet screen, Adapter connect flow, Catalog flow): a step of
 // Skill sheet where the owner connects one keyless data source — a public name, an address, the tools the pet may call — or opens
@@ -24,7 +24,13 @@ const sheet = (page: Page) => page.getByRole('dialog');
 const skillSheet = (page: Page) => page.getByRole('dialog', { name: "Pixel's skill" });
 const connectSheet = (page: Page) => page.getByRole('dialog', { name: "Add a data source to Pixel's skill" });
 const connectedSheet = (page: Page) => page.getByRole('dialog', { name: "Daybook on Pixel's skill" });
-const badge = (page: Page) => page.getByRole('button', { name: `Pixel's skill: Good at ${LABEL}` });
+// The skill entry stands in the Work section of the pet's card (add-game-layout › Pet card screen › success (Work)); the card closes as the
+// sheet opens, and the focus returns to the nameplate that opened the card.
+const nameplate = (page: Page) => page.locator('.ds-hud__nameplate');
+const openSkillSheet = async (page: Page) => {
+  await openCard(page);
+  await inCard(page).getByRole('button', { name: "Pixel's skill" }).click();
+};
 const socket = (page: Page, name: string) => skillSheet(page).getByRole('button', { name, exact: true });
 const nameField = (page: Page) => sheet(page).getByLabel('Name it');
 const addressField = (page: Page) => sheet(page).getByLabel('Link');
@@ -38,7 +44,7 @@ const open = async (page: Page, sources: SourceView[] = [], extra: Record<string
     auth: SIGNED_IN,
     worker: { ...OWNER, pets: { '9': { ...pixel, skill: { label: LABEL }, owner: {} }, '2': BISCUIT }, skill: { skill: { label: LABEL, instruction: INSTRUCTION }, sources }, ...extra },
   });
-  await badge(page).click();
+  await openSkillSheet(page);
   await expect(skillSheet(page)).toBeVisible();
 };
 const connectNew = async (page: Page) => {
@@ -175,7 +181,7 @@ test('saved: Skill sheet again with the source under its name in its socket and 
 });
 
 // spec: add-pet-errands › Adapter sheet screen › success × Back and Close
-test('success × Back and Close: «Back» returns the focus to the socket that opened the step; «Close» closes both sheets onto the skill badge', async ({ page }) => {
+test('success × Back and Close: «Back» returns the focus to the socket that opened the step; «Close» closes both sheets onto the nameplate', async ({ page }) => {
   await open(page);
   await connectNew(page);
   await connectSheet(page).getByRole('button', { name: 'Back' }).click();
@@ -184,7 +190,7 @@ test('success × Back and Close: «Back» returns the focus to the socket that o
   await connectNew(page);
   await page.keyboard.press('Escape');
   await expect(sheet(page)).toHaveCount(0);
-  await expect(badge(page)).toBeFocused();
+  await expect(nameplate(page)).toBeFocused();
 });
 
 // spec: add-pet-errands › Adapter sheet screen › success × the session ends and «Back»
@@ -328,7 +334,8 @@ test('left the catalog: a copy whose entry is gone says so under its socket', as
 // spec: add-pet-errands › Adapter connect flow › no skill yet
 test('no skill yet: «Add data» and «Add code» are inactive, with «Save the skill first, then add data to it.»', async ({ page }) => {
   await openWith(page, '/pet/9', { auth: SIGNED_IN, worker: { ...OWNER, pets: { '9': { ...PIXEL, skill: null, owner: {} }, '2': BISCUIT }, skill: { skill: null } } });
-  await page.getByRole('button', { name: 'Teach Pixel a skill' }).click();
+  await openCard(page);
+  await inCard(page).getByRole('button', { name: 'Teach Pixel a skill' }).click();
   const dialog = sheet(page);
   await expect(drawn(page, 'Save the skill first, then add data to it.')).toBeVisible();
   await expect(dialog.getByRole('button', { name: 'Add data' })).toHaveCount(3);
@@ -376,9 +383,9 @@ test('success × reload: a reload closes the sheet and what was typed is gone', 
   await connectNew(page);
   await typeSource(page);
   await reloadHolding(page);
-  await expect(badge(page)).toBeVisible();
+  await expect(nameplate(page)).toBeVisible();
   await expect(sheet(page)).toHaveCount(0);
-  await badge(page).click();
+  await openSkillSheet(page);
   await connectNew(page);
   await expect(nameField(page)).toHaveValue('');
   await expect(addressField(page)).toHaveValue('');
@@ -395,7 +402,9 @@ test('not the owner × the pet given away with a sheet open: the pet is not thei
   await setWorker(page, { owned: [], checkSource: { fail: { status: 403, code: 'not_owner' } } });
   await check(page).click();
   await expect(sheet(page)).toHaveCount(0);
-  await expect(page.getByRole('log')).toHaveCount(0);
+  // the guest's page has no owner conversation: no field to talk to Pixel in, only the advice log
+  await expect(page.getByPlaceholder('Talk to Pixel…')).toHaveCount(0);
+  await expect(page.getByRole('log')).toHaveAccessibleName('Advice from Pixel');
   await expect(page.getByRole('button', { name: 'Feed Pixel' }).first()).toBeVisible();
 });
 

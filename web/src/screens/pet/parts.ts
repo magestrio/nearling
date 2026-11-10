@@ -87,6 +87,8 @@ export interface ActionContext {
   viewer: Viewer;
   /** `tokenId` is not the page's pet: the own pet's «Feed your {my_pet}» over a friend's page (add-feeding) */
   elsewhere?: boolean;
+  /** A sheet opened from a temporary card or menu returns focus to its persistent Stage control. */
+  returnFocusTo?: () => HTMLElement | null;
 }
 
 type Handler = (context: ActionContext) => void;

@@ -136,8 +136,11 @@ export function AddNearBody({
     } catch {
       setCopy('by-hand');
       // the address is selected, so the player's own copy is one shortcut away
-      const value = box.current?.querySelector('.ds-copy__value');
-      if (value) window.getSelection()?.selectAllChildren(value);
+      const value = box.current?.querySelector<HTMLTextAreaElement>('.ds-copy__value');
+      if (value) {
+        value.focus();
+        value.select();
+      }
     }
   };
 
