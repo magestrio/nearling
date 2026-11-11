@@ -15,7 +15,9 @@ import { buildPortion, sendPortion, type Reply } from '../feeding/portion';
 import { readSheet } from '../feeding/read';
 import { feedOutcome, giveSnack } from '../feeding/snack';
 import { readWallet } from '../feeding/wallet';
+import { ownerCredits } from '../any-chain/ownerCredits';
 import { requireSession, TOKEN_ID, type AppContext, type AppEnv } from '../http';
+import { isPaused } from '../servicePause';
 import { FEED_PORTIONS, nearUsdRate } from '../pricing';
 
 export const feedingRoutes = new Hono<AppEnv>();
@@ -52,7 +54,10 @@ feedingRoutes.get('/api/pets/:id/feed', async (c) => {
     let own = await rowOfPlayer(c.env.DB, session.accountId);
     if (own !== null && (await outlive(c, askNetwork(c.env, own))) !== null) own = null;
     const { sheet } = await readSheet(c.env, session, id, pet, rate);
-    return c.json({ chain: true, ...sheet, pending: own === null ? null : { id: own.id, source: own.source, tokenId: own.token_id } });
+    // New cross-chain quote addresses are closed while project service spending is paused (`Cross-chain availability rule`).
+    return c.json({ chain: true, ...sheet, crossChainPaused: await isPaused(c.env.DB, 'thought'),
+      ...(pet.owner_id === session.accountId ? { crossChainCredits: await ownerCredits(c.env.DB, id) } : {}),
+      pending: own === null ? null : { id: own.id, source: own.source, tokenId: own.token_id } });
   } catch (e) {
     if (e instanceof ChainUnreachable) return c.json({ chain: false });
     throw e;

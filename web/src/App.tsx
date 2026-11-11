@@ -19,6 +19,7 @@ import { SharedErrandPage } from './errands/SharedErrandPage';
 import { SignInLayer } from './signin/signIn';
 import { DebatePage } from './debates/DebatePage';
 import { DebateVerificationPage } from './debates/DebateVerificationPage';
+import { StatusPage } from './any-chain/StatusPage';
 
 // The day-1 route exists in dev builds only: with VITE_DEV_ROUTE not 'true' the branch is dead code and the
 // chunk is never emitted.
@@ -81,6 +82,7 @@ export function App() {
         {!unreachable && route.name === 'receipt' ? <VerificationPage key={route.code} code={route.code} /> : null}
         {!unreachable && route.name === 'debate' ? <DebatePage key={route.code} code={route.code} /> : null}
         {!unreachable && route.name === 'debate-verify' ? <DebateVerificationPage key={`${route.code}:${route.order}`} code={route.code} order={route.order} /> : null}
+        {!unreachable && route.name === 'feed-status' ? <StatusPage key={route.paymentId} tokenId={route.tokenId} paymentId={route.paymentId} /> : null}
         {!unreachable && route.name === 'shared-errand' ? <SharedErrandPage key={route.code} tokenId={route.tokenId} code={route.code} /> : null}
         {/* one element for the three: the Diary and the Wardrobe open over the Pet screen's own state (the pet, the poll, the line being typed) */}
         {!unreachable && (route.name === 'pet' || route.name === 'diary' || route.name === 'wardrobe' || route.name === 'experience' || route.name === 'work-record') ? (

@@ -53,6 +53,9 @@ import { VerdictCard } from '../../errands/VerdictCard';
 import { closeVerdict, useVerdictRequest } from '../../errands/verdictRequest';
 import { closeFeed, feedOpenNow, openFeed, useAddNearRequest, useFeedRequest } from '../../feeding/feedRequest';
 import { FeedLayer } from '../../feeding/FeedLayer';
+import { closeGuestFeed, openGuestFeed, useGuestFeed } from '../../any-chain/guestFeed';
+import { closeAddress, closePay, usePayRequest } from '../../any-chain/request';
+import { DepositEntries } from '../../any-chain/DepositEntries';
 import { useFeedLinkOpened } from '../../feeding/useFeedLinkOpened';
 import '../../gift/giftRequest';
 import { GiftSheet } from '../../gift/GiftSheet';
@@ -115,9 +118,13 @@ function accentOf(tokenId: string): Accent {
  *  «Feed {name}», which shows it expanded (not the own pet's sheet over a friend's page, whose opener is not here). */
 function useFeedCover(tokenId: string): { open: boolean; opener: boolean } {
   const request = useFeedRequest();
+  const pay = usePayRequest();
+  const guest = useGuestFeed();
   // the Add NEAR sheet another surface opened covers the page the same way
   const addNear = useAddNearRequest();
-  return { open: request !== null || addNear !== null, opener: request !== null && !request.elsewhere && request.tokenId === tokenId };
+  return { open: request !== null || addNear !== null || pay !== null || guest !== null,
+    opener: (request !== null && !request.elsewhere && request.tokenId === tokenId) ||
+      pay?.tokenId === tokenId || guest?.tokenId === tokenId };
 }
 
 function useFigure() {
@@ -692,6 +699,7 @@ function OwnerPage({ pet, s, seal }: { pet: OwnerView; s: ReturnType<typeof useP
       edge={asleep ? <Stack gap={1}>{label ? <Text variant="small">{`Good at ${label}`}</Text> : null}<Button variant="secondary" size="compact" icon="share" haspopup="dialog" onClick={openErrand}>Ask friends to fund an errand</Button></Stack>
         : pet.watch?.target || label ? <Stack gap={1}>{pet.watch?.target ? <Text variant="small" tone="secondary">{`Watching: ${pet.watch.target}`}</Text> : null}{label ? <Text variant="small">{`Good at ${label}`}</Text> : null}</Stack> : undefined}
       chat={<><Conversation intro={invitationCards}>{history}{debate.cards}{debate.status}
+        {auth.authenticated && !auth.sessionEnded ? <DepositEntries tokenId={tokenId} name={name} tokenOf={s.tokenOf} /> : null}
         {auth.authenticated && !auth.sessionEnded ? pet.willActivity?.map((activity, index) => <Message key={`will-activity-${activity.at}-${index}`} from="event">{`${name} declined a request · ${activity.code}`}</Message>) : null}
         {auth.authenticated && !auth.sessionEnded && wishOutcome?.source === 'pet_wish' ? <Message from="event">{`${name} earned ${nameOf(wishOutcome.item) ?? wishOutcome.item}!`}</Message> : null}
         {s.failure ? <Message from="error" actions={s.failure.noRetry ? undefined : <Button variant="secondary" size="compact" onClick={s.retryThought}>Try again</Button>}>{s.failure.code === 'empty_paid' ? emptyPaidLine(name) : lostLine(name)}</Message> : null}
@@ -873,7 +881,10 @@ function OutsiderPage({ pet, s, seal, ownerChanged = false }: { pet: Exclude<Pet
           {fresh ? <Button variant="secondary" href={hatchPath(tokenId)}>Get your own pet</Button> : null}
           <SignInOutcome column unreachable={offlineLine(name)} /></Stack></Dock></>}
       hotbar={<Hotbar items={guestStageActions(name, cover.opener, () => {
-        if (viewer === 'visitor') begin('feed'); else if (auth.needSession()) runAction('feed', ctx);
+        if (viewer === 'visitor') {
+          if (new URLSearchParams(window.location.search).get('via') === 'feed') openGuestFeed({ tokenId, name, signIn: () => begin('feed') });
+          else begin('feed');
+        } else if (auth.needSession()) runAction('feed', ctx);
       })} />}
     /></Inert>
     <FeedLayer column pageFullness={pet.fullness} />
@@ -1060,10 +1071,16 @@ export function PetScreen({ tokenId, from, diary = false, wardrobe = false, expe
   // The sheet is the tab's memory of this screen: it goes with the screen, and a sheet for another pet than this page's (not the
   // own pet's «Feed your {my_pet}») does not follow the player to it.
   const request = useFeedRequest();
+  const payRequest = usePayRequest();
+  const guestRequest = useGuestFeed();
   useEffect(() => {
     if (request !== null && !request.elsewhere && request.tokenId !== tokenId) closeFeed();
   }, [request, tokenId]);
-  useEffect(() => closeFeed, []);
+  useEffect(() => {
+    if (payRequest !== null && payRequest.tokenId !== tokenId) closePay();
+    if (guestRequest !== null && guestRequest.tokenId !== tokenId) closeGuestFeed();
+  }, [payRequest, guestRequest, tokenId]);
+  useEffect(() => () => { closeFeed(); closePay(); closeGuestFeed(); closeAddress(); }, []);
   // New outfit notice: beside the page, which stays at one place of the tree (its state, its draft and its pet's canvas live on) and is
   // out of reach while the notice stands. The dialog is beside the Shell, which is where the DS sets the text colour and the font and
   // the pet's accent: they are given here.

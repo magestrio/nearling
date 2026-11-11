@@ -18,9 +18,10 @@ let host: HTMLDivElement;
 let root: ReturnType<typeof createRoot>;
 let phase: ClearPhase;
 let run: () => Promise<void>;
+const done = vi.fn();
 
 function Harness() {
-  const state = useClearMemory('9', { done: vi.fn(), retry: vi.fn(), notOwner: vi.fn(), close: vi.fn() });
+  const state = useClearMemory('9', { done, retry: vi.fn(), notOwner: vi.fn(), close: vi.fn() });
   phase = state.phase;
   run = state.clear;
   return null;
@@ -39,4 +40,17 @@ it.each([503, 500])('keeps a wish-clear failure retryable at HTTP %i', async (st
   await act(async () => run());
   expect(phase).toEqual({ kind: 'error', why: 'failed', hasWish: true });
   expect(mock.clear).toHaveBeenCalledOnce();
+});
+
+// spec: add-any-chain-feed › Cross-chain retention data › memory cleared
+it('passes the server payment-record notice to the completed clear', async () => {
+  mock.wish.mockResolvedValue({ wish: null });
+  mock.shared.mockResolvedValue({ shared_job: null });
+  mock.clear.mockResolvedValue({ ok: true,
+    paymentRecordsNotice: 'Payment records stay for recovery. On-chain credits cannot be erased.' });
+  host = document.createElement('div'); document.body.append(host); root = createRoot(host);
+  await act(async () => root.render(<AuthContext.Provider value={{ needSession: () => true,
+    getIdentityToken: async () => 'token' } as AuthApi}><Harness /></AuthContext.Provider>));
+  await act(async () => run());
+  expect(done).toHaveBeenCalledWith('Payment records stay for recovery. On-chain credits cannot be erased.');
 });

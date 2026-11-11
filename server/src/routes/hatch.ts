@@ -11,6 +11,7 @@ import { gasIsLow, pauseReason } from '../servicePause';
 import { track } from '../track';
 import { currentPet, lastGiftedPet, ownedPets } from '../gift/current';
 import { knownPets } from '../pet/known';
+import { PROJECT_CAP_MICROS } from '../projectBudget';
 
 export const hatchRoutes = new Hono<AppEnv>();
 
@@ -20,7 +21,6 @@ const MAX_NAME_BYTES = 32;
 const BIRTHS_PER_DAY = 50;
 /** New births close when the project's own spend reaches $100 (PRODUCT.md §4, in micro-dollars). */
 const BUDGET_USD_MICROS = 100_000_000;
-const PROJECT_CEILING_USD_MICROS = 120_000_000;
 /** A row without a signed hash may be reclaimed after the sender has stopped. */
 const IN_FLIGHT_STALE_MS = 60_000;
 const IN_FLIGHT_WAIT_MS = 30_000;
@@ -316,7 +316,7 @@ async function reserveNextMint(env: Env, account: string, startedAt: number, pri
       AND (SELECT COALESCE(SUM(usd_micros), 0) FROM project_spend)
         + (SELECT COALESCE(SUM(reserved_usd_micros), 0) FROM births_in_flight WHERE account <> ?3 AND (tx_hash IS NOT NULL OR started_at >= ?8))
         + ?2 <= ?6`)
-    .bind(priorToken, projected, account, startedAt, BUDGET_USD_MICROS, PROJECT_CEILING_USD_MICROS, Math.round(rate * 1_000_000), Date.now() - IN_FLIGHT_STALE_MS).run();
+    .bind(priorToken, projected, account, startedAt, BUDGET_USD_MICROS, PROJECT_CAP_MICROS, Math.round(rate * 1_000_000), Date.now() - IN_FLIGHT_STALE_MS).run();
   return result.meta.changes === 1 ? Math.round(rate * 1_000_000) : null;
 }
 

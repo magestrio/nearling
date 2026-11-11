@@ -223,9 +223,9 @@ function isQuestion(row: PendingRow | null): boolean {
 
 /** The wake counter of the pet and the friend who made the last wake (`''`: a nameless friend; null:
  * the owner's own meal, work, or a memory that was cleared). */
-export async function wakeState(db: D1Database, tokenId: string): Promise<{ wakes: number; by: string | null }> {
-  const row = await db.prepare('SELECT wake_seq, wake_by FROM pets WHERE token_id = ?').bind(tokenId).first<{ wake_seq: number; wake_by: string | null }>();
-  return { wakes: row?.wake_seq ?? 0, by: row?.wake_by ?? null };
+export async function wakeState(db: D1Database, tokenId: string): Promise<{ wakes: number; by: string | null; source: string | null }> {
+  const row = await db.prepare('SELECT wake_seq, wake_by, wake_source FROM pets WHERE token_id = ?').bind(tokenId).first<{ wake_seq: number; wake_by: string | null; wake_source: string | null }>();
+  return { wakes: row?.wake_seq ?? 0, by: row?.wake_by ?? null, source: row?.wake_source ?? null };
 }
 
 /** Everything only the owner is shown of the pet, from the state the caller already read. */

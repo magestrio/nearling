@@ -1,17 +1,18 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
-import { ActionRow, Block, Button, Cluster, Disclosure, Fullness, Note, Only, Sheet, Text, TextField } from '../ds';
+import { ActionRow, Block, Button, Cluster, Disclosure, Note, Sheet, Text, TextField } from '../ds';
 import { resetTime } from '../lib/time';
 import { useAuth } from '../seams/auth';
 import type { FeedSheetData, SheetPortion } from '../seams/worker-types';
 import { hatchPath } from '../route';
-import { makePet } from '../pet/proto/generator.js';
 import { AddNearBody } from './AddNearSheet';
 import { Failure } from './Failure';
+import { FullnessHead } from './FullnessHead';
 import { balance, dateAndTime, sentenceName, usd } from './format';
 import { showFeedToast, type FeedRequest } from './feedRequest';
 import type { Phase, Tapped } from './feedMachine';
 import { shareFeedLink, whole } from './share';
 import { useFeedSheet } from './useFeedSheet';
+import { openAddress, openPay } from '../any-chain/request';
 
 // Feed sheet (`Feed sheet screen`, built from design/bundle/screens/feed.js): the portions as one block of rows with the balance as
 // its last line, the free snack where `Snack rule` gives it or the one line that stands in its place, «Ask friends to feed {name}»
@@ -37,6 +38,8 @@ interface Taps {
   snack: () => void;
   addNear: () => void;
   share: () => void;
+  payFromChain: () => void;
+  petAddress: () => void;
 }
 
 const isPortion = (what: Tapped | null, near: SheetPortion['near']): boolean => what?.kind === 'portion' && what.portion === near;
@@ -193,6 +196,9 @@ function Body({
           <Snack sheet={sheet} label={label} lead={false} flight={flight} taps={taps} />
         </>
       )}
+      {sheet.crossChainPaused ? <Note tone="plain">New cross-chain payments are paused. Deposits already sent can still arrive.</Note> : null}
+      <ActionRow disabled={sheet.crossChainPaused} onClick={taps.payFromChain}>Pay from another chain</ActionRow>
+      <ActionRow onClick={taps.petAddress}>{`Send USDC to ${sheet.name}'s address`}</ActionRow>
       {guest ? null : link === 'manual' ? (
         <TextField label={COPY_BY_HAND} readOnly multiline value={whole(tokenId, sheet.name)} />
       ) : (
@@ -200,6 +206,8 @@ function Body({
           {`Ask friends to feed ${label}`}
         </Button>
       )}
+      {sheet.viewer === 'owner' ? sheet.crossChainCredits?.map((credit) =>
+        <Note key={credit.creditId} tone="plain">From another chain</Note>) : null}
     </>
   );
 }
@@ -210,14 +218,6 @@ function shownSheet(phase: Phase): FeedSheetData | null {
   // a sheet reopened on a meal before its answer has no sheet yet: only «Still checking…»
   if (phase.kind === 'sending' || phase.kind === 'failed' || phase.kind === 'yum' || phase.kind === 'thanks') return phase.sheet;
   return null;
-}
-
-/** The pet's fullness, in the head of the sheet: the phone's bottom sheet covers the plate. */
-function FullnessHead({ fullness, elsewhere, tokenId }: { fullness: FeedSheetData['fullness']; elsewhere: boolean; tokenId: string }) {
-  const { state, level } = fullness;
-  const cells = <Fullness state={state} level={state === 'hungry' ? level : undefined} />;
-  // the own pet over a friend's page is not on the plate at all: its fullness stands in the head on the desktop too
-  return elsewhere ? <div data-accent={makePet(tokenId).hue}>{cells}</div> : <Only on="phone">{cells}</Only>;
 }
 
 /** The words of the outcome that stands: for the sheet's live region, and for the line the sheet draws. */
@@ -303,6 +303,8 @@ export function FeedSheet({ request, onClose, column, pageFullness }: { request:
     portion: (near) => tap({ kind: 'portion', portion: near }),
     snack: () => tap({ kind: 'snack' }),
     addNear,
+    payFromChain: () => openPay({ tokenId, name: sheet?.name ?? request.name, back: request, fullness: headFullness, elsewhere }),
+    petAddress: () => openAddress({ tokenId, name: sheet?.name ?? request.name, back: request, fullness: headFullness, elsewhere }),
     share: () => {
       if (!auth.needSession()) {
         onClose();

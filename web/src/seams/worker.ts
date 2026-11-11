@@ -63,7 +63,7 @@ export const FEED_SEND_TIMEOUT_MS = 65_000;
 /** The sign-out does not wait on the server longer than this (`Sign-out data` › `server not reached`). */
 export const END_SESSION_TIMEOUT_MS = 3000;
 
-async function call<T>(path: string, token: Token, init?: { method?: string; body?: unknown; timeoutMs?: number; serverTime?: boolean }): Promise<T> {
+async function call<T>(path: string, token: Token, init?: { method?: string; body?: unknown; timeoutMs?: number; serverTime?: boolean; headers?: Record<string, string> }): Promise<T> {
   let res: Response;
   let text: string;
   try {
@@ -72,6 +72,7 @@ async function call<T>(path: string, token: Token, init?: { method?: string; bod
       headers: {
         ...(token ? { 'privy-id-token': token } : {}),
         ...(init?.body !== undefined ? { 'content-type': 'application/json' } : {}),
+        ...init?.headers,
       },
       body: init?.body !== undefined ? JSON.stringify(init.body) : undefined,
       signal: AbortSignal.timeout(init?.timeoutMs ?? REQUEST_TIMEOUT_MS),
@@ -117,6 +118,20 @@ async function callReceiptBytes(code: string, n: number, part: 'request' | 'repl
 const id = (tokenId: string) => encodeURIComponent(tokenId);
 
 const real: WorkerApi = {
+  anyChainTokens: () => call('/api/any-chain/tokens', null),
+  anyChainQuote: (body) => call('/api/any-chain/quote', null, { method: 'POST', body }),
+  anyChainAccept: (quoteId) => call(`/api/any-chain/quotes/${encodeURIComponent(quoteId)}/accept`, null, { method: 'POST', serverTime: true }),
+  anyChainAddresses: (tokenId) => call(`/api/any-chain/pets/${id(tokenId)}/addresses`, null),
+  anyChainTrack: (body) => call('/api/any-chain/deposits/track', null, { method: 'POST', body }),
+  anyChainStatus: (paymentId) => call(`/api/any-chain/status/${encodeURIComponent(paymentId)}`, null),
+  anyChainDepositStatus: (paymentId) => call(`/api/any-chain/deposits/${encodeURIComponent(paymentId)}/status`, null),
+  anyChainOwnerDeposits: (token, tokenId) => call(`/api/any-chain/pets/${id(tokenId)}/deposits`, token),
+  anyChainOwnerDeposit: (token, depositId) => call(`/api/any-chain/deposits/${encodeURIComponent(depositId)}/owner`, token),
+  anyChainSweepQuote: (token, depositId) => call(`/api/any-chain/deposits/${encodeURIComponent(depositId)}/sweep/quote`, token, { method: 'POST', body: {} }),
+  anyChainSweepApprove: (token, sweepId, signature) => call(`/api/any-chain/sweeps/${encodeURIComponent(sweepId)}/approve`, token, { method: 'POST', body: { signature } }),
+  anyChainSweepStatus: (token, sweepId) => call(`/api/any-chain/sweeps/${encodeURIComponent(sweepId)}`, token),
+  anyChainHeldStatus: (heldId, paymentId, token) => call(`/api/any-chain/held/${heldId}/status`, token,
+    { headers: { 'x-payment-id': paymentId } }),
   debatePartners: (token, tokenId) => call<{ partners: Array<{ tokenId: string; name: string }> }>(
     `/api/pets/${id(tokenId)}/debates/partners`, token),
   debateRecords: (token, tokenId) => call<{ records: Array<{ id: string; status: DebateRead['status']; side: 'proposer' | 'recipient'; retained?: boolean }> }>(
@@ -204,7 +219,7 @@ const real: WorkerApi = {
   endSession: (token) => call<void>('/api/session/end', token, { method: 'POST', timeoutMs: END_SESSION_TIMEOUT_MS }),
   signInState: () => call<SignInGate>('/api/sign-in', null),
   judgeCheck: (code) => call<{ ok: true }>('/api/judge/check', null, { method: 'POST', body: { code } }),
-  clearMemory: (token, tokenId, approval) => call<{ ok: true } | { code: 'close_retry' }>(`/api/pets/${id(tokenId)}/memory/clear`, token, { method: 'POST', body: approval ? { approval } : {} }),
+  clearMemory: (token, tokenId, approval) => call<{ ok: true; paymentRecordsNotice?: string } | { code: 'close_retry'; paymentRecordsNotice?: string }>(`/api/pets/${id(tokenId)}/memory/clear`, token, { method: 'POST', body: approval ? { approval } : {} }),
   feedSheet: (token, tokenId) => call<FeedSheetAnswer>(`/api/pets/${id(tokenId)}/feed`, token),
   buildFeed: (token, tokenId, portion, code) => call<{ tx: string }>(`/api/pets/${id(tokenId)}/feed`, token, { method: 'POST', body: { portion, ...(code ? { code } : {}) } }),
   sendFeed: (token, tokenId, body) =>

@@ -117,6 +117,63 @@ pub enum OutfitVia {
 #[near(event_json(standard = "nearling"))]
 pub enum NearlingEvent {
     #[event_version("1.0.0")]
+    CrossChainPending {
+        credit_id: u64,
+        token_id: String,
+        route_id: String,
+        kind: crate::any_chain::RouteKind,
+        amount: U128,
+    },
+    #[event_version("1.0.0")]
+    CrossChainHeld {
+        delivery_id: u64,
+        amount: U128,
+        reason: String,
+        sender_id: AccountId,
+        msg_hash: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        token_id: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        route_id: Option<String>,
+    },
+    #[event_version("1.0.0")]
+    CrossChainFeed {
+        credit_id: u64,
+        token_id: String,
+        route_id: String,
+        kind: crate::any_chain::RouteKind,
+        amount: U128,
+    },
+    #[event_version("1.0.0")]
+    CrossChainHeldReleased {
+        delivery_id: u64,
+        amount: U128,
+        settlement_account: AccountId,
+    },
+    #[event_version("1.0.0")]
+    CrossChainHeldReleaseFailed {
+        delivery_id: u64,
+        amount: U128,
+    },
+    #[event_version("1.0.0")]
+    CrossChainSweepAuthorized {
+        token_id: String,
+        owner_id: AccountId,
+        chain: crate::any_chain::SweepChain,
+        route_id: String,
+        amount_base_units: u64,
+        destination: String,
+        refund_recipient: String,
+        sequence: u64,
+    },
+    #[event_version("1.0.0")]
+    CrossChainSweepSignFailed {
+        token_id: String,
+        chain: crate::any_chain::SweepChain,
+        route_id: String,
+        sequence: u64,
+    },
+    #[event_version("1.0.0")]
     SharedJobOpen {
         token_id: String,
         job_hash: String,

@@ -20,7 +20,7 @@ function nothingErased(e: WorkerError): boolean {
   return false;
 }
 
-export function useClearMemory(tokenId: string, outcome: { done: () => void; retry: () => void; notOwner: () => void; close: () => void }) {
+export function useClearMemory(tokenId: string, outcome: { done: (paymentRecordsNotice?: string) => void; retry: (paymentRecordsNotice?: string) => void; notOwner: () => void; close: () => void }) {
   const auth = useAuth();
   const authRef = useRef(auth);
   authRef.current = auth;
@@ -54,8 +54,8 @@ export function useClearMemory(tokenId: string, outcome: { done: () => void; ret
         catch { throw new WorkerError(409, 'close_refused'); }
       }
       const result = await workerApi.clearMemory(token, tokenId, approval);
-      if ('code' in result && result.code === 'close_retry') out.current.retry();
-      else out.current.done();
+      if ('code' in result && result.code === 'close_retry') out.current.retry(result.paymentRecordsNotice);
+      else out.current.done(result.paymentRecordsNotice);
     } catch (e) {
       const error = e instanceof WorkerError ? e : new WorkerError(0, 'unreachable');
       if (error.status === 401) {

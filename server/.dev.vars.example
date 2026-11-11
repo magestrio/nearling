@@ -16,6 +16,10 @@ NEAR_GAS_ACCOUNT_KEY=
 # Function-call key of the server account, this contract only (ADR-002) - set when add-pet lands
 NEAR_SERVER_KEY=
 
+# Separate low-balance source-chain gas wallets (ADR-041); never use the NEAR server key.
+BASE_GAS_WALLET_KEY=
+SOLANA_GAS_WALLET_KEY=
+
 # The user's own lists (PRODUCT.md section 8): words a pet's name may not contain; riddle texts and answers
 INSULT_LIST=
 RIDDLE_LIST=

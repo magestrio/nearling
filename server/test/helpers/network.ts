@@ -99,6 +99,13 @@ const EXPERIENCE_COUNT_COST = 880_000_000_000_000_000_000n;
 const RIDDLE_COMMIT_COST = 810_000_000_000_000_000_000n;
 
 export class FakeContract {
+  operatorKeys: { public_key: string; access_key: { nonce: number; permission: 'FullAccess' | { FunctionCall: { receiver_id: string; method_names: string[] } } } }[] = [];
+  crossChainExternalViews: { account: string; method: string; args: Record<string, unknown> }[] = [];
+  crossChainPendingCount = 0;
+  crossChainStakeAvailable = true;
+  crossChainRegistered = true;
+  crossChainSignerAvailable = true;
+  sweepFails: string | null = null;
   /** The balances of every account but the server's: the gas account, the players' wallets. An
    * account that is not here does not exist (its `view_account` is `UNKNOWN_ACCOUNT`). */
   balances = new Map<string, bigint>([[env.GAS_ACCOUNT_ID, 1_500_000_000_000_000_000_000_000n]]);
@@ -254,6 +261,15 @@ export class FakeContract {
         const before = this.past.get(String(args.token_id)) ?? [];
         return before[before.length - (this.lag.shift() ?? 0)] ?? this.pets.get(String(args.token_id)) ?? null;
       }
+      case 'cross_chain_capacity_view':
+        return { pending_count: this.crossChainPendingCount, pending_cap: 100,
+          capacity_available: this.crossChainPendingCount < 100,
+          stake_available: this.crossChainStakeAvailable && this.pets.has(String(args.token_id)) };
+      case 'sweep_signer_view':
+        return { signer_id: this.crossChainSignerAvailable ? 'v1.signer-prod.testnet' : null,
+          base_domain_id: 0, solana_domain_id: 1, path_format: '<chain>:<token_id>' };
+      case 'sweep_approval_hash_view':
+        return 'a'.repeat(64);
       case 'showcase_view':
         return this.showcaseNumbers;
       case 'experience_view': {
@@ -751,6 +767,14 @@ export class FakeContract {
         }
         status = refused === null ? { SuccessValue: '' }
           : { Failure: { ActionError: { index: 0, kind: { FunctionCallError: { ExecutionError: `Smart contract panicked: ${refused}` } } } } };
+      } else if (call.methodName === 'sweep_sign') {
+        const pet = this.pets.get(String(args.token_id));
+        const refused = this.sweepFails ?? (pet?.owner_id !== (args.owner_approval as { public_key?: string })?.public_key
+          ? 'not_current_owner' : null);
+        status = refused ? { Failure: { ActionError: { index: 0, kind: { FunctionCallError: { ExecutionError: `Smart contract panicked: ${refused}` } } } } }
+          : { SuccessValue: btoa(JSON.stringify(JSON.stringify({ scheme: args.chain === 'base' ? 'Secp256k1' : 'Ed25519',
+            ...(args.chain === 'base' ? { big_r: { affine_point: '02' }, s: { scalar: '00' }, recovery_id: 0 }
+              : { signature: Array(64).fill(0) }) }))) };
       } else if (call.methodName === 'shared_job_open') {
         const refused = this.openShared(String(args.token_id), String(args.job_hash), BigInt(String(args.allowance_yocto)));
         status = refused
@@ -901,8 +925,30 @@ export class FakeContract {
         return { result: { gas_price: this.gasPrice.toString() } };
       case 'query': {
         const type = params.request_type;
+        if (type === 'view_access_key_list' && params.account_id === env.CONTRACT_ID) {
+          return { result: { keys: this.operatorKeys, block_height: 1000, block_hash: BLOCK_HASH } };
+        }
         if (type === 'call_function') {
           const args = JSON.parse(atob(String(params.args_base64))) as Record<string, unknown>;
+          if (params.account_id === 'wrap.testnet' || params.account_id === 'wrap.near' || params.account_id === 'v1.signer-prod.testnet')
+            this.crossChainExternalViews.push({ account: String(params.account_id), method: String(params.method_name), args });
+          if ((params.account_id === 'wrap.testnet' || params.account_id === 'wrap.near') && params.method_name === 'storage_balance_of') {
+            const bytes = Array.from(new TextEncoder().encode(JSON.stringify(this.crossChainRegistered
+              ? { total: '1250000000000000000000', available: '0' } : null)));
+            return { result: { result: bytes, logs: [], block_height: 1000, block_hash: BLOCK_HASH } };
+          }
+          if (params.account_id === 'v1.signer-prod.testnet' && params.method_name === 'derived_public_key') {
+            const bytes = Array.from(new TextEncoder().encode(JSON.stringify(this.crossChainSignerAvailable
+              ? (args.domain_id === 0
+                  ? 'secp256k1:5SbWQSdvLrYZyAuPh63ziKdiJQB7rr2g9ectbwHKg7hPdYhBkmaP9aPniwD3hP2vs38gFHVbjcReBjFB5DphxQE6'
+                  : 'ed25519:2FrmSGkiwSzA3qdvf5jvN3ac2yTYacR1fbrGNe8bkExL') : null)));
+            return { result: { result: bytes, logs: [], block_height: 1000, block_hash: BLOCK_HASH } };
+          }
+          if (params.account_id === env.CONTRACT_ID && params.method_name === 'nft_token') {
+            const pet = this.pets.get(String(args.token_id));
+            const bytes = Array.from(new TextEncoder().encode(JSON.stringify(pet ? { token_id: args.token_id, owner_id: pet.owner_id } : null)));
+            return { result: { result: bytes, logs: [], block_height: 1000, block_hash: BLOCK_HASH } };
+          }
           if (params.method_name === 'pet_view') await this.during('pet_view');
           if (params.method_name === 'hatch_view') await this.during('hatch_view');
           const value = this.view(String(params.method_name), args);

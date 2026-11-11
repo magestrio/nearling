@@ -164,8 +164,8 @@ export const RIDDLE_REVEAL_TGAS = 5n;
 export const OUTFIT_GRANT_TGAS = 5n;
 
 /** Prepaid gas of `outfit_buy`, Tgas; `contract/tests/outfit.rs` › `gas_of_a_purchase` reads this line
- * and buys with it (2.75 Tgas burnt, the transfer to the treasury included). */
-export const OUTFIT_BUY_TGAS = 5n;
+ * and buys with it, including gas reserved for the treasury transfer and restoring callback. */
+export const OUTFIT_BUY_TGAS = 10n;
 
 const READ_TIMEOUT_MS = 8_000;
 const SEND_TIMEOUT_MS = 25_000;
@@ -468,6 +468,22 @@ const CONTRACT_CODES = [
   'outfit_too_early',
   'outfit_owned',
   'not_for_sale',
+  'wrong_token_caller',
+  'credit_not_recoverable',
+  'sweep_signer_unpinned',
+  'wrong_sweep_path',
+  'bad_route_id',
+  'unsupported_sweep_asset',
+  'sweep_amount_limit',
+  'bad_sweep_destination',
+  'bad_sweep_refund',
+  'sweep_approval_expired',
+  'bad_owner_approval',
+  'not_current_owner',
+  'sweep_already_active',
+  'sweep_sequence_used',
+  'bad_sweep_payload',
+  'sweep_storage_unavailable',
 ] as const;
 export type ContractCode = (typeof CONTRACT_CODES)[number];
 
@@ -545,7 +561,8 @@ export interface ServerCall {
     | { kind: 'shared_debit'; sessionId: string; debitId: number }
     | { kind: 'debate_debit'; debateId: string; lineOrder: number; operationId: string }
     | { kind: 'will_start'; op: string }
-    | { kind: 'will_release'; op: string };
+    | { kind: 'will_release'; op: string }
+    | { kind: 'sweep_sign'; routeId: string };
 }
 
 /** Called with the hash of a signed transaction before each broadcast. A throw means the hash could not be

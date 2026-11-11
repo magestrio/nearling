@@ -1,0 +1,11 @@
+[package]
+name = "nearling-test-mpc"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.95"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+near-sdk = "=5.30.0"

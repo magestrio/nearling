@@ -136,14 +136,16 @@ test('стёр: the dialog closes, an empty conversation under the event line, t
   const log = page.getByRole('log');
   await expect(log).toContainText(DONE);
   await expect(log).not.toContainText('Start with the chart, then.');
-  await expect(log.getByRole('listitem')).toHaveCount(1);
+  // spec: add-any-chain-feed › Cross-chain retention data › memory cleared
+  await expect(log).toContainText('Payment records stay for recovery. On-chain credits cannot be erased.');
+  await expect(log.getByRole('listitem')).toHaveCount(2);
   await expect(field(page)).toBeFocused();
   await expect(field(page)).toHaveAttribute('placeholder', 'Talk to Pixel…');
   // the page stood still long enough to be asked for a greeting, if it would ask: it doesn't
   await lookAgain(page);
   await page.waitForTimeout(300);
   expect((await calls(page)).filter((c) => c === 'worker:greeting')).toEqual([]);
-  await expect(log.getByRole('listitem')).toHaveCount(1);
+  await expect(log.getByRole('listitem')).toHaveCount(2);
   expect(await page.evaluate(() => sessionStorage.length)).toBe(0);
 });
 

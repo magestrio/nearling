@@ -148,16 +148,27 @@ thoughtRoutes.get('/api/pets/:id/state', async (c) => {
   // on chain before the outcome is settled, and a wake by the poll would lose the friend's thanks.
   const events: string[] = [];
   const friendOnItsWay = await c.env.DB.prepare("SELECT 1 AS found FROM feedings WHERE token_id = ? AND via = 'link' LIMIT 1").bind(id).first();
-  let woke = friendOnItsWay === null && (await wakeIfFed(c.env, id, 'owner'));
+  // The wake's source is the receipt that raised the food: a recorded `cross_chain_feed` credit is
+  // «From another chain». While no such receipt has been read the wake carries no source line and no
+  // name, and a friend's meal still on its way keeps its own line (and thanks) from the flow that sent it.
+  const crossChainCredit = friendOnItsWay !== null ? null : await c.env.DB.prepare(`SELECT 1 AS found FROM any_chain_delivery_evidence d
+    JOIN any_chain_credit_evidence e ON e.credit_id = d.credit_id
+    JOIN pets p ON p.token_id = d.token_id
+    WHERE d.token_id = ? AND p.slept_at IS NOT NULL AND e.was_asleep = 1
+      AND e.recorded_at >= p.slept_at LIMIT 1`).bind(id).first();
+  let woke = friendOnItsWay === null &&
+    (await wakeIfFed(c.env, id, crossChainCredit === null ? 'unattributed' : 'cross_chain'));
   // A wake that a feeding flow made since this page loaded is told by the counter, once per page
   // (`?wakes=<n>` of the page; a page that sends none is told of no old wake).
   const wakesSeen = c.req.query('wakes');
   const wake = await wakeState(c.env.DB, id);
   let friend: string | undefined;
+  let wakeSource: 'cross_chain' | undefined;
   if (wakesSeen !== undefined && /^\d{1,9}$/.test(wakesSeen) && Number(wakesSeen) < wake.wakes) {
     woke = true;
     if (wake.by !== null) friend = wake.by === '' ? 'A friend' : wake.by;
   }
+  if (woke && wake.source === 'cross_chain') { friend = undefined; wakeSource = 'cross_chain'; }
   if (woke) events.push('woke');
 
   // A desk that died in a deploy runs nothing by itself: whoever looks at the pet starts it again.
@@ -171,7 +182,7 @@ thoughtRoutes.get('/api/pets/:id/state', async (c) => {
   // The errand the pet is off on, or the one that came back without a report (a failed errand of an earlier owner is
   // erased by this read).
   const errand = await errandView(c.env.DB, await readErrand(c.env.DB, id, pet.owner_id), c.req.query('job') === undefined);
-  const out: Record<string, unknown> = { tokenId: id, name: pet.name, stage: stageOf(pet), ...fields, errand, events, ...(friend !== undefined ? { friend } : {}) };
+  const out: Record<string, unknown> = { tokenId: id, name: pet.name, stage: stageOf(pet), ...fields, errand, events, ...(friend !== undefined ? { friend } : {}), ...(wakeSource ? { wakeSource } : {}) };
   // The owner page polls this route every five seconds, including while asleep. An acceptance
   // appears on the open page through that existing poll; a new UTC day or service pause does not
   // remove the accepted link.

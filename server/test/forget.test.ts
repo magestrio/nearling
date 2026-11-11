@@ -64,7 +64,9 @@ describe('Memory deletion data', () => {
 
     const res = await clear(tk);
     expect(res.status).toBe(200);
-    expect(res.body).toEqual({ ok: true });
+    // spec: add-any-chain-feed › Cross-chain retention data › memory cleared
+    expect(res.body).toEqual({ ok: true,
+      paymentRecordsNotice: 'Payment records stay for recovery. On-chain credits cannot be erased.' });
     expect(h.logs()).toContain('memory_cleared');
 
     await noWords();
@@ -417,6 +419,18 @@ describe('Memory deletion data, the pairs', () => {
     expect(state.body.events).toEqual(['woke']);
     expect(state.body.friend).toBeUndefined();
     expect(JSON.stringify(state.body)).not.toContain('Maya');
+  });
+
+  // spec: add-any-chain-feed › Cross-chain identity rule › anonymous wake × memory clear
+  it('does not replay a prior anonymous wake after memory clear', async () => {
+    const pet = await asleepPet();
+    pet.given_food = S.toString();
+    expect(await wakeIfFed(env, '5', 'cross_chain')).toBe(true);
+    const tk = await owner();
+    await clear(tk);
+    const state = await api('/api/pets/5/state?wakes=0', { token: tk });
+    expect(state.body.events).toEqual(['woke']);
+    expect(state.body.wakeSource).toBeUndefined();
   });
 
   // spec: add-account › Memory deletion data › стёрто × питомец спит

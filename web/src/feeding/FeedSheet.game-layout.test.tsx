@@ -18,6 +18,7 @@ vi.mock('./AddNearSheet', () => ({ AddNearBody: ({ onArrived }: { onArrived: () 
   <button type="button" onClick={onArrived}>Simulate arrival</button> }));
 
 import { FeedSheet } from './FeedSheet';
+import { addressRequestNow, closeAddress, closePay, payRequestNow } from '../any-chain/request';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -51,9 +52,34 @@ afterEach(async () => {
   host.remove();
   mocks.phase = null;
   mocks.back.mockReset();
+  closePay();
+  closeAddress();
 });
 
 describe('Feed sheet on the game Stage', () => {
+  // spec: add-any-chain-feed › Cross-chain identity rule › anonymous credit
+  it('shows confirmed cross-chain food in Feed without payer identity or thanks', async () => {
+    mocks.phase = { kind: 'open', sheet: { ...sheet(false), crossChainCredits: [{ id: 'a'.repeat(32),
+      creditId: 7, wasAsleep: false, route: 'quote' }] } };
+    host = document.createElement('div'); document.body.append(host); root = createRoot(host);
+    await render();
+    expect(host.textContent).toContain('From another chain');
+    expect(host.textContent).not.toMatch(/payer|Maya/i);
+  });
+  // spec: add-any-chain-feed › Cross-chain quote flow › feed entry
+  it('adds two chain entries after NEAR and snacks and routes each to its sheet request', async () => {
+    mocks.phase = { kind: 'open', sheet: sheet(false) };
+    host = document.createElement('div'); document.body.append(host); root = createRoot(host);
+    await render();
+    const labels = [...host.querySelectorAll('button')].map((button) => button.textContent);
+    expect(labels).toContain('Pay from another chain');
+    expect(labels).toContain("Send USDC to Pixel's address");
+    expect(labels.indexOf('Pay from another chain')).toBeGreaterThan(labels.findIndex((label) => label?.includes('free snack')));
+    await act(async () => [...host.querySelectorAll('button')].find((button) => button.textContent === 'Pay from another chain')!.click());
+    expect(payRequestNow()).toMatchObject({ tokenId: '9', name: 'Pixel' });
+    await act(async () => [...host.querySelectorAll('button')].find((button) => button.textContent === "Send USDC to Pixel's address")!.click());
+    expect(addressRequestNow()).toMatchObject({ tokenId: '9', name: 'Pixel' });
+  });
   // spec: add-feeding › Add NEAR sheet screen › NEAR пришёл
   it('returns focus to the Feed title when NEAR arrives and the Add NEAR action disappears', async () => {
     mocks.phase = { kind: 'addNear', from: sheet(true) };

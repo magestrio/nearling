@@ -85,7 +85,7 @@
       "triggers": { "crons": ["* * * * *"] },
       // Names that exist on the Worker `nearling-dev`, RIDDLE_LIST (add-daily-ritual) and SKILL_KEY
       // (add-pet-work: base64 of 32 random bytes): the user types them before this change's dev deploy.
-      "secrets": { "required": ["NEARAI_API_KEY", "NEAR_GAS_ACCOUNT_KEY", "NEAR_SERVER_KEY", "INSULT_LIST", "RIDDLE_LIST", "SKILL_KEY"] }
+      "secrets": { "required": ["NEARAI_API_KEY", "NEAR_GAS_ACCOUNT_KEY", "NEAR_SERVER_KEY", "INSULT_LIST", "RIDDLE_LIST", "SKILL_KEY", "BASE_GAS_WALLET_KEY", "SOLANA_GAS_WALLET_KEY"] }
     },
 
     // prod: names only. Its ids, accounts and Privy app are the main session's, at R1 mainnet; the
@@ -127,7 +127,7 @@
       "migrations": [{ "tag": "v1", "new_sqlite_classes": ["PetDesk", "Limiter", "GuestView", "ServerKey"] }, { "tag": "v2", "new_sqlite_classes": ["SourceCache"] }, { "tag": "v3", "new_sqlite_classes": ["Showcase"] }],
       "worker_loaders": [{ "binding": "LOADER" }],
       "triggers": { "crons": ["* * * * *"] },
-      "secrets": { "required": ["NEARAI_API_KEY", "NEAR_GAS_ACCOUNT_KEY", "NEAR_SERVER_KEY", "INSULT_LIST", "RIDDLE_LIST", "SKILL_KEY"] }
+      "secrets": { "required": ["NEARAI_API_KEY", "NEAR_GAS_ACCOUNT_KEY", "NEAR_SERVER_KEY", "INSULT_LIST", "RIDDLE_LIST", "SKILL_KEY", "BASE_GAS_WALLET_KEY", "SOLANA_GAS_WALLET_KEY"] }
     }
   }
 }

@@ -26,6 +26,7 @@ export { Centerpiece } from './Centerpiece';
 export { Composer } from './Composer';
 export { Conversation, Message, Thinking } from './Conversation';
 export { CopyField } from './CopyField';
+export { ChainAddressRow } from './ChainAddressRow';
 export { Disclosure } from './Disclosure';
 export { Dots } from './Dots';
 export { Fullness, litCells, type FullnessState } from './Fullness';

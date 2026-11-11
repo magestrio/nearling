@@ -359,7 +359,7 @@ async fn gas_of_a_purchase() -> anyhow::Result<()> {
     );
     assert!(result.is_success(), "{:?}", result.failures());
     // The purchase and its restoring callback burn gas in separate receipts. The server's
-    // five-Tgas call succeeds; the extra callback stays within its two-Tgas allocation.
+    // prepaid call succeeds; the extra callback stays within its two-Tgas allocation.
     assert!(burnt < prepaid.as_gas() + Gas::from_tgas(2).as_gas());
     assert_eq!(ctx.treasury_owed().await?, 0);
     Ok(())

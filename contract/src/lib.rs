@@ -1,3 +1,4 @@
+pub mod any_chain;
 pub mod debate;
 pub mod events;
 pub mod limits;
@@ -13,10 +14,29 @@ use near_sdk::borsh;
 use near_sdk::json_types::U128;
 use near_sdk::store::key::Sha256;
 use near_sdk::store::{LookupMap, LookupSet};
-use near_sdk::{AccountId, Gas, NearToken, PanicOnDefault, Promise, env, near};
+use near_sdk::{AccountId, Gas, NearToken, PanicOnDefault, Promise, PromiseOrValue, env, near};
 use std::collections::HashMap;
 
+const WNEAR_SETTING_KEY: &[u8] = b"wnear_account";
+
+fn fixed_wnear_account() -> AccountId {
+    let bytes = env::storage_read(WNEAR_SETTING_KEY).unwrap_or_else(|| fail("wnear_not_configured"));
+    String::from_utf8(bytes).ok().and_then(|value| value.parse().ok())
+        .unwrap_or_else(|| fail("bad_wrap_account"))
+}
+
+fn set_wnear_account(account: &AccountId) {
+    if account.as_str() != "wrap.near" && account.as_str() != "wrap.testnet" {
+        fail("bad_wrap_account");
+    }
+    if env::storage_has_key(WNEAR_SETTING_KEY) {
+        fail("wnear_already_configured");
+    }
+    env::storage_write(WNEAR_SETTING_KEY, account.as_bytes());
+}
+
 use crate::debate::{DEBATE_SLOT_BYTES, DebateSlot, DebateSlotView, next_slot};
+use crate::any_chain::{ActiveSweep, CreditState, HeldRelease, HELD_RELEASE_RECORD_BYTES, MAX_PENDING_CREDITS, PENDING_RECORD_BYTES, PendingCredit, RouteKind, SweepApprovalEnvelope, SweepChain, SweepOwnerApproval, SweepSignerView, SWEEP_ACTIVE_RECORD_BYTES, SWEEP_SEQUENCE_RECORD_BYTES, SWEEP_WINDOW_MS, checked_sweep_payload, route_id_valid, sweep_approval_hash};
 use crate::events::{
     FundingSpend, HireKind, NearlingEvent, OutfitVia, SnackKind, ThoughtReceipt, hex, unhex32,
 };
@@ -199,6 +219,26 @@ pub struct ContractV9 {
     experience_counted_since: u64,
 }
 
+/// Exact deployed debates layout, before the receipt and release fields were appended.
+#[near(serializers = [borsh])]
+pub struct ContractDebates {
+    old: ContractV9,
+    debate_slots: LookupMap<TokenId, DebateSlot, Sha256>,
+}
+
+/// The exact deployed stage-2 tail, before signer pin and sweep state.
+#[near(serializers = [borsh])]
+pub struct ContractAnyChainV1 {
+    old: ContractDebates,
+    next_credit_id: u64,
+    pending_credits: LookupMap<u64, PendingCredit>,
+    pending_count: u32,
+    pub held_total: u128,
+    pub next_delivery_id: u64,
+    held_release_ids: LookupMap<u64, HeldRelease, Sha256>,
+    settlement_account: AccountId,
+}
+
 #[near(serializers = [borsh])]
 #[derive(Clone, Default)]
 pub struct ExperienceCounts {
@@ -222,6 +262,14 @@ pub struct ShowcaseView {
     pub hires_completed: u64,
     pub friend_snacks: u64,
     pub counted_since: u64,
+}
+
+#[near(serializers = [json])]
+pub struct CrossChainCapacityView {
+    pub pending_count: u32,
+    pub pending_cap: u32,
+    pub capacity_available: bool,
+    pub stake_available: bool,
 }
 
 /// The game's contract. Errors are `env::panic_str` with a code in the text; the Worker tells
@@ -267,6 +315,16 @@ pub struct Contract {
     experience_counts: LookupMap<TokenId, ExperienceCounts, Sha256>,
     experience_counted_since: u64,
     debate_slots: LookupMap<TokenId, DebateSlot, Sha256>,
+    next_credit_id: u64,
+    pending_credits: LookupMap<u64, PendingCredit>,
+    pending_count: u32,
+    held_total: u128,
+    next_delivery_id: u64,
+    held_release_ids: LookupMap<u64, HeldRelease, Sha256>,
+    settlement_account: AccountId,
+    sweep_signer_id: Option<AccountId>,
+    sweep_sequences: LookupMap<(TokenId, SweepChain), u64, Sha256>,
+    active_sweeps: LookupMap<(TokenId, SweepChain), ActiveSweep, Sha256>,
 }
 
 fn fail(code: &str) -> ! {
@@ -396,6 +454,47 @@ struct PlannedHire {
 }
 
 impl Contract {
+    fn hold_cross_chain_delivery(
+        &mut self,
+        sender_id: AccountId,
+        amount: U128,
+        msg: &str,
+        token_id: Option<String>,
+        route_id: Option<String>,
+        reason: &str,
+    ) -> PromiseOrValue<U128> {
+        let delivery_id = self.next_delivery_id;
+        self.next_delivery_id = self.next_delivery_id.checked_add(1).unwrap_or_else(|| fail("delivery_ids_exhausted"));
+        self.held_total = self.held_total.checked_add(amount.0).unwrap_or_else(|| fail("held_overflow"));
+        NearlingEvent::CrossChainHeld {
+            delivery_id,
+            amount,
+            reason: reason.to_string(),
+            sender_id,
+            msg_hash: hex(&env::sha256(msg.as_bytes())),
+            token_id,
+            route_id,
+        }.emit();
+        PromiseOrValue::Value(U128(0))
+    }
+
+    fn begin_cross_chain_unwrap(credit_id: u64, amount: U128) {
+        Promise::new(fixed_wnear_account())
+            .function_call(
+                "near_withdraw".to_string(),
+                near_sdk::serde_json::json!({"amount": amount}).to_string().into_bytes(),
+                NearToken::from_yoctonear(1),
+                Gas::from_tgas(10),
+            )
+            .then(Promise::new(env::current_account_id()).function_call(
+                "on_unwrap".to_string(),
+                near_sdk::serde_json::json!({"credit_id": credit_id}).to_string().into_bytes(),
+                NearToken::from_yoctonear(0),
+                Gas::from_tgas(10),
+            ))
+            .detach();
+    }
+
     /// Account for the first generation write of every pet born before this reserve existed.
     /// The marker makes the current-layout migration one-time without changing state layout.
     fn reserve_legacy_generations(&mut self) {
@@ -431,7 +530,7 @@ impl Contract {
         Self {
             owner_id,
             server_id,
-            treasury_id,
+            treasury_id: treasury_id.clone(),
             tokens,
             pets: LookupMap::new(b"p".to_vec()),
             hatched: LookupMap::new(b"h".to_vec()),
@@ -455,6 +554,16 @@ impl Contract {
             experience_counts: LookupMap::with_hasher(b"c".to_vec()),
             experience_counted_since: env::block_timestamp(),
             debate_slots: LookupMap::with_hasher(b"d".to_vec()),
+            next_credit_id: 0,
+            pending_credits: LookupMap::new(b"q".to_vec()),
+            pending_count: 0,
+            held_total: 0,
+            next_delivery_id: 0,
+            held_release_ids: LookupMap::with_hasher(b"R".to_vec()),
+            settlement_account: treasury_id,
+            sweep_signer_id: None,
+            sweep_sequences: LookupMap::with_hasher(b"S".to_vec()),
+            active_sweeps: LookupMap::with_hasher(b"A".to_vec()),
         }
     }
 
@@ -564,11 +673,228 @@ impl Contract {
 
 #[near]
 impl Contract {
+    // spec: add-any-chain-feed › wNEAR receipt contract › accepted transfer
+    // spec: add-any-chain-feed › wNEAR receipt contract › wrong token caller
+    // spec: add-any-chain-feed › wNEAR receipt contract › wrong sender
+    // spec: add-any-chain-feed › wNEAR receipt contract › unknown pet
+    // spec: add-any-chain-feed › wNEAR receipt contract › missing route id
+    // spec: add-any-chain-feed › wNEAR receipt contract › second real delivery on one route
+    // spec: add-any-chain-feed › wNEAR receipt contract › below food minimum
+    // spec: add-any-chain-feed › wNEAR receipt contract › pending storage unavailable
+    // spec: add-any-chain-feed › wNEAR receipt contract › pending cap reached
+    pub fn ft_on_transfer(
+        &mut self,
+        sender_id: AccountId,
+        amount: U128,
+        msg: String,
+    ) -> PromiseOrValue<U128> {
+        if env::predecessor_account_id() != fixed_wnear_account() {
+            fail("wrong_token_caller");
+        }
+        let parsed: Option<near_sdk::serde_json::Value> = near_sdk::serde_json::from_str(&msg).ok();
+        let token_id = parsed.as_ref()
+            .and_then(|value| value.get("token_id"))
+            .and_then(|value| value.as_str())
+            .filter(|value| value.len() <= 20 && value.bytes().all(|byte| byte.is_ascii_digit()))
+            .map(str::to_string);
+        let route_id = parsed.as_ref()
+            .and_then(|value| value.get("route"))
+            .and_then(|value| value.as_str())
+            .filter(|value| route_id_valid(value))
+            .map(str::to_string);
+        let kind = parsed.as_ref()
+            .and_then(|value| value.get("kind"))
+            .and_then(|value| value.as_str())
+            .and_then(|value| match value {
+                "quote" => Some(RouteKind::Quote),
+                "pet_address" => Some(RouteKind::PetAddress),
+                _ => None,
+            });
+        let reason = if sender_id.as_str() != "intents.near" {
+            Some("wrong_sender")
+        } else if token_id.as_ref().is_none_or(|id| self.tokens.owner_by_id.get(id).is_none()) {
+            Some("unknown_pet")
+        } else if route_id.is_none() || kind.is_none() {
+            Some("invalid_route")
+        } else if amount.0 < MIN_FEED {
+            Some("below_minimum")
+        } else if self.pending_count >= MAX_PENDING_CREDITS {
+            Some("capacity")
+        } else {
+            None
+        };
+        if let Some(reason) = reason {
+            return self.hold_cross_chain_delivery(sender_id, amount, &msg, token_id, route_id, reason);
+        }
+        let token_id = token_id.expect("checked above");
+        let route_id = route_id.expect("checked above");
+        let kind = kind.expect("checked above");
+        let mut current_pet = self.pets.get(&token_id).cloned().expect("checked above");
+        let legacy_pet = !matches!(&current_pet, VersionedPet::V7(_));
+        let old_pet_len = borsh::to_vec(&current_pet).unwrap_or_else(|_| fail("serialize")).len();
+        current_pet.current_mut();
+        let grown_pet_len = borsh::to_vec(&current_pet).unwrap_or_else(|_| fail("serialize")).len();
+        let pet_growth = grown_pet_len.saturating_sub(old_pet_len) as u64;
+        let cost = u128::from(PENDING_RECORD_BYTES)
+            .checked_mul(env::storage_byte_cost().as_yoctonear())
+            .unwrap_or_else(|| fail("overflow"));
+        let pet_growth_cost = u128::from(pet_growth)
+            .checked_mul(env::storage_byte_cost().as_yoctonear())
+            .unwrap_or_else(|| fail("overflow"));
+        let full_cost = cost.checked_add(pet_growth_cost).unwrap_or_else(|| fail("overflow"));
+        let balance = env::account_balance().as_yoctonear();
+        let required_stake = u128::from(env::storage_usage().saturating_add(PENDING_RECORD_BYTES).saturating_add(pet_growth))
+            .saturating_mul(env::storage_byte_cost().as_yoctonear());
+        if self.pool < full_cost || balance < required_stake.saturating_add(1) {
+            return self.hold_cross_chain_delivery(sender_id, amount, &msg, Some(token_id), Some(route_id), "storage_unavailable");
+        }
+        if legacy_pet {
+            self.put_pet(token_id.clone(), current_pet);
+        }
+        let credit_id = self.next_credit_id;
+        self.next_credit_id = self.next_credit_id.checked_add(1).unwrap_or_else(|| fail("credit_ids_exhausted"));
+        self.pending_credits.insert(credit_id, PendingCredit {
+            token_id: token_id.clone(),
+            route_id: route_id.clone(),
+            kind,
+            amount: amount.0,
+            state: CreditState::InFlight,
+        });
+        self.pending_credits.flush();
+        self.pending_count += 1;
+        self.pool -= cost;
+        NearlingEvent::CrossChainPending { credit_id, token_id, route_id, kind, amount }.emit();
+        Self::begin_cross_chain_unwrap(credit_id, amount);
+        PromiseOrValue::Value(U128(0))
+    }
+
+    /// Completion of the detached withdrawal; a failed withdrawal keeps its wNEAR for retry.
+    #[private]
+    pub fn on_unwrap(&mut self, credit_id: u64) {
+        let mut credit = self.pending_credits.get(&credit_id).cloned().unwrap_or_else(|| fail("no_credit"));
+        if !matches!(credit.state, CreditState::InFlight) {
+            fail("credit_not_in_flight");
+        }
+        if env::promise_result_checked(0, 256).is_err() {
+            credit.state = CreditState::Failed;
+            self.pending_credits.insert(credit_id, credit);
+            return;
+        }
+        let mut record = self.pets.get(&credit.token_id).cloned().unwrap_or_else(|| fail("no_pet"));
+        let pet = record.current_mut();
+        pet.given_food = pet.given_food.checked_add(credit.amount).unwrap_or_else(|| fail("overflow"));
+        self.put_pet(credit.token_id.clone(), record);
+        self.pending_credits.remove(&credit_id);
+        self.pending_count -= 1;
+        self.pool = self.pool.checked_add(u128::from(PENDING_RECORD_BYTES) * env::storage_byte_cost().as_yoctonear()).unwrap_or_else(|| fail("overflow"));
+        NearlingEvent::CrossChainFeed { credit_id, token_id: credit.token_id, route_id: credit.route_id, kind: credit.kind, amount: U128(credit.amount) }.emit();
+    }
+
+    // spec: add-any-chain-feed › wNEAR recovery contract › retry failed route
+    // spec: add-any-chain-feed › wNEAR recovery contract › route already settled
+    // spec: add-any-chain-feed › wNEAR recovery contract › route not recoverable
+    pub fn retry_unwrap(&mut self, credit_id: u64) {
+        let mut credit = self.pending_credits.get(&credit_id).cloned()
+            .unwrap_or_else(|| fail("credit_not_recoverable"));
+        if !matches!(credit.state, CreditState::Failed) {
+            fail("credit_not_recoverable");
+        }
+        credit.state = CreditState::InFlight;
+        let amount = U128(credit.amount);
+        self.pending_credits.insert(credit_id, credit);
+        Self::begin_cross_chain_unwrap(credit_id, amount);
+    }
+
+    // spec: add-any-chain-feed › Held wNEAR release contract › operator release
+    // spec: add-any-chain-feed › Held wNEAR release contract › unauthorized release
+    // spec: add-any-chain-feed › Held wNEAR release contract › duplicate release
+    // spec: add-any-chain-feed › Held wNEAR release contract › amount exceeds custody
+    // spec: add-any-chain-feed › Held wNEAR release contract › resolution storage unavailable
+    pub fn held_refund_release(&mut self, delivery_id: u64, amount: U128, settlement_account: AccountId) -> Promise {
+        if env::predecessor_account_id() != env::current_account_id() {
+            fail("operator_only");
+        }
+        if settlement_account != self.settlement_account {
+            fail("wrong_settlement_account");
+        }
+        if delivery_id >= self.next_delivery_id || amount.0 == 0 {
+            fail("unknown_delivery");
+        }
+        if self.held_release_ids.contains_key(&delivery_id) {
+            fail("delivery_already_released");
+        }
+        if amount.0 > self.held_total {
+            fail("held_custody_insufficient");
+        }
+        let cost = u128::from(HELD_RELEASE_RECORD_BYTES)
+            .checked_mul(env::storage_byte_cost().as_yoctonear())
+            .unwrap_or_else(|| fail("overflow"));
+        let required = u128::from(env::storage_usage().saturating_add(HELD_RELEASE_RECORD_BYTES))
+            .saturating_mul(env::storage_byte_cost().as_yoctonear())
+            .saturating_add(1);
+        if self.pool < cost || env::account_balance().as_yoctonear() < required {
+            fail("release_storage_unavailable");
+        }
+        let before = env::storage_usage();
+        self.held_release_ids.insert(delivery_id, HeldRelease::InFlight(amount.0));
+        self.held_release_ids.flush();
+        if env::storage_usage().saturating_sub(before) > HELD_RELEASE_RECORD_BYTES {
+            fail("release_marker_too_large");
+        }
+        self.pool -= cost;
+        self.held_total -= amount.0;
+        Promise::new(fixed_wnear_account())
+            .function_call(
+                "ft_transfer".to_string(),
+                near_sdk::serde_json::json!({"receiver_id": settlement_account, "amount": amount, "memo": null}).to_string().into_bytes(),
+                NearToken::from_yoctonear(1),
+                Gas::from_tgas(10),
+            )
+            .then(Promise::new(env::current_account_id()).function_call(
+                "on_held_refund_release".to_string(),
+                near_sdk::serde_json::json!({"delivery_id": delivery_id, "amount": amount}).to_string().into_bytes(),
+                NearToken::from_yoctonear(0),
+                Gas::from_tgas(10),
+            ))
+    }
+
+    // spec: add-any-chain-feed › Held wNEAR release contract › settlement transfer failed
+    #[private]
+    pub fn on_held_refund_release(&mut self, delivery_id: u64, amount: U128) {
+        match self.held_release_ids.get(&delivery_id) {
+            Some(HeldRelease::InFlight(value)) if *value == amount.0 => {},
+            _ => fail("release_not_in_flight"),
+        }
+        if env::promise_result_checked(0, 256).is_err() {
+            self.held_release_ids.remove(&delivery_id);
+            self.held_total = self.held_total.checked_add(amount.0).unwrap_or_else(|| fail("overflow"));
+            self.pool = self.pool.checked_add(u128::from(HELD_RELEASE_RECORD_BYTES) * env::storage_byte_cost().as_yoctonear()).unwrap_or_else(|| fail("overflow"));
+            NearlingEvent::CrossChainHeldReleaseFailed { delivery_id, amount }.emit();
+        } else {
+            self.held_release_ids.insert(delivery_id, HeldRelease::Resolved(amount.0));
+            NearlingEvent::CrossChainHeldReleased { delivery_id, amount, settlement_account: self.settlement_account.clone() }.emit();
+        }
+    }
+
     /// For a fresh account (prod at R1; a new dev account).
     #[init]
     #[private]
-    pub fn new(owner_id: AccountId, server_id: AccountId, treasury_id: AccountId) -> Self {
+    pub fn new(owner_id: AccountId, server_id: AccountId, treasury_id: AccountId, wnear_id: AccountId) -> Self {
+        set_wnear_account(&wnear_id);
         Self::fresh(owner_id, server_id, treasury_id)
+    }
+
+    /// One-time setting for an existing account after its current layout has been migrated.
+    #[init(ignore_state)]
+    #[private]
+    pub fn migrate_wnear(wnear_id: AccountId) -> Self {
+        let state: Self = env::state_read().unwrap_or_else(|| fail("no_state"));
+        set_wnear_account(&wnear_id);
+        state
+    }
+
+    pub fn wnear_account_view(&self) -> AccountId {
+        fixed_wnear_account()
     }
 
     /// Takes the layout before `add-pet-work` into this one: adds the work pairs and their index,
@@ -583,7 +909,7 @@ impl Contract {
         Self {
             owner_id: old.owner_id,
             server_id: old.server_id,
-            treasury_id: old.treasury_id,
+            treasury_id: old.treasury_id.clone(),
             tokens: old.tokens,
             pets: old.pets,
             hatched: old.hatched,
@@ -607,6 +933,16 @@ impl Contract {
             experience_counts: LookupMap::with_hasher(b"c".to_vec()),
             experience_counted_since: env::block_timestamp(),
             debate_slots: LookupMap::with_hasher(b"d".to_vec()),
+            next_credit_id: 0,
+            pending_credits: LookupMap::new(b"q".to_vec()),
+            pending_count: 0,
+            held_total: 0,
+            next_delivery_id: 0,
+            held_release_ids: LookupMap::with_hasher(b"R".to_vec()),
+            settlement_account: old.treasury_id,
+            sweep_signer_id: None,
+            sweep_sequences: LookupMap::with_hasher(b"S".to_vec()),
+            active_sweeps: LookupMap::with_hasher(b"A".to_vec()),
         }
     }
 
@@ -618,7 +954,7 @@ impl Contract {
         let mut contract = Self {
             owner_id: old.owner_id,
             server_id: old.server_id,
-            treasury_id: old.treasury_id,
+            treasury_id: old.treasury_id.clone(),
             tokens: old.tokens,
             pets: old.pets,
             hatched: old.hatched,
@@ -642,6 +978,16 @@ impl Contract {
             experience_counts: LookupMap::with_hasher(b"c".to_vec()),
             experience_counted_since: env::block_timestamp(),
             debate_slots: LookupMap::with_hasher(b"d".to_vec()),
+            next_credit_id: 0,
+            pending_credits: LookupMap::new(b"q".to_vec()),
+            pending_count: 0,
+            held_total: 0,
+            next_delivery_id: 0,
+            held_release_ids: LookupMap::with_hasher(b"R".to_vec()),
+            settlement_account: old.treasury_id,
+            sweep_signer_id: None,
+            sweep_sequences: LookupMap::with_hasher(b"S".to_vec()),
+            active_sweeps: LookupMap::with_hasher(b"A".to_vec()),
         };
         contract.reserve_legacy_generations();
         contract
@@ -666,7 +1012,7 @@ impl Contract {
         Self {
             owner_id: old.owner_id,
             server_id: old.server_id,
-            treasury_id: old.treasury_id,
+            treasury_id: old.treasury_id.clone(),
             tokens: old.tokens,
             pets: old.pets,
             hatched: old.hatched,
@@ -690,6 +1036,16 @@ impl Contract {
             experience_counts: LookupMap::with_hasher(b"c".to_vec()),
             experience_counted_since: env::block_timestamp(),
             debate_slots: LookupMap::with_hasher(b"d".to_vec()),
+            next_credit_id: 0,
+            pending_credits: LookupMap::new(b"q".to_vec()),
+            pending_count: 0,
+            held_total: 0,
+            next_delivery_id: 0,
+            held_release_ids: LookupMap::with_hasher(b"R".to_vec()),
+            settlement_account: old.treasury_id,
+            sweep_signer_id: None,
+            sweep_sequences: LookupMap::with_hasher(b"S".to_vec()),
+            active_sweeps: LookupMap::with_hasher(b"A".to_vec()),
         }
     }
 
@@ -701,7 +1057,7 @@ impl Contract {
         Self {
             owner_id: old.owner_id,
             server_id: old.server_id,
-            treasury_id: old.treasury_id,
+            treasury_id: old.treasury_id.clone(),
             tokens: old.tokens,
             pets: old.pets,
             hatched: old.hatched,
@@ -725,6 +1081,16 @@ impl Contract {
             experience_counts: LookupMap::with_hasher(b"c".to_vec()),
             experience_counted_since: env::block_timestamp(),
             debate_slots: LookupMap::with_hasher(b"d".to_vec()),
+            next_credit_id: 0,
+            pending_credits: LookupMap::new(b"q".to_vec()),
+            pending_count: 0,
+            held_total: 0,
+            next_delivery_id: 0,
+            held_release_ids: LookupMap::with_hasher(b"R".to_vec()),
+            settlement_account: old.treasury_id,
+            sweep_signer_id: None,
+            sweep_sequences: LookupMap::with_hasher(b"S".to_vec()),
+            active_sweeps: LookupMap::with_hasher(b"A".to_vec()),
         }
     }
 
@@ -736,7 +1102,7 @@ impl Contract {
         Self {
             owner_id: old.owner_id,
             server_id: old.server_id,
-            treasury_id: old.treasury_id,
+            treasury_id: old.treasury_id.clone(),
             tokens: old.tokens,
             pets: old.pets,
             hatched: old.hatched,
@@ -760,6 +1126,16 @@ impl Contract {
             experience_counts: LookupMap::with_hasher(b"c".to_vec()),
             experience_counted_since: env::block_timestamp(),
             debate_slots: LookupMap::with_hasher(b"d".to_vec()),
+            next_credit_id: 0,
+            pending_credits: LookupMap::new(b"q".to_vec()),
+            pending_count: 0,
+            held_total: 0,
+            next_delivery_id: 0,
+            held_release_ids: LookupMap::with_hasher(b"R".to_vec()),
+            settlement_account: old.treasury_id,
+            sweep_signer_id: None,
+            sweep_sequences: LookupMap::with_hasher(b"S".to_vec()),
+            active_sweeps: LookupMap::with_hasher(b"A".to_vec()),
         }
     }
 
@@ -771,7 +1147,7 @@ impl Contract {
         Self {
             owner_id: old.owner_id,
             server_id: old.server_id,
-            treasury_id: old.treasury_id,
+            treasury_id: old.treasury_id.clone(),
             tokens: old.tokens,
             pets: old.pets,
             hatched: old.hatched,
@@ -795,6 +1171,16 @@ impl Contract {
             experience_counts: LookupMap::with_hasher(b"c".to_vec()),
             experience_counted_since: env::block_timestamp(),
             debate_slots: LookupMap::with_hasher(b"d".to_vec()),
+            next_credit_id: 0,
+            pending_credits: LookupMap::new(b"q".to_vec()),
+            pending_count: 0,
+            held_total: 0,
+            next_delivery_id: 0,
+            held_release_ids: LookupMap::with_hasher(b"R".to_vec()),
+            settlement_account: old.treasury_id,
+            sweep_signer_id: None,
+            sweep_sequences: LookupMap::with_hasher(b"S".to_vec()),
+            active_sweeps: LookupMap::with_hasher(b"A".to_vec()),
         }
     }
 
@@ -807,7 +1193,7 @@ impl Contract {
         Self {
             owner_id: old.owner_id,
             server_id: old.server_id,
-            treasury_id: old.treasury_id,
+            treasury_id: old.treasury_id.clone(),
             tokens: old.tokens,
             pets: old.pets,
             hatched: old.hatched,
@@ -831,7 +1217,333 @@ impl Contract {
             experience_counts: old.experience_counts,
             experience_counted_since: old.experience_counted_since,
             debate_slots: LookupMap::with_hasher(b"d".to_vec()),
+            next_credit_id: 0,
+            pending_credits: LookupMap::new(b"q".to_vec()),
+            pending_count: 0,
+            held_total: 0,
+            next_delivery_id: 0,
+            held_release_ids: LookupMap::with_hasher(b"R".to_vec()),
+            settlement_account: old.treasury_id,
+            sweep_signer_id: None,
+            sweep_sequences: LookupMap::with_hasher(b"S".to_vec()),
+            active_sweeps: LookupMap::with_hasher(b"A".to_vec()),
         }
+    }
+
+    /// One-time dev upgrade from the exact deployed debates tail, before receipt custody.
+    #[init(ignore_state)]
+    #[private]
+    pub fn migrate_any_chain() -> Self {
+        let old: ContractDebates = env::state_read().unwrap_or_else(|| fail("no_state"));
+        let debate_slots = old.debate_slots;
+        let old = old.old;
+        Self {
+            owner_id: old.owner_id,
+            server_id: old.server_id,
+            treasury_id: old.treasury_id.clone(),
+            tokens: old.tokens,
+            pets: old.pets,
+            hatched: old.hatched,
+            births_day: old.births_day,
+            births_today: old.births_today,
+            next_token_id: old.next_token_id,
+            pool: old.pool,
+            known: old.known,
+            riddle_commits: old.riddle_commits,
+            riddle_reserve: old.riddle_reserve,
+            work_pairs: old.work_pairs,
+            work_index: old.work_index,
+            transfer_generation: old.transfer_generation,
+            pets_hatched: old.pets_hatched,
+            thoughts_paid: old.thoughts_paid,
+            spent: old.spent,
+            hires_completed: old.hires_completed,
+            friend_snacks: old.friend_snacks,
+            counted_since: old.counted_since,
+            shared_jobs: old.shared_jobs,
+            experience_counts: old.experience_counts,
+            experience_counted_since: old.experience_counted_since,
+            debate_slots,
+            next_credit_id: 0,
+            pending_credits: LookupMap::new(b"q".to_vec()),
+            pending_count: 0,
+            held_total: 0,
+            next_delivery_id: 0,
+            held_release_ids: LookupMap::with_hasher(b"R".to_vec()),
+            settlement_account: old.treasury_id,
+            sweep_signer_id: None,
+            sweep_sequences: LookupMap::with_hasher(b"S".to_vec()),
+            active_sweeps: LookupMap::with_hasher(b"A".to_vec()),
+        }
+    }
+
+    /// One-time dev upgrade from the deployed debates-plus-receipt/held state.
+    #[init(ignore_state)]
+    #[private]
+    pub fn migrate_any_chain_sweep() -> Self {
+        let old: ContractAnyChainV1 = env::state_read().unwrap_or_else(|| fail("no_state"));
+        let debates = old.old;
+        let debate_slots = debates.debate_slots;
+        let legacy = debates.old;
+        Self {
+            owner_id: legacy.owner_id,
+            server_id: legacy.server_id,
+            treasury_id: legacy.treasury_id,
+            tokens: legacy.tokens,
+            pets: legacy.pets,
+            hatched: legacy.hatched,
+            births_day: legacy.births_day,
+            births_today: legacy.births_today,
+            next_token_id: legacy.next_token_id,
+            pool: legacy.pool,
+            known: legacy.known,
+            riddle_commits: legacy.riddle_commits,
+            riddle_reserve: legacy.riddle_reserve,
+            work_pairs: legacy.work_pairs,
+            work_index: legacy.work_index,
+            transfer_generation: legacy.transfer_generation,
+            pets_hatched: legacy.pets_hatched,
+            thoughts_paid: legacy.thoughts_paid,
+            spent: legacy.spent,
+            hires_completed: legacy.hires_completed,
+            friend_snacks: legacy.friend_snacks,
+            counted_since: legacy.counted_since,
+            shared_jobs: legacy.shared_jobs,
+            experience_counts: legacy.experience_counts,
+            experience_counted_since: legacy.experience_counted_since,
+            debate_slots,
+            next_credit_id: old.next_credit_id,
+            pending_credits: old.pending_credits,
+            pending_count: old.pending_count,
+            held_total: old.held_total,
+            next_delivery_id: old.next_delivery_id,
+            held_release_ids: old.held_release_ids,
+            settlement_account: old.settlement_account,
+            sweep_signer_id: None,
+            sweep_sequences: LookupMap::with_hasher(b"S".to_vec()),
+            active_sweeps: LookupMap::with_hasher(b"A".to_vec()),
+        }
+    }
+
+    /// Public configuration only; the signer derives addresses in its own view call.
+    pub fn sweep_signer_view(&self) -> SweepSignerView {
+        SweepSignerView {
+            signer_id: self.sweep_signer_id.clone(),
+            base_domain_id: SweepChain::Base.domain_id(),
+            solana_domain_id: SweepChain::Solana.domain_id(),
+            path_format: "<chain>:<token_id>".to_string(),
+        }
+    }
+
+    /// A public preflight for the next receipt. The stake check includes a legacy pet's
+    /// first-write growth, exactly as `ft_on_transfer` does. A missing pet has no stake.
+    // spec: add-any-chain-feed › Cross-chain availability rule › pending stake unavailable
+    // spec: add-any-chain-feed › Cross-chain availability rule › pending capacity full
+    pub fn cross_chain_capacity_view(&self, token_id: TokenId) -> CrossChainCapacityView {
+        let stake_available = self.pets.get(&token_id).and_then(|record| {
+            self.tokens.owner_by_id.get(&token_id)?;
+            let mut current = record.clone();
+            let old_len = borsh::to_vec(&current).ok()?.len();
+            current.current_mut();
+            let new_len = borsh::to_vec(&current).ok()?.len();
+            let growth = new_len.saturating_sub(old_len) as u64;
+            let bytes = PENDING_RECORD_BYTES.checked_add(growth)?;
+            let cost = u128::from(bytes).checked_mul(env::storage_byte_cost().as_yoctonear())?;
+            let required = u128::from(env::storage_usage().checked_add(bytes)?)
+                .checked_mul(env::storage_byte_cost().as_yoctonear())?;
+            Some(self.pool >= cost && env::account_balance().as_yoctonear() >= required.saturating_add(1))
+        }).unwrap_or(false);
+        CrossChainCapacityView {
+            pending_count: self.pending_count,
+            pending_cap: MAX_PENDING_CREDITS,
+            capacity_available: self.pending_count < MAX_PENDING_CREDITS,
+            stake_available,
+        }
+    }
+
+    /// The contract-account key pins the MPC signer once before any address is offered.
+    #[private]
+    pub fn pin_sweep_signer(&mut self, signer_id: AccountId) {
+        if self.sweep_signer_id.is_some() {
+            fail("sweep_signer_already_pinned");
+        }
+        let bytes = 1_u128 + 4 + signer_id.as_str().len() as u128;
+        let cost = bytes.checked_mul(env::storage_byte_cost().as_yoctonear())
+            .unwrap_or_else(|| fail("overflow"));
+        self.pool = self.pool.checked_sub(cost).unwrap_or_else(|| fail("pool_empty"));
+        self.sweep_signer_id = Some(signer_id);
+    }
+
+    /// The owner signs this domain-separated Borsh envelope's raw SHA-256 hash.
+    pub fn sweep_approval_hash_view(&self, envelope: SweepApprovalEnvelope) -> String {
+        hex(&sweep_approval_hash(&envelope))
+    }
+
+    // spec: add-any-chain-feed › Pet sweep authorization contract › valid authorization
+    // spec: add-any-chain-feed › Pet sweep authorization contract › wrong caller
+    // spec: add-any-chain-feed › Pet sweep authorization contract › unknown pet
+    // spec: add-any-chain-feed › Pet sweep authorization contract › wrong or stale owner approval
+    // spec: add-any-chain-feed › Pet sweep authorization contract › expired or reused approval
+    // spec: add-any-chain-feed › Pet sweep authorization contract › wrong derivation path
+    pub fn sweep_sign(
+        &mut self,
+        token_id: TokenId,
+        chain: SweepChain,
+        path: String,
+        usdc_contract: String,
+        amount_base_units: u64,
+        destination: String,
+        refund_recipient: String,
+        route_id: String,
+        sequence: u64,
+        expiry_ms: u64,
+        signing_payload_hex: String,
+        owner_approval: SweepOwnerApproval,
+    ) -> Promise {
+        self.assert_server();
+        if env::attached_deposit().as_yoctonear() != 0 {
+            fail("no_deposit");
+        }
+        let signer_id = self.sweep_signer_id.clone().unwrap_or_else(|| fail("sweep_signer_unpinned"));
+        let owner = self.tokens.owner_by_id.get(&token_id).unwrap_or_else(|| fail("no_pet"));
+        if path != chain.path(&token_id) {
+            fail("wrong_sweep_path");
+        }
+        if !route_id_valid(&route_id) {
+            fail("bad_route_id");
+        }
+        let named_usdc = match chain {
+            SweepChain::Base => "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913",
+            SweepChain::Solana => "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+        };
+        let token_matches = match chain {
+            SweepChain::Base => usdc_contract.eq_ignore_ascii_case(named_usdc),
+            SweepChain::Solana => usdc_contract == named_usdc,
+        };
+        if !token_matches {
+            fail("unsupported_sweep_asset");
+        }
+        if amount_base_units == 0 || amount_base_units > 1_000_000 {
+            fail("sweep_amount_limit");
+        }
+        if destination.is_empty() || destination.len() > 128 {
+            fail("bad_sweep_destination");
+        }
+        if refund_recipient.is_empty() || refund_recipient.len() > 128 {
+            fail("bad_sweep_refund");
+        }
+        let now_ms = env::block_timestamp() / 1_000_000;
+        if expiry_ms <= now_ms || expiry_ms > now_ms.saturating_add(SWEEP_WINDOW_MS) {
+            fail("sweep_approval_expired");
+        }
+        let owner_key = unhex32(&owner_approval.public_key).unwrap_or_else(|| fail("bad_owner_approval"));
+        if owner.as_str() != hex(&owner_key) {
+            fail("not_current_owner");
+        }
+        let key = (token_id.clone(), chain);
+        if self.active_sweeps.get(&key).is_some_and(|sweep| sweep.signing || sweep.expires_at_ms > now_ms) {
+            fail("sweep_already_active");
+        }
+        let expected_sequence = self.sweep_sequences.get(&key).copied().unwrap_or(0);
+        if sequence != expected_sequence {
+            fail("sweep_sequence_used");
+        }
+        let payload = decode_hex(&signing_payload_hex).unwrap_or_else(|| fail("bad_sweep_payload"));
+        let signer_payload = checked_sweep_payload(chain, &payload, &usdc_contract, amount_base_units, &destination)
+            .unwrap_or_else(|| fail("bad_sweep_payload"));
+        let envelope = SweepApprovalEnvelope {
+            contract_id: env::current_account_id(),
+            signer_id: signer_id.clone(),
+            token_id: token_id.clone(),
+            chain,
+            path: path.clone(),
+            usdc_contract: usdc_contract.clone(),
+            amount_base_units,
+            destination: destination.clone(),
+            refund_recipient: refund_recipient.clone(),
+            route_id: route_id.clone(),
+            sequence,
+            expiry_ms,
+            signing_payload_sha256: env::sha256(&payload).try_into().unwrap_or_else(|_| fail("hash_length")),
+        };
+        let signature: [u8; 64] = decode_hex(&owner_approval.signature)
+            .and_then(|bytes| bytes.try_into().ok())
+            .unwrap_or_else(|| fail("bad_owner_approval"));
+        if !env::ed25519_verify(&signature, &sweep_approval_hash(&envelope), &owner_key) {
+            fail("bad_owner_approval");
+        }
+        let new_sequence = sequence.checked_add(1).unwrap_or_else(|| fail("sweep_sequence_exhausted"));
+        let new_active = self.active_sweeps.get(&key).is_none();
+        let new_sequence_record = self.sweep_sequences.get(&key).is_none();
+        let reserve_bytes = u64::from(new_active) * SWEEP_ACTIVE_RECORD_BYTES
+            + u64::from(new_sequence_record) * SWEEP_SEQUENCE_RECORD_BYTES;
+        let reserve = u128::from(reserve_bytes)
+            .checked_mul(env::storage_byte_cost().as_yoctonear())
+            .unwrap_or_else(|| fail("overflow"));
+        let required = u128::from(env::storage_usage().saturating_add(reserve_bytes))
+            .saturating_mul(env::storage_byte_cost().as_yoctonear())
+            .saturating_add(1);
+        if self.pool < reserve || env::account_balance().as_yoctonear() < required {
+            fail("sweep_storage_unavailable");
+        }
+        let before = env::storage_usage();
+        self.sweep_sequences.insert(key.clone(), new_sequence);
+        self.active_sweeps.insert(key, ActiveSweep {
+            route_id: route_id.clone(), sequence,
+            expires_at_ms: now_ms.saturating_add(SWEEP_WINDOW_MS), signing: true,
+        });
+        self.sweep_sequences.flush();
+        self.active_sweeps.flush();
+        if env::storage_usage().saturating_sub(before) > reserve_bytes {
+            fail("sweep_record_too_large");
+        }
+        self.pool -= reserve;
+        NearlingEvent::CrossChainSweepAuthorized {
+            token_id: token_id.clone(), owner_id: owner.clone(), chain, route_id: route_id.clone(), amount_base_units,
+            destination, refund_recipient, sequence,
+        }.emit();
+        let payload_kind = match chain {
+            SweepChain::Base => "Ecdsa",
+            SweepChain::Solana => "Eddsa",
+        };
+        let request = near_sdk::serde_json::json!({"request": {
+            "path": path,
+            "payload_v2": {payload_kind: hex(&signer_payload)},
+            "domain_id": chain.domain_id(),
+        }});
+        Promise::new(signer_id).function_call(
+            "sign".to_string(), request.to_string().into_bytes(),
+            NearToken::from_yoctonear(1), Gas::from_tgas(30),
+        ).then(Promise::new(env::current_account_id()).function_call(
+            "on_sweep_signed".to_string(),
+            near_sdk::serde_json::json!({"token_id": token_id, "chain": chain,
+                "route_id": route_id, "sequence": sequence}).to_string().into_bytes(),
+            NearToken::from_yoctonear(0), Gas::from_tgas(10),
+        ))
+    }
+
+    #[private]
+    pub fn on_sweep_signed(&mut self, token_id: TokenId, chain: SweepChain,
+        route_id: String, sequence: u64) -> Option<String> {
+        let key = (token_id.clone(), chain);
+        let active = self.active_sweeps.get(&key).cloned().unwrap_or_else(|| fail("sweep_not_active"));
+        if active.route_id != route_id || active.sequence != sequence || !active.signing {
+            fail("sweep_not_active");
+        }
+        if let Ok(bytes) = env::promise_result_checked(0, 1024) {
+            if let Ok(value) = near_sdk::serde_json::from_slice::<near_sdk::serde_json::Value>(&bytes) {
+                let expected = match chain { SweepChain::Base => "Secp256k1", SweepChain::Solana => "Ed25519" };
+                if value.get("scheme").and_then(|v| v.as_str()) == Some(expected) {
+                    self.active_sweeps.insert(key, ActiveSweep { signing: false, ..active });
+                    return String::from_utf8(bytes).ok();
+                }
+            }
+        }
+        self.active_sweeps.remove(&key);
+        self.pool = self.pool.checked_add(u128::from(SWEEP_ACTIVE_RECORD_BYTES)
+            * env::storage_byte_cost().as_yoctonear()).unwrap_or_else(|| fail("overflow"));
+        NearlingEvent::CrossChainSweepSignFailed { token_id, chain, route_id, sequence }.emit();
+        None
     }
 
     // spec: add-pet-experience › Experience view contract › public read
@@ -2374,7 +3086,7 @@ mod tests {
 
     fn funded_contract(pool: u128) -> Contract {
         testing_env!(context(contract_id(), 0, 0).build());
-        let mut contract = Contract::new(owner(), server(), treasury());
+        let mut contract = Contract::new(owner(), server(), treasury(), "wrap.near".parse().unwrap());
         testing_env!(context(accounts(4), 0, pool).build());
         contract.pool_fund();
         contract
@@ -2383,16 +3095,47 @@ mod tests {
     /// A contract with an empty pool: `pool_fund` takes no zero deposit.
     fn bare_contract() -> Contract {
         testing_env!(context(contract_id(), 0, 0).build());
-        Contract::new(owner(), server(), treasury())
+        Contract::new(owner(), server(), treasury(), "wrap.near".parse().unwrap())
+    }
+
+    // spec: add-any-chain-feed › Held wNEAR release contract › duplicate release × in flight
+    #[test]
+    fn held_release_rejects_a_second_call_while_transfer_is_in_flight() {
+        let mut contract = funded_contract(MIN_FEED);
+        testing_env!(context(contract_id(), 0, 0).build());
+        contract.held_total = MIN_FEED;
+        contract.next_delivery_id = 1;
+        contract.held_refund_release(0, U128(MIN_FEED), treasury()).detach();
+        assert!(matches!(contract.held_release_ids.get(&0), Some(HeldRelease::InFlight(value)) if *value == MIN_FEED));
+        assert_eq!(contract.held_total, 0);
+        let error = panic_text(|| contract.held_refund_release(0, U128(MIN_FEED), treasury()));
+        assert!(error.contains("delivery_already_released"));
+        assert_eq!(contract.held_total, 0);
     }
 
     #[test]
     fn new_stores_the_accounts() {
         testing_env!(context(contract_id(), 0, 0).build());
-        let contract = Contract::new(owner(), server(), treasury());
+        let contract = Contract::new(owner(), server(), treasury(), "wrap.near".parse().unwrap());
         assert_eq!(contract.owner_id(), owner());
         assert_eq!(contract.version(), "0.1.0");
+        assert_eq!(contract.wnear_account_view().as_str(), "wrap.near");
         assert_eq!(contract.hatch_view(player(0)).pool.0, 0);
+    }
+
+    // spec: add-any-chain-feed › wNEAR receipt contract › accepted transfer
+    #[test]
+    fn migration_sets_testnet_wnear_once_without_changing_contract_state() {
+        testing_env!(context(contract_id(), 0, 0).build());
+        let mut old = Contract::new(owner(), server(), treasury(), "wrap.near".parse().unwrap());
+        old.held_total = MIN_FEED;
+        env::state_write(&old);
+        env::storage_remove(WNEAR_SETTING_KEY);
+        let migrated = Contract::migrate_wnear("wrap.testnet".parse().unwrap());
+        assert_eq!(migrated.held_total, MIN_FEED);
+        assert_eq!(migrated.wnear_account_view().as_str(), "wrap.testnet");
+        let error = panic_text(|| Contract::migrate_wnear("wrap.near".parse().unwrap()));
+        assert!(error.contains("wnear_already_configured"));
     }
 
     fn panic_text<T>(work: impl FnOnce() -> T) -> String {
@@ -2515,7 +3258,7 @@ mod tests {
     #[test]
     fn an_acquaintance_costs_exactly_the_record_bytes() {
         testing_env!(context(contract_id(), 0, 0).build());
-        let mut contract = Contract::new(owner(), server(), treasury());
+        let mut contract = Contract::new(owner(), server(), treasury(), "wrap.near".parse().unwrap());
         let cases: [(String, String); 3] = [
             ("9".repeat(20), "a".repeat(64)),
             ("0".into(), "a.b".into()),
@@ -2724,7 +3467,7 @@ mod tests {
     #[test]
     fn owner_list_entry_bytes_covers_the_measurement() {
         testing_env!(context(contract_id(), 0, 0).build());
-        let mut contract = Contract::new(owner(), server(), treasury());
+        let mut contract = Contract::new(owner(), server(), treasury(), "wrap.near".parse().unwrap());
         let long_owner: AccountId = "a".repeat(64).parse().unwrap();
         let token_id = "9".repeat(20);
 
@@ -3068,7 +3811,7 @@ mod tests {
     #[test]
     fn a_commit_costs_exactly_the_record_bytes() {
         testing_env!(context(contract_id(), 0, 0).build());
-        let mut contract = Contract::new(owner(), server(), treasury());
+        let mut contract = Contract::new(owner(), server(), treasury(), "wrap.near".parse().unwrap());
         for day in [0u64, 20_757, u64::MAX] {
             let before = env::storage_usage();
             contract.riddle_commits.insert(day, [0xff; 32]);
@@ -3514,6 +4257,8 @@ mod tests {
         assert!(!pair_known(&contract, "1", "2"));
         assert!(contract.work_index.get(&1).is_none() && contract.work_index.get(&2).is_none());
 
+        // `testing_env!` preserves mock storage; the next fixture is a fresh deployment.
+        env::storage_remove(WNEAR_SETTING_KEY);
         let mut contract = funded_contract(bound);
         assert!(contract.introduce_pair("1", "2"));
         assert_eq!(

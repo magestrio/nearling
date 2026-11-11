@@ -25,15 +25,15 @@ export function ClearMemoryLayer({ children }: { children: ReactNode }) {
             name={request.name}
             unsettledSharedJob={request.unsettledSharedJob}
             onClose={closeClearMemory}
-            onDone={(hadExperience) => {
+            onDone={(hadExperience, paymentRecordsNotice) => {
               cleared.current = true;
-              announceClear({ tokenId: request.tokenId, result: 'cleared', hadExperience });
+              announceClear({ tokenId: request.tokenId, result: 'cleared', hadExperience, paymentRecordsNotice });
               closeClearMemory();
               request.onDone?.();
             }}
-            onRetry={(hadExperience) => {
+            onRetry={(hadExperience, paymentRecordsNotice) => {
               cleared.current = true;
-              announceClear({ tokenId: request.tokenId, result: 'cleared_retry', hadExperience });
+              announceClear({ tokenId: request.tokenId, result: 'cleared_retry', hadExperience, paymentRecordsNotice });
               closeClearMemory();
               request.onDone?.();
             }}

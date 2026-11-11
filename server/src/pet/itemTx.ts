@@ -27,7 +27,7 @@ const LOST_AFTER_MS = 24 * 3_600_000;
  * row with no hash noted (`settleBuys`), also one that is still waiting in the key's queue; when it did, the
  * insert changes nothing, this throws, and the transaction is not broadcast. The cron's flip
  * in turn changes nothing once a hash is noted, so of the two exactly one wins. */
-export async function noteItemSend(db: D1Database, writes: Exclude<NonNullable<ServerCall['writes']>, { kind: 'shared_open' | 'shared_debit' | 'debate_debit' | 'will_start' | 'will_release' }>, txHash: string, now: number, signedBytes: Uint8Array): Promise<void> {
+export async function noteItemSend(db: D1Database, writes: Exclude<NonNullable<ServerCall['writes']>, { kind: 'shared_open' | 'shared_debit' | 'debate_debit' | 'will_start' | 'will_release' | 'sweep_sign' }>, txHash: string, now: number, signedBytes: Uint8Array): Promise<void> {
   if (writes.kind === 'birth' || writes.kind === 'growth') {
     const kind = writes.kind;
     const tokenId = kind === 'birth' ? writes.receiver : writes.tokenId;

@@ -2,6 +2,7 @@ mod common;
 
 use common::*;
 use near_sdk::borsh;
+use near_sdk::borsh::BorshDeserialize;
 use nearling_contract::limits::{HIRE_FEE_MIN, MIN_FEED};
 use nearling_contract::pet::{PetV1, Stage, VersionedPet};
 use serde_json::json;
@@ -29,6 +30,7 @@ async fn new_and_migrate_refuse_a_foreign_caller() -> anyhow::Result<()> {
         "owner_id": ctx.funder.id(),
         "server_id": ctx.funder.id(),
         "treasury_id": ctx.funder.id(),
+        "wnear_id": "wrap.near",
     });
     let foreign_new = ctx
         .funder
@@ -110,16 +112,13 @@ async fn migrate_takes_the_previous_layout_of_a_deployed_contract() -> anyhow::R
     let pool_before = ctx.pool().await?;
     let state = ctx.read_state().await?;
     let counters = borsh::to_vec(&(1u64, 0u64, 0u128))?;
-    assert_eq!(
-        &state[state.len() - 18..state.len() - 13],
-        &[1, 0, 0, 0, b'c']
-    );
-    assert_eq!(
-        &state[state.len() - 23..state.len() - 18],
-        &[1, 0, 0, 0, b'j']
-    );
-    assert_eq!(&state[state.len() - 5..], &[1, 0, 0, 0, b'd']);
-    let old_end = state.len() - 23;
+    let mut reader = &state[..];
+    let _: nearling_contract::ContractV9 = BorshDeserialize::deserialize_reader(&mut reader)?;
+    let v9_end = state.len() - reader.len();
+    let old_end = v9_end - 18;
+    assert_eq!(&state[old_end..old_end + 5], &[1, 0, 0, 0, b'j']);
+    assert_eq!(&state[old_end + 5..old_end + 10], &[1, 0, 0, 0, b'c']);
+    assert_eq!(&state[v9_end..v9_end + 5], &[1, 0, 0, 0, b'd']);
     let new_totals = &state[old_end - 24..old_end];
     assert_eq!(&new_totals[..16], &[0; 16]);
     assert_eq!(&state[old_end - 24 - counters.len()..old_end - 24], counters);

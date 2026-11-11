@@ -44,6 +44,7 @@ export type Route =
   | { name: 'hire' }
   | { name: 'hatch'; from: string | null }
   | { name: 'pet'; tokenId: string; from: string | null }
+  | { name: 'feed-status'; tokenId: string; paymentId: string }
   | { name: 'shared-errand'; tokenId: string; code: string }
   | { name: 'gift'; code: string }
   /** Diary screen: the ritual of the day, inside the Pet screen's own state (`add-daily-ritual` › `Diary screen`) */
@@ -97,6 +98,8 @@ export function parseRoute(location: string): Route {
   const shared = /^\/pet\/(\d{1,20})\/errand\/([0-9a-f]{64})$/.exec(path);
   if (shared) return { name: 'shared-errand', tokenId: shared[1]!, code: shared[2]! };
   const pet = /^\/pet\/(\d{1,20})$/.exec(path);
+  const feedStatus = /^\/pet\/(\d{1,20})\/feed\/status\/([0-9a-f]{32})$/.exec(path);
+  if (feedStatus) return { name: 'feed-status', tokenId: feedStatus[1]!, paymentId: feedStatus[2]! };
   if (pet) return { name: 'pet', tokenId: pet[1]!, from: friend };
   const diary = /^\/pet\/(\d{1,20})\/diary$/.exec(path);
   if (diary) return { name: 'diary', tokenId: diary[1]! };

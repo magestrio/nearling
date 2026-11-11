@@ -1,0 +1,18 @@
+{
+  "quote": {
+    "amountIn": "150000",
+    "amountInFormatted": "0.15",
+    "amountInUsd": "0.149934900000",
+    "minAmountIn": "150000",
+    "amountOut": "41441996934243142144637",
+    "amountOutFormatted": "0.041441996934243142144637",
+    "amountOutUsd": "0.149191188963",
+    "minAmountOut": "41027576964900710723190",
+    "timeEstimate": 22,
+    "refundFee": "10005",
+    "withdrawFee": "0"
+  },
+  "signature": "ed25519:4VZdodJgBy6dxMgm45zusmRzrPvKtiumu5YrK9RLPJADpzeJzgebxHsoQD4B58FCFS6aGUufKZka56xFiBGpB94",
+  "timestamp": "2026-11-11T09:58:04.707Z",
+  "correlationId": "00000000-0000-4000-8000-000000000001"
+}

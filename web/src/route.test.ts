@@ -2,6 +2,12 @@ import { describe, expect, it } from 'vitest';
 import { adaptersPath, diaryPath, hatchPath, parseRoute, petPath, relationshipsPath, sharedErrandPath, wardrobePath, verifyPath } from './route';
 
 describe('parseRoute', () => {
+  // spec: add-any-chain-feed › Cross-chain payment status screen › loading
+  it('accepts only a pet-bound opaque any-chain payment status address', () => {
+    const id = 'a'.repeat(32);
+    expect(parseRoute(`/pet/9/feed/status/${id}`)).toEqual({ name: 'feed-status', tokenId: '9', paymentId: id });
+    expect(parseRoute('/pet/9/feed/status/short').name).toBe('unknown');
+  });
   // spec: add-pet-society › Society summary screen › success
   it('routes only a pet token to its relationship summary', () => {
     expect(parseRoute('/pet/9/relationships')).toEqual({ name: 'relationships', tokenId: '9' });

@@ -2522,7 +2522,23 @@ dependencies = [
  "near-sdk",
  "near-workspaces",
  "serde_json",
+ "sha2 0.10.9",
  "tokio",
+]
+
+[[package]]
+name = "nearling-test-mpc"
+version = "0.1.0"
+dependencies = [
+ "near-sdk",
+]
+
+[[package]]
+name = "nearling-test-wnear"
+version = "0.1.0"
+dependencies = [
+ "near-contract-standards",
+ "near-sdk",
 ]
 
 [[package]]

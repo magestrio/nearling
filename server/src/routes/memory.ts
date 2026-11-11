@@ -15,6 +15,7 @@ import { petView, ChainUnreachable } from '../chain';
 import { recordDebateEvent } from '../debates/events';
 
 export const memoryRoutes = new Hono<AppEnv>();
+const PAYMENT_RECORDS_NOTICE = 'Payment records stay for recovery. On-chain credits cannot be erased.';
 
 memoryRoutes.post('/api/pets/:id/memory/clear', async (c) => {
   const owned = await ownedPet(c);
@@ -22,7 +23,7 @@ memoryRoutes.post('/api/pets/:id/memory/clear', async (c) => {
   const row = await sharedForToken(c.env.DB, owned.id);
   const shared = owned.pet.shared_job;
   if (shared != null && await c.env.DB.prepare('SELECT 1 AS found FROM shared_job_close_recovery WHERE token_id = ? AND job_hash = ?')
-    .bind(owned.id, shared.hash).first() !== null) return c.json({ code: 'close_retry' }, 202);
+    .bind(owned.id, shared.hash).first() !== null) return c.json({ code: 'close_retry', paymentRecordsNotice: PAYMENT_RECORDS_NOTICE }, 202);
   if (shared != null && row?.job_hash !== shared.hash) return c.json({ code: 'close_unknown' }, 503);
   let approval: Awaited<ReturnType<typeof validCloseApproval>> = null;
   let running = false;
@@ -88,7 +89,7 @@ memoryRoutes.post('/api/pets/:id/memory/clear', async (c) => {
       token_id: owned.id, job_hash: row.job_hash,
       approval: new TextEncoder().encode(JSON.stringify(approval)), close_state: 'pending',
     }).catch(() => 'unknown' as const);
-    if (outcome !== 'confirmed') return c.json({ code: 'close_retry' }, 202);
+    if (outcome !== 'confirmed') return c.json({ code: 'close_retry', paymentRecordsNotice: PAYMENT_RECORDS_NOTICE }, 202);
   }
-  return c.json({ ok: true });
+  return c.json({ ok: true, paymentRecordsNotice: PAYMENT_RECORDS_NOTICE });
 });

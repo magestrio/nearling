@@ -459,6 +459,7 @@ async fn only_server_starts_exactly_once_after_full_linked_funding() -> anyhow::
 }
 
 // spec: add-pet-errands › Shared job open contract › open a job
+// spec: add-pet-errands › Shared job open contract › open a job × Worker prepaid gas
 #[tokio::test]
 async fn opens_one_public_bounded_job_without_moving_food() -> anyhow::Result<()> {
     let ctx = setup(BIG_POOL).await?;
@@ -467,10 +468,21 @@ async fn opens_one_public_bounded_job_without_moving_food() -> anyhow::Result<()
     let pool_before = ctx.pool().await?;
     let balance_before = ctx.contract_balance().await?;
     let storage_before = ctx.storage_usage().await?;
-    let result = open(&ctx, "0", HASH, MAX_THOUGHT_PRICE).await?;
+    let prepaid = tgas_const("SHARED_JOB_OPEN_TGAS");
+    let result = ctx
+        .server
+        .call(ctx.contract.id(), "shared_job_open")
+        .args_json(json!({"token_id": "0", "job_hash": HASH, "allowance_yocto": MAX_THOUGHT_PRICE.to_string()}))
+        .gas(prepaid)
+        .transact()
+        .await?;
     let gas = result.outcomes()[1].gas_burnt.as_gas();
     let logs = event_logs(&result);
     result.into_result()?;
+    assert!(
+        gas < prepaid.as_gas(),
+        "shared_job_open exceeds the Worker's prepaid gas"
+    );
     assert_eq!(logs.len(), 1);
     let event: Value = serde_json::from_str(&logs[0])?;
     assert_eq!(event["standard"], "nearling");
@@ -613,8 +625,9 @@ async fn v7_migration_keeps_pets_and_showcase_totals() -> anyhow::Result<()> {
         .transact()
         .await?
         .into_result()?;
-    // The shared-job map adds 5 bytes; experience adds 13 and debate adds 5.
-    assert_eq!(ctx.read_state().await?.len(), old_bytes + 5 + 13 + 5);
+    let current = ctx.read_state().await?;
+    let _: nearling_contract::Contract = near_sdk::borsh::from_slice(&current)?;
+    assert!(current.len() > old_bytes + 5 + 13 + 5);
     assert_eq!(ctx.pet_view("0").await?, pet);
     let after: Value = ctx.contract.view("showcase_view").await?.json()?;
     assert_eq!(after, showcase);

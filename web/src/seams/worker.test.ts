@@ -47,6 +47,13 @@ function blackHole() {
 }
 
 describe('the Worker seam', () => {
+  // spec: add-any-chain-feed › Cross-chain availability rule › changed quote
+  it('keeps Worker response time with an accepted payment address', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => Response.json({ id: 'a'.repeat(32), quote: {} },
+      { headers: { date: 'Wed, 11 Nov 2026 20:35:00 GMT' } })));
+    const answer = await workerApi.anyChainAccept('a'.repeat(32));
+    expect(answer.serverTime).toBe('Wed, 11 Nov 2026 20:35:00 GMT');
+  });
   // spec: add-hatch-again › Repeat ownership data › prior owner reads old memory
   it('recognizes the former-owner refusal body without exposing private memory', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => Response.json({ error: 'former_owner' }, { status: 403 })));

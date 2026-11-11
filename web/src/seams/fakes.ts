@@ -41,6 +41,21 @@ export interface FakeFail {
 }
 
 export interface FakeWorkerState {
+  anyChainTokens?: { tokens: import('../any-chain/types').OriginToken[] } | FakeFail;
+  anyChainQuote?: import('../any-chain/types').QuoteAnswer | FakeFail;
+  anyChainAccept?: import('../any-chain/types').QuoteAnswer | FakeFail;
+  anyChainAddresses?: import('../any-chain/types').AddressAnswer | FakeFail;
+  anyChainTrack?: import('../any-chain/types').TrackedDeposit | FakeFail;
+  anyChainStatus?: import('../any-chain/types').QuoteStatus | FakeFail;
+  anyChainStatusDelayMs?: number;
+  anyChainDepositStatus?: import('../any-chain/types').DepositStatus | FakeFail;
+  anyChainDepositStatusDelayMs?: number;
+  anyChainOwnerDeposits?: { deposits: import('../any-chain/types').OwnerDeposit[]; credits?: import('../any-chain/types').OwnerQuoteCredit[] } | FakeFail;
+  anyChainOwnerDeposit?: import('../any-chain/types').OwnerDepositRead | FakeFail;
+  anyChainSweepQuote?: import('../any-chain/types').SweepQuote | FakeFail;
+  anyChainSweepApprove?: import('../any-chain/types').SweepOutcome | FakeFail;
+  anyChainSweepStatus?: import('../any-chain/types').SweepOutcome | FakeFail;
+  anyChainHeldStatus?: import('../any-chain/types').HeldStatus | FakeFail;
   invitations?: { invitations: import('./worker-types').WorkInvitation[] } | FakeFail;
   acceptInvitation?: { workerId: string; name: string; label: string | null; price: import('./worker-types').Price; question: '' } | FakeFail;
   dismissInvitation?: { status: 'dismissed' } | FakeFail;
@@ -140,7 +155,7 @@ export interface FakeWorkerState {
   /** `POST /api/judge/check`; default accepts the sample code. */
   judgeCheck?: { ok: true } | FakeFail;
   /** `POST …/memory/clear`; default `{ ok: true }` */
-  clearMemory?: { ok: true } | { code: 'close_retry' } | FakeFail;
+  clearMemory?: { ok: true; paymentRecordsNotice?: string } | { code: 'close_retry'; paymentRecordsNotice?: string } | FakeFail;
   clearMemoryDelayMs?: number;
   /** `GET …/feed`: fields laid over the sheet the fake builds from the pet and the viewer (default: three portions at 5¢ / 23¢ /
    *  92¢, 0.31 NEAR in the wallet, a free snack where `Snack rule` gives one); `{ chain: false }` or a refusal instead */

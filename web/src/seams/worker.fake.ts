@@ -204,6 +204,66 @@ function confirmGift(tokenId: string) {
 }
 
 export const fakeWorkerApi: WorkerApi = {
+  anyChainTokens: () => answer('anyChainTokens', state().anyChainTokens, { tokens: [] }),
+  anyChainQuote: async (_input) => {
+    const configured = state().anyChainQuote;
+    if (!configured) throw new WorkerError(503, 'provider_unavailable');
+    return answer('anyChainQuote', configured, configured as import('../any-chain/types').QuoteAnswer);
+  },
+  anyChainAccept: async (_id) => {
+    const configured = state().anyChainAccept;
+    if (!configured) throw new WorkerError(409, 'quote_expired');
+    return answer('anyChainAccept', configured, configured as import('../any-chain/types').QuoteAnswer);
+  },
+  anyChainAddresses: async (_tokenId) => {
+    const configured = state().anyChainAddresses;
+    if (!configured) throw new WorkerError(503, 'signer_unavailable');
+    return answer('anyChainAddresses', configured, configured as import('../any-chain/types').AddressAnswer);
+  },
+  anyChainTrack: async (_input) => {
+    const configured = state().anyChainTrack;
+    if (!configured) throw new WorkerError(404, 'source_unverified');
+    return answer('anyChainTrack', configured, configured as import('../any-chain/types').TrackedDeposit);
+  },
+  anyChainStatus: async (_id) => {
+    const configured = state().anyChainStatus;
+    if (!configured) throw new WorkerError(404, 'payment_missing');
+    return answer('anyChainStatus', configured, configured as import('../any-chain/types').QuoteStatus, state().anyChainStatusDelayMs);
+  },
+  anyChainDepositStatus: async (_id) => {
+    const configured = state().anyChainDepositStatus;
+    if (!configured) throw new WorkerError(404, 'deposit_missing');
+    return answer('anyChainDepositStatus', configured, configured as import('../any-chain/types').DepositStatus, state().anyChainDepositStatusDelayMs);
+  },
+  anyChainOwnerDeposits: (token, _tokenId) => {
+    needSession(token);
+    return answer('anyChainOwnerDeposits', state().anyChainOwnerDeposits, { deposits: [] });
+  },
+  anyChainOwnerDeposit: (token, _id) => {
+    needSession(token);
+    const configured = state().anyChainOwnerDeposit;
+    if (!configured) throw new WorkerError(404, 'deposit_missing');
+    return answer('anyChainOwnerDeposit', configured, configured as import('../any-chain/types').OwnerDepositRead);
+  },
+  anyChainSweepQuote: (token, _id) => {
+    needSession(token);
+    const configured = state().anyChainSweepQuote;
+    if (!configured) throw new WorkerError(409, 'quote_pending');
+    return answer('anyChainSweepQuote', configured, configured as import('../any-chain/types').SweepQuote);
+  },
+  anyChainSweepApprove: (token, _id, _signature) => {
+    needSession(token);
+    return answer('anyChainSweepApprove', state().anyChainSweepApprove, { state: 'signed', nearTxHash: null });
+  },
+  anyChainSweepStatus: (token, _id) => {
+    needSession(token);
+    return answer('anyChainSweepStatus', state().anyChainSweepStatus, { state: 'sign_unknown', nearTxHash: null });
+  },
+  anyChainHeldStatus: async (_id, _paymentId, _token) => {
+    const configured = state().anyChainHeldStatus;
+    if (!configured) throw new WorkerError(404, 'held_missing');
+    return answer('anyChainHeldStatus', configured, configured as import('../any-chain/types').HeldStatus);
+  },
   debatePartners: async (token, tokenId) => {
     needSession(token);
     if (!state().owned?.includes(tokenId)) throw new WorkerError(403, 'not_owner');
@@ -1076,7 +1136,9 @@ export const fakeWorkerApi: WorkerApi = {
       throw new WorkerError(400, 'close_refused');
     if (approval) recordCall('worker:clearMemoryApproval');
     recordCall(`worker:clearMemory:${tokenId}`);
-    const result = await answer('clearMemory', state().clearMemory, { ok: true as const }, state().clearMemoryDelayMs);
+    const result = await answer('clearMemory', state().clearMemory,
+      { ok: true as const, paymentRecordsNotice: 'Payment records stay for recovery. On-chain credits cannot be erased.' },
+      state().clearMemoryDelayMs);
     // what the real server holds from then on: an empty conversation, one more clear on the pet, no greeting to come
     const held = fakeState().worker;
     const pet = petsOf()[tokenId];

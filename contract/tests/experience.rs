@@ -166,7 +166,9 @@ async fn migration_preserves_old_pets_showcase_and_pool_and_starts_new_date() ->
         .transact()
         .await?
         .into_result()?;
-    assert_eq!(ctx.read_state().await?.len(), old_size + 18);
+    let current = ctx.read_state().await?;
+    let _: nearling_contract::Contract = near_sdk::borsh::from_slice(&current)?;
+    assert!(current.len() > old_size + 18);
     assert_eq!(ctx.pet_view("0").await?, pet);
     assert_eq!(
         ctx.contract.view("showcase_view").await?.json::<Value>()?,

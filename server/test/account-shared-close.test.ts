@@ -91,7 +91,9 @@ describe('Clear memory with a shared job', () => {
       .bind(PET, hash).run();
     h.net().contract.sharedCloseFails = 'temporarily_unavailable';
     const result = await api(`/api/pets/${PET}/memory/clear`, { token: tk, body: { approval } });
-    expect(result).toMatchObject({ status: 202, body: { code: 'close_retry' } });
+    // spec: add-any-chain-feed › Cross-chain retention data › memory cleared
+    expect(result).toMatchObject({ status: 202, body: { code: 'close_retry',
+      paymentRecordsNotice: 'Payment records stay for recovery. On-chain credits cannot be erased.' } });
     expect((await env.DB.prepare('SELECT * FROM shared_errands WHERE token_id = ?').bind(PET).all()).results).toEqual([]);
     expect((await env.DB.prepare('SELECT * FROM shared_errand_contributions WHERE token_id = ?').bind(PET).all()).results).toEqual([]);
     expect((await env.DB.prepare('SELECT * FROM watch_targets WHERE token_id = ?').bind(PET).all()).results).toEqual([]);

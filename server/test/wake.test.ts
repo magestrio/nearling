@@ -19,6 +19,22 @@ async function asleepPet(id = '5') {
 }
 const wakeJobs = async () => (await env.DB.prepare("SELECT * FROM jobs WHERE kind = 'wake'").all<any>()).results;
 const lastRequest = () => h.net().ai.calls.at(-1)!.body.messages;
+const CHAIN_ROUTE = 'a'.repeat(32);
+async function recordedChainCredit(tokenId: string, wasAsleep: boolean) {
+  await env.DB.prepare(`INSERT INTO any_chain_routes
+    (id, token_id, origin_asset, amount_in, refund_to, expected_out, min_out, quote_json, state, created_at, request_deadline)
+    VALUES (?, ?, 'solana-usdc', '150000', 'payer', '10000000000000000000000',
+      '10000000000000000000000', '{}', 'accepted', ?, '2037-01-01')`)
+    .bind(CHAIN_ROUTE, tokenId, Date.now()).run();
+  await env.DB.prepare(`INSERT INTO any_chain_delivery_evidence
+    (receipt_id, route_id, token_id, near_tx_hash, amount_yocto, kind, credit_id, recorded_at)
+    VALUES ('receipt', ?, ?, 'near-hash', '10000000000000000000000', 'pending', 7, ?)`)
+    .bind(CHAIN_ROUTE, tokenId, Date.now()).run();
+  await env.DB.prepare(`INSERT INTO any_chain_credit_evidence
+    (credit_id, near_tx_hash, amount_yocto, recorded_at, was_asleep)
+    VALUES (7, 'near-hash', '10000000000000000000000', ?, ?)`)
+    .bind(Date.now(), wasAsleep ? 1 : 0).run();
+}
 async function jobsDone() {
   for (let i = 0; i < 400; i += 1) {
     const open = await env.DB.prepare("SELECT COUNT(*) AS n FROM jobs WHERE status IN ('queued', 'running')").first<{ n: number }>();
@@ -29,8 +45,77 @@ async function jobsDone() {
 }
 
 describe('Sleep and wake flow', () => {
+  // spec: add-any-chain-feed › Cross-chain identity rule › anonymous wake
+  it('wakes from a confirmed chain credit without a friend, feeder memory or AI thanks', async () => {
+    const pet = await asleepPet();
+    const tk = await owner();
+    await recordedChainCredit('5', true);
+    pet.given_food = S.toString();
+    const state = await api('/api/pets/5/state?wakes=0', { token: tk });
+    expect(state.body).toMatchObject({ events: ['woke'], wakeSource: 'cross_chain', wakes: 1 });
+    expect(state.body).not.toHaveProperty('friend');
+    expect(await wakeJobs()).toEqual([]);
+    expect((await env.DB.prepare('SELECT COUNT(*) AS n FROM memory_notes WHERE token_id = ?')
+      .bind('5').first<{ n: number }>())?.n).toBe(0);
+    expect((await api('/api/pets/5/state?wakes=1', { token: tk })).body.events).toEqual([]);
+  });
+
+  // spec: add-any-chain-feed › Cross-chain identity rule › anonymous wake
+  it('wakes with no source line and no name while the credit receipt has not been read, and does not wake again when it is', async () => {
+    const pet = await asleepPet();
+    const tk = await owner();
+    // the food is already on chain, the Worker has not recorded the receipt that raised it
+    pet.given_food = S.toString();
+    const first = await api('/api/pets/5/state?wakes=0', { token: tk });
+    expect(first.body.events).toEqual(['woke']);
+    expect(first.body).not.toHaveProperty('wakeSource');
+    expect(first.body).not.toHaveProperty('friend');
+    // the receipt is read afterwards: the pet is awake already, nothing wakes twice
+    await recordedChainCredit('5', false);
+    const second = await api('/api/pets/5/state?wakes=1', { token: tk });
+    expect(second.body.events).toEqual([]);
+    expect(second.body).not.toHaveProperty('wakeSource');
+    expect(h.events().filter((e) => e.name === 'pet_woke')).toEqual([]);
+  });
+
+  // spec: add-any-chain-feed › Cross-chain identity rule › anonymous wake
+  it('leaves the wake to a friend\'s meal on its way, whose thanks belong to its own flow', async () => {
+    const pet = await asleepPet();
+    const tk = await owner();
+    await recordedChainCredit('5', true);
+    await env.DB.prepare("INSERT INTO feedings (id, sub, account, token_id, source, via, created_at) VALUES ('f1', 'did:privy:friend', ?, '5', 'near', 'link', ?)")
+      .bind(NEAR_ACCOUNT(2), Date.now()).run();
+    pet.given_food = S.toString();
+    const poll = await api('/api/pets/5/state?wakes=0', { token: tk });
+    expect(poll.body.events).toEqual([]);
+    expect(poll.body).not.toHaveProperty('wakeSource');
+    expect((await env.DB.prepare('SELECT slept_at FROM pets WHERE token_id = ?').bind('5').first<any>()).slept_at).not.toBeNull();
+  });
+
+  // spec: add-any-chain-feed › Cross-chain availability rule › services paused
+  it('tells the Feed sheet that new cross-chain payments are closed while services are paused', async () => {
+    h.net().contract.addPet('5', OWNER);
+    const tk = await owner();
+    expect((await api('/api/pets/5/feed', { token: tk })).body.crossChainPaused).toBe(false);
+    await env.DB.prepare("INSERT INTO service_pause (id, reason, since) VALUES (1, 'gas', 1)").run();
+    expect((await api('/api/pets/5/feed', { token: tk })).body.crossChainPaused).toBe(true);
+  });
+
+  // spec: add-any-chain-feed › Cross-chain identity rule › anonymous credit
+  it('returns confirmed food to the owner Feed without a payer name or address', async () => {
+    h.net().contract.addPet('5', OWNER);
+    await recordedChainCredit('5', false);
+    const tk = await owner();
+    const feed = await api('/api/pets/5/feed', { token: tk });
+    expect(feed.status).toBe(200);
+    expect(feed.body.crossChainCredits).toEqual([{ id: CHAIN_ROUTE, creditId: 7, wasAsleep: false, route: 'quote' }]);
+    const deposits = await api('/api/any-chain/pets/5/deposits', { token: tk });
+    expect(deposits.body.credits).toEqual(feed.body.crossChainCredits);
+    expect(JSON.stringify(feed.body.crossChainCredits)).not.toContain('payer');
+  });
+
   // spec: add-pet › Sleep and wake flow › разбудил владелец
-  it('wakes on the owner\'s poll once the food is back, tells what it missed first, and takes lines again', async () => {
+  it('wakes on the poll without attributing food before its receipt is read', async () => {
     const pet = await asleepPet();
     const tk = await owner();
     // asleep: no line is taken
@@ -42,13 +127,11 @@ describe('Sleep and wake flow', () => {
     pet.given_food = S.toString();
     const poll = await api('/api/pets/5/state', { token: tk });
     expect(poll.body.events).toEqual(['woke']);
-    await jobsDone();
-    // the first thought is what it missed; a second poll does not wake it again
-    expect(lastRequest().at(-1)!.content).toMatch(/missed/);
-    expect(lastRequest().at(-1)!.content).not.toMatch(/Maya/);
-    expect(await wakeJobs()).toHaveLength(1);
+    // No receipt means no source line, name or owner wake thought.
+    expect(poll.body).not.toHaveProperty('wakeSource');
+    expect(await wakeJobs()).toHaveLength(0);
     expect((await api('/api/pets/5/state', { token: tk })).body.events).toEqual([]);
-    expect(h.events().filter((e) => e.name === 'pet_woke')).toEqual([{ name: 'pet_woke', props: { via: 'owner' } }]);
+    expect(h.events().filter((e) => e.name === 'pet_woke')).toEqual([]);
     expect((await env.DB.prepare('SELECT slept_at FROM pets WHERE token_id = ?').bind('5').first<any>()).slept_at).toBeNull();
     const out = await say(tk, '5', 'Welcome back!');
     expect(out.thought.text).toBe('Hello there, friend.');

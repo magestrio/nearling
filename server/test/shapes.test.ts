@@ -107,6 +107,7 @@ const STATE: Record<keyof PetState, 'always' | 'sometimes'> = {
   price: 'sometimes',
   refusalUntil: 'sometimes',
   friend: 'sometimes',
+  wakeSource: 'sometimes',
 };
 
 const WARDROBE: Record<keyof WardrobeView, 'always' | 'sometimes'> = {

@@ -41,9 +41,28 @@ export class ServerKey extends DurableObject<Env> {
           const noted = await this.env.DB.prepare("UPDATE will_operations SET tx_hash = ?, signed_bytes = ? WHERE id = ? AND status = 'sending'")
             .bind(hash, bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength), writes.op).run();
           if (noted.meta.changes !== 1) throw new ChainUnreachable();
+        } else if (writes.kind === 'sweep_sign') {
+          const noted = await this.env.DB.prepare(`UPDATE any_chain_sweeps SET near_tx_hash = ?, state = 'signing', updated_at = ?
+            WHERE route_id = ? AND state = 'signing'`)
+            .bind(hash, Date.now(), writes.routeId).run();
+          if (noted.meta.changes !== 1) throw new ChainUnreachable();
         } else {
           await noteItemSend(this.env.DB, writes, hash, Date.now(), bytes);
         }
+      });
+    });
+  }
+
+  /** A permissionless contract recovery paid by the gas account, serialized with its transfers. */
+  sendGas(call: ServerCall & { retryCreditId: number }): Promise<ServerKeyAnswer> {
+    return this.enqueue(async () => {
+      this.gasKeys ??= gasAccount(this.env);
+      return signAndSend(this.env, this.gasKeys, call, async (hash, bytes) => {
+        const saved = await this.env.DB.prepare(`UPDATE any_chain_retry_operations SET state = 'sending', tx_hash = ?,
+          signed_bytes = ?, updated_at = ? WHERE credit_id = ? AND state IN ('claimed', 'sending')`)
+          .bind(hash, bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength),
+            Date.now(), call.retryCreditId).run();
+        if (saved.meta.changes !== 1) throw new ChainUnreachable();
       });
     });
   }

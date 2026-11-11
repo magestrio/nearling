@@ -5,6 +5,9 @@
 import { accountBalance, ChainUnreachable, petView, txStatus } from './chain';
 import { closeAndDebit } from './debit';
 import { expireDueInvitations } from './routes/debates';
+import { reconcileUnknownSweep } from './routes/anyChainSweep';
+import { advanceSweep, reconcileSweepProvider } from './any-chain/sweepBroadcast';
+import { cleanResolvedPayments } from './any-chain/retention';
 import { recoverDueDebates } from './debates/turns';
 import { settleLateErrands } from './errands/late';
 import { startReadyShared } from './errands/sharedRun';
@@ -61,6 +64,27 @@ export async function tick(env: Env, nowMs: number = Date.now()): Promise<void> 
     ['debit', () => closeAndDebit(env, nowMs)],
     ['debate_invitation_expire', () => expireDueInvitations(env.DB, nowMs)],
     ['debate_turns', () => recoverDueDebates(env, nowMs)],
+    ['any_chain_sweeps', async () => {
+      const rows = await env.DB.prepare(`SELECT route_id, state FROM any_chain_sweeps
+        WHERE state IN ('sign_unknown', 'signed', 'awaiting_gas', 'broadcasting')
+        ORDER BY updated_at LIMIT 5`).all<{ route_id: string; state: string }>();
+      for (const row of rows.results) {
+        try {
+          const state = row.state === 'sign_unknown' ? await reconcileUnknownSweep(env, row.route_id) : row.state;
+          if (state === 'signed' || state === 'awaiting_gas' || state === 'broadcasting')
+            await advanceSweep(env, row.route_id);
+        } catch { console.log('tick_failed:any_chain_sweep'); }
+      }
+    }],
+    ['any_chain_returns', async () => {
+      const rows = await env.DB.prepare("SELECT route_id FROM any_chain_sweeps WHERE state = 'sent' ORDER BY updated_at LIMIT 5")
+        .all<{ route_id: string }>();
+      for (const row of rows.results) {
+        try { await reconcileSweepProvider(env, row.route_id); }
+        catch { console.log('tick_failed:any_chain_return'); }
+      }
+    }],
+    ['any_chain_retention', () => cleanResolvedPayments(env.DB, nowMs)],
     ['society', () => settleSocietyPending(env)],
     ['will_invitation_expire', async () => {
       await env.DB.prepare('DELETE FROM work_invitations WHERE expires_at <= ?').bind(nowMs).run();
@@ -297,6 +321,7 @@ export async function clean(env: Env, nowMs: number): Promise<void> {
   if (nowMs >= JUDGE_DELETE_AT) await env.EVENTS.prepare('DELETE FROM will_events').run();
   if (nowMs >= JUDGE_DELETE_AT) await env.EVENTS.prepare('DELETE FROM hatch_again_events').run();
   if (nowMs >= JUDGE_DELETE_AT) await env.EVENTS.prepare('DELETE FROM debate_events').run();
+  if (nowMs >= JUDGE_DELETE_AT) await env.EVENTS.prepare('DELETE FROM any_chain_events').run();
   await env.DB.batch([
     env.DB.prepare("DELETE FROM jobs WHERE created_at < ? AND status IN ('done', 'failed')").bind(nowMs - 86_400_000),
     env.DB.prepare('DELETE FROM empty_answers WHERE day < ?').bind(utcDay(nowMs) - 1),

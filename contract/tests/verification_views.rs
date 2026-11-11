@@ -2,6 +2,7 @@ mod common;
 
 use common::*;
 use near_sdk::borsh;
+use near_sdk::borsh::BorshDeserialize;
 use near_workspaces::types::NearToken;
 use nearling_contract::events::hex;
 use serde_json::{Value, json};
@@ -104,8 +105,15 @@ async fn built_wasm_exposes_version_and_source_metadata() -> anyhow::Result<()> 
     let unique = SystemTime::now().duration_since(UNIX_EPOCH)?.as_nanos();
     let copy = std::env::temp_dir().join(format!("nearling-verification-upgrade-{unique}"));
     fs::create_dir_all(copy.join("src"))?;
-    for file in ["lib.rs", "pet.rs", "events.rs", "limits.rs", "shared_job.rs", "debate.rs"] {
+    for file in ["lib.rs", "pet.rs", "events.rs", "limits.rs", "shared_job.rs", "debate.rs", "any_chain.rs"] {
         fs::copy(source.join("src").join(file), copy.join("src").join(file))?;
+    }
+    for fixture in ["wnear", "mpc"] {
+        let relative = format!("tests/fixtures/{fixture}");
+        fs::create_dir_all(copy.join(&relative).join("src"))?;
+        for file in ["Cargo.toml", "src/lib.rs"] {
+            fs::copy(source.join(&relative).join(file), copy.join(&relative).join(file))?;
+        }
     }
     fs::copy(source.join("rust-toolchain.toml"), copy.join("rust-toolchain.toml"))?;
     let manifest = fs::read_to_string(source.join("Cargo.toml"))?;
@@ -129,16 +137,13 @@ async fn built_wasm_exposes_version_and_source_metadata() -> anyhow::Result<()> 
     let pool_before_migration = ctx.pool().await?;
     let state = ctx.read_state().await?;
     let counters = borsh::to_vec(&(1u64, 0u64, 0u128))?;
-    assert_eq!(
-        &state[state.len() - 18..state.len() - 13],
-        &[1, 0, 0, 0, b'c']
-    );
-    assert_eq!(
-        &state[state.len() - 23..state.len() - 18],
-        &[1, 0, 0, 0, b'j']
-    );
-    assert_eq!(&state[state.len() - 5..], &[1, 0, 0, 0, b'd']);
-    let old_end = state.len() - 23;
+    let mut reader = &state[..];
+    let _: nearling_contract::ContractV9 = BorshDeserialize::deserialize_reader(&mut reader)?;
+    let v9_end = state.len() - reader.len();
+    let old_end = v9_end - 18;
+    assert_eq!(&state[old_end..old_end + 5], &[1, 0, 0, 0, b'j']);
+    assert_eq!(&state[old_end + 5..old_end + 10], &[1, 0, 0, 0, b'c']);
+    assert_eq!(&state[v9_end..v9_end + 5], &[1, 0, 0, 0, b'd']);
     assert_eq!(&state[old_end - 24 - counters.len()..old_end - 24], counters);
     let old_tail = old_end - 24 - counters.len() - 5;
     assert_eq!(&state[old_tail..old_tail + 5], &[1, 0, 0, 0, b'g']);

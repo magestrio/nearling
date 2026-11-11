@@ -7,6 +7,10 @@ resolver = "3"
 rust-version = "1.95"
 repository = "https://github.com/magestrio/nearling"
 
+[workspace]
+members = ["tests/fixtures/wnear", "tests/fixtures/mpc"]
+default-members = ["."]
+
 [lib]
 crate-type = ["cdylib", "rlib"]
 
@@ -36,6 +40,7 @@ tokio = { version = "=1.54.1", features = ["full"] }
 serde_json = "=1.0.154"
 anyhow = "=1.0.104"
 near-crypto = "=0.38.0"
+sha2 = "=0.10.9"
 
 [profile.release]
 codegen-units = 1

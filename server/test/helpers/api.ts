@@ -14,6 +14,7 @@ export interface Call {
   token?: string;
   ip?: string;
   body?: unknown;
+  headers?: Record<string, string>;
 }
 
 /** One request to the Worker, as the browser would send it. */
@@ -22,13 +23,16 @@ export async function api(path: string, call: Call = {}): Promise<{ status: numb
   if (call.token !== undefined) headers['privy-id-token'] = call.token;
   headers['cf-connecting-ip'] = call.ip ?? testIp;
   if (call.body !== undefined) headers['content-type'] = 'application/json';
+  Object.assign(headers, call.headers);
   const res = await SELF.fetch(`https://game.test${path}`, {
     method: call.method ?? (call.body === undefined ? 'GET' : 'POST'),
     headers,
     body: call.body === undefined ? undefined : JSON.stringify(call.body),
   });
   const text = await res.text();
-  return { status: res.status, body: text === '' ? null : JSON.parse(text) };
+  let body: unknown;
+  try { body = text === '' ? null : JSON.parse(text); } catch { body = text; }
+  return { status: res.status, body };
 }
 
 export interface Harness {
@@ -63,6 +67,20 @@ export function harness(): Harness {
       });
     }
     // Clean tables between tests (storage is isolated per file, not per test).
+    await env.DB.exec('DELETE FROM any_chain_sweeps');
+    await env.DB.exec('DELETE FROM any_chain_expense_links');
+    await env.DB.exec('DELETE FROM any_chain_deposits');
+    await env.DB.exec('DELETE FROM any_chain_addresses');
+    await env.DB.exec('DELETE FROM any_chain_operator_nonces');
+    await env.DB.exec('DELETE FROM any_chain_held_attempts');
+    await env.DB.exec('DELETE FROM any_chain_held_returns');
+    await env.DB.exec('DELETE FROM any_chain_credit_evidence');
+    await env.DB.exec('DELETE FROM any_chain_retry_operations');
+    await env.DB.exec('DELETE FROM any_chain_retry_attempts');
+    await env.DB.exec('DELETE FROM any_chain_delivery_evidence');
+    await env.DB.exec('DELETE FROM any_chain_route_status');
+    await env.DB.exec('DELETE FROM any_chain_routes');
+    await env.EVENTS.exec('DELETE FROM any_chain_events');
     await env.DB.exec('DELETE FROM shared_funding_evidence');
     await env.DB.exec('DELETE FROM experience_notes');
     await env.DB.exec('DELETE FROM experience_field');

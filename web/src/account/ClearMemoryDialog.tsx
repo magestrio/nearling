@@ -36,15 +36,15 @@ export function ClearMemoryDialog({
   tokenId: string;
   name: string;
   onClose: () => void;
-  onDone: (hadExperience: boolean) => void;
-  onRetry: (hadExperience: boolean) => void;
+  onDone: (hadExperience: boolean, paymentRecordsNotice?: string) => void;
+  onRetry: (hadExperience: boolean, paymentRecordsNotice?: string) => void;
   onNotOwner: () => void;
   returnFocusTo: () => HTMLElement | null;
   unsettledSharedJob?: boolean;
 }) {
   const auth = useAuth();
   const [hasExperience, setHasExperience] = useState<boolean | null>(null);
-  const { phase, clear } = useClearMemory(tokenId, { done: () => onDone(hasExperience !== false), retry: () => onRetry(hasExperience !== false), notOwner: onNotOwner, close: onClose });
+  const { phase, clear } = useClearMemory(tokenId, { done: (notice) => onDone(hasExperience !== false, notice), retry: (notice) => onRetry(hasExperience !== false, notice), notOwner: onNotOwner, close: onClose });
   const [hasSharedJob, setHasSharedJob] = useState(unsettledSharedJob);
   useEffect(() => {
     let live = true;

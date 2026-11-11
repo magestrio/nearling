@@ -1,4 +1,10 @@
 import { Hono } from 'hono';
+import { anyChainQuoteRoutes } from './routes/anyChainQuote';
+import { anyChainStatusRoutes } from './routes/anyChainStatus';
+import { anyChainHeldReturnRoutes } from './routes/anyChainHeldReturn';
+import { anyChainRetryRoutes } from './routes/anyChainRetry';
+import { anyChainDepositRoutes } from './routes/anyChainDeposit';
+import { anyChainSweepRoutes } from './routes/anyChainSweep';
 import { tick } from './cron';
 import { gate, type AppEnv } from './http';
 import { catalogRoutes } from './routes/catalog';
@@ -41,6 +47,12 @@ app.route('/', exchangeRoutes);
 
 // Every other /api route: the request limit first, then the session (src/http.ts).
 app.use('/api/*', gate);
+app.route('/', anyChainQuoteRoutes);
+app.route('/', anyChainStatusRoutes);
+app.route('/', anyChainHeldReturnRoutes);
+app.route('/', anyChainRetryRoutes);
+app.route('/', anyChainDepositRoutes);
+app.route('/', anyChainSweepRoutes);
 app.route('/', sessionRoutes);
 app.route('/', showcaseRoutes);
 app.route('/', showcaseCardRoutes);

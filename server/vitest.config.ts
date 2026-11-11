@@ -61,6 +61,9 @@ export default defineConfig({
           NEAR_SERVER_KEY: KeyPairEd25519.fromRandom().toString(),
           // The gas account's key, the same way: made for these tests, it signs nothing anywhere.
           NEAR_GAS_ACCOUNT_KEY: KeyPairEd25519.fromRandom().toString(),
+          BASE_GAS_WALLET_KEY: `0x${Array.from(crypto.getRandomValues(new Uint8Array(32)),
+            (byte) => byte.toString(16).padStart(2, '0')).join('')}`,
+          SOLANA_GAS_WALLET_KEY: KeyPairEd25519.fromRandom().toString(),
           // The skill key, made when this config loads for these tests only (base64 of 32 random bytes); the real
           // `SKILL_KEY` is the user's secret and is never read here.
           SKILL_KEY: btoa(String.fromCharCode(...crypto.getRandomValues(new Uint8Array(32)))),

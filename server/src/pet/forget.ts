@@ -55,7 +55,7 @@ export function forgetStatements(db: D1Database, tokenId: string, now: number): 
     // answer the same day is still refused (`Ritual data` › «удаление памяти»).
     db.prepare('DELETE FROM riddle_answers WHERE token_id = ?').bind(tokenId),
     // The name of the friend who woke the pet is memory too (`wake_by`); the counter stays.
-    db.prepare('UPDATE pets SET wake_by = NULL WHERE token_id = ?').bind(tokenId),
+    db.prepare('UPDATE pets SET wake_by = NULL, wake_source = NULL WHERE token_id = ?').bind(tokenId),
     // The skill goes in the same batch (`Skill data` › «удаление памяти»), and so do the Manual offer standing
     // and what the pet's work recorded (names and amounts of its hirers). What stays holds no words: the day's
     // count of answers (`worker_answers`) and the hire mode (`hire_modes`), the hires' prices and receipts.

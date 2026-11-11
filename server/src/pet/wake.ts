@@ -8,7 +8,7 @@ import { desk, enqueueJob } from './desk';
 import { DIARY_WINDOW_MS } from './ritual';
 import { foodState } from './view';
 
-export type WakeCause = 'owner' | 'link' | 'work';
+export type WakeCause = 'owner' | 'link' | 'work' | 'cross_chain' | 'unattributed';
 
 /** A sleeping pet whose food is back to one scale thought, whoever brought it: states in NEAR do not
  * move with the rate (`Pet food data` › «курс сменился»). `ChainUnreachable` when the pet cannot be read. */
@@ -26,9 +26,12 @@ export async function afterWake(env: Env, tokenId: string, cause: WakeCause, fri
   if (cause === 'link') {
     await env.DB.prepare("INSERT INTO memory_notes (token_id, kind, name, at) VALUES (?, 'fed_by', ?, ?)").bind(tokenId, friend ?? '', Date.now()).run();
   }
-  await enqueueJob(env.DB, tokenId, { kind: 'wake', cause, friend });
-  await desk(env, tokenId).arm(tokenId);
-  track('pet_woke', { via: cause });
+  // Anonymous food has its exact line on the page. No named feeder or AI wake thought is made.
+  if (cause !== 'cross_chain' && cause !== 'unattributed') {
+    await enqueueJob(env.DB, tokenId, { kind: 'wake', cause, friend });
+    await desk(env, tokenId).arm(tokenId);
+  }
+  if (cause !== 'unattributed') track('pet_woke', { via: cause });
 }
 
 /** Wakes the pet when `wakeDue` says so. Returns whether it woke. */
@@ -43,9 +46,10 @@ export async function wakeIfFed(env: Env, tokenId: string, cause: WakeCause, fri
   const now = Date.now();
   const windowEnd = Math.floor(now / 86_400_000) * 86_400_000 + DIARY_WINDOW_MS;
   const woke = await env.DB.prepare(
-    'UPDATE pets SET slept_at = NULL, wake_seq = wake_seq + 1, wake_by = ?2, asleep_diary_day = CASE WHEN ?3 >= ?4 AND slept_at < ?4 THEN ?5 ELSE asleep_diary_day END WHERE token_id = ?1 AND slept_at IS NOT NULL',
+    'UPDATE pets SET slept_at = NULL, wake_seq = wake_seq + 1, wake_by = ?2, wake_source = ?6, asleep_diary_day = CASE WHEN ?3 >= ?4 AND slept_at < ?4 THEN ?5 ELSE asleep_diary_day END WHERE token_id = ?1 AND slept_at IS NOT NULL',
   )
-    .bind(tokenId, cause === 'link' ? (friend ?? '') : null, now, windowEnd, Math.floor(now / 86_400_000))
+    .bind(tokenId, cause === 'link' ? (friend ?? '') : null, now, windowEnd, Math.floor(now / 86_400_000),
+      cause === 'unattributed' ? null : cause)
     .run();
   if (woke.meta.changes === 0) return false;
   await afterWake(env, tokenId, cause, friend);

@@ -13,6 +13,7 @@ use near_workspaces::result::ExecutionFinalResult;
 use near_workspaces::types::{Gas, NearToken};
 use near_workspaces::{Account, AccountDetailsPatch, AccountId, Contract, Worker};
 use nearling_contract::debate::DebateSlot;
+use nearling_contract::any_chain::{ActiveSweep, HeldRelease, PendingCredit, SweepChain};
 use nearling_contract::limits::DAY_NS;
 #[allow(unused_imports)]
 pub use nearling_contract::limits::STARTER_FOOD;
@@ -66,6 +67,23 @@ struct StateMirror {
     experience_counts: LookupMap<String, nearling_contract::ExperienceCounts, Sha256>,
     experience_counted_since: u64,
     debate_slots: LookupMap<String, DebateSlot, Sha256>,
+    next_credit_id: u64,
+    pending_credits: LookupMap<u64, PendingCredit>,
+    pending_count: u32,
+    held_total: u128,
+    next_delivery_id: u64,
+    held_release_ids: LookupMap<u64, HeldRelease, Sha256>,
+    settlement_account: near_sdk::AccountId,
+    sweep_signer_id: Option<near_sdk::AccountId>,
+    sweep_sequences: LookupMap<(String, SweepChain), u64, Sha256>,
+    active_sweeps: LookupMap<(String, SweepChain), ActiveSweep, Sha256>,
+}
+
+fn truncate_to_legacy<T: BorshDeserialize>(state: &mut Vec<u8>) -> anyhow::Result<()> {
+    let mut reader = &state[..];
+    let _: T = T::deserialize_reader(&mut reader)?;
+    state.truncate(state.len() - reader.len());
+    Ok(())
 }
 
 pub struct Ctx {
@@ -78,6 +96,10 @@ pub struct Ctx {
 
 /// A sandbox with the contract initialized and `pool` yoctoNEAR in its pool.
 pub async fn setup(pool: u128) -> anyhow::Result<Ctx> {
+    setup_with_wnear(pool, "wrap.near").await
+}
+
+pub async fn setup_with_wnear(pool: u128, wnear_id: &str) -> anyhow::Result<Ctx> {
     let wasm = wasm();
     let worker = near_workspaces::sandbox().await?;
     let root = worker.root_account()?;
@@ -104,6 +126,7 @@ pub async fn setup(pool: u128) -> anyhow::Result<Ctx> {
             "owner_id": owner.id(),
             "server_id": server.id(),
             "treasury_id": treasury.id(),
+            "wnear_id": wnear_id,
         }))
         .transact()
         .await?
@@ -638,6 +661,16 @@ impl Ctx {
         Ok(())
     }
 
+    pub async fn set_pending_count(&self, count: u32) -> anyhow::Result<()> {
+        let state = self.read_state().await?;
+        let mut mirror: StateMirror = borsh::from_slice(&state)?;
+        mirror.pending_count = count;
+        self.worker
+            .patch_state(self.contract.id(), b"STATE", &borsh::to_vec(&mirror)?)
+            .await?;
+        Ok(())
+    }
+
     pub async fn set_treasury_id(&self, treasury_id: near_sdk::AccountId) -> anyhow::Result<()> {
         let state = self.read_state().await?;
         let mut mirror: StateMirror = borsh::from_slice(&state)?;
@@ -660,9 +693,7 @@ impl Ctx {
     pub async fn restore_v5_state(&self) -> anyhow::Result<()> {
         let mut state = self.read_state().await?;
         let _: StateMirror = borsh::from_slice(&state)?;
-        let shared_len =
-            borsh::to_vec(&borsh::from_slice::<StateMirror>(&state)?.shared_jobs)?.len();
-        state.truncate(state.len() - 56 - shared_len - 18);
+        truncate_to_legacy::<nearling_contract::ContractV5>(&mut state)?;
         let _: nearling_contract::ContractV5 = borsh::from_slice(&state)?;
         self.worker
             .patch_state(self.contract.id(), b"STATE", &state)
@@ -674,9 +705,7 @@ impl Ctx {
     pub async fn restore_v6_state(&self) -> anyhow::Result<()> {
         let mut state = self.read_state().await?;
         let _: StateMirror = borsh::from_slice(&state)?;
-        let shared_len =
-            borsh::to_vec(&borsh::from_slice::<StateMirror>(&state)?.shared_jobs)?.len();
-        state.truncate(state.len() - 24 - shared_len - 18);
+        truncate_to_legacy::<nearling_contract::ContractV6>(&mut state)?;
         let _: nearling_contract::ContractV6 = borsh::from_slice(&state)?;
         self.worker
             .patch_state(self.contract.id(), b"STATE", &state)
@@ -687,9 +716,8 @@ impl Ctx {
     /// Recreate the deployed V7 state immediately before the shared-job map was appended.
     pub async fn restore_v7_state(&self) -> anyhow::Result<()> {
         let mut state = self.read_state().await?;
-        let mirror: StateMirror = borsh::from_slice(&state)?;
-        let shared_len = borsh::to_vec(&mirror.shared_jobs)?.len();
-        state.truncate(state.len() - shared_len - 18);
+        let _: StateMirror = borsh::from_slice(&state)?;
+        truncate_to_legacy::<nearling_contract::ContractV7>(&mut state)?;
         let _: nearling_contract::ContractV7 = borsh::from_slice(&state)?;
         self.worker
             .patch_state(self.contract.id(), b"STATE", &state)
@@ -701,7 +729,7 @@ impl Ctx {
     pub async fn restore_v8_state(&self) -> anyhow::Result<()> {
         let mut state = self.read_state().await?;
         let _: StateMirror = borsh::from_slice(&state)?;
-        state.truncate(state.len() - 18);
+        truncate_to_legacy::<nearling_contract::ContractV8>(&mut state)?;
         let _: nearling_contract::ContractV8 = borsh::from_slice(&state)?;
         self.worker
             .patch_state(self.contract.id(), b"STATE", &state)
@@ -713,7 +741,7 @@ impl Ctx {
     pub async fn restore_v9_state(&self) -> anyhow::Result<()> {
         let mut state = self.read_state().await?;
         let _: StateMirror = borsh::from_slice(&state)?;
-        state.truncate(state.len() - 5);
+        truncate_to_legacy::<nearling_contract::ContractV9>(&mut state)?;
         let _: nearling_contract::ContractV9 = borsh::from_slice(&state)?;
         self.worker
             .patch_state(self.contract.id(), b"STATE", &state)

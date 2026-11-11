@@ -1021,7 +1021,10 @@ export function usePetScreen(tokenId: string, from: string | null, diary = false
         setLines((now) => [...(now ?? []), { id, who: 'event', text: `${s.name} fell asleep.`, fresh: true }]);
       }
       // a meal woke the pet while the page was open: who fed it; its first thought is the job on its way, below
-      if (s.events.includes('woke') && s.friend) {
+      if (s.events.includes('woke') && s.wakeSource === 'cross_chain') {
+        const id = `event-${(localLine.current += 1)}`;
+        setLines((now) => [...(now ?? []), { id, who: 'pet', text: 'Food came from another chain.', fresh: true }]);
+      } else if (s.events.includes('woke') && s.friend) {
         const id = `event-${(localLine.current += 1)}`;
         setLines((now) => [...(now ?? []), { id, who: 'event', text: `${s.friend} fed ${s.name}.`, fresh: true }]);
       }
@@ -1348,7 +1351,7 @@ export function usePetScreen(tokenId: string, from: string | null, diary = false
         // the entry is erased: a Diary that waited to open has nothing to open (`Daily ritual flow` › «сначала действие»)
         setPage((p) => (p.kind === 'pet' && p.pet.viewer === 'owner' ? { kind: 'pet', pet: { ...p.pet, diaryUnread: false, pendingQuestion: false } } : p));
         const id = `event-${(localLine.current += 1)}`;
-        setLines([{ id, who: 'event', text: o.result === 'cleared_retry' ? "Memory cleared. This job's food is still reserved while we retry closing it." : o.hadExperience ? 'Experience notes cleared. Public work history remains.' : `${shown}'s memory is clear — same ${shown}, fresh start.`, fresh: true }, ...(hired ? [hireClearedLineOf()] : [])]);
+        setLines([{ id, who: 'event', text: o.result === 'cleared_retry' ? "Memory cleared. This job's food is still reserved while we retry closing it." : o.hadExperience ? 'Experience notes cleared. Public work history remains.' : `${shown}'s memory is clear — same ${shown}, fresh start.`, fresh: true }, ...(hired ? [hireClearedLineOf()] : []), ...(o.paymentRecordsNotice ? [{ id: `event-${(localLine.current += 1)}`, who: 'event' as const, text: o.paymentRecordsNotice, fresh: true }] : [])]);
       }),
     [tokenId, forgetConversation, hireClearedLineOf],
   );

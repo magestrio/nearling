@@ -7,6 +7,7 @@ import type { HireBoard } from '../../src/seams/worker-types';
 import { CLOSED_ALL, CLOSED_NEW, inSampleDay, lookAgain, setWorker, UA } from '../helpers';
 import { THINK_ID, verificationFakes } from '../verification.fixtures';
 import { SAMPLE_SHOWCASE } from '../../src/seams/showcase.sample';
+import type { OwnerDepositRead, QuoteStatus } from '../../src/any-chain/types';
 
 /** One frame's state in the real client, on the sample values of design/BRIEF.md §1. */
 export interface ScreenFixture {
@@ -4108,3 +4109,435 @@ for (const [id, lines] of Object.entries(BELOW_FOLD)) {
   const fixture = fixtures[id];
   if (fixture) fixture.belowFold = [...(fixture.belowFold ?? []), ...lines];
 }
+
+// The any-chain status frames use one opaque bearer id and the sample 0.25 USDC route.
+const CHAIN_PAYMENT_ID = 'a'.repeat(32);
+const CHAIN_STATUS_PATH = `/pet/9/feed/status/${CHAIN_PAYMENT_ID}`;
+const CHAIN_REFUND = '0x91C3a61d8B7E45F20e4c0A25d9F43bD778ac1934';
+const CHAIN_NEAR_HASH = '4NaHJ39MtdVKeEXbg2XdNgqSRLmALibhoyyoGCHcAoKH';
+const CHAIN_SOURCE_HASH = `0x${'a84c91fd3872b6e0a143c6b75d20f8e39a51d9f2e7b04c6a1d93f58b20c6e4d7'}`;
+const chainCredit = { receiptId: 'receipt', nearTxHash: CHAIN_NEAR_HASH,
+  amount: '49000000000000000000000', kind: 'pending', creditId: 1, heldId: null,
+  reason: null, unwrapFailed: false, creditedAmount: '48700000000000000000000' };
+const chainStatus: QuoteStatus = { id: CHAIN_PAYMENT_ID, tokenId: '9', state: 'source_transfer_pending',
+  providerState: 'PROCESSING', providerReference: '4Vx…b8E', sourceTxHash: CHAIN_SOURCE_HASH,
+  sourceAmount: '250000', sourceAsset: 'USDC', sourceChain: 'base',
+  providerStatusUrl: 'https://1click.chaindefuser.com/v0/status?depositAddress=shown',
+  sourceCondition: 'observed', providerRefundAmount: null, providerRefundTxHash: null,
+  refundTo: CHAIN_REFUND, deliveries: [] };
+const chainStatusFixture = (state: string, patch: Partial<QuoteStatus> = {}, asleep = false): ScreenFixture => ({
+  route: CHAIN_STATUS_PATH, fakes: { worker: { pets: { '9': { ...PIXEL, worn: null,
+    fullness: asleep ? { state: 'asleep' as const, level: 0 } : state === 'food' || state === 'food_excess_refunded'
+      ? { state: 'full' as const, level: 1 } : { state: 'hungry' as const, level: 0.25 } } },
+    anyChainStatus: { ...chainStatus, ...patch, state } } },
+});
+
+// spec: add-any-chain-feed › Cross-chain quote flow › unknown outcome
+fixtures['chain-status-unknown-outcome'] = chainStatusFixture('unknown_outcome');
+// spec: add-any-chain-feed › Cross-chain quote flow › provider failure
+fixtures['chain-status-provider-failure'] = chainStatusFixture('provider_failed', { providerState: 'FAILED' });
+// spec: add-any-chain-feed › Cross-chain quote flow › excess input refunded
+fixtures['chain-status-excess-input-refunded'] = chainStatusFixture('food_excess_refunded', {
+  deliveries: [chainCredit], providerRefundAmount: '50000', providerRefundTxHash: CHAIN_SOURCE_HASH,
+});
+// spec: add-any-chain-feed › Cross-chain quote flow › provider refund
+fixtures['chain-status-provider-refund'] = chainStatusFixture('provider_refunded', {
+  providerState: 'REFUNDED', providerRefundAmount: '240000', providerRefundTxHash: CHAIN_SOURCE_HASH,
+});
+// spec: add-any-chain-feed › Cross-chain quote flow › wrong asset sent
+fixtures['chain-status-wrong-asset-sent'] = chainStatusFixture('wrong_asset', { sourceCondition: 'wrong_asset' });
+// spec: add-any-chain-feed › Cross-chain quote flow › transfer after deadline
+fixtures['chain-status-transfer-after-deadline'] = chainStatusFixture('transfer_late', { sourceCondition: 'late' });
+// spec: add-any-chain-feed › Cross-chain quote flow › transfer too small
+fixtures['chain-status-transfer-too-small'] = chainStatusFixture('transfer_too_small', { sourceCondition: 'too_small' });
+// spec: add-any-chain-feed › Cross-chain quote flow › source transfer pending
+fixtures['chain-status-source-transfer-pending'] = chainStatusFixture('source_transfer_pending');
+// spec: add-any-chain-feed › Cross-chain payment status screen › asleep
+fixtures['chain-status-asleep'] = chainStatusFixture('source_transfer_pending', {}, true);
+// spec: add-any-chain-feed › Cross-chain payment status screen › signed-out
+fixtures['chain-status-signed-out'] = { route: CHAIN_STATUS_PATH, fakes: { worker: {
+  pets: { '9': { ...PIXEL, worn: null } },
+  anyChainDepositStatus: { id: CHAIN_PAYMENT_ID, tokenId: '9', state: 'waiting_for_owner',
+    source: `https://basescan.org/tx/${CHAIN_SOURCE_HASH}`, nearCredit: null, refund: null },
+} } };
+// spec: add-any-chain-feed › Cross-chain payment status screen › success
+fixtures['chain-status-success'] = chainStatusFixture('food', { deliveries: [chainCredit] });
+// spec: add-any-chain-feed › Cross-chain payment status screen › error
+fixtures['chain-status-error'] = { route: CHAIN_STATUS_PATH, fakes: { worker: {
+  pets: { '9': { ...PIXEL, worn: null } },
+  anyChainStatus: { fail: { status: 503, code: 'chain_unreachable' } },
+} } };
+// spec: add-any-chain-feed › Cross-chain payment status screen › loading
+fixtures['chain-status-loading'] = { route: CHAIN_STATUS_PATH, fakes: { worker: {
+  pets: { '9': { ...PIXEL, worn: null } }, anyChainStatus: chainStatus, anyChainStatusDelayMs: FOREVER,
+} } };
+// spec: add-any-chain-feed › Cross-chain payment status screen › empty
+fixtures['chain-status-empty'] = { route: CHAIN_STATUS_PATH, fakes: { worker: {
+  pets: { '9': { ...PIXEL, worn: null } },
+} } };
+
+const CHAIN_HELD_HASH = 'BDMX1MyDJezDjDgk4gVgP6JhgznfWjwe9sNcMfMxkYnX';
+const CHAIN_HELD_SOURCE = 'Xnz7uKYSXE4Ha8Go8mbK7S3Yrepv1Du1wUoDyK5pCrWwbJbegsj8E37Fc8rDkwzi9yLKzExx2QrzJbitL14BZ7j';
+const CHAIN_HELD_RECIPIENT = '9WzDXwBbmkg8ZTbNMqUxvQRAyrZzDsGYdLVL9zYtAWWM';
+const CHAIN_HELD_REFUND = 'dPFjDS9hhMfb125QPLjkUwTtkUoN2qGyqP5tFo4h6XDWFemcgjCA2ivrWCy9tonTXUXo9Lr3LT1uvxzWZN9xAgz';
+// the held return goes back on the chain the payer sent from: this payment is a Solana transfer, its return address a Solana one
+const heldRoute: QuoteStatus = { ...chainStatus, state: 'held', providerState: 'SUCCESS',
+  sourceChain: 'solana', sourceTxHash: CHAIN_HELD_SOURCE, refundTo: CHAIN_HELD_RECIPIENT,
+  deliveries: [{ receiptId: 'held-receipt', nearTxHash: CHAIN_HELD_HASH,
+    amount: '41440000000000000000000', kind: 'held', creditId: null, heldId: 5,
+    reason: 'invalid_route', unwrapFailed: false, creditedAmount: null }] };
+const heldAnswer = { heldId: 5, amount: '41440000000000000000000', reason: 'invalid_route',
+  nearTxHash: CHAIN_HELD_HASH, state: 'source_unverified', sourceVerified: false,
+  recipient: null as string | null, sourceTxHash: CHAIN_HELD_SOURCE,
+  quote: null as { amountOut: string; minAmountOut: string; refundFee: string; withdrawFee: string } | null,
+  providerReference: null as string | null, releaseTxHash: null as string | null, refundTxHash: null as string | null,
+  refundAmountUsdc: null as string | null };
+const heldFixture = (patch: Partial<typeof heldAnswer>, ownerView = false): ScreenFixture => ({
+  route: CHAIN_STATUS_PATH, fakes: { ...(ownerView ? { auth: SIGNED_IN } : {}), worker: {
+    pets: { '9': { ...PIXEL, worn: null, fullness: { state: 'hungry' as const, level: 0.25 } } },
+    anyChainStatus: heldRoute, anyChainHeldStatus: { ...heldAnswer, ...patch },
+  } },
+});
+
+// spec: add-any-chain-feed › Held delivery refund data › source verified
+fixtures['chain-status-held-source-verified'] = heldFixture({ state: 'source_verified', sourceVerified: true,
+  recipient: CHAIN_HELD_RECIPIENT });
+// spec: add-any-chain-feed › Held delivery refund data › source verified
+fixtures['chain-status-held-source-verified-owner'] = heldFixture({ state: 'source_verified', sourceVerified: true }, true);
+// spec: add-any-chain-feed › Held delivery refund data › source unverified
+fixtures['chain-status-held-source-unverified'] = heldFixture({});
+// spec: add-any-chain-feed › Held delivery refund data › reverse quote ready
+fixtures['chain-status-held-reverse-quote-ready'] = heldFixture({ state: 'reverse_quote_ready', sourceVerified: true,
+  recipient: CHAIN_HELD_RECIPIENT, quote: { amountOut: '137600', minAmountOut: '136200',
+    refundFee: '1000', withdrawFee: '500' } });
+// spec: add-any-chain-feed › Held delivery refund data › below return minimum
+fixtures['chain-status-held-below-return-minimum'] = heldFixture({ state: 'below_return_minimum', sourceVerified: true,
+  recipient: CHAIN_HELD_RECIPIENT });
+
+const chainAddressOffer = { tokenId: '9', minimumFoodYocto: '10000000000000000000000', addresses: [
+  { chain: 'base' as const, address: '0xC2E80Dca90A6234fD017a8e496B1d927E05c4A71', asset: 'base-usdc',
+    contractAddress: '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913', amountUsdc: '0.03', waitSeconds: 120, path: 'base:9' },
+  { chain: 'solana' as const, address: '7BvUeXf9o1PaY6tq4JQdS8Lw7ZcH3rK2mN5gT1yF6aR', asset: 'sol-usdc',
+    contractAddress: 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v', amountUsdc: '0.03', waitSeconds: 120, path: 'solana:9' },
+] };
+const addressFixture = (extra: Partial<FakeWorkerState> = {}, owned = true): ScreenFixture => ({
+  route: owned ? '/pet/9' : '/pet/9?via=feed', fakes: { ...(owned ? { auth: SIGNED_IN } : {}), worker: { ...(owned ? bareOwner() : {}),
+    pets: { '9': { ...PIXEL, worn: null, fullness: { state: 'hungry' as const, level: 0.25 },
+      ...(owned ? { owner: { ownedCount: 2, outfits: WARDROBE_OWNS } } : {}) } },
+    anyChainAddresses: chainAddressOffer, ...extra } },
+  prepare: async (page) => {
+    if (owned) await ownerReady(page);
+    await page.getByRole('button', { name: 'Feed Pixel' }).click();
+    await page.getByRole('button', { name: "Send USDC to Pixel's address" }).click();
+    await page.mouse.move(0, 0);
+  },
+});
+
+// spec: add-any-chain-feed › Pet address sheet screen › error
+fixtures['chain-address-error'] = addressFixture({ anyChainAddresses: { fail: { status: 503, code: 'signer_unavailable' } } });
+// spec: add-any-chain-feed › Pet address sheet screen › error
+fixtures['chain-address-unknown-pet'] = addressFixture({ anyChainAddresses: { fail: { status: 404, code: 'no_pet' } } });
+// spec: add-any-chain-feed › Pet address sheet screen › success
+fixtures['chain-address-success'] = addressFixture();
+// spec: add-any-chain-feed › Pet address deposit flow › sender obtains status link
+fixtures['chain-address-track-deposit'] = {
+  ...addressFixture({ anyChainTrack: { id: CHAIN_PAYMENT_ID, url: CHAIN_STATUS_PATH,
+    status: { state: 'waiting_for_owner', source: `https://basescan.org/tx/${CHAIN_SOURCE_HASH}`,
+      nearCredit: null, refund: null } } }, false),
+  prepare: async (page) => {
+    await page.getByRole('button', { name: 'Feed Pixel' }).click();
+    await page.getByRole('button', { name: "Send USDC to Pixel's address" }).click();
+    await page.getByRole('link', { name: 'Track this deposit' }).click();
+    await page.getByLabel('Your transfer ID').fill(CHAIN_SOURCE_HASH);
+    await page.getByRole('button', { name: 'Track this deposit' }).click();
+    await page.mouse.move(0, 0);
+  },
+};
+
+// Owner deposit and sender status fixtures: a source transfer is never a NEAR food credit.
+const CHAIN_DEPOSIT_ID = 'b'.repeat(32);
+const CHAIN_DEPOSIT_PATH = `/pet/9/feed/status/${CHAIN_DEPOSIT_ID}`;
+const CHAIN_PET_ADDRESS = chainAddressOffer.addresses[0]!.address;
+const CHAIN_SWEEP_ROUTE = 'c'.repeat(32);
+const CHAIN_SWEEP_WINDOW = Date.parse('2026-11-10T21:40:00Z');
+const CHAIN_FRAME_TIME = Date.parse('2026-11-10T20:40:00Z');
+const chainDeposit: OwnerDepositRead = { deposit: { id: CHAIN_DEPOSIT_ID, token_id: '9', chain: 'base',
+  source_tx_hash: CHAIN_SOURCE_HASH, asset: 'usdc', amount_units: '340000', state: 'waiting',
+  address: CHAIN_PET_ADDRESS, source_explorer: `https://basescan.org/tx/${CHAIN_SOURCE_HASH}`,
+  near_credit_tx: null, source_refund_tx: null }, convertedUnits: '0', sweep: null };
+const chainSweep: NonNullable<OwnerDepositRead['sweep']> = { routeId: CHAIN_SWEEP_ROUTE,
+  amountUnits: '200000', destination: '0x6ad523c728bb4C38BC28830E6Ed60CF9E75D82A4',
+  refundTo: CHAIN_PET_ADDRESS, quote: { quote: { amountIn: '200000', amountInUsd: '0.20',
+    amountOut: '40000000000000000000000', amountOutUsd: '0.19',
+    minAmountOut: '39600000000000000000000', refundFee: '10000', withdrawFee: '0', timeEstimate: 19,
+    depositAddress: '0x6ad523c728bb4C38BC28830E6Ed60CF9E75D82A4' }, correlationId: '4Vx3h2c7-9d41-4e6a-8b0f-2c1d5a7e4b8E' },
+  approvalHash: 'a'.repeat(64), expiryMs: CHAIN_FRAME_TIME + 300_000, state: 'quoted',
+  nearTxHash: null, sourceTxHash: null, windowEndsAt: CHAIN_SWEEP_WINDOW };
+const chainPublicDeposit = { id: CHAIN_DEPOSIT_ID, tokenId: '9', state: 'waiting_for_owner' as const,
+  source: `https://basescan.org/tx/${CHAIN_SOURCE_HASH}`, nearCredit: null, refund: null };
+const depositFixture = (ownerRead: OwnerDepositRead | { fail: { status: number; code: string } },
+  publicStatus: FakeWorkerState['anyChainDepositStatus'] = chainPublicDeposit,
+  extra: Partial<FakeWorkerState> = {}): ScreenFixture => ({
+  route: CHAIN_DEPOSIT_PATH, beforeLoad: (page) => page.clock.install({ time: CHAIN_FRAME_TIME }),
+  fakes: { auth: SIGNED_IN, worker: { pets: { '9': { ...PIXEL, worn: null } }, owned: ['9'],
+    anyChainDepositStatus: publicStatus, anyChainOwnerDeposit: ownerRead, ...extra } },
+});
+const senderFixture = (state: 'waiting_for_owner' | 'converting' | 'became_food' | 'refunded',
+  remainder = false): ScreenFixture => ({ route: CHAIN_DEPOSIT_PATH,
+  fakes: { worker: { pets: { '9': { ...PIXEL, worn: null } }, anyChainDepositStatus: {
+    ...chainPublicDeposit, state,
+    nearCredit: state === 'became_food' ? `https://nearblocks.io/txns/${CHAIN_NEAR_HASH}` : null,
+    refund: state === 'refunded' ? `https://basescan.org/tx/${CHAIN_SOURCE_HASH}` : null,
+    ...(remainder ? { settledUnits: '200000', remainingUnits: '140000' } : {}),
+  } } },
+});
+
+// spec: add-any-chain-feed › Pet address deposit flow › supported deposit seen
+// the frame draws the Pet screen with no latest reply bubble (the notice stands where it would): the history ends on the player's line
+// (an empty history would start the pet's greeting instead)
+const unspoken = (): FakeWorkerState => ({ ...bareOwner(), conversation: { lines: HISTORY.slice(0, 4), more: false, before: null } });
+fixtures['chain-pet-deposit'] = { route: '/pet/9', fakes: { auth: SIGNED_IN, worker: {
+  ...unspoken(), anyChainOwnerDeposits: { deposits: [chainDeposit.deposit] } } },
+prepare: async (page) => { await page.getByText('USDC arrived for Pixel. Waiting for conversion.').first().waitFor(); await atRest(page); } };
+// spec: add-any-chain-feed › Pet address deposit flow › gift before settlement
+fixtures['chain-status-gift-before-settlement'] = depositFixture({ fail: { status: 403, code: 'not_owner' } });
+// spec: add-any-chain-feed › Pet address deposit flow › NEAR signing outcome unknown
+fixtures['chain-status-near-signing-outcome-unknown'] = depositFixture({ ...chainDeposit,
+  sweep: { ...chainSweep, state: 'sign_unknown', nearTxHash: CHAIN_NEAR_HASH } });
+// spec: add-any-chain-feed › Pet address deposit flow › NEAR signing failed
+fixtures['chain-status-near-signing-failed'] = depositFixture({ ...chainDeposit,
+  sweep: { ...chainSweep, state: 'sign_failed', nearTxHash: CHAIN_NEAR_HASH } });
+// spec: add-any-chain-feed › Pet address deposit flow › approval submitted
+fixtures['chain-status-approval-submitted'] = depositFixture({ ...chainDeposit,
+  sweep: { ...chainSweep, state: 'signed', nearTxHash: CHAIN_NEAR_HASH } });
+// spec: add-any-chain-feed › Pet address deposit flow › owner rejects conversion
+fixtures['chain-status-owner-rejects-conversion'] = depositFixture({ ...chainDeposit,
+  sweep: { ...chainSweep, state: 'approval_rejected' } });
+// spec: add-any-chain-feed › Pet address deposit flow › conversion refund
+fixtures['chain-status-conversion-refund'] = depositFixture({ ...chainDeposit,
+  deposit: { ...chainDeposit.deposit, state: 'refunded', source_refund_tx: CHAIN_SOURCE_HASH },
+  sweep: { ...chainSweep, state: 'refunded' } }, { ...chainPublicDeposit, state: 'refunded',
+    refund: `https://basescan.org/tx/${CHAIN_SOURCE_HASH}` });
+// spec: add-any-chain-feed › Pet address deposit flow › owner authorization pending
+fixtures['chain-status-owner-authorization-pending'] = depositFixture({ ...chainDeposit,
+  deposit: { ...chainDeposit.deposit, amount_units: '200000' }, sweep: chainSweep });
+// spec: add-any-chain-feed › Pet address deposit flow › signer unavailable
+fixtures['chain-status-signer-unavailable'] = depositFixture(chainDeposit, chainPublicDeposit,
+  { anyChainSweepQuote: { fail: { status: 503, code: 'signer_unavailable' } } });
+// spec: add-any-chain-feed › Pet address deposit flow › remainder after sweep
+fixtures['chain-status-remainder-after-sweep'] = depositFixture({ ...chainDeposit, convertedUnits: '200000',
+  deposit: { ...chainDeposit.deposit, state: 'food', near_credit_tx: CHAIN_NEAR_HASH },
+  sweep: { ...chainSweep, state: 'food', nearTxHash: CHAIN_NEAR_HASH, windowEndsAt: CHAIN_SWEEP_WINDOW } },
+  { ...chainPublicDeposit, state: 'became_food', settledUnits: '200000', remainingUnits: '140000',
+    nearCredit: `https://nearblocks.io/txns/${CHAIN_NEAR_HASH}` });
+// spec: add-any-chain-feed › Pet address deposit flow › deposit exceeds one sweep
+fixtures['chain-status-deposit-exceeds-one-sweep'] = depositFixture({ ...chainDeposit, sweep: chainSweep });
+// spec: add-any-chain-feed › Pet address deposit flow › below conversion minimum
+fixtures['chain-status-below-conversion-minimum'] = depositFixture({ ...chainDeposit,
+  deposit: { ...chainDeposit.deposit, state: 'below_minimum' } }, chainPublicDeposit,
+  { anyChainSweepQuote: { fail: { status: 409, code: 'below_minimum' } } });
+// spec: add-any-chain-feed › Pet address deposit flow › unsupported deposit
+fixtures['chain-status-unsupported-deposit'] = depositFixture({ ...chainDeposit,
+  deposit: { ...chainDeposit.deposit, asset: 'other', state: 'unsupported' } });
+// spec: add-any-chain-feed › Pet address deposit flow › supported deposit seen
+fixtures['chain-status-supported-deposit-seen'] = depositFixture(chainDeposit, chainPublicDeposit,
+  { anyChainSweepQuote: { fail: { status: 409, code: 'quote_pending' } } });
+// spec: add-any-chain-feed › Pet address deposit flow › sender obtains status link
+fixtures['chain-status-sender-obtains-status-link'] = senderFixture('waiting_for_owner');
+// spec: add-any-chain-feed › Pet address deposit flow › remainder after sweep
+fixtures['chain-status-sender-remainder'] = senderFixture('became_food', true);
+// spec: add-any-chain-feed › Pet address deposit flow › sender obtains status link
+fixtures['chain-status-sender-refunded'] = senderFixture('refunded');
+// spec: add-any-chain-feed › Pet address deposit flow › sender obtains status link
+fixtures['chain-status-sender-became-food'] = senderFixture('became_food');
+// spec: add-any-chain-feed › Pet address deposit flow › sender obtains status link
+fixtures['chain-status-sender-converting'] = senderFixture('converting');
+
+// Frames of the pay sheet: the sample 0.25 USDC from Base, 0.049 expected and 0.04851 minimum NEAR (design/BRIEF.md §1).
+const PAY_TOKEN = { assetId: 'nep141:base-0x833589fcd6edb6e08f4c7c32d4f71b54bda02913.omft.near', blockchain: 'base',
+  symbol: 'USDC', decimals: 6, price: 1, contractAddress: '0x833589fcd6edb6e08f4c7c32d4f71b54bda02913' };
+const PAY_QUOTE = { id: 'a'.repeat(32), signature: 'fixture-signature', providerReference: 'fixture-reference', quote: {
+  amountIn: '250000', amountInUsd: '0.25', amountOut: '49000000000000000000000', amountOutUsd: '0.23',
+  minAmountOut: '48510000000000000000000', refundFee: '10000', withdrawFee: '0', timeEstimate: 120 } };
+const PAY_ACCEPTED = { ...PAY_QUOTE, serverTime: 'Tue, 10 Nov 2026 20:35:00 GMT', refundTo: CHAIN_REFUND, quote: { ...PAY_QUOTE.quote,
+  depositAddress: '0x72fB1cA5eD394Fd7B91aC2C86F50e9D3A671b8E0', depositMemo: 'pixel-9-quote-4Vx',
+  timeWhenInactive: '2026-11-10T20:40:00Z', deadline: '2026-11-10T20:45:00Z' } };
+const PAY_TIME = new Date('2026-11-10T20:35:00Z');
+interface PayFrame { guest?: boolean; asleep?: boolean; amount?: string; quote?: 'none' | 'quote' | 'accept'; worker?: Partial<FakeWorkerState> }
+/** The pay sheet over the pet's page, opened the way a player opens it: Feed, then «Pay from another chain». */
+const payFixture = ({ guest = false, asleep = false, amount, quote = 'none', worker = {} }: PayFrame): ScreenFixture => ({
+  route: guest ? '/pet/2?via=feed' : '/pet/9',
+  beforeLoad: (page) => page.clock.install({ time: PAY_TIME }),
+  fakes: guest
+    ? { worker: { pets: { '2': { ...BISCUIT, fullness: { state: 'hungry' as const, level: 0.2 } } },
+      anyChainTokens: { tokens: [PAY_TOKEN] }, anyChainQuote: PAY_QUOTE, anyChainAccept: PAY_ACCEPTED, ...worker } }
+    : { auth: SIGNED_IN, worker: { ...bareOwner(), pets: { '9': { ...PIXEL, worn: null,
+      fullness: asleep ? { state: 'asleep' as const, level: 0 } : { state: 'hungry' as const, level: 0.25 },
+      owner: { ownedCount: 2, outfits: WARDROBE_OWNS } } },
+    anyChainTokens: { tokens: [PAY_TOKEN] }, anyChainQuote: PAY_QUOTE, anyChainAccept: PAY_ACCEPTED, ...worker } },
+  prepare: async (page) => {
+    if (!guest) await ownerReady(page);
+    await page.getByRole('button', { name: guest ? 'Feed Biscuit' : 'Feed Pixel' }).click();
+    await page.getByRole('button', { name: 'Pay from another chain' }).click();
+    const pay = page.getByRole('dialog', { name: 'Pay from another chain' });
+    if (amount) await pay.getByLabel('Amount to send').fill(amount);
+    await pay.getByLabel('Return address').fill(CHAIN_REFUND);
+    if (quote !== 'none') {
+      await pay.getByRole('button', { name: 'Get payment address' }).click();
+      await pay.getByText('0.04851 NEAR').first().waitFor();
+    }
+    if (quote === 'accept') {
+      await pay.getByRole('button', { name: 'Get payment address' }).click();
+      await pay.getByRole('button', { name: 'View payment status' }).waitFor();
+    }
+    await page.mouse.move(0, 0);
+  },
+});
+const payFails = (key: 'anyChainQuote' | 'anyChainAccept', status: number, code: string): Partial<FakeWorkerState> =>
+  ({ [key]: { fail: { status, code } } });
+const payIssue = async (page: Page) => {
+  const pay = page.getByRole('dialog', { name: 'Pay from another chain' });
+  await pay.getByRole('button', { name: 'Get payment address' }).click();
+  await pay.locator('[role="status"], [role="alert"], .ds-note, p').first().waitFor();
+};
+
+// spec: add-any-chain-feed › Cross-chain quote flow › quote created
+fixtures['chain-pay-details'] = payFixture({ quote: 'accept' });
+// spec: add-any-chain-feed › Cross-chain pay sheet screen › success
+fixtures['chain-pay-success'] = payFixture({ quote: 'quote' });
+// spec: add-any-chain-feed › Cross-chain quote flow › guest quote
+fixtures['chain-pay-guest'] = payFixture({ guest: true, quote: 'quote' });
+// spec: add-any-chain-feed › Cross-chain quote flow › quote above portion ceiling
+fixtures['chain-pay-above-ceiling'] = { ...payFixture({ amount: '2.00', worker: payFails('anyChainQuote', 409, 'above_ceiling') }),
+  prepare: async (page) => { await payFixture({ amount: '2.00' }).prepare!(page); await payIssue(page); await page.mouse.move(0, 0); } };
+// spec: add-any-chain-feed › Cross-chain quote flow › quote below minimum
+fixtures['chain-pay-below-minimum'] = { ...payFixture({ amount: '0.01', worker: payFails('anyChainQuote', 409, 'below_minimum') }),
+  prepare: async (page) => { await payFixture({ amount: '0.01' }).prepare!(page); await payIssue(page); await page.mouse.move(0, 0); } };
+// spec: add-any-chain-feed › Cross-chain quote flow › unsupported origin
+fixtures['chain-pay-unsupported'] = { ...payFixture({ worker: { anyChainTokens: { tokens: [] } } }),
+  prepare: async (page) => { await payFixture({}).prepare!(page); await payIssue(page); await page.mouse.move(0, 0); } };
+// spec: add-any-chain-feed › Cross-chain pay sheet screen › error
+fixtures['chain-pay-error'] = { ...payFixture({ worker: payFails('anyChainQuote', 502, 'quote_unavailable') }),
+  prepare: async (page) => { await payFixture({}).prepare!(page); await payIssue(page); await page.mouse.move(0, 0); } };
+// spec: add-any-chain-feed › Cross-chain availability rule › changed quote
+fixtures['chain-pay-changed-quote'] = { ...payFixture({ worker: payFails('anyChainAccept', 409, 'quote_expired') }),
+  prepare: async (page) => {
+    await payFixture({ quote: 'quote' }).prepare!(page);
+    const pay = page.getByRole('dialog', { name: 'Pay from another chain' });
+    await pay.getByRole('button', { name: 'Get payment address' }).click();
+    await pay.getByRole('button', { name: 'Get a new quote' }).waitFor();
+    await page.mouse.move(0, 0);
+  } };
+// spec: add-any-chain-feed › Cross-chain availability rule › pending capacity full
+fixtures['chain-pay-capacity-full'] = { ...payFixture({ worker: payFails('anyChainQuote', 409, 'capacity_full') }),
+  prepare: async (page) => { await payFixture({}).prepare!(page); await payIssue(page); await page.mouse.move(0, 0); } };
+// spec: add-any-chain-feed › Cross-chain availability rule › pending stake unavailable
+fixtures['chain-pay-pending-stake-unavailable'] = { ...payFixture({ worker: payFails('anyChainQuote', 409, 'pending_stake_unavailable') }),
+  prepare: async (page) => { await payFixture({}).prepare!(page); await payIssue(page); await page.mouse.move(0, 0); } };
+// spec: add-any-chain-feed › Cross-chain availability rule › receiver not registered
+fixtures['chain-pay-receiver-unregistered'] = { ...payFixture({ worker: payFails('anyChainQuote', 409, 'receiver_unregistered') }),
+  prepare: async (page) => { await payFixture({}).prepare!(page); await payIssue(page); await page.mouse.move(0, 0); } };
+// spec: add-any-chain-feed › Cross-chain availability rule › services paused
+fixtures['feed-chain-paused'] = { route: '/pet/9', fakes: { auth: SIGNED_IN, worker: { ...owner({}, ASLEEP),
+  feedSheet: { fullness: ASLEEP, snack: { state: 'ready' }, crossChainPaused: true } } },
+prepare: async (page) => { await ownerReady(page); await openFeedSheet(page, 'Feed Pixel'); } };
+
+// Pet page: a confirmed quote meal is an anonymous event, a wake by it a line of the pet with no name or thanks.
+// spec: add-any-chain-feed › Cross-chain identity rule › anonymous credit
+fixtures['chain-pet-credit'] = { route: '/pet/9', fakes: { auth: SIGNED_IN, worker: { ...unspoken(),
+  anyChainOwnerDeposits: { deposits: [], credits: [{ id: CHAIN_PAYMENT_ID, creditId: 1, wasAsleep: false, route: 'quote' }] } } },
+prepare: async (page) => { await page.getByText('From another chain').first().waitFor(); await atRest(page); } };
+// spec: add-any-chain-feed › Cross-chain identity rule › anonymous wake
+fixtures['chain-pet-wake'] = { route: '/pet/9', fakes: { auth: SIGNED_IN, worker: bareOwner() },
+  prepare: async (page) => {
+    await ownerReady(page);
+    await setWorker(page, { petState: { events: ['woke'], wakeSource: 'cross_chain' } });
+    await lookAgain(page);
+    await page.getByText('Food came from another chain.').first().waitFor();
+    await atNewest(page);
+    await setWorker(page, { petState: {} });
+  } };
+
+// Status frames of a contract rejection, a recovery outcome and a held delivery: the screen words them from a coded reason.
+// spec: add-any-chain-feed › wNEAR unwrap contract › unwrap failed
+fixtures['chain-status-unwrap-stalled'] = chainStatusFixture('unwrap_failed', { deliveries: [{ ...chainCredit, creditedAmount: null, unwrapFailed: true }] });
+const reasonFrame = (reason: string, state = 'unknown_outcome'): ScreenFixture => chainStatusFixture(state, { reason });
+// spec: add-any-chain-feed › Pet sweep authorization contract › missing quote destination
+fixtures['chain-status-sweep-missing-quote-destination'] = reasonFrame('missing_quote_destination');
+// spec: add-any-chain-feed › Pet sweep authorization contract › duplicate sweep
+fixtures['chain-status-sweep-duplicate-sweep'] = reasonFrame('duplicate_sweep');
+// spec: add-any-chain-feed › Pet sweep authorization contract › excessive sweep
+fixtures['chain-status-sweep-excessive-sweep'] = reasonFrame('excessive_sweep');
+// spec: add-any-chain-feed › Pet sweep authorization contract › unsupported token or chain
+fixtures['chain-status-sweep-unsupported-token-or-chain'] = reasonFrame('unsupported_token_or_chain');
+// spec: add-any-chain-feed › Pet sweep authorization contract › wrong derivation path
+fixtures['chain-status-sweep-wrong-derivation-path'] = reasonFrame('wrong_derivation_path');
+// spec: add-any-chain-feed › Pet sweep authorization contract › expired or reused approval
+fixtures['chain-status-sweep-expired-or-reused-approval'] = reasonFrame('expired_approval');
+// spec: add-any-chain-feed › Pet sweep authorization contract › wrong or stale owner approval
+fixtures['chain-status-sweep-wrong-or-stale-owner-approval'] = reasonFrame('wrong_owner_approval');
+// spec: add-any-chain-feed › Pet sweep authorization contract › unknown pet
+fixtures['chain-status-sweep-unknown-pet'] = reasonFrame('unknown_pet');
+// spec: add-any-chain-feed › Pet sweep authorization contract › wrong caller
+fixtures['chain-status-sweep-wrong-caller'] = reasonFrame('wrong_caller');
+// spec: add-any-chain-feed › Pet sweep authorization contract › wrong refund recipient
+fixtures['chain-status-sweep-wrong-refund-recipient'] = reasonFrame('wrong_refund_recipient');
+// spec: add-any-chain-feed › wNEAR recovery contract › route not recoverable
+fixtures['chain-status-recovery-route-not-recoverable'] = reasonFrame('route_not_recoverable', 'unwrap_failed');
+// spec: add-any-chain-feed › wNEAR recovery contract › retry failed route
+fixtures['chain-status-recovery-retry-failed-route'] = reasonFrame('retry_failed_route', 'unwrap_failed');
+// spec: add-any-chain-feed › wNEAR receipt contract › wrong token caller
+fixtures['chain-status-receipt-wrong-token-caller'] = reasonFrame('token_rejected');
+
+// A held delivery by the reason the contract recorded: the amount, the reason and the NEAR receipt.
+const receiptFixture = (reason: string): ScreenFixture => ({
+  route: CHAIN_STATUS_PATH, fakes: { worker: {
+    pets: { '9': { ...PIXEL, worn: null, fullness: { state: 'hungry' as const, level: 0.25 } } },
+    anyChainStatus: { ...heldRoute, deliveries: [{ ...heldRoute.deliveries[0]!, reason }] },
+    anyChainHeldStatus: { ...heldAnswer, reason },
+  } },
+});
+// spec: add-any-chain-feed › wNEAR receipt contract › pending cap reached
+fixtures['chain-status-receipt-pending-cap-reached'] = receiptFixture('capacity');
+// spec: add-any-chain-feed › wNEAR receipt contract › pending storage unavailable
+fixtures['chain-status-receipt-pending-storage-unavailable'] = receiptFixture('storage_unavailable');
+// spec: add-any-chain-feed › wNEAR receipt contract › below food minimum
+fixtures['chain-status-receipt-below-food-minimum'] = receiptFixture('below_minimum');
+// spec: add-any-chain-feed › wNEAR receipt contract › missing route id
+fixtures['chain-status-receipt-missing-route-id'] = receiptFixture('invalid_route');
+// spec: add-any-chain-feed › wNEAR receipt contract › unknown pet
+// the delivery named no pet that exists: the page has none to draw and no Feed to offer
+const unknownPet = receiptFixture('unknown_pet');
+fixtures['chain-status-receipt-unknown-pet'] = { ...unknownPet, fakes: { ...unknownPet.fakes, worker: { ...unknownPet.fakes!.worker, pets: {} } } };
+// spec: add-any-chain-feed › wNEAR receipt contract › wrong sender
+fixtures['chain-status-receipt-wrong-sender'] = receiptFixture('wrong_sender');
+
+// spec: add-any-chain-feed › Held delivery refund data › reverse exchange failed
+fixtures['chain-status-held-reverse-exchange-failed'] = heldFixture({ state: 'reverse_exchange_failed', sourceVerified: true,
+  recipient: CHAIN_HELD_RECIPIENT, providerReference: '92f4a667-9b51-48b5-ab63-21ce4e111124' });
+// spec: add-any-chain-feed › Held delivery refund data › refund confirmed
+fixtures['chain-status-held-refund-confirmed'] = heldFixture({ state: 'refund_confirmed', sourceVerified: true,
+  recipient: CHAIN_HELD_RECIPIENT, releaseTxHash: CHAIN_NEAR_HASH, refundTxHash: CHAIN_HELD_REFUND, refundAmountUsdc: '137600' });
+// spec: add-any-chain-feed › Held delivery refund data › refund confirmed
+fixtures['chain-status-held-refund-confirmed-owner'] = heldFixture({ state: 'refund_confirmed', sourceVerified: true,
+  releaseTxHash: CHAIN_NEAR_HASH, refundTxHash: CHAIN_HELD_REFUND, refundAmountUsdc: '137600' }, true);
+// spec: add-any-chain-feed › Held wNEAR release contract › operator release
+fixtures['chain-status-held-operator-release'] = heldFixture({ state: 'release_in_progress', sourceVerified: true,
+  recipient: CHAIN_HELD_RECIPIENT, releaseTxHash: CHAIN_NEAR_HASH });
+// spec: add-any-chain-feed › Held wNEAR release contract › settlement transfer failed
+fixtures['chain-status-held-settlement-transfer-failed'] = heldFixture({ state: 'settlement_transfer_failed', sourceVerified: true,
+  recipient: CHAIN_HELD_RECIPIENT, releaseTxHash: CHAIN_NEAR_HASH });
+
+// Owner deposit frames of a sweep on its way or stopped.
+// spec: add-any-chain-feed › Pet address deposit flow › sweep failed
+fixtures['chain-status-sweep-failed'] = depositFixture({ ...chainDeposit,
+  sweep: { ...chainSweep, state: 'failed', nearTxHash: CHAIN_NEAR_HASH, sourceTxHash: CHAIN_SOURCE_HASH } });
+// spec: add-any-chain-feed › Pet address deposit flow › sweep sent
+fixtures['chain-status-sweep-sent'] = depositFixture({ ...chainDeposit,
+  sweep: { ...chainSweep, state: 'sent', nearTxHash: CHAIN_NEAR_HASH, sourceTxHash: CHAIN_SOURCE_HASH } });
+// spec: add-any-chain-feed › Pet address deposit flow › sweep gas exceeds sponsorship cap
+fixtures['chain-status-sweep-gas-exceeds-sponsorship-cap'] = depositFixture(chainDeposit, chainPublicDeposit,
+  { anyChainSweepQuote: { fail: { status: 409, code: 'sweep_gas_cap' } } });
+// spec: add-any-chain-feed › Pet address deposit flow › sweep awaiting gas
+fixtures['chain-status-sweep-awaiting-gas'] = depositFixture({ ...chainDeposit,
+  sweep: { ...chainSweep, state: 'awaiting_gas', nearTxHash: CHAIN_NEAR_HASH } });

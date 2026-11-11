@@ -380,6 +380,8 @@ export type PetState = Omit<Extract<PetView, { viewer: 'owner' }>, 'viewer' | 'o
   /** with `woke`: the name of the friend whose meal woke the pet — «{friend} fed {name}.»; `'A friend'` for a nameless
    *  feeder. Sent when the wake came from a friend's feeding (`wakes` below the pet's counter). */
   friend?: string;
+  /** The last wake was a confirmed anonymous cross-chain credit. Never a payer identity. */
+  wakeSource?: 'cross_chain';
 };
 /** What a hire cost, under the line it belongs to: the fee in yocto and in cents at the rate it was made, or `noFee` when the
  *  contract did not take the hire's record (`Pet hire flow` › «найм не записан в сети»). `worker` is the worker's name. */
@@ -493,6 +495,10 @@ export interface FeedSheetData {
   friend: string | null;
   /** a meal or snack of the player's on its way, whichever pet it is for */
   pending: { id: string; source: FeedSource; tokenId: string } | null;
+  /** Confirmed anonymous credits for the current owner, with no payer identity. */
+  crossChainCredits?: import('../any-chain/types').OwnerQuoteCredit[];
+  /** Project service spending is paused: no new quote address is issued (`Cross-chain availability rule` › «services paused»). */
+  crossChainPaused?: boolean;
 }
 /** `chain: false` alone when the network does not read (`Feeding connection rule` › «сеть NEAR недоступна»). */
 export type FeedSheetAnswer = FeedSheetData | { chain: false };
@@ -796,6 +802,19 @@ export interface DebateEligibility {
 }
 
 export interface WorkerApi {
+  anyChainTokens(): Promise<{ tokens: import('../any-chain/types').OriginToken[] }>;
+  anyChainQuote(input: import('../any-chain/types').QuoteInput): Promise<import('../any-chain/types').QuoteAnswer>;
+  anyChainAccept(id: string): Promise<import('../any-chain/types').QuoteAnswer>;
+  anyChainAddresses(tokenId: string): Promise<import('../any-chain/types').AddressAnswer>;
+  anyChainTrack(input: { tokenId: string; chain: 'base' | 'solana'; hash: string }): Promise<import('../any-chain/types').TrackedDeposit>;
+  anyChainStatus(id: string): Promise<import('../any-chain/types').QuoteStatus>;
+  anyChainDepositStatus(id: string): Promise<import('../any-chain/types').DepositStatus>;
+  anyChainOwnerDeposits(token: Token, tokenId: string): Promise<{ deposits: import('../any-chain/types').OwnerDeposit[]; credits?: import('../any-chain/types').OwnerQuoteCredit[] }>;
+  anyChainOwnerDeposit(token: Token, id: string): Promise<import('../any-chain/types').OwnerDepositRead>;
+  anyChainSweepQuote(token: Token, id: string): Promise<import('../any-chain/types').SweepQuote>;
+  anyChainSweepApprove(token: Token, id: string, signature: string): Promise<import('../any-chain/types').SweepOutcome>;
+  anyChainSweepStatus(token: Token, id: string): Promise<import('../any-chain/types').SweepOutcome>;
+  anyChainHeldStatus(id: number, paymentId: string, token: Token): Promise<import('../any-chain/types').HeldStatus>;
   debatePartners(token: Token, tokenId: string): Promise<{ partners: Array<{ tokenId: string; name: string }> }>;
   debateRecords(token: Token, tokenId: string): Promise<{ records: Array<{ id: string; status: DebateRead['status']; side: 'proposer' | 'recipient'; retained?: boolean }> }>;
   debateIncoming(token: Token, tokenId: string): Promise<{ ids: string[] }>;
@@ -867,7 +886,7 @@ export interface WorkerApi {
   /** The state of the sign-in, read before Google. Sent with no token: a stale one would be a `401`. */
   signInState(): Promise<SignInGate>;
   /** The owner erases the pet's memory. */
-  clearMemory(token: Token, tokenId: string, approval?: { public_key: string; signature: string }): Promise<{ ok: true } | { code: 'close_retry' }>;
+  clearMemory(token: Token, tokenId: string, approval?: { public_key: string; signature: string }): Promise<{ ok: true; paymentRecordsNotice?: string } | { code: 'close_retry'; paymentRecordsNotice?: string }>;
   /** Feed sheet's state, whole. Refusals: `401 signed_out`, `404 no_pet`, `500 rate_missing`. */
   feedSheet(token: Token, tokenId: string): Promise<FeedSheetAnswer>;
   /** The unsigned `pet_feed` as base64, for the browser to check and sign. Refusals: `409 pending`, `409 short` (body holds
