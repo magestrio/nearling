@@ -4,6 +4,8 @@ import { accessKeyNonce, blockTime, ChainUnreachable, GIFT_RESERVE_YOCTO, GIFT_T
 import { fromBase64, implicitKey, toBase64, type Reply } from '../feeding/portion';
 import { giftGas } from './gas';
 import { invalidateMovedLink, linkForToken, type GiftLink } from './link';
+import { giftDebateStatements } from '../debates/cancel';
+import { recordDebateEvent } from '../debates/events';
 
 const GAS_UNIT = 1_000_000_000_000n;
 const unavailable: Reply = { status: 503, body: { code: 'chain_unreachable' } };
@@ -38,7 +40,7 @@ async function finalise(env: Env, row: GiftFlight, when: number): Promise<void> 
   // All effects either commit together or not at all. Each mutation is conditional on the still
   // unresolved flight, so a second poll cannot move the receiver's current pet back after a visit.
   const open = "EXISTS (SELECT 1 FROM gift_flights WHERE token_id = ?1 AND tx_hash = ?2 AND state IN ('prepared', 'sending', 'unknown'))";
-  await env.DB.batch([
+  const result = await env.DB.batch([
     env.DB.prepare(`UPDATE gift_links SET status = 'transferred', accepted_name = NULL, transferred_at = ?3, version = version + 1 WHERE token_id = ?1 AND code = ?4 AND status = 'accepted' AND ${open}`)
       .bind(row.token_id, row.tx_hash, when, row.code),
     env.DB.prepare(`UPDATE pets SET last_gift_block_at = ?3, gifted_unmarked = 1 WHERE token_id = ?1 AND ${open}`)
@@ -53,12 +55,21 @@ async function finalise(env: Env, row: GiftFlight, when: number): Promise<void> 
       .bind(row.token_id, row.tx_hash, row.receiver),
     env.DB.prepare(`UPDATE receipt_links SET revoked_at = ?3 WHERE paying_token_id = ?1 AND revoked_at IS NULL AND ${open}`)
       .bind(row.token_id, row.tx_hash, when),
+    ...giftDebateStatements(env.DB, row.token_id, when, row.tx_hash),
     env.DB.prepare(`UPDATE work_invitations SET status = 'expired' WHERE status = 'open'
       AND (sender_token = ?1 OR recipient_token = ?1) AND ${open}`)
       .bind(row.token_id, row.tx_hash),
     env.DB.prepare("UPDATE gift_flights SET state = 'ok', resolved_at = ?3 WHERE token_id = ?1 AND tx_hash = ?2 AND state IN ('prepared', 'sending', 'unknown')")
       .bind(row.token_id, row.tx_hash, Date.now()),
   ]);
+  if (result.at(-1)?.meta.changes === 1) {
+    try {
+      const ended = await env.DB.prepare("SELECT id, first_pet, second_pet FROM debates WHERE status = 'gift' AND ended_at = ? AND (first_pet = ? OR second_pet = ?)")
+        .bind(when, row.token_id, row.token_id).all<{ id: string; first_pet: string; second_pet: string }>();
+      for (const debate of ended.results) await recordDebateEvent(env, { name: 'debate_ended', id: debate.id,
+        firstPet: debate.first_pet, secondPet: debate.second_pet, reason: 'unavailable', at: when });
+    } catch { console.log('debate_event_read_failed'); }
+  }
 }
 
 async function failed(env: Env, row: GiftFlight, code: string): Promise<Reply> {

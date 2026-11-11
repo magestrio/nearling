@@ -68,6 +68,8 @@ export interface PetRecord {
   /** The token ids of the pets this one met through work, ascending (`Known pets contract`). Absent on a contract
    * that has not been upgraded: read it as none. */
   work_known?: string[];
+  /** Fixed on-chain paid debate slot, absent before the first accepted line. */
+  paid_debate?: { id: string; occupied_day: number; accepted_lines: number; used_orders: number } | null;
   /** The jobs the pet did in the UTC day of its last one, 0 when that day is not today. */
   jobs_today?: number;
   /** Incremented by every nft_transfer, even when the owner later receives the pet back. */
@@ -426,6 +428,21 @@ const CONTRACT_CODES = [
   'daily_cap',
   'over_food',
   'bad_debit_id',
+  'gift_version_changed',
+  'debate_one_line',
+  'bad_debate',
+  'bad_debate_id',
+  'bad_debate_order',
+  'bad_debate_other_pet',
+  'bad_debate_line',
+  'bad_debate_pet',
+  'bad_debate_pair',
+  'bad_debate_sequence',
+  'debate_day_occupied',
+  'debate_lines_cap',
+  'debate_order_used',
+  'debate_daily_cap',
+  'debate_storage_bound',
   'empty_batch',
   'too_many_thoughts',
   'no_pet',
@@ -526,6 +543,7 @@ export interface ServerCall {
     | { kind: 'birth'; receiver: string; startedAt: number }
     | { kind: 'shared_open'; tokenId: string; jobHash: string }
     | { kind: 'shared_debit'; sessionId: string; debitId: number }
+    | { kind: 'debate_debit'; debateId: string; lineOrder: number; operationId: string }
     | { kind: 'will_start'; op: string }
     | { kind: 'will_release'; op: string };
 }

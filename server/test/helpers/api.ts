@@ -70,6 +70,9 @@ export function harness(): Harness {
     await env.DB.exec('DELETE FROM society_encounters');
     await env.DB.exec('DELETE FROM society_diary_lines');
     await env.DB.exec('DELETE FROM society_processed_hires');
+    for (const table of ['debate_debit_operations', 'debate_lines', 'debate_started_days', 'debate_consents', 'debates', 'debate_ended_invites']) {
+      await env.DB.exec(`DELETE FROM ${table}`);
+    }
     for (const table of ['pet_wishes', 'will_diary_lines', 'work_invitations', 'will_screening_claims', 'will_screenings', 'will_refusals', 'will_operations']) {
       await env.DB.exec(`DELETE FROM ${table}`);
     }

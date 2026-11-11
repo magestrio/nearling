@@ -46,6 +46,7 @@ async fn the_explorer_shows_the_owner_name_character_food_and_receipts_but_no_wo
             "outfits",
             "owner_id",
             "owner_snack_at",
+            "paid_debate",
             "project_food",
             "shared_job",
             "stage",
@@ -59,6 +60,8 @@ async fn the_explorer_shows_the_owner_name_character_food_and_receipts_but_no_wo
         ]
     );
     assert!(pet["shared_job"].is_null());
+    // spec: add-debates › Debate paid-slot view contract › paid slot read
+    assert!(pet["paid_debate"].is_null());
     assert_eq!(pet["wish_active"], false);
     assert_eq!(pet["wish_reserve"], "0");
 

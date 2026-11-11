@@ -105,20 +105,21 @@ async fn migrate_takes_the_previous_layout_of_a_deployed_contract() -> anyhow::R
         )
         .await?;
 
-    // The current layout ends in three original Showcase counters and 24 bytes of added totals.
-    // Strip both the counters and map prefixes to recreate the exact V3 layout.
+    // The current layout ends in the shared-job, experience and debate map prefixes.
+    // Strip those and the counters to recreate the exact V3 layout.
     let pool_before = ctx.pool().await?;
     let state = ctx.read_state().await?;
     let counters = borsh::to_vec(&(1u64, 0u64, 0u128))?;
     assert_eq!(
-        &state[state.len() - 13..state.len() - 8],
+        &state[state.len() - 18..state.len() - 13],
         &[1, 0, 0, 0, b'c']
     );
     assert_eq!(
-        &state[state.len() - 18..state.len() - 13],
+        &state[state.len() - 23..state.len() - 18],
         &[1, 0, 0, 0, b'j']
     );
-    let old_end = state.len() - 18;
+    assert_eq!(&state[state.len() - 5..], &[1, 0, 0, 0, b'd']);
+    let old_end = state.len() - 23;
     let new_totals = &state[old_end - 24..old_end];
     assert_eq!(&new_totals[..16], &[0; 16]);
     assert_eq!(&state[old_end - 24 - counters.len()..old_end - 24], counters);

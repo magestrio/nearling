@@ -8,10 +8,10 @@ import type { PetView, RelationshipSummary } from '../seams/worker-types';
 import { SocietyPage } from './SocietyPage';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
-const mocks = vi.hoisted(() => ({ pet: vi.fn(), relationships: vi.fn() }));
+const mocks = vi.hoisted(() => ({ pet: vi.fn(), relationships: vi.fn(), debatePartners: vi.fn() }));
 vi.mock('../seams/worker', async (original) => ({
   ...(await original<typeof import('../seams/worker')>()),
-  workerApi: { pet: mocks.pet, relationships: mocks.relationships },
+  workerApi: { pet: mocks.pet, relationships: mocks.relationships, debatePartners: mocks.debatePartners },
 }));
 vi.mock('../pet/PetFigure', async (original) => ({ ...(await original<typeof import('../pet/PetFigure')>()), PetFigure: () => null }));
 vi.mock('../account/AccountControl', () => ({ AccountControl: () => null }));
@@ -33,6 +33,7 @@ beforeEach(() => {
   window.matchMedia = vi.fn().mockReturnValue({ matches: true, addEventListener() {}, removeEventListener() {} });
   mocks.pet.mockReset().mockResolvedValue(pet);
   mocks.relationships.mockReset().mockResolvedValue(summary);
+  mocks.debatePartners.mockReset().mockResolvedValue({ partners: [{ tokenId: '2', name: 'Biscuit' }] });
   host = document.createElement('div');
   document.body.append(host);
   root = createRoot(host);
@@ -51,6 +52,15 @@ it('drops private rows as soon as the session disappears', async () => {
   expect(host.textContent).toContain('Biscuit');
   await render(auth(null, false));
   expect(host.textContent).not.toContain('Biscuit');
+});
+
+// spec: add-debates › Debate invitation flow › settled-hire acquaintance
+it('offers the debate action only for a freshly checked known partner', async () => {
+  await render(auth('a'.repeat(64)));
+  expect(host.querySelector('a[href="/pet/9?debate=2"]')?.textContent).toBe('Invite to debate');
+  mocks.debatePartners.mockResolvedValue({ partners: [] });
+  await render(auth('b'.repeat(64)));
+  expect(host.querySelector('a[href="/pet/9?debate=2"]')).toBeNull();
 });
 
 // spec: add-pet-society › Society summary screen › success × owner changes

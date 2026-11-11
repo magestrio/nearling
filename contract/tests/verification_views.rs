@@ -104,7 +104,7 @@ async fn built_wasm_exposes_version_and_source_metadata() -> anyhow::Result<()> 
     let unique = SystemTime::now().duration_since(UNIX_EPOCH)?.as_nanos();
     let copy = std::env::temp_dir().join(format!("nearling-verification-upgrade-{unique}"));
     fs::create_dir_all(copy.join("src"))?;
-    for file in ["lib.rs", "pet.rs", "events.rs", "limits.rs", "shared_job.rs"] {
+    for file in ["lib.rs", "pet.rs", "events.rs", "limits.rs", "shared_job.rs", "debate.rs"] {
         fs::copy(source.join("src").join(file), copy.join("src").join(file))?;
     }
     fs::copy(source.join("rust-toolchain.toml"), copy.join("rust-toolchain.toml"))?;
@@ -130,14 +130,15 @@ async fn built_wasm_exposes_version_and_source_metadata() -> anyhow::Result<()> 
     let state = ctx.read_state().await?;
     let counters = borsh::to_vec(&(1u64, 0u64, 0u128))?;
     assert_eq!(
-        &state[state.len() - 13..state.len() - 8],
+        &state[state.len() - 18..state.len() - 13],
         &[1, 0, 0, 0, b'c']
     );
     assert_eq!(
-        &state[state.len() - 18..state.len() - 13],
+        &state[state.len() - 23..state.len() - 18],
         &[1, 0, 0, 0, b'j']
     );
-    let old_end = state.len() - 18;
+    assert_eq!(&state[state.len() - 5..], &[1, 0, 0, 0, b'd']);
+    let old_end = state.len() - 23;
     assert_eq!(&state[old_end - 24 - counters.len()..old_end - 24], counters);
     let old_tail = old_end - 24 - counters.len() - 5;
     assert_eq!(&state[old_tail..old_tail + 5], &[1, 0, 0, 0, b'g']);

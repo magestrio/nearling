@@ -18,7 +18,7 @@ export function usePath(): string {
 
 /** The current path with its query, e.g. `/hatch?from=2`. */
 export function useLocation(): string {
-  return useSyncExternalStore(subscribe, () => window.location.pathname + window.location.search);
+  return useSyncExternalStore(subscribe, () => window.location.pathname + window.location.search + window.location.hash);
 }
 
 /** Replaces the current history entry (the return after sign-in: the tab is where it began). */
@@ -56,6 +56,8 @@ export type Route =
   | { name: 'verify'; tokenId: string; thoughtId: string | null }
   | { name: 'verify-refusal'; tokenId: string; refusalId: string }
   | { name: 'receipt'; code: string }
+  | { name: 'debate'; code: string }
+  | { name: 'debate-verify'; code: string; order: number }
   /** Adapter catalog screen: `/adapters`, or `/adapters?pet=<token_id>` from the skill of that pet (`add-pet-errands`) */
   | { name: 'adapters'; pet: string | null }
   /** `/pet` or `/pet/<x>` with no token_id in it: a cut or mangled link */
@@ -74,6 +76,9 @@ export function parseRoute(location: string): Route {
   const path = url.pathname.replace(/\/+$/, '') || '/';
   if (path === '/') return { name: 'home' };
   if (path === '/hire') return { name: 'hire' };
+  if (path === '/debate') return { name: 'debate', code: /^#[0-9a-f]{32}$/.test(url.hash) ? url.hash.slice(1) : '' };
+  const debateVerify = /^\/debate\/verify\/([1-4])$/.exec(path);
+  if (debateVerify) return { name: 'debate-verify', code: /^#[0-9a-f]{32}$/.test(url.hash) ? url.hash.slice(1) : '', order: Number(debateVerify[1]) };
   if (path === '/hatch') return { name: 'hatch', from: friend };
   const gift = /^\/gift\/([0-9a-f]{48})$/.exec(path);
   if (gift) return { name: 'gift', code: gift[1]! };
@@ -108,6 +113,8 @@ export function parseRoute(location: string): Route {
 }
 
 export const petPath = (tokenId: string, from?: string | null) => `/pet/${tokenId}${from ? `?from=${from}` : ''}`;
+export const debatePath = (code: string) => `/debate#${code}`;
+export const debateVerifyPath = (code: string, order: number) => `/debate/verify/${order}#${code}`;
 export const sharedErrandPath = (tokenId: string, code: string) => `/pet/${tokenId}/errand/${code}`;
 export const diaryPath = (tokenId: string) => `/pet/${tokenId}/diary`;
 export const wardrobePath = (tokenId: string) => `/pet/${tokenId}/wardrobe`;

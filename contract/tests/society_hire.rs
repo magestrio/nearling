@@ -122,7 +122,7 @@ async fn discounted_hire_accepted() -> anyhow::Result<()> {
     assert_eq!(added, PAIR_MAX_BYTES + EXPERIENCE_COUNT_BYTES);
     assert_eq!(
         after["state_bytes"], before["state_bytes"],
-        "the V8 root layout is unchanged"
+        "the root layout is unchanged by a hire"
     );
     assert_eq!(
         before["pool"].as_str().unwrap().parse::<u128>()?

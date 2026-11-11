@@ -71,6 +71,13 @@ describe('the record of a sign-in', () => {
     expect(peekReturnPlace()).toBeNull();
   });
 
+  // spec: add-debates › Debate transcript screen › signed-out × sign-in return
+  it('keeps the debate fragment through the one-tab Google return', () => {
+    const path = `/debate#${'b'.repeat(32)}`;
+    rememberReturnPlace({ path, action: 'signin' });
+    expect(takeReturnPlace()).toEqual({ path, action: 'signin' });
+  });
+
   // spec: add-account › Sign-in return data › вход со ссылки подарка × перезагрузка на главной
   it('is taken once: a reload at `/` after the return finds nothing', () => {
     rememberReturnPlace({ path: '/pet/2', action: 'signin' });

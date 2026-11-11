@@ -204,6 +204,47 @@ function confirmGift(tokenId: string) {
 }
 
 export const fakeWorkerApi: WorkerApi = {
+  debatePartners: async (token, tokenId) => {
+    needSession(token);
+    if (!state().owned?.includes(tokenId)) throw new WorkerError(403, 'not_owner');
+    return answer('debatePartners', state().debatePartners, { partners: [] });
+  },
+  debateRecords: async (token, tokenId) => {
+    needSession(token);
+    if (!state().owned?.includes(tokenId)) throw new WorkerError(403, 'not_owner');
+    return answer('debateRecords', state().debateRecords, { records: [] });
+  },
+  debateIncoming: async (token, tokenId) => {
+    needSession(token);
+    if (!state().owned?.includes(tokenId)) throw new WorkerError(403, 'not_owner');
+    return answer('debateIncoming', state().debateIncoming, { ids: [] }, state().debateIncomingDelayMs);
+  },
+  debateRead: async (token) => {
+    needSession(token);
+    return answer('debateRead', state().debateRead, state().debateRead as import('./worker-types').DebateRead);
+  },
+  debateShared: async () => answer('debateShared', state().debateRead, state().debateRead as import('./worker-types').DebateRead, state().debateSharedDelayMs),
+  debateCleared: async (token) => { needSession(token); return answer('debateCleared', state().debateCleared ?? { fail: { status: 404, code: 'not_found' } },
+    state().debateCleared as import('./worker-types').DebateRead); },
+  debateStop: async (token, debateId) => { needSession(token); return answer('debateStop', undefined, { id: debateId, status: 'stopped' as const }); },
+  debateOpen: async (body) => { recordCall(`worker:debateOpen:${body.name}`); },
+  debateEligibility: async (token, firstPet, secondPet) => {
+    needSession(token);
+    return answer('debateEligibility', state().debateEligibility, {
+      eligible: true, firstPet: { tokenId: firstPet, name: petsOf()[firstPet]?.name ?? firstPet },
+      secondPet: { tokenId: secondPet, name: petsOf()[secondPet]?.name ?? secondPet },
+      maxPerPetNear: '0.01', notice: 'Each pet can spend up to 0.01 NEAR. Anyone with the link may read the topic and lines.',
+      estimatePerPetCents: 0.15,
+    }, state().debateEligibilityDelayMs);
+  },
+  debateInvite: async (token) => {
+    needSession(token);
+    return answer('debateInvite', state().debateInvite, { id: 'a'.repeat(64), status: 'invited' as const, expiresAt: Date.now() + 86_400_000 });
+  },
+  debateDecision: async (token) => {
+    needSession(token);
+    return answer('debateDecision', state().debateDecision, { id: 'a'.repeat(64), status: 'accepted' as const, code: 'b'.repeat(32) });
+  },
   workRecord: async (tokenId) => {
     const pet = petsOf()[tokenId];
     if (!pet) throw new WorkerError(404, 'no_pet');

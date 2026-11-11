@@ -73,6 +73,6 @@ export function Heading({
 }
 
 /** Text for a screen reader only. */
-export function Hidden({ children }: { children?: ReactNode }) {
-  return <span className="ds-hidden">{children}</span>;
+export function Hidden({ children, id }: { children?: ReactNode; id?: string }) {
+  return <span className="ds-hidden" id={id}>{children}</span>;
 }

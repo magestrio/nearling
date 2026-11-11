@@ -89,7 +89,7 @@ export function SignInLayer({ children }: { children?: ReactNode }) {
     setSheet(null);
     clearOutcome();
     authRef.current.clearSignInError();
-    const place = window.location.pathname + window.location.search;
+    const place = window.location.pathname + window.location.search + window.location.hash;
     const home = window.location.pathname === '/';
     const from = fromOf(place);
     void (async () => {

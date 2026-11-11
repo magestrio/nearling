@@ -13,7 +13,7 @@ import { wearProps } from '../wardrobe/catalogue';
 
 type State =
   | { kind: 'loading' | 'error' | 'signed-out' | 'lost'; pet: PetView | null }
-  | { kind: 'ready'; pet: PetView; summary: RelationshipSummary; accountId: string | null };
+  | { kind: 'ready'; pet: PetView; summary: RelationshipSummary; debatePartners: ReadonlySet<string>; accountId: string | null };
 
 export function relationshipLabel(row: RelationshipSummary['relationships'][number], now = Date.now()): string {
   if (row.breakUntil !== null && row.breakUntil > now) {
@@ -44,8 +44,10 @@ export function SocietyPage({ tokenId }: { tokenId: string }) {
         if (!current) return;
         if (token === null) { setState({ kind: 'signed-out', pet }); return; }
         setState({ kind: 'loading', pet });
-        const summary = await workerApi.relationships(token, tokenId);
-        if (current && summary.tokenId === tokenId) setState({ kind: 'ready', pet, summary, accountId: nearAccountId });
+        const [summary, debate] = await Promise.all([workerApi.relationships(token, tokenId),
+          workerApi.debatePartners(token, tokenId)]);
+        if (current && summary.tokenId === tokenId) setState({ kind: 'ready', pet, summary,
+          debatePartners: new Set(debate.partners.map((row) => row.tokenId)), accountId: nearAccountId });
       } catch (error) {
         if (!current) return;
         if (error instanceof WorkerError && error.status === 401) {
@@ -119,7 +121,9 @@ export function SocietyPage({ tokenId }: { tokenId: string }) {
   </Stack> : displayKind === 'lost' ? <Stack gap={3}><Note tone="plain">{message}</Note>{name ? <Button variant="secondary" href={back}>{`Visit ${name}`}</Button> : null}</Stack> : state.kind === 'ready' ? <Stack gap={5}>
     {asleep && name ? <Stack gap={3}><Note tone="plain">{`${name} is asleep. Feed ${name} to ask a friend for help.`}</Note><Button haspopup="dialog" onClick={feed}>{`Feed ${name}`}</Button></Stack> : null}
     {rows.length ? <Stack as="ul" gap={3}>{rows.map((row) => <Surface as="li" key={row.tokenId}>
-      <Text as="dl"><Cluster gap={3} align="center" justify="space-between"><Text as="dt" variant="body-strong">{row.name}</Text><Text as="dd" tone="secondary">{relationshipLabel(row)}</Text></Cluster></Text>
+      <Cluster gap={3} align="center" justify="space-between"><Text as="dl"><Cluster gap={3} align="center"><Text as="dt" id={`society-pet-${row.tokenId}`} variant="body-strong">{row.name}</Text><Text as="dd" tone="secondary">{relationshipLabel(row)}</Text></Cluster></Text>
+        {state.debatePartners.has(row.tokenId) && (row.breakUntil === null || row.breakUntil <= Date.now()) ? <Button size="compact" variant="secondary"
+          haspopup="dialog" nameWith={`society-pet-${row.tokenId}`} href={`${petPath(tokenId)}?debate=${row.tokenId}`}>Invite to debate</Button> : null}</Cluster>
     </Surface>)}</Stack> : null}
   </Stack> : null;
   const action = displayKind === 'error' ? <Button variant="secondary" onClick={() => setRead((n) => n + 1)}>Try again</Button>

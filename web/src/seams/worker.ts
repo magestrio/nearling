@@ -12,6 +12,8 @@ import type {
   DiaryView,
   ExperienceNotes,
   RelationshipSummary,
+  DebateRead,
+  DebateEligibility,
   WorkRecord,
   ErrandQuote,
   SharedErrand,
@@ -115,6 +117,22 @@ async function callReceiptBytes(code: string, n: number, part: 'request' | 'repl
 const id = (tokenId: string) => encodeURIComponent(tokenId);
 
 const real: WorkerApi = {
+  debatePartners: (token, tokenId) => call<{ partners: Array<{ tokenId: string; name: string }> }>(
+    `/api/pets/${id(tokenId)}/debates/partners`, token),
+  debateRecords: (token, tokenId) => call<{ records: Array<{ id: string; status: DebateRead['status']; side: 'proposer' | 'recipient'; retained?: boolean }> }>(
+    `/api/pets/${id(tokenId)}/debates`, token),
+  debateIncoming: (token, tokenId) => call<{ ids: string[] }>(`/api/pets/${id(tokenId)}/debates/incoming`, token),
+  debateRead: (token, debateId) => call<DebateRead>('/api/debates/read', token, { method: 'POST', body: { id: debateId } }),
+  debateShared: (code) => call<DebateRead>('/api/debates/read', null, { method: 'POST', body: { code } }),
+  debateCleared: (token, code) => call<DebateRead>('/api/debates/read', token, { method: 'POST', body: { code } }),
+  debateStop: (token, debateId) => call<{ id: string; status: 'stopped' }>(`/api/debates/${encodeURIComponent(debateId)}/stop`, token, { method: 'POST', body: {} }),
+  debateOpen: (body) => call<void>('/api/debates/events', null, { method: 'POST', body }),
+  debateEligibility: (token, firstPet, secondPet) => call<DebateEligibility>('/api/debates/eligibility', token,
+    { method: 'POST', body: { firstPet, secondPet } }),
+  debateInvite: (token, body) => call<{ id: string; status: 'invited'; expiresAt: number }>('/api/debates', token,
+    { method: 'POST', body }),
+  debateDecision: (token, debateId, decision) => call<{ id: string; status: 'accepted' | 'declined'; code?: string }>(
+    `/api/debates/${encodeURIComponent(debateId)}/decision`, token, { method: 'POST', body: { decision } }),
   wish: (token, tokenId) => call<WishRead>(`/api/pets/${id(tokenId)}/wish`, token),
   cancelWish: (token, tokenId) => call<{ status: 'released' | 'pending' }>(`/api/pets/${id(tokenId)}/wish/cancel`, token, { method: 'POST' }),
   continueWish: (token, tokenId) => call<{ status: 'active' | 'pending' } | { code: 'wish_pending' }>(`/api/pets/${id(tokenId)}/wish/continue`, token, { method: 'POST' }),

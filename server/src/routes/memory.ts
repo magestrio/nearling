@@ -12,6 +12,7 @@ import { finishPaidShared } from '../errands/sharedSettle';
 import { ownedPet, settleLater } from './thoughts';
 import { processWishRelease, requestWishRelease } from '../will/purchase';
 import { petView, ChainUnreachable } from '../chain';
+import { recordDebateEvent } from '../debates/events';
 
 export const memoryRoutes = new Hono<AppEnv>();
 
@@ -64,6 +65,8 @@ memoryRoutes.post('/api/pets/:id/memory/clear', async (c) => {
     if (error instanceof ChainUnreachable) return c.json({ code: 'chain_unreachable' }, 503);
     return c.json({ code: 'clear_failed' }, 503);
   }
+  const activeDebates = await c.env.DB.prepare("SELECT id, first_pet, second_pet FROM debates WHERE status IN ('accepted', 'running') AND (first_pet = ? OR second_pet = ?)")
+    .bind(owned.id, owned.id).all<{ id: string; first_pet: string; second_pet: string }>().catch(() => null);
   try {
     await c.env.DB.batch([
       ...(running && row !== null && approval !== null ? [recoveryStatement(c.env.DB, owned.id, row.job_hash, approval)] : []),
@@ -74,6 +77,8 @@ memoryRoutes.post('/api/pets/:id/memory/clear', async (c) => {
     console.log('clear_failed');
     return c.json({ code: 'clear_failed' }, 500);
   }
+  for (const debate of activeDebates?.results ?? []) await recordDebateEvent(c.env, { name: 'debate_ended',
+    id: debate.id, firstPet: debate.first_pet, secondPet: debate.second_pet, reason: 'unavailable' });
   console.log('memory_cleared');
   // An entry erased with its question leaves nothing to answer: the day's ritual may have ended with it
   // (`Ritual data` › «удаление памяти»); the settle runs after the response.

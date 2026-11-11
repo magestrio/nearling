@@ -17,6 +17,8 @@ import { SocietyPage } from './society/SocietyPage';
 import { ReturnToPlace } from './signin/ReturnToPlace';
 import { SharedErrandPage } from './errands/SharedErrandPage';
 import { SignInLayer } from './signin/signIn';
+import { DebatePage } from './debates/DebatePage';
+import { DebateVerificationPage } from './debates/DebateVerificationPage';
 
 // The day-1 route exists in dev builds only: with VITE_DEV_ROUTE not 'true' the branch is dead code and the
 // chunk is never emitted.
@@ -29,9 +31,9 @@ function useInternalLinks() {
       if (e.defaultPrevented || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
       const link = (e.target as Element | null)?.closest?.('a[href]');
       if (!(link instanceof HTMLAnchorElement) || link.target || link.origin !== window.location.origin) return;
-      if (parseRoute(link.pathname + link.search).name === 'unknown') return;
+      if (parseRoute(link.pathname + link.search + link.hash).name === 'unknown') return;
       e.preventDefault();
-      go(link.pathname + link.search);
+      go(link.pathname + link.search + link.hash);
     };
     document.addEventListener('click', onClick);
     return () => document.removeEventListener('click', onClick);
@@ -77,6 +79,8 @@ export function App() {
         {!unreachable && route.name === 'verify' ? <VerificationPage key={route.tokenId} tokenId={route.tokenId} thoughtId={route.thoughtId} /> : null}
         {!unreachable && route.name === 'verify-refusal' ? <VerificationPage key={`${route.tokenId}:${route.refusalId}`} tokenId={route.tokenId} refusalId={route.refusalId} /> : null}
         {!unreachable && route.name === 'receipt' ? <VerificationPage key={route.code} code={route.code} /> : null}
+        {!unreachable && route.name === 'debate' ? <DebatePage key={route.code} code={route.code} /> : null}
+        {!unreachable && route.name === 'debate-verify' ? <DebateVerificationPage key={`${route.code}:${route.order}`} code={route.code} order={route.order} /> : null}
         {!unreachable && route.name === 'shared-errand' ? <SharedErrandPage key={route.code} tokenId={route.tokenId} code={route.code} /> : null}
         {/* one element for the three: the Diary and the Wardrobe open over the Pet screen's own state (the pet, the poll, the line being typed) */}
         {!unreachable && (route.name === 'pet' || route.name === 'diary' || route.name === 'wardrobe' || route.name === 'experience' || route.name === 'work-record') ? (

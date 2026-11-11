@@ -47,6 +47,7 @@ export interface FakePet {
   outfits: number[];
   /** The pets met through work, ascending (`pet_view.work_known`); absent reads as none. */
   work_known?: string[];
+  paid_debate?: { id: string; occupied_day: number; accepted_lines: number; used_orders: number } | null;
   jobs_today?: number;
   transfer_generation: number;
   shared_job?: { hash: string; state: 'Funding' | 'Running' | 'Transferred' | 'Settled'; allowance: string; linked_near: string; linked_snack: string } | null;
@@ -60,6 +61,8 @@ export interface FakeThought {
   job_hash?: string;
   worker?: string;
   hire?: { kind: 'player' | 'pet'; skill: boolean; fee: string };
+  debate?: { id: string; line_order: number; other_token_id: string;
+    speaker_transfer_generation: number; other_transfer_generation: number };
 }
 
 /** The traits a `pet_grow` takes (`Trait` of the contract, JSON). */
@@ -153,6 +156,7 @@ export class FakeContract {
   gasPrice = 100_000_000n;
   /** When set, `debit_session` fails with this contract code even if its rules would pass. */
   debitFails: string | null = null;
+  debateSpent = new Map<string, { day: number; amount: bigint }>();
   bornToday = 0;
   pool = 1_000_000_000_000_000_000_000_000n; // 1 NEAR
   experienceCounts = new Map<string, { paid_hires: number; completed_errands: number }>();
@@ -329,6 +333,27 @@ export class FakeContract {
     if (thoughts.length === 0) return { code: 'empty_batch' };
     if (thoughts.length > 12) return { code: 'too_many_thoughts' };
     if (debitId !== pet.last_debit_id + 1) return { code: 'bad_debit_id' };
+    const debate = thoughts[0]?.debate;
+    if (debate !== undefined) {
+      if (thoughts.length !== 1) return { code: 'debate_one_line' };
+      const other = this.pets.get(debate.other_token_id);
+      if (other === undefined || debate.other_token_id === tokenId) return { code: 'bad_debate_other_pet' };
+      if (pet.transfer_generation !== debate.speaker_transfer_generation ||
+          other.transfer_generation !== debate.other_transfer_generation) return { code: 'gift_version_changed' };
+      if (!/^[0-9a-f]{64}$/.test(debate.id)) return { code: 'bad_debate_id' };
+      if (debate.line_order < 1 || debate.line_order > 4) return { code: 'bad_debate_order' };
+      const prior = pet.paid_debate;
+      if (prior !== undefined && prior !== null) {
+        if (prior.id === debate.id && prior.accepted_lines >= 2) return { code: 'debate_lines_cap' };
+        if (prior.id === debate.id && (prior.used_orders & (1 << (debate.line_order - 1))) !== 0)
+          return { code: 'debate_order_used' };
+        if (prior.id !== debate.id && prior.occupied_day === this.day) return { code: 'debate_day_occupied' };
+      }
+      const spent = this.debateSpent.get(tokenId);
+      if (spent?.day === this.day && spent.amount + BigInt(thoughts[0]!.price) > 10_000_000_000_000_000_000_000n)
+        return { code: 'debate_daily_cap' };
+      if ((prior === undefined || prior === null) && this.pool < 1_380_000_000_000_000_000_000n) return { code: 'pool_empty' };
+    }
     // The thoughts without a hire cost their price; a hire its fee, which holds the worker's answer. A refused hire
     // is `hire:<index>:<code>`, as the contract panics (`Hire debit contract`).
     let rest = 0n;
@@ -418,6 +443,15 @@ export class FakeContract {
     pet.debit_day = this.day;
     pet.debited_today = (already + sum).toString();
     pet.last_debit_id = debitId;
+    if (debate !== undefined) {
+      const prior = pet.paid_debate;
+      pet.paid_debate = { id: debate.id, occupied_day: this.day,
+        accepted_lines: prior?.id === debate.id ? prior.accepted_lines + 1 : 1,
+        used_orders: (prior?.id === debate.id ? prior.used_orders : 0) | (1 << (debate.line_order - 1)) };
+      const old = this.debateSpent.get(tokenId);
+      this.debateSpent.set(tokenId, { day: this.day, amount: (old?.day === this.day ? old.amount : 0n) + BigInt(thoughts[0]!.price) });
+      if (prior === undefined || prior === null) this.pool -= 1_380_000_000_000_000_000_000n;
+    }
     this.pool -= countCost;
     for (const id of countedIds) {
       const prior = this.experienceCounts.get(id) ?? { paid_hires: 0, completed_errands: 0 };
@@ -827,6 +861,8 @@ export class FakeContract {
             ...(thought.worker === undefined ? {} : { worker: thought.worker }),
             ...(thought.job_hash === undefined ? {} : { job_hash: thought.job_hash,
               funding: (this.sharedEntries.get(String(args.token_id)) ?? []).flatMap((entry, index) => entry.spent === 0n ? [] : [{ index, kind: entry.kind, amount: entry.spent.toString() }]) }) };
+          if (thought.debate !== undefined) Object.assign(receipt,
+            { debate_id: thought.debate.id, line_order: thought.debate.line_order });
           logs.push(`EVENT_JSON:${JSON.stringify({ standard: 'nearling', version: '1.0.0', event: 'receipt', data: [receipt] })}`);
           if (thought.hire !== undefined) {
             logs.push(`EVENT_JSON:${JSON.stringify({ standard: 'nearling', version: '1.0.0', event: 'hire', data: [{

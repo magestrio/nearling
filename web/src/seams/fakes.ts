@@ -49,6 +49,17 @@ export interface FakeWorkerState {
   cancelWish?: { status: 'released' | 'pending' } | FakeFail;
   continueWish?: { status: 'active' | 'pending' } | { code: 'wish_pending' } | FakeFail;
   relationships?: import('./worker-types').RelationshipSummary | FakeFail;
+  debateIncoming?: { ids: string[] } | FakeFail;
+  debatePartners?: { partners: Array<{ tokenId: string; name: string }> } | FakeFail;
+  debateRecords?: { records: Array<{ id: string; status: import('./worker-types').DebateRead['status']; side: 'proposer' | 'recipient'; retained?: boolean }> } | FakeFail;
+  debateRead?: import('./worker-types').DebateRead | FakeFail;
+  debateCleared?: import('./worker-types').DebateRead | FakeFail;
+  debateEligibility?: import('./worker-types').DebateEligibility | FakeFail;
+  debateInvite?: { id: string; status: 'invited'; expiresAt: number } | FakeFail;
+  debateDecision?: { id: string; status: 'accepted' | 'declined'; code?: string } | FakeFail;
+  debateEligibilityDelayMs?: number;
+  debateIncomingDelayMs?: number;
+  debateSharedDelayMs?: number;
   relationshipsDelayMs?: number;
   workRecord?: import('./worker-types').WorkRecord | FakeFail;
   workRecordDelayMs?: number;

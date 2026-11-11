@@ -1,3 +1,4 @@
+pub mod debate;
 pub mod events;
 pub mod limits;
 pub mod pet;
@@ -15,6 +16,7 @@ use near_sdk::store::{LookupMap, LookupSet};
 use near_sdk::{AccountId, Gas, NearToken, PanicOnDefault, Promise, env, near};
 use std::collections::HashMap;
 
+use crate::debate::{DEBATE_SLOT_BYTES, DebateSlot, DebateSlotView, next_slot};
 use crate::events::{
     FundingSpend, HireKind, NearlingEvent, OutfitVia, SnackKind, ThoughtReceipt, hex, unhex32,
 };
@@ -167,6 +169,36 @@ pub struct ContractV8 {
     shared_jobs: LookupMap<TokenId, SharedJob>,
 }
 
+/// The deployed layout before the fixed debate paid slot was appended.
+#[near(serializers = [borsh])]
+pub struct ContractV9 {
+    owner_id: AccountId,
+    server_id: AccountId,
+    treasury_id: AccountId,
+    tokens: NonFungibleToken,
+    pets: LookupMap<TokenId, VersionedPet>,
+    hatched: LookupMap<AccountId, TokenId>,
+    births_day: u64,
+    births_today: u32,
+    next_token_id: u64,
+    pool: u128,
+    known: LookupSet<(TokenId, AccountId), Sha256>,
+    riddle_commits: LookupMap<u64, [u8; 32]>,
+    riddle_reserve: u128,
+    work_pairs: LookupSet<(TokenId, TokenId), Sha256>,
+    work_index: LookupMap<u64, Vec<u64>>,
+    transfer_generation: LookupMap<TokenId, u64>,
+    pets_hatched: u64,
+    thoughts_paid: u64,
+    spent: u128,
+    hires_completed: u64,
+    friend_snacks: u64,
+    counted_since: u64,
+    shared_jobs: LookupMap<TokenId, SharedJob>,
+    experience_counts: LookupMap<TokenId, ExperienceCounts, Sha256>,
+    experience_counted_since: u64,
+}
+
 #[near(serializers = [borsh])]
 #[derive(Clone, Default)]
 pub struct ExperienceCounts {
@@ -234,6 +266,7 @@ pub struct Contract {
     shared_jobs: LookupMap<TokenId, SharedJob>,
     experience_counts: LookupMap<TokenId, ExperienceCounts, Sha256>,
     experience_counted_since: u64,
+    debate_slots: LookupMap<TokenId, DebateSlot, Sha256>,
 }
 
 fn fail(code: &str) -> ! {
@@ -421,6 +454,7 @@ impl Contract {
             shared_jobs: LookupMap::new(b"j".to_vec()),
             experience_counts: LookupMap::with_hasher(b"c".to_vec()),
             experience_counted_since: env::block_timestamp(),
+            debate_slots: LookupMap::with_hasher(b"d".to_vec()),
         }
     }
 
@@ -572,6 +606,7 @@ impl Contract {
             shared_jobs: LookupMap::new(b"j".to_vec()),
             experience_counts: LookupMap::with_hasher(b"c".to_vec()),
             experience_counted_since: env::block_timestamp(),
+            debate_slots: LookupMap::with_hasher(b"d".to_vec()),
         }
     }
 
@@ -606,6 +641,7 @@ impl Contract {
             shared_jobs: LookupMap::new(b"j".to_vec()),
             experience_counts: LookupMap::with_hasher(b"c".to_vec()),
             experience_counted_since: env::block_timestamp(),
+            debate_slots: LookupMap::with_hasher(b"d".to_vec()),
         };
         contract.reserve_legacy_generations();
         contract
@@ -653,6 +689,7 @@ impl Contract {
             shared_jobs: LookupMap::new(b"j".to_vec()),
             experience_counts: LookupMap::with_hasher(b"c".to_vec()),
             experience_counted_since: env::block_timestamp(),
+            debate_slots: LookupMap::with_hasher(b"d".to_vec()),
         }
     }
 
@@ -687,6 +724,7 @@ impl Contract {
             shared_jobs: LookupMap::new(b"j".to_vec()),
             experience_counts: LookupMap::with_hasher(b"c".to_vec()),
             experience_counted_since: env::block_timestamp(),
+            debate_slots: LookupMap::with_hasher(b"d".to_vec()),
         }
     }
 
@@ -721,6 +759,7 @@ impl Contract {
             shared_jobs: LookupMap::new(b"j".to_vec()),
             experience_counts: LookupMap::with_hasher(b"c".to_vec()),
             experience_counted_since: env::block_timestamp(),
+            debate_slots: LookupMap::with_hasher(b"d".to_vec()),
         }
     }
 
@@ -755,6 +794,43 @@ impl Contract {
             shared_jobs: old.shared_jobs,
             experience_counts: LookupMap::with_hasher(b"c".to_vec()),
             experience_counted_since: env::block_timestamp(),
+            debate_slots: LookupMap::with_hasher(b"d".to_vec()),
+        }
+    }
+
+    /// One-time upgrade from the exact pre-debate state; all existing collections and counters
+    /// retain their prefixes and values. Only the empty paid-slot map is appended.
+    #[init(ignore_state)]
+    #[private]
+    pub fn migrate_debates() -> Self {
+        let old: ContractV9 = env::state_read().unwrap_or_else(|| fail("no_state"));
+        Self {
+            owner_id: old.owner_id,
+            server_id: old.server_id,
+            treasury_id: old.treasury_id,
+            tokens: old.tokens,
+            pets: old.pets,
+            hatched: old.hatched,
+            births_day: old.births_day,
+            births_today: old.births_today,
+            next_token_id: old.next_token_id,
+            pool: old.pool,
+            known: old.known,
+            riddle_commits: old.riddle_commits,
+            riddle_reserve: old.riddle_reserve,
+            work_pairs: old.work_pairs,
+            work_index: old.work_index,
+            transfer_generation: old.transfer_generation,
+            pets_hatched: old.pets_hatched,
+            thoughts_paid: old.thoughts_paid,
+            spent: old.spent,
+            hires_completed: old.hires_completed,
+            friend_snacks: old.friend_snacks,
+            counted_since: old.counted_since,
+            shared_jobs: old.shared_jobs,
+            experience_counts: old.experience_counts,
+            experience_counted_since: old.experience_counted_since,
+            debate_slots: LookupMap::with_hasher(b"d".to_vec()),
         }
     }
 
@@ -1187,7 +1263,64 @@ impl Contract {
             fail("bad_debit_id");
         }
 
+        // A debate line has one payer and one receipt. Validate both current owners' transfer
+        // versions before touching food, storage or the receipt sequence.
+        if thoughts.iter().any(|thought| thought.debate.is_some()) {
+            if thoughts.len() != 1 {
+                fail("debate_one_line");
+            }
+            let thought = &thoughts[0];
+            let debate = thought
+                .debate
+                .as_ref()
+                .unwrap_or_else(|| fail("bad_debate"));
+            if unhex32(&debate.id).is_none() {
+                fail("bad_debate_id");
+            }
+            if !(1..=4).contains(&debate.line_order) {
+                fail("bad_debate_order");
+            }
+            if debate.other_token_id == token_id
+                || !self.tokens.owner_by_id.contains_key(&debate.other_token_id)
+            {
+                fail("bad_debate_other_pet");
+            }
+            if thought.worker.is_some()
+                || thought.hire.is_some()
+                || thought.job_hash.is_some()
+                || thought.completed_errand
+            {
+                fail("bad_debate_line");
+            }
+            let speaker_version = self
+                .transfer_generation
+                .get(&token_id)
+                .copied()
+                .unwrap_or(0);
+            let other_version = self
+                .transfer_generation
+                .get(&debate.other_token_id)
+                .copied()
+                .unwrap_or(0);
+            if speaker_version != debate.speaker_transfer_generation
+                || other_version != debate.other_transfer_generation
+            {
+                fail("gift_version_changed");
+            }
+        }
+
         let today = day_of(env::block_timestamp());
+        let next_debate_slot = thoughts[0].debate.as_ref().map(|debate| {
+            next_slot(
+                self.debate_slots.get(&token_id),
+                debate,
+                &token_id,
+                thoughts[0].price.0,
+                today,
+            )
+        });
+        let new_debate_slot =
+            next_debate_slot.is_some() && self.debate_slots.get(&token_id).is_none();
         let hirer_owner = self
             .tokens
             .owner_by_id
@@ -1429,10 +1562,20 @@ impl Contract {
             .keys()
             .filter(|id| self.experience_counts.get(*id).is_none())
             .count();
-        let reserve = u128::try_from(new_records)
+        let experience_reserve = u128::try_from(new_records)
             .unwrap_or_else(|_| fail("overflow"))
             .checked_mul(u128::from(EXPERIENCE_COUNT_BYTES))
             .and_then(|bytes| bytes.checked_mul(env::storage_byte_cost().as_yoctonear()))
+            .unwrap_or_else(|| fail("overflow"));
+        let debate_reserve = if new_debate_slot {
+            u128::from(DEBATE_SLOT_BYTES)
+                .checked_mul(env::storage_byte_cost().as_yoctonear())
+                .unwrap_or_else(|| fail("overflow"))
+        } else {
+            0
+        };
+        let reserve = experience_reserve
+            .checked_add(debate_reserve)
             .unwrap_or_else(|| fail("overflow"));
         self.pool = self
             .pool
@@ -1504,6 +1647,24 @@ impl Contract {
         }
         // The pets' records first, so the measure of a pair below counts the pair alone.
         self.pets.flush();
+        if let Some(slot) = next_debate_slot {
+            let before_slot = env::storage_usage();
+            self.debate_slots.insert(token_id.clone(), slot);
+            self.debate_slots.flush();
+            let written = env::storage_usage()
+                .checked_sub(before_slot)
+                .unwrap_or_else(|| fail("overflow"));
+            let cost = u128::from(written)
+                .checked_mul(env::storage_byte_cost().as_yoctonear())
+                .unwrap_or_else(|| fail("overflow"));
+            if cost > debate_reserve {
+                fail("debate_storage_bound");
+            }
+            self.pool = self
+                .pool
+                .checked_add(debate_reserve - cost)
+                .unwrap_or_else(|| fail("overflow"));
+        }
         for hire in &hires {
             self.introduce_pair(&token_id, &hire.worker);
         }
@@ -1527,12 +1688,12 @@ impl Contract {
         let cost = u128::from(written)
             .checked_mul(env::storage_byte_cost().as_yoctonear())
             .unwrap_or_else(|| fail("overflow"));
-        if cost > reserve {
+        if cost > experience_reserve {
             fail("experience_storage_bound");
         }
         self.pool = self
             .pool
-            .checked_add(reserve - cost)
+            .checked_add(experience_reserve - cost)
             .unwrap_or_else(|| fail("overflow"));
 
         self.thoughts_paid = self
@@ -1561,6 +1722,8 @@ impl Contract {
                 job_hash: thought.job_hash,
                 funding: std::mem::take(&mut receipt_funding[i]),
                 completed_errand: thought.completed_errand,
+                debate_id: thought.debate.as_ref().map(|debate| debate.id.clone()),
+                line_order: thought.debate.as_ref().map(|debate| debate.line_order),
             }
             .emit();
             if let Some(hire) = planned.next_if(|h| h.thought == i) {
@@ -2112,6 +2275,7 @@ impl Contract {
             .get(&token_id)
             .copied()
             .unwrap_or(0);
+        view.paid_debate = self.debate_slots.get(&token_id).map(DebateSlotView::from);
         view.shared_job = self.shared_jobs.get(&token_id).map(|job| SharedJobView {
             hash: hex(&job.hash),
             state: job.state,
@@ -2641,6 +2805,7 @@ mod tests {
             hire: None,
             job_hash: None,
             completed_errand: false,
+            debate: None,
         };
         testing_env!(context(server(), 2_000, 0).build());
         // 2.5e21 from the project's 2e21 and 0.5e21 of the given food
@@ -3387,6 +3552,7 @@ mod tests {
             }),
             job_hash: None,
             completed_errand: false,
+            debate: None,
         }
     }
 

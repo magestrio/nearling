@@ -1,0 +1,18 @@
+/* The invitation card in the Pet screen's phone log. The frames (design/bundle/debate-card-*.html) give the log room while a
+   card stands in it: the pet shrinks, its bubble and edge lines step aside (the pet's last line moves into the log), the card
+   is compacted so its notice and buttons stay in view. Tokens only. */
+@media not all and (min-width: 768px) {
+  .ds-shell--fill:has(.ds-stage--game .ds-debate-invitation) { height: var(--size-viewport-height); min-height: var(--size-viewport-height); }
+  .ds-stage--game:has(.ds-debate-invitation) { grid-template-rows: var(--space-9) minmax(var(--space-0), 1fr) auto; }
+  .ds-stage--game:has(.ds-debate-invitation) .ds-stage__world { min-height: var(--space-0); align-items: center; }
+  .ds-stage--game:has(.ds-debate-invitation) .ds-stage__pet { align-items: center; }
+  .ds-stage--game:has(.ds-debate-invitation) .ds-stage__pet .ds-pet--hero .ds-pet__img { max-height: var(--space-9); }
+  /* the live pet takes the cap the frame gives its still */
+  .ds-stage--game:has(.ds-debate-invitation) .pet-figure--hero { --pet-h: var(--space-9); }
+  .ds-stage--game:has(.ds-debate-invitation) .ds-stage__bubble,
+  .ds-stage--game:has(.ds-debate-invitation) .ds-stage__edge { display: none; }
+  .ds-stage--game:has(.ds-debate-invitation) .ds-message--in-bubble { display: list-item; }
+  .ds-debate-invitation .ds-surface { padding: var(--space-3); }
+  .ds-debate-invitation .ds-stack { gap: var(--space-2); }
+  .ds-debate-invitation .ds-actions { flex-direction: row; flex-wrap: wrap; }
+}

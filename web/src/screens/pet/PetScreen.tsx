@@ -91,6 +91,8 @@ import { takeReturnSheet, takeReturnSkill } from '../../signin/returnPlace';
 import { FORMER_OWNER_LINE, usePetScreen, type Banner as BannerKind, type OwnerView } from './usePetScreen';
 import { useWaking } from './useWaking';
 import { usePetCard } from '../../showcase/usePetCard';
+import { useInvitationExperience } from '../../debates/InvitationExperience';
+import { eraseDraft, readDraft } from '../../debates/draft';
 import { guestStageActions, newestPetReply, ownerConversationDisabled, ownerStageActions, visiblePetReply } from './stageActions';
 import { useProfileCard } from './useProfileCard';
 import { ProfileCard } from './ProfileCard';
@@ -215,6 +217,8 @@ function OwnerPage({ pet, s, seal }: { pet: OwnerView; s: ReturnType<typeof useP
     s.reread();
   }, [s.reread]);
   const profile = useProfileCard(readCard, 'owner', ownerLost, auth.authenticated && !auth.sessionEnded, pet);
+  const debate = useInvitationExperience({ pet, tokenOf: s.tokenOf,
+    preselect: new URLSearchParams(window.location.search).get('debate'), onOwnerLost: s.reread });
   const anchorCardOpen = auth.authenticated && !auth.sessionEnded && profile.phase !== 'closed';
   // the ended session's line, or what a tap on its «Sign in» came to: the first stands in the field's note and its action in
   // «Send»'s place, a second (the phone's way to a real browser) under the Composer
@@ -342,7 +346,7 @@ function OwnerPage({ pet, s, seal }: { pet: OwnerView; s: ReturnType<typeof useP
   const [watchOpen, setWatchOpen] = useState(false);
   const [watchDraft, setWatchDraft] = useState('');
   // the sheets cover the page the same way: the one that is open takes the column
-  const cover = { ...feedCover, open: feedCover.open || skillShown || errand.open || watchOpen };
+  const cover = { ...feedCover, open: feedCover.open || skillShown || errand.open || watchOpen || debate.shown };
   const here = useLocation();
   useEffect(() => {
     if (peekPendingAction() !== 'watch') return;
@@ -652,6 +656,8 @@ function OwnerPage({ pet, s, seal }: { pet: OwnerView; s: ReturnType<typeof useP
   const stageActions = ownerStageActions({ tokenId, name, asleep, away: s.away, feedOpen: cover.opener,
     errandOpen: errand.open, watch: Boolean(pet.watch), watchOpen, giftOpen: giftOpen && !giftRequest?.self, onFeed: () => act('feed'), onErrand: openErrand,
     onWatch: openWatch, onGift: () => act('gift', () => document.querySelector<HTMLElement>('.ds-hotbar__action[aria-haspopup="menu"]') ?? document.querySelector<HTMLElement>('.ds-hud__nameplate')) });
+  stageActions.menu.splice(2, 0, { icon: 'pets', label: 'Debate with a known pet', onClick: debate.open,
+    haspopup: 'dialog', expanded: debate.shown });
   if (auth.sessionEnded) {
     stageActions.items = stageActions.items.map((item) => item.more ? { ...item, off: true } : item);
   }
@@ -685,7 +691,7 @@ function OwnerPage({ pet, s, seal }: { pet: OwnerView; s: ReturnType<typeof useP
       bubble={bubbleReply ? <Bubble meta={bubbleReply.meta} receipt={bubbleReply.noVerify ? undefined : { href: `/pet/${tokenId}/verify/${bubbleReply.id}`, label: 'Check this thought' }}>{bubbleReply.text}</Bubble> : undefined}
       edge={asleep ? <Stack gap={1}>{label ? <Text variant="small">{`Good at ${label}`}</Text> : null}<Button variant="secondary" size="compact" icon="share" haspopup="dialog" onClick={openErrand}>Ask friends to fund an errand</Button></Stack>
         : pet.watch?.target || label ? <Stack gap={1}>{pet.watch?.target ? <Text variant="small" tone="secondary">{`Watching: ${pet.watch.target}`}</Text> : null}{label ? <Text variant="small">{`Good at ${label}`}</Text> : null}</Stack> : undefined}
-      chat={<><Conversation intro={invitationCards ?? undefined}>{history}
+      chat={<><Conversation intro={invitationCards}>{history}{debate.cards}{debate.status}
         {auth.authenticated && !auth.sessionEnded ? pet.willActivity?.map((activity, index) => <Message key={`will-activity-${activity.at}-${index}`} from="event">{`${name} declined a request · ${activity.code}`}</Message>) : null}
         {auth.authenticated && !auth.sessionEnded && wishOutcome?.source === 'pet_wish' ? <Message from="event">{`${name} earned ${nameOf(wishOutcome.item) ?? wishOutcome.item}!`}</Message> : null}
         {s.failure ? <Message from="error" actions={s.failure.noRetry ? undefined : <Button variant="secondary" size="compact" onClick={s.retryThought}>Try again</Button>}>{s.failure.code === 'empty_paid' ? emptyPaidLine(name) : lostLine(name)}</Message> : null}
@@ -702,7 +708,8 @@ function OwnerPage({ pet, s, seal }: { pet: OwnerView; s: ReturnType<typeof useP
     <ErrandSheet name={name} errand={errand} asleep={asleep} inert={feedCover.open} onFeed={() => openFeed({ tokenId, name, label: name, elsewhere: false })} />
     <WatchSheet tokenId={tokenId} name={name} open={watchOpen} draft={watchDraft} onDraft={setWatchDraft} onClose={() => setWatchOpen(false)} tokenOf={s.tokenOf} onOwnerLost={s.reread} onChanged={s.reread} />
     <FeedLayer column pageFullness={pet.fullness} />
-    <GiftSheet tokenId={tokenId} name={name} stage={pet.stage} worn={pet.worn} onGiven={s.reread} />
+    <GiftSheet tokenId={tokenId} name={name} stage={pet.stage} worn={pet.worn} onGiven={debate.clear} />
+    {debate.sheet}
     {wishNode}
     <SkillSheet name={name} skill={skill} hasLabel={label !== null} onClose={skill.close} hidden={adapter.open || code.open}
       sockets={{ onConnect: () => adapter.openNew(), onSource: (source) => adapter.openSource(source), onCode: () => code.openSheet() }} />
@@ -712,6 +719,7 @@ function OwnerPage({ pet, s, seal }: { pet: OwnerView; s: ReturnType<typeof useP
     {anchorCardOpen && (profile.phase === 'error' || profile.phase === 'ready') ? <ProfileCard pet={profile.pet?.viewer === 'owner'
       ? { ...profile.pet, hireMode: pet.hireMode } : pet}
       boughtByOwner={wishOutcome?.source === 'owner' ? wishOutcome.item : null}
+      pastDebateCode={debate.pastDebateCode}
       error={profile.phase === 'error'} seal={seal.state} onSealRetry={seal.retry} onRetry={() => void profile.open()} onClose={profile.close}
       onSkill={() => { profile.close(); void skill.open(); }} onMode={(mode) => { if (auth.needSession()) void s.setHireMode(mode); }}
       onWish={() => { profile.close(); wishSheet.open(); }} onFeed={() => { profile.close(); act('feed', () => document.querySelector<HTMLElement>('.ds-hud__nameplate')); }} /> : null}
@@ -747,6 +755,19 @@ function OutsiderPage({ pet, s, seal, ownerChanged = false }: { pet: Exclude<Pet
   const slot = { tokenId, name, viewer, asleep };
   const me = s.me;
   const home = me?.currentPet ?? null;
+  const [debateEligible, setDebateEligible] = useState(false);
+  useEffect(() => {
+    if (viewer !== 'guest' || !home || auth.sessionEnded) { setDebateEligible(false); return; }
+    let live = true;
+    void (async () => {
+      try {
+        const token = await s.tokenOf();
+        const known = token ? await workerApi.debatePartners(token, home.tokenId) : null;
+        if (live) setDebateEligible(known?.partners.some((row) => row.tokenId === tokenId) ?? false);
+      } catch { if (live) setDebateEligible(false); }
+    })();
+    return () => { live = false; };
+  }, [viewer, home?.tokenId, tokenId, auth.sessionEnded, s.tokenOf]);
   // the label under the name, for every viewer, inert (`Skill rule` › «label on the pet's page»); none for a pet with no skill
   // the badge is always passed, as the frames do: with no skill it draws nothing, and the plate keeps the frames' spacing
   const skillBadge = <SkillBadge name={name} label={pet.skill?.label} />;
@@ -817,7 +838,8 @@ function OutsiderPage({ pet, s, seal, ownerChanged = false }: { pet: Exclude<Pet
           <TextLink href={`/pet/${tokenId}/verify`} tone="trust" icon="verify">{`Check it's really ${name}`}</TextLink></Stack>}
         // the Check link stands in the Stage's edge and the work record in the card: the log has no intro card here
         chat={<Slot slot="advice" {...slot} advice={{ ...advice, check: null }} />}
-        hotbar={<Hotbar items={guestStageActions(name, cover.opener, () => { if (auth.needSession()) runAction('feed', ctx); })} />}
+        hotbar={<Hotbar items={[...guestStageActions(name, cover.opener, () => { if (auth.needSession()) runAction('feed', ctx); }),
+          ...(debateEligible ? [{ icon: 'pets' as const, label: 'Invite to debate', href: `${petPath(home.tokenId)}?debate=${tokenId}`, haspopup: 'dialog' as const }] : [])]} />}
       /></Inert>
       <FeedLayer column pageFullness={pet.fullness} />
       {givenHere ? <GiftSheet tokenId={tokenId} name={name} stage={pet.stage} worn={pet.worn} onGiven={() => undefined} /> : null}
@@ -965,6 +987,10 @@ function PetView({
  *  the Pet screen's page for them, the address kept; an asleep pet's address is the Pet screen (`Diary screen` › entry point). */
 export function PetScreen({ tokenId, from, diary = false, wardrobe = false, experience = false, workRecord = false }: { tokenId: string; from: string | null; diary?: boolean; wardrobe?: boolean; experience?: boolean; workRecord?: boolean }) {
   const s = usePetScreen(tokenId, from, diary);
+  const accountId = useAuth().nearAccountId ?? '';
+  useEffect(() => {
+    if (s.page.kind === 'pet' && s.page.pet.viewer === 'guest' && accountId && readDraft(tokenId, accountId)) eraseDraft();
+  }, [s.page, tokenId, accountId]);
   useEffect(() => closeGift, [tokenId]);
   useEffect(() => closeMyPets, [tokenId]);
   const owner = s.page.kind === 'pet' && s.page.pet.viewer === 'owner' ? s.page.pet : null;

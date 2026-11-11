@@ -196,7 +196,7 @@ it('keeps the pending Egg accessible and its motion removable by the DS media ru
   await show(<Egg cracking />);
   expect(host.querySelector('[role="img"]')?.getAttribute('aria-label')).toBe('Hatching…');
   const css = readFileSync('src/ds/components.css', 'utf8');
-  expect(css).toMatch(/@media \(prefers-reduced-motion: reduce\) \{ \.ds-egg--cracking \.ds-egg__shell \{ animation: none;/);
+  expect(css).toMatch(/@media \(prefers-reduced-motion: reduce\) \{\s+\.ds-egg--cracking \.ds-egg__shell \{ animation: none;/);
   expect(css).toMatch(/\.ds-stage--game \.ds-stage__hotbar \{ position: sticky; inset-block-end: var\(--space-0\)/);
   // spec: add-hatch-again › Repeat birth flow › unknown outcome
   const layoutCss = readFileSync('src/ds/pet-layout.css', 'utf8');

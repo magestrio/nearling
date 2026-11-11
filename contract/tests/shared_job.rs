@@ -613,8 +613,8 @@ async fn v7_migration_keeps_pets_and_showcase_totals() -> anyhow::Result<()> {
         .transact()
         .await?
         .into_result()?;
-    // The shared-job map adds 5 bytes; experience adds its 5-byte map and 8-byte date.
-    assert_eq!(ctx.read_state().await?.len(), old_bytes + 5 + 13);
+    // The shared-job map adds 5 bytes; experience adds 13 and debate adds 5.
+    assert_eq!(ctx.read_state().await?.len(), old_bytes + 5 + 13 + 5);
     assert_eq!(ctx.pet_view("0").await?, pet);
     let after: Value = ctx.contract.view("showcase_view").await?.json()?;
     assert_eq!(after, showcase);

@@ -3,6 +3,7 @@ import { tick } from './cron';
 import { gate, type AppEnv } from './http';
 import { catalogRoutes } from './routes/catalog';
 import { codeRoutes } from './routes/code';
+import { debateRoutes } from './routes/debates';
 import { diaryRoutes } from './routes/diary';
 import { errandRoutes } from './routes/errands';
 import { experienceRoutes } from './routes/experience';
@@ -60,6 +61,7 @@ app.route('/', experienceRoutes);
 app.route('/', sourceRoutes);
 app.route('/', catalogRoutes);
 app.route('/', codeRoutes);
+app.route('/', debateRoutes);
 app.route('/', verificationRoutes);
 app.route('/', willRoutes);
 

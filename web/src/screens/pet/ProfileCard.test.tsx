@@ -87,6 +87,13 @@ it('opens the existing Relationships route', async () => {
   expect(host.querySelector('a[href="/pet/9/relationships"]')?.textContent).toContain('Relationships');
 });
 
+// spec: add-debates › Debate transcript and deletion data › gift after paid line
+it('shows a retained Past debates link in the new owner’s Friends section', async () => {
+  await show(card(owner, { pastDebateCode: 'b'.repeat(32) }));
+  const friends = [...host.querySelectorAll('section')].find((node) => node.textContent?.includes('Friends')) ?? host;
+  expect(friends.querySelector<HTMLAnchorElement>('a[href="/debate#' + 'b'.repeat(32) + '"]')?.textContent).toBe('Past debates');
+});
+
 // spec: add-game-layout › Pet card screen › success (Wish)
 it('shows the active wish, its reserve and opens the existing Wish sheet', async () => {
   const wish = vi.fn();

@@ -751,7 +751,62 @@ export interface RelationshipSummary {
   relationships: Array<{ tokenId: string; name: string; stance: 'neutral' | 'liked' | 'strained'; breakUntil: number | null }>;
 }
 
+export interface DebateRead {
+  id: string;
+  status: 'invited' | 'accepted' | 'running' | 'completed' | 'declined' | 'expired' | 'gift' | 'cleared' | 'stopped' | 'refused' | 'unavailable';
+  topic?: string;
+  firstPet?: { tokenId: string; name: string };
+  secondPet?: { tokenId: string; name: string };
+  openerPet?: string;
+  maxPerPetNear?: string;
+  estimatePerPetCents?: number | null;
+  expiresAt?: number;
+  code?: string;
+  consents?: Array<{ petId: string; decision: string }>;
+  analyticsId?: string;
+  endReason?: string | null;
+  lines?: DebateLineRead[];
+}
+
+export interface DebateLineRead {
+  order: number;
+  speakerPet: string;
+  status: 'pending' | 'receipt_pending' | 'settled' | 'unavailable';
+  text: string | null;
+  requestBytes: string | null;
+  responseBytes: string | null;
+  signedCall: string | null;
+  receiptTxHash: string | null;
+  priceYocto: string | null;
+  nearUsdRate: string | null;
+}
+
+export interface DebateLineBytes {
+  id: string; order: number; request_bytes: string; response_bytes: string;
+  signed_call: string; receipt_tx_hash: string; price_yocto: string;
+}
+
+export interface DebateEligibility {
+  eligible: true;
+  firstPet: { tokenId: string; name: string };
+  secondPet: { tokenId: string; name: string };
+  maxPerPetNear: string;
+  estimatePerPetCents: number;
+  notice: string;
+}
+
 export interface WorkerApi {
+  debatePartners(token: Token, tokenId: string): Promise<{ partners: Array<{ tokenId: string; name: string }> }>;
+  debateRecords(token: Token, tokenId: string): Promise<{ records: Array<{ id: string; status: DebateRead['status']; side: 'proposer' | 'recipient'; retained?: boolean }> }>;
+  debateIncoming(token: Token, tokenId: string): Promise<{ ids: string[] }>;
+  debateRead(token: Token, debateId: string): Promise<DebateRead>;
+  debateShared(code: string): Promise<DebateRead>;
+  debateCleared(token: Token, code: string): Promise<DebateRead>;
+  debateStop(token: Token, debateId: string): Promise<{ id: string; status: 'stopped' }>;
+  debateOpen(body: { eventId: string; tabId: string; debateId: string; name: 'debate_link_opened' | 'debate_receipt_opened' }): Promise<void>;
+  debateEligibility(token: Token, firstPet: string, secondPet: string): Promise<DebateEligibility>;
+  debateInvite(token: Token, body: { firstPet: string; secondPet: string; openerPet: string; topic: string }): Promise<{ id: string; status: 'invited'; expiresAt: number }>;
+  debateDecision(token: Token, debateId: string, decision: 'accept' | 'decline'): Promise<{ id: string; status: 'accepted' | 'declined'; code?: string }>;
   wish(token: Token, tokenId: string): Promise<WishRead>;
   cancelWish(token: Token, tokenId: string): Promise<{ status: 'released' | 'pending' }>;
   continueWish(token: Token, tokenId: string): Promise<{ status: 'active' | 'pending' } | { code: 'wish_pending' }>;

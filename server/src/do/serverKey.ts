@@ -30,6 +30,13 @@ export class ServerKey extends DurableObject<Env> {
           const noted = await this.env.DB.prepare('UPDATE debit_sessions SET tx_hash = ? WHERE id = ? AND debit_id = ?')
             .bind(hash, writes.sessionId, writes.debitId).run();
           if (noted.meta.changes !== 1) throw new ChainUnreachable();
+        } else if (writes.kind === 'debate_debit') {
+          const noted = await this.env.DB.prepare(`UPDATE debate_debit_operations SET tx_hash = ?, signed_tx = ?, status = 'sending'
+            WHERE debate_id = ? AND line_order = ? AND operation_id = ? AND status = 'prepared'
+              AND EXISTS (SELECT 1 FROM debates WHERE id = ? AND status = 'running')`)
+            .bind(hash, bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength),
+              writes.debateId, writes.lineOrder, writes.operationId, writes.debateId).run();
+          if (noted.meta.changes !== 1) throw new ChainUnreachable();
         } else if (writes.kind === 'will_start' || writes.kind === 'will_release') {
           const noted = await this.env.DB.prepare("UPDATE will_operations SET tx_hash = ?, signed_bytes = ? WHERE id = ? AND status = 'sending'")
             .bind(hash, bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength), writes.op).run();

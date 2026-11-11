@@ -45,7 +45,7 @@ export function ReturnToPlace() {
   const auth = useAuth();
 
   useEffect(() => {
-    const here = window.location.pathname + window.location.search;
+    const here = window.location.pathname + window.location.search + window.location.hash;
     if (window.location.pathname === '/') {
       const record = peekReturnPlace();
       if (record?.cancelled && record.judge && record.path === here) {
@@ -93,7 +93,7 @@ export function ReturnToPlace() {
 
   useEffect(() => {
     if (!auth.ready) return;
-    const here = window.location.pathname + window.location.search;
+    const here = window.location.pathname + window.location.search + window.location.hash;
     if (window.location.pathname !== '/') {
       if (!auth.signInError) return;
       const record = peekReturnPlace();

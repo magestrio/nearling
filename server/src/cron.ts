@@ -4,6 +4,8 @@
 // that throws logs its code and the others still run.
 import { accountBalance, ChainUnreachable, petView, txStatus } from './chain';
 import { closeAndDebit } from './debit';
+import { expireDueInvitations } from './routes/debates';
+import { recoverDueDebates } from './debates/turns';
 import { settleLateErrands } from './errands/late';
 import { startReadyShared } from './errands/sharedRun';
 import { finishDueShared } from './errands/sharedSettle';
@@ -57,6 +59,8 @@ const PROBE_EVERY_MS = 5 * 60_000;
 export async function tick(env: Env, nowMs: number = Date.now()): Promise<void> {
   const parts: [string, () => Promise<void>][] = [
     ['debit', () => closeAndDebit(env, nowMs)],
+    ['debate_invitation_expire', () => expireDueInvitations(env.DB, nowMs)],
+    ['debate_turns', () => recoverDueDebates(env, nowMs)],
     ['society', () => settleSocietyPending(env)],
     ['will_invitation_expire', async () => {
       await env.DB.prepare('DELETE FROM work_invitations WHERE expires_at <= ?').bind(nowMs).run();
@@ -292,6 +296,7 @@ export async function clean(env: Env, nowMs: number): Promise<void> {
   if (nowMs >= JUDGE_DELETE_AT) await env.EVENTS.prepare('DELETE FROM society_events').run();
   if (nowMs >= JUDGE_DELETE_AT) await env.EVENTS.prepare('DELETE FROM will_events').run();
   if (nowMs >= JUDGE_DELETE_AT) await env.EVENTS.prepare('DELETE FROM hatch_again_events').run();
+  if (nowMs >= JUDGE_DELETE_AT) await env.EVENTS.prepare('DELETE FROM debate_events').run();
   await env.DB.batch([
     env.DB.prepare("DELETE FROM jobs WHERE created_at < ? AND status IN ('done', 'failed')").bind(nowMs - 86_400_000),
     env.DB.prepare('DELETE FROM empty_answers WHERE day < ?').bind(utcDay(nowMs) - 1),

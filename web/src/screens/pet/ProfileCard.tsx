@@ -1,5 +1,5 @@
 import { Button, Cluster, Note, PetCard, Seal, Segmented, Stack, Text, TextLink, type TraitName } from '../../ds';
-import { experiencePath, relationshipsPath, workRecordPath } from '../../route';
+import { debatePath, experiencePath, relationshipsPath, workRecordPath } from '../../route';
 import { PetFigure } from '../../pet/PetFigure';
 import type { HireMode, PetView } from '../../seams/worker';
 import { nameOf, OUTFITS, wearProps } from '../../wardrobe/catalogue';
@@ -9,10 +9,11 @@ import { sealLine } from './sealLine';
 
 const TRAITS: TraitName[] = ['clever', 'thoughtful', 'sociable', 'hard-working', 'cozy'];
 
-export function ProfileCard({ pet, boughtByOwner, error, seal, onSealRetry, onRetry, onClose, onSkill, onMode, onWish, onFeed }: {
+export function ProfileCard({ pet, boughtByOwner, pastDebateCode, error, seal, onSealRetry, onRetry, onClose, onSkill, onMode, onWish, onFeed }: {
   pet: PetView;
   /** the outfit the owner bought first, which ended the wish (`add-pet-will › Wish pursuit flow › target bought by owner`) */
   boughtByOwner?: string | null;
+  pastDebateCode?: string | null;
   error?: boolean;
   seal: SealState;
   onSealRetry: () => void;
@@ -50,7 +51,8 @@ export function ProfileCard({ pet, boughtByOwner, error, seal, onSealRetry, onRe
             ? `Hiring: Auto — ${name} asks pets it knows when they can help, then tells you what it cost.`
             : `Hiring: Ask me first — ${name} checks with you before paying another pet.`}</Text></Stack>}
     </Stack> },
-    { title: 'Friends', content: <TextLink href={relationshipsPath(tokenId)} hit>Relationships</TextLink> },
+    { title: 'Friends', content: <Stack gap={2}><TextLink href={relationshipsPath(tokenId)} hit>Relationships</TextLink>
+      {pastDebateCode ? <TextLink href={debatePath(pastDebateCode)} hit>Past debates</TextLink> : null}</Stack> },
     { title: 'Wish', content: !pet.wish && boughtByOwner ? <Text variant="small">{`${name} already has ${nameOf(boughtByOwner) ?? boughtByOwner}.`}</Text>
       : !pet.wish && OUTFITS.filter((outfit) => outfit.kind === 'bought').every((outfit) => pet.outfits.includes(outfit.slug))
         ? <Text variant="small" tone="secondary">{`${name} has every outfit for now.`}</Text>

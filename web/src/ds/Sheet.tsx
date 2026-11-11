@@ -30,6 +30,7 @@ export function Sheet({
   foot,
   wide,
   closeText,
+  closeLabel = 'Close',
   returnFocusTo,
   inert,
   hidden,
@@ -53,6 +54,7 @@ export function Sheet({
   wide?: boolean;
   /** «Close» as a text button instead of the icon (the Pet card) */
   closeText?: boolean;
+  closeLabel?: string;
   returnFocusTo?: () => HTMLElement | null;
   /** a sheet over this one: this one is out of reach. On the layer itself, so a column sheet stays a direct child of the main
    *  (the Stage's CSS places it by that), which a wrapping `Inert` would break */
@@ -128,8 +130,8 @@ export function Sheet({
           <h2 id={titleId} className="ds-sheet__title type-title-3" tabIndex={self ? -1 : undefined}>
             {title}
           </h2>
-          {closeText ? <Button variant="ghost" size="compact" disabled={busy} onClick={onClose}>Close</Button>
-            : <IconButton icon="close" label="Close" size="compact" disabled={busy} onClick={onClose} />}
+          {closeText ? <Button variant="ghost" size="compact" disabled={busy} onClick={onClose}>{closeLabel}</Button>
+            : <IconButton icon="close" label={closeLabel} size="compact" disabled={busy} onClick={onClose} />}
         </div>
         {/* one live region, always there: each outcome is written into it by changing its text */}
         <p className="ds-hidden" role="status">

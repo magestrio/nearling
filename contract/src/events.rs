@@ -70,6 +70,19 @@ pub struct ThoughtReceipt {
     pub job_hash: Option<String>,
     #[serde(default, skip_serializing_if = "is_false")]
     pub completed_errand: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub debate: Option<DebateReceipt>,
+}
+
+/// Public settlement context for one debate line. The words and share code stay off chain.
+#[near(serializers = [json])]
+#[derive(Clone, Debug)]
+pub struct DebateReceipt {
+    pub id: String,
+    pub line_order: u8,
+    pub other_token_id: String,
+    pub speaker_transfer_generation: u64,
+    pub other_transfer_generation: u64,
 }
 
 #[near(serializers = [json])]
@@ -152,6 +165,10 @@ pub enum NearlingEvent {
         funding: Vec<FundingSpend>,
         #[serde(default, skip_serializing_if = "is_false")]
         completed_errand: bool,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        debate_id: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        line_order: Option<u8>,
     },
 
     /// A hire was recorded, right after the receipt of the worker's answer (`Hire debit

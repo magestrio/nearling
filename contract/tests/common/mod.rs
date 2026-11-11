@@ -12,6 +12,7 @@ use near_workspaces::network::Sandbox;
 use near_workspaces::result::ExecutionFinalResult;
 use near_workspaces::types::{Gas, NearToken};
 use near_workspaces::{Account, AccountDetailsPatch, AccountId, Contract, Worker};
+use nearling_contract::debate::DebateSlot;
 use nearling_contract::limits::DAY_NS;
 #[allow(unused_imports)]
 pub use nearling_contract::limits::STARTER_FOOD;
@@ -64,6 +65,7 @@ struct StateMirror {
     shared_jobs: LookupMap<String, SharedJob>,
     experience_counts: LookupMap<String, nearling_contract::ExperienceCounts, Sha256>,
     experience_counted_since: u64,
+    debate_slots: LookupMap<String, DebateSlot, Sha256>,
 }
 
 pub struct Ctx {
@@ -660,7 +662,7 @@ impl Ctx {
         let _: StateMirror = borsh::from_slice(&state)?;
         let shared_len =
             borsh::to_vec(&borsh::from_slice::<StateMirror>(&state)?.shared_jobs)?.len();
-        state.truncate(state.len() - 56 - shared_len - 13);
+        state.truncate(state.len() - 56 - shared_len - 18);
         let _: nearling_contract::ContractV5 = borsh::from_slice(&state)?;
         self.worker
             .patch_state(self.contract.id(), b"STATE", &state)
@@ -674,7 +676,7 @@ impl Ctx {
         let _: StateMirror = borsh::from_slice(&state)?;
         let shared_len =
             borsh::to_vec(&borsh::from_slice::<StateMirror>(&state)?.shared_jobs)?.len();
-        state.truncate(state.len() - 24 - shared_len - 13);
+        state.truncate(state.len() - 24 - shared_len - 18);
         let _: nearling_contract::ContractV6 = borsh::from_slice(&state)?;
         self.worker
             .patch_state(self.contract.id(), b"STATE", &state)
@@ -687,7 +689,7 @@ impl Ctx {
         let mut state = self.read_state().await?;
         let mirror: StateMirror = borsh::from_slice(&state)?;
         let shared_len = borsh::to_vec(&mirror.shared_jobs)?.len();
-        state.truncate(state.len() - shared_len - 13);
+        state.truncate(state.len() - shared_len - 18);
         let _: nearling_contract::ContractV7 = borsh::from_slice(&state)?;
         self.worker
             .patch_state(self.contract.id(), b"STATE", &state)
@@ -699,8 +701,20 @@ impl Ctx {
     pub async fn restore_v8_state(&self) -> anyhow::Result<()> {
         let mut state = self.read_state().await?;
         let _: StateMirror = borsh::from_slice(&state)?;
-        state.truncate(state.len() - 13);
+        state.truncate(state.len() - 18);
         let _: nearling_contract::ContractV8 = borsh::from_slice(&state)?;
+        self.worker
+            .patch_state(self.contract.id(), b"STATE", &state)
+            .await?;
+        Ok(())
+    }
+
+    /// Recreate the exact pre-debate main state for `migrate_debates`.
+    pub async fn restore_v9_state(&self) -> anyhow::Result<()> {
+        let mut state = self.read_state().await?;
+        let _: StateMirror = borsh::from_slice(&state)?;
+        state.truncate(state.len() - 5);
+        let _: nearling_contract::ContractV9 = borsh::from_slice(&state)?;
         self.worker
             .patch_state(self.contract.id(), b"STATE", &state)
             .await?;

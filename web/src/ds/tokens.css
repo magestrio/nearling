@@ -174,6 +174,7 @@
   --blur-stage-pool: 2rem;
   --rotate-egg: -8deg;
   --rotate-egg-rock: 8deg;
+  --count-egg-rock: 16;
   --duration-micro: 120ms;
   --duration-short: 200ms;
   --duration-medium: 320ms;
@@ -186,6 +187,7 @@
   --easing-enter: cubic-bezier(0, 0, 0.2, 1);
   --easing-press: cubic-bezier(0.34, 1.56, 0.64, 1);
   --layer-sheet: 20;
+  --layer-menu: 25;
   --layer-toast: 30;
   --font-sans: "Mona Sans", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   --font-mono: ui-monospace, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;

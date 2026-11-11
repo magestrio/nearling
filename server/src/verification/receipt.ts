@@ -59,6 +59,47 @@ function rawBytes(value: ArrayBuffer | Uint8Array | null): Uint8Array {
   return value instanceof Uint8Array ? value : new Uint8Array(value);
 }
 
+/** A debate has its own public code and line store. Match the exact signed call to its unique
+ * chain event; the receipt-link owner and gift revocation rules do not apply to that code. */
+export async function matchingDebateReceipt(env: Env, debateId: string, order: number, speaker: string,
+  price: string, signedJson: string, txHash: string): Promise<boolean> {
+  let signed: Record<string, unknown>;
+  try { signed = JSON.parse(signedJson) as Record<string, unknown>; } catch { return false; }
+  const outcome = await receiptTransaction(env, txHash, env.SERVER_ACCOUNT_ID) as Outcome;
+  if (!outcome?.status || !('SuccessValue' in outcome.status) ||
+      outcome.transaction?.signer_id !== env.SERVER_ACCOUNT_ID || outcome.transaction.receiver_id !== env.CONTRACT_ID) return false;
+  const actions = outcome.transaction.actions;
+  if (!Array.isArray(actions) || actions.length !== 1 || !('FunctionCall' in actions[0]!)) return false;
+  const action = actions[0]!.FunctionCall as { method_name?: string; args?: string };
+  if (action.method_name !== 'debit_session' || typeof action.args !== 'string') return false;
+  let args: { token_id?: string; thoughts?: Array<{ debate?: { id?: string; line_order?: number } }> };
+  try { args = JSON.parse(atob(action.args)) as typeof args; } catch { return false; }
+  if (args.token_id !== speaker || args.thoughts?.length !== 1 || args.thoughts[0]?.debate?.id !== debateId ||
+      args.thoughts[0].debate.line_order !== order) return false;
+  const events = (outcome.receipts_outcome ?? []).flatMap((receipt) => receipt.outcome?.logs ?? [])
+    .map(eventOf).filter((event): event is ChainEvent => event !== null);
+  const receipts = events.filter((event) => event.event === 'receipt').flatMap((event) => event.data);
+  return receipts.filter((value) => {
+    if (typeof value !== 'object' || value === null) return false;
+    const receipt = value as Record<string, unknown>;
+    const calls = receipt.calls as Record<string, unknown>[] | undefined;
+    return receipt.token_id === speaker && receipt.price === price && receipt.debate_id === debateId &&
+      receipt.line_order === order && Array.isArray(calls) && calls.length === 1 &&
+      Object.entries(signed).every(([key, expected]) => key === 'model' ? receipt.model === expected : calls[0]?.[key] === expected);
+  }).length === 1;
+}
+
+export async function intactDebateBytes(request: string, response: string, signedJson: string): Promise<boolean> {
+  let signed: { req_sha256?: string; res_sha256?: string };
+  try { signed = JSON.parse(signedJson) as typeof signed; } catch { return false; }
+  try {
+    const req = Uint8Array.from(atob(request), (ch) => ch.charCodeAt(0));
+    const res = Uint8Array.from(atob(response), (ch) => ch.charCodeAt(0));
+    return req.length > 0 && res.length > 0 && await hashMatches(req, signed.req_sha256 ?? '')
+      && await hashMatches(res, signed.res_sha256 ?? '');
+  } catch { return false; }
+}
+
 export function intactCalls(calls: StoredCall[]): boolean {
   return calls.length > 0 && calls.length <= 4 && calls.every((call, i) =>
     call.n === i && rawBytes(call.req_bytes).length > 0 && rawBytes(call.res_bytes).length > 0);
