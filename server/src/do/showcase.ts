@@ -2,6 +2,7 @@
 import { DurableObject } from 'cloudflare:workers';
 import { showcaseView, type ShowcaseNumbers } from '../chain';
 import { publicVisits, type PublicVisit } from '../pet/publicVisits';
+import { nearUsdPrice } from '../any-chain/quote';
 
 export const SHOWCASE_FRESH_MS = 60_000;
 export const SHOWCASE_MAX_AGE_MS = 600_000;
@@ -9,6 +10,7 @@ export const SHOWCASE_MAX_AGE_MS = 600_000;
 export interface ShowcaseCopy {
   pets: PublicVisit[];
   numbers: ShowcaseNumbers;
+  nearUsdPrice: number | null;
 }
 
 interface Held {
@@ -40,9 +42,9 @@ export class Showcase extends DurableObject<Env> {
     try {
       this.lastAttempt = Date.now();
       await this.ctx.storage.put('last_attempt', this.lastAttempt);
-      const [pets, numbers] = await Promise.all([publicVisits(this.env), showcaseView(this.env)]);
+      const [pets, numbers, price] = await Promise.all([publicVisits(this.env), showcaseView(this.env), nearUsdPrice().catch(() => null)]);
       if (pets === null) throw new Error('public pet read failed');
-      const value = pets.length === 0 ? null : { pets, numbers };
+      const value = pets.length === 0 ? null : { pets, numbers, nearUsdPrice: price };
       const held = { at: Date.now(), value };
       await this.ctx.storage.put('copy', held);
       this.held = held;

@@ -46,7 +46,7 @@ test('numbers preserve grouping and precision and the explorer uses the configur
   await openWith(page, '/', {});
   await expect(page.locator('.ds-meadow__stats')).toContainText('1,204 pets hatched');
   await expect(page.locator('.ds-meadow__stats')).toContainText('58,310 thoughts paid for');
-  await expect(page.locator('.ds-meadow__stats')).toContainText('41.2 NEAR spent on thinking');
+  await expect(page.locator('.ds-meadow__stats')).toContainText('$188.60 spent on thinking41.2 NEAR');
   await expect(page.getByRole('link', { name: 'See it on the NEAR explorer' })).toHaveAttribute('href', explorer);
   await expect(page.getByRole('link', { name: 'See it on the NEAR explorer' })).toHaveAttribute('target', '_blank');
 });
@@ -56,7 +56,7 @@ test('one pet and one thought use singular, and under one NEAR uses two signific
   await openWith(page, '/', { worker: { showcase: { ...SAMPLE_SHOWCASE, numbers: { ...SAMPLE_SHOWCASE.numbers!, pets_hatched: 1, thoughts_paid: 1, spent: '420000000000000000000000' } } } });
   await expect(page.locator('.ds-meadow__stats')).toContainText('1 pet hatched');
   await expect(page.locator('.ds-meadow__stats')).toContainText('1 thought paid for');
-  await expect(page.locator('.ds-meadow__stats')).toContainText('0.42 NEAR spent on thinking');
+  await expect(page.locator('.ds-meadow__stats')).toContainText('$1.92 spent on thinking0.42 NEAR');
 });
 
 // spec: add-account › Home screen › pet on the meadow

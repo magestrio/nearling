@@ -29,7 +29,7 @@ function FlatSample({ pet }: { pet: MeadowPet }) {
 }
 
 export type MeadowVisit = MeadowPet & { href?: string; name?: string; tag?: string; tagged?: boolean };
-export type MeadowNumber = { value: string; label: string; since?: string };
+export type MeadowNumber = { value: string; label: string; detail?: string; since?: string };
 
 /** DS 0.48: one scene, linked pets in reading order, and a compact ground for petless Home. */
 export function Meadow({ pets, motion = true, numbers, explore, label, compact = false }: {
@@ -98,7 +98,7 @@ export function Meadow({ pets, motion = true, numbers, explore, label, compact =
       </div>
       {stats || explore || (motion && pets.length > 0 && !lost) ? <div className={cx('ds-meadow__foot', Boolean(stats || explore) && 'ds-meadow__foot--numbers')}>
         {stats ? <ul className={cx('ds-meadow__stats', loading && 'ds-meadow__stats--loading')} aria-hidden={loading ? true : undefined}>
-          {stats.map((n, i) => <li key={i} className="ds-meadow__stat"><span className="ds-meadow__value type-title-2">{n.value}</span>{' '}<span className="ds-meadow__label type-small">{n.label}</span>{'since' in n && n.since ? <span className="ds-meadow__since type-caption">{n.since}</span> : null}</li>)}
+          {stats.map((n, i) => <li key={i} className="ds-meadow__stat"><span className="ds-meadow__value type-title-2">{n.value}</span>{' '}<span className="ds-meadow__label type-small">{n.label}</span>{n.detail ? <span className="ds-meadow__since type-caption">{n.detail}</span> : null}{n.since ? <span className="ds-meadow__since type-caption">{n.since}</span> : null}</li>)}
         </ul> : null}
         {explore ? <div className="ds-meadow__explore">{explore}</div> : null}
         {motion && pets.length > 0 && !lost ? <div className="ds-meadow__motion">{motion === true ? <><Only on="desktop"><MotionToggle paused={paused} onToggle={toggle} /></Only><Only on="phone"><MotionToggle paused={paused} onToggle={toggle} icon /></Only></> : motion}</div> : null}

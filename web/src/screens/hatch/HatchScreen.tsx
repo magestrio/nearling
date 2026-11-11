@@ -42,7 +42,7 @@ export function HatchNotices({ name }: { name: string }) {
 /** The Hatch consent stays in its button; each short notice opens its existing complete text independently. */
 export function HatchDisclosureNotices({ name, sessionKey }: { name: string; sessionKey: string }) {
   return <Stack gap={2} key={sessionKey}>
-    <DisclosureLine summary="Your pet's name, character and on-chain history are public forever." label="Read what's public">
+    <DisclosureLine summary="Your pet's name, character and everything it does are public forever." label="Read what's public">
       <Text variant="small">{publicNotice(name)}</Text>
       <Text variant="small">{SAVED_LINE}</Text>
       <Text variant="small">{RECEIPTS_LINE}</Text>

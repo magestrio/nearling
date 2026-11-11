@@ -6,6 +6,7 @@ import { NEAR_ACCOUNT, token } from './helpers/network';
 import { publicVisits } from '../src/pet/publicVisits';
 import { run } from '../src/spend';
 import { tick } from '../src/cron';
+import { ONE_CLICK, WNEAR } from '../src/any-chain/quote';
 
 const h = harness();
 const owner = NEAR_ACCOUNT(41);
@@ -57,6 +58,7 @@ describe('Showcase data', () => {
   // spec: add-account › Showcase data › one copy for everyone
   // spec: add-account › Showcase data › one copy for everyone × simultaneous visitors / reload
   it('shares one public pet and totals read across simultaneous visitors and an object restart', async () => {
+    h.net().web.handlers.set(`${ONE_CLICK}/tokens`, () => Response.json([]));
     const pet = h.net().contract.addPet('701', owner, { name: 'Juniper', stage: 'Teen', outfits: [1] });
     h.net().contract.showcaseNumbers = { pets_hatched: 7, thoughts_paid: 12, spent: '1230000000000000000000000',
       hires_completed: 0, friend_snacks: 0, counted_since: 0 };
@@ -66,7 +68,7 @@ describe('Showcase data', () => {
     const [first, second] = await Promise.all([stub.read(), stub.read()]);
     expect(first).toEqual(second);
     expect(first).toEqual({ pets: [{ tokenId: '701', name: 'Juniper', stage: 'teen', fullness: 'full', worn: 'cozy-scarf' }],
-      numbers: h.net().contract.showcaseNumbers });
+      numbers: h.net().contract.showcaseNumbers, nearUsdPrice: null });
     expect(JSON.stringify(first)).not.toMatch(/owner|memory|character|instruction|hatched_by/);
     expect(h.net().contract.reads.filter((read) => read.method === 'showcase_view')).toHaveLength(1);
     expect(h.net().contract.reads.filter((read) => read.method === 'pet_view')).toHaveLength(1);
@@ -79,6 +81,26 @@ describe('Showcase data', () => {
     vi.setSystemTime(Date.now() + 1);
     expect((await stub.read())?.pets[0]?.name).toBe('Changed');
     expect(h.net().contract.reads.filter((read) => read.method === 'showcase_view')).toHaveLength(2);
+  });
+
+  // spec: D-154 › the Worker caches the 1-Click wNEAR USD price with the public Home copy
+  it('shares the wNEAR price for a minute and falls back to NEAR when 1-Click has no price', async () => {
+    h.net().contract.addPet('707', owner);
+    await born('707');
+    let calls = 0;
+    h.net().web.handlers.set(`${ONE_CLICK}/tokens`, () => {
+      calls += 1;
+      return Response.json([{ assetId: WNEAR, blockchain: 'near', symbol: 'wNEAR', decimals: 24,
+        price: 3.57, priceUpdatedAt: '2026-11-11T00:00:00Z' }]);
+    });
+    const stub = env.SHOWCASE.getByName('showcase-usd-price');
+    const first = await stub.read();
+    expect(first?.nearUsdPrice).toBe(3.57);
+    expect((await stub.read())?.nearUsdPrice).toBe(3.57);
+    expect(calls).toBe(1);
+    vi.setSystemTime(Date.now() + oneMinute);
+    h.net().web.handlers.set(`${ONE_CLICK}/tokens`, () => Response.json([]));
+    expect((await stub.read())?.nearUsdPrice).toBeNull();
   });
 
   // spec: add-account › Showcase data › NEAR can't be read

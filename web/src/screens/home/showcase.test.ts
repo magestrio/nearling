@@ -7,17 +7,22 @@ it('formats contract counters with the singular, grouped thousands, one decimal 
   expect(meadowNumbers(SAMPLE_SHOWCASE)).toEqual([
     { value: '1,204', label: 'pets hatched' },
     { value: '58,310', label: 'thoughts paid for' },
-    { value: '41.2 NEAR', label: 'spent on thinking' },
+    { value: '$188.60', label: 'spent on thinking', detail: '41.2 NEAR' },
     { value: '312', label: 'hires', since: undefined },
     { value: '87', label: 'friend snacks', since: undefined },
   ]);
   expect(meadowNumbers({ ...SAMPLE_SHOWCASE, numbers: { ...SAMPLE_SHOWCASE.numbers!, pets_hatched: 1, thoughts_paid: 1, spent: '420000000000000000000000' } })).toEqual([
     { value: '1', label: 'pet hatched' },
     { value: '1', label: 'thought paid for' },
-    { value: '0.42 NEAR', label: 'spent on thinking' },
+    { value: '$1.92', label: 'spent on thinking', detail: '0.42 NEAR' },
     { value: '312', label: 'hires', since: undefined },
     { value: '87', label: 'friend snacks', since: undefined },
   ]);
+});
+
+// spec: D-154 › dollars first when the Worker has a price; NEAR alone otherwise
+it('falls back to NEAR alone when the Worker has no current price', () => {
+  expect(meadowNumbers({ ...SAMPLE_SHOWCASE, nearUsdPrice: null })?.[2]).toEqual({ value: '41.2 NEAR', label: 'spent on thinking' });
 });
 
 // spec: add-showcase › Home evidence flow › public totals

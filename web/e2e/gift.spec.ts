@@ -36,7 +36,7 @@ test('shows the whole pet and public-gift warnings before creating a link', asyn
   await expect(dialog(page).getByText('Pixel goes to them whole:', { exact: false })).toBeVisible();
   await expect(dialog(page).getByText("Pixel won't be yours anymore", { exact: false })).toBeVisible();
   await expect(dialog(page).getByText('Send this link only to your friend', { exact: false })).toBeVisible();
-  await expect(dialog(page).getByText("Pixel is the pet you hatched, so you can't hatch another one.")).toBeVisible();
+  await expect(dialog(page).getByText('If Pixel was your only pet, you can hatch a new one after the gift.')).toBeVisible();
 });
 
 // spec: add-gift › Gift sheet screen › success

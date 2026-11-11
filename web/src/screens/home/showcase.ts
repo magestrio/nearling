@@ -29,7 +29,9 @@ export function meadowNumbers(copy: ShowcaseCopy): MeadowNumber[] | undefined {
   return [
     { value: count(pets), label: pets === 1 ? 'pet hatched' : 'pets hatched' },
     { value: count(thoughts), label: thoughts === 1 ? 'thought paid for' : 'thoughts paid for' },
-    { value: `${amount} NEAR`, label: 'spent on thinking' },
+    Number.isFinite(copy.nearUsdPrice) && (copy.nearUsdPrice ?? 0) > 0
+      ? { value: new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(near * copy.nearUsdPrice!), label: 'spent on thinking', detail: `${amount} NEAR` }
+      : { value: `${amount} NEAR`, label: 'spent on thinking' },
     { value: count(hires), label: 'hires', since },
     { value: count(snacks), label: 'friend snacks', since },
   ];

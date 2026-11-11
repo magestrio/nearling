@@ -282,7 +282,7 @@ export function GiftSheet({ tokenId, name, stage, worn, onGiven }: { tokenId: st
   const start = <>
     <Text>{`${name} goes to them whole: its name, character, food, growth and traits, streak and freezes, outfits — and its chats, its memories, the advice it paid for and any skill you taught it. Its new owner can read them.`}</Text>
     <Block role="trust" icon="globe" quiet><Text variant="small">{`${name} won't be yours anymore — you can still visit and feed ${name}. Who gave ${name} to whom is public forever — even if this game shuts down.`}</Text></Block>
-    {hatched ? <Text>{`${name} is the pet you hatched, so you can't hatch another one.`}</Text> : null}
+    {hatched ? <Text>{`If ${name} was your only pet, you can hatch a new one after the gift.`}</Text> : null}
     <Cluster gap={3} justify="space-between"><Text variant="small" tone="secondary">{`Want to keep your chats private? Clear ${name}'s memory first.`}</Text><Button variant="secondary" size="compact" onClick={clear}>Clear memory</Button></Cluster>
     <Text>{ONLY(name)}</Text><div data-gift-create><Button block icon="share" onClick={() => void create()}>Create gift link</Button></div>
   </>;

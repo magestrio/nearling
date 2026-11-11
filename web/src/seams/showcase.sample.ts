@@ -15,4 +15,5 @@ export const SAMPLE_SHOWCASE: ShowcaseCopy = {
     { tokenId: '43', name: 'Kiwi', stage: 'teen', fullness: 'full', worn: null },
   ],
   numbers: { pets_hatched: 1204, thoughts_paid: 58310, spent: '41200000000000000000000000', hires_completed: 312, friend_snacks: 87, counted_since: 0 },
+  nearUsdPrice: 188.6 / 41.2,
 };

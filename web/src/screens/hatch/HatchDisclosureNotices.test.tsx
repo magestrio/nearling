@@ -13,7 +13,7 @@ it('starts with both short lines and keeps the complete notices folded', async (
   document.body.append(host);
   const root = createRoot(host);
   await act(async () => root.render(<HatchDisclosureNotices name="Pixel" sessionKey="alice" />));
-  expect(host.textContent).toContain("Your pet's name, character and on-chain history are public forever.");
+  expect(host.textContent).toContain("Your pet's name, character and everything it does are public forever.");
   expect(host.textContent).toContain("Your words and your pet's memories about you and friends who feed it go to NEAR AI.");
   expect(host.textContent).not.toContain('Saved food and a bought outfit are public on NEAR forever.');
   expect([...host.querySelectorAll('[aria-expanded]')].map((node) => node.getAttribute('aria-expanded'))).toEqual(['false', 'false']);

@@ -60,13 +60,13 @@ export class QuoteUnavailable extends Error {
   constructor(readonly code: string) { super(code); }
 }
 
-async function oneClick<T>(path: string, body?: unknown): Promise<T> {
+async function oneClick<T>(path: string, body?: unknown, timeoutMs = FETCH_MS): Promise<T> {
   try {
     const response = await fetch(`${ONE_CLICK}${path}`, {
       method: body === undefined ? 'GET' : 'POST',
       headers: body === undefined ? undefined : { 'content-type': 'application/json' },
       body: body === undefined ? undefined : JSON.stringify(body),
-      signal: AbortSignal.timeout(FETCH_MS),
+      signal: AbortSignal.timeout(timeoutMs),
     });
     if (!response.ok) throw new QuoteUnavailable(response.status === 400 ? 'no_payable_quote' : 'provider_unavailable');
     return await response.json() as T;
@@ -92,6 +92,15 @@ export async function nativePrice(chain: Origin): Promise<number> {
     Number.isFinite((item as OneClickToken).price) && (item as OneClickToken).price > 0);
   if (!token) throw new QuoteUnavailable('provider_unavailable');
   return token.price;
+}
+
+/** USD price of NEAR from the same 1-Click token list used by the any-chain feed. */
+export async function nearUsdPrice(): Promise<number | null> {
+  const response = await oneClick<unknown>('/tokens', undefined, 1_000);
+  if (!Array.isArray(response)) return null;
+  const token = response.find((item): item is OneClickToken => item !== null && typeof item === 'object' &&
+    (item as OneClickToken).assetId === WNEAR);
+  return token && Number.isFinite(token.price) && token.price > 0 ? token.price : null;
 }
 
 export function amountUnits(value: unknown, decimals = 6): string | null {

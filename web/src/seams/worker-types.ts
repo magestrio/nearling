@@ -22,6 +22,7 @@ export interface HireBoard {
 export interface ShowcaseCopy {
   pets: Array<{ tokenId: string; name: string; stage: Stage; fullness: Fullness['state']; worn: OutfitSlug | null }>;
   numbers: { pets_hatched: number; thoughts_paid: number; spent: string; hires_completed: number; friend_snacks: number; counted_since: number } | null;
+  nearUsdPrice?: number | null;
 }
 
 export type CardKind = 'thought' | 'growth' | 'outfit';

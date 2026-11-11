@@ -436,7 +436,7 @@ test('the game can\'t be reached on a fresh load: the line, «Try again» in the
 
 // ── add-game-layout › Hatch notice rule ──────────────────────────────────────────────────────────────────────
 
-const PUBLIC_LINE = "Your pet's name, character and on-chain history are public forever.";
+const PUBLIC_LINE = "Your pet's name, character and everything it does are public forever.";
 const AI_LINE = "Your words and your pet's memories about you and friends who feed it go to NEAR AI.";
 const SAVED = "Saved food and a bought outfit are public on NEAR forever. The wish's words stay private.";
 const AI_FULL = "To write your pet's replies, we send NEAR AI what you say";
