@@ -11,9 +11,22 @@
 
 Use Node 24 and the Rust 1.99.1 toolchain with `wasm32-unknown-unknown`. Install each JavaScript package from its lockfile with `npm ci`. Copy `server/.dev.vars.example` to the ignored `server/.dev.vars` and supply local dev values before starting the app.
 
+Automated tests need no secrets. Live gameplay needs local dev values for `NEARAI_API_KEY`, `NEAR_SERVER_KEY`, `NEAR_GAS_ACCOUNT_KEY`, `PRIVY_APP_ID`, `PRIVY_JWKS_URL`, `PRIVY_ASKED_PRIVACY_URL`, `INSULT_LIST`, `RIDDLE_LIST`, and `SKILL_KEY`. Pet-address sweeps also need `BASE_GAS_WALLET_KEY` and `SOLANA_GAS_WALLET_KEY`; `FASTNEAR_API_KEY` is optional if the free RPC throttles. Never put the values in `VITE_*` variables.
+
 ```sh
 bash scripts/dev.sh
 bash scripts/verify.sh --only contract,server,web,e2e
+```
+
+To check receipt signature, byte-hash, and hardware-link handling with fixtures:
+
+```sh
+npm --prefix web test -- src/verification/check.test.ts src/verification/checkMachine.test.ts src/verification/hardware.test.ts
+```
+
+The remaining package commands are:
+
+```sh
 cd contract && cargo near build non-reproducible-wasm
 npm --prefix server run typecheck
 npm --prefix server test
