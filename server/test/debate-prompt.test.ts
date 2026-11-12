@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { debateLineText, debateMessages } from '../src/debates/prompt';
+import { DEBATE_OPINION_LINE, debateLineText, debateMessages } from '../src/debates/prompt';
 import type { PetRecord } from '../src/chain';
 
 const pet = { name: 'Pixel', character: 'I notice small things.', stage: 'Teen', traits: ['thoughtful'],
@@ -29,6 +29,15 @@ describe('public debate input', () => {
     expect(text.indexOf('First public line.')).toBeLessThan(text.indexOf('Second public line.'));
     expect(text).toContain('Where is home?');
     expect(JSON.stringify(messages)).not.toContain('private memory');
+  });
+});
+
+describe('taking a side', () => {
+  // dev 2026-11-12: a pet refused a harmless topic because it was «not sure that's true»
+  it('tells every line that a side is the pet\'s taste and uncertainty is no reason to refuse', () => {
+    for (const earlier of [[], [{ speaker: 'Nori', text: 'Rain wins.' }]]) {
+      expect(debateMessages(pet, 'Is rain better than sunshine?', earlier, life)[0]!.content).toContain(DEBATE_OPINION_LINE);
+    }
   });
 });
 
