@@ -16,6 +16,12 @@ export function Hotbar({ items, menu = [], menuMessage, shareItems, active = tru
   const moreRef = useRef<HTMLButtonElement>(null);
   const menuRef = useRef<HTMLElement | null>(null);
   const close = () => { setOpen(false); setSharing(false); onMenuReset?.(); requestAnimationFrame(() => moreRef.current?.focus()); };
+  const choose = (item: ActionMenuItem) => {
+    setOpen(false);
+    setSharing(false);
+    onMenuReset?.();
+    item.onClick?.();
+  };
   useEffect(() => {
     if (!active) { setOpen(false); setSharing(false); }
   }, [active]);
@@ -31,7 +37,7 @@ export function Hotbar({ items, menu = [], menuMessage, shareItems, active = tru
   return <nav className="ds-hotbar" aria-label="Pet actions">
     {items.map((item) => <div className="ds-hotbar__slot" key={item.label} ref={item.more ? (node) => { menuRef.current = node; } : undefined}>
       {item.more && open && active ? <ActionMenu items={sharing ? (menuMessage ? [] : (shareItems ?? [])) : menu.map((entry) => entry.icon === 'share' && shareItems
-        ? { ...entry, onClick: () => setSharing(true) } : entry)} back={sharing ? () => { setSharing(false); onMenuReset?.(); } : undefined}
+        ? { ...entry, onClick: () => setSharing(true) } : { ...entry, onClick: () => choose(entry) })} back={sharing ? () => { setSharing(false); onMenuReset?.(); } : undefined}
         message={menuMessage} onClose={close} /> : null}
       {item.href ? <a href={item.href} className={cx('ds-hotbar__action', item.primary && 'ds-hotbar__action--primary', item.off && 'ds-hotbar__action--off')}
         data-role={item.role} aria-disabled={item.off || undefined} onClick={item.off ? (event) => event.preventDefault() : item.onClick}

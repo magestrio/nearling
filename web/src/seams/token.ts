@@ -2,6 +2,8 @@
 // page asks before every request: one call per poll, and a slow Privy would read as «Can't reach {name}…». So the token
 // is kept until a minute before it ends. Nothing here is stored: it lives in the tab's memory.
 const SPARE_MS = 60_000;
+const RETRY_DELAYS_MS = [600, 1_500, 3_000];
+const wait = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 
 /** When the JWT ends, ms since the epoch; null when it can't be read (then it is not kept). */
 export function tokenEnds(token: string): number | null {
@@ -19,6 +21,25 @@ export function tokenEnds(token: string): number | null {
 export function isSessionEnded(e: unknown): boolean {
   const { status, privyErrorCode } = (e ?? {}) as { status?: unknown; privyErrorCode?: unknown };
   return status === 401 || status === 403 || privyErrorCode === 'missing_or_invalid_token' || privyErrorCode === 'must_be_authenticated';
+}
+
+/** A provider or Worker read that may succeed when the connection or rate limit recovers. */
+export function isTransientAuthError(e: unknown): boolean {
+  if (isSessionEnded(e)) return false;
+  const { status, type, privyErrorCode } = (e ?? {}) as { status?: unknown; type?: unknown; privyErrorCode?: unknown };
+  if (typeof status === 'number') return status === 0 || status === 429 || (status >= 500 && status < 600);
+  return e instanceof TypeError || type === 'client_error' || privyErrorCode === 'client_request_timeout';
+}
+
+async function askWithRetry(ask: () => Promise<string | null>): Promise<string | null> {
+  for (const delay of RETRY_DELAYS_MS) {
+    try { return await ask(); }
+    catch (error) {
+      if (!isTransientAuthError(error)) throw error;
+      await wait(delay);
+    }
+  }
+  return ask();
 }
 
 export interface TokenKeeper {
@@ -39,7 +60,7 @@ export function makeTokenKeeper(ask: () => Promise<string | null>, now: () => nu
       if (held !== null && held.ends - now() > SPARE_MS) return Promise.resolve(held.token);
       if (asking === null) {
         const mine = generation;
-        const own: Promise<string | null> = ask()
+        const own: Promise<string | null> = askWithRetry(ask)
           .then((token) => {
             const ends = token === null ? null : tokenEnds(token);
             if (mine === generation) held = token !== null && ends !== null ? { token, ends } : null;

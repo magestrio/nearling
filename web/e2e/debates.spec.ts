@@ -30,8 +30,9 @@ const openSheet = async (page: Page) => {
   await openMore(page);
   await page.getByRole('menuitem', { name: 'Debate with a known pet' }).click();
   await sheet(page).waitFor();
+  await expect(page.getByRole('button', { name: 'More' })).toHaveAttribute('aria-expanded', 'false');
 };
-const typeTopic = async (page: Page, topic = TOPIC) => { await sheet(page).getByRole('textbox').fill(topic); };
+const typeTopic = async (page: Page, topic = TOPIC) => { await sheet(page).getByRole('textbox', { name: 'Topic' }).fill(topic); };
 const NOTICE = 'Each pet can spend up to 0.01 NEAR on two lines. Anyone with the link may read the topic and lines. The other owner must accept.';
 const ready = async (page: Page) => { await openSheet(page); await expect(sheet(page).getByText(NOTICE)).toBeVisible(); };
 const named = (page: Page, name: string) => page.getByRole('button', { name, exact: true });
@@ -272,7 +273,10 @@ test('card loading: says it is checking and Accept debate stays off', async ({ p
 // spec: add-debates › Debate invitation card screen › error
 // spec: add-debates › Debate invitation card screen › error × Try again
 test('card error: says it could not check, and Try again reads it again', async ({ page }) => {
-  await openPet(page, { ...incoming(), debateIncoming: fail(503, 'chain_unreachable') });
+  await openPet(page, incoming());
+  await expect(card(page)).toBeVisible();
+  await setWorker(page, { debateIncoming: fail(503, 'chain_unreachable') });
+  await lookAgain(page);
   await expect(page.getByText('Could not check this invitation. Try again.')).toBeVisible();
   await setWorker(page, { debateIncoming: { ids: [ID] } });
   await page.getByRole('button', { name: 'Try again' }).click();

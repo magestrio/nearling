@@ -37,19 +37,38 @@ describe('the identity token', () => {
 
   // spec: add-pet › Pet screen › signed-out × сессия истекла посреди игры
   it('turns Privy\'s refusal into no session, so the visitor path runs', async () => {
-    const keeper = makeTokenKeeper(() => Promise.reject(Object.assign(new Error('x'), { type: 'api_error', status: 401 })), clock);
+    const ask = vi.fn(() => Promise.reject(Object.assign(new Error('x'), { type: 'api_error', status: 401 })));
+    const keeper = makeTokenKeeper(ask, clock);
     await expect(keeper.get()).resolves.toBeNull();
+    expect(ask).toHaveBeenCalledTimes(1);
     expect(isSessionEnded({ privyErrorCode: 'missing_or_invalid_token' })).toBe(true);
     expect(isSessionEnded({ privyErrorCode: 'must_be_authenticated' })).toBe(true);
   });
 
+  // spec: D-165 › Privy 429 during identity token refresh
+  it('retries a 429 and keeps the resulting token in tab memory', async () => {
+    const ask = vi.fn().mockRejectedValueOnce(Object.assign(new Error('rate limit'), { status: 429 }))
+      .mockResolvedValue(jwt(inSeconds(3600)));
+    const keeper = makeTokenKeeper(ask, clock);
+    await expect(keeper.get()).resolves.toBe(jwt(inSeconds(3600)));
+    await expect(keeper.get()).resolves.toBe(jwt(inSeconds(3600)));
+    expect(ask).toHaveBeenCalledTimes(2);
+  });
+
   // spec: add-pet › Connection rule › сервер недоступен
   it('leaves a network failure an error: the owner stays signed in and sees the connection line', async () => {
+    vi.useFakeTimers();
     const down = Object.assign(new Error('Request timed out'), { type: 'client_error', privyErrorCode: 'client_request_timeout' });
-    const keeper = makeTokenKeeper(() => Promise.reject(down), clock);
-    await expect(keeper.get()).rejects.toBe(down);
+    const ask = vi.fn(() => Promise.reject(down));
+    const keeper = makeTokenKeeper(ask, clock);
+    const result = keeper.get();
+    const rejected = expect(result).rejects.toBe(down);
+    await vi.advanceTimersByTimeAsync(5_100);
+    await rejected;
+    expect(ask).toHaveBeenCalledTimes(4);
     expect(isSessionEnded(new TypeError('Failed to fetch'))).toBe(false);
     expect(isSessionEnded(null)).toBe(false);
+    vi.useRealTimers();
   });
 
   // spec: add-pet › Pet screen › signed-out × сессия истекла посреди игры

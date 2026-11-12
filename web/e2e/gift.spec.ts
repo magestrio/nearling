@@ -32,7 +32,8 @@ const shown = (scope: import('@playwright/test').Locator, text: string) => scope
 test('shows the whole pet and public-gift warnings before creating a link', async ({ page }) => {
   await openPet(page, {}, { me: { accountId: 'a'.repeat(64), hatched: { tokenId: '9', name: 'Pixel' }, currentPet: { tokenId: '9', name: 'Pixel' }, ownedCount: 1 } });
   await openGive(page);
-  await expect(page.getByRole('menuitem', { name: 'Give Pixel away' })).toHaveAttribute('aria-expanded', 'true');
+  await expect(page.getByRole('button', { name: 'More' })).toHaveAttribute('aria-expanded', 'false');
+  await expect(page.getByRole('menu', { name: 'More' })).toHaveCount(0);
   await expect(dialog(page).getByText('Pixel goes to them whole:', { exact: false })).toBeVisible();
   await expect(dialog(page).getByText("Pixel won't be yours anymore", { exact: false })).toBeVisible();
   await expect(dialog(page).getByText('Send this link only to your friend', { exact: false })).toBeVisible();
@@ -44,14 +45,14 @@ test('shows the whole pet and public-gift warnings before creating a link', asyn
 test('selects a manually opened Gift rail item but not a self-opened accepted sheet', async ({ page }) => {
   await openPet(page);
   await openMore(page);
-  const trigger = page.getByRole('menuitem', { name: 'Give Pixel away' });
-  await trigger.click();
-  await expect(trigger).toHaveAttribute('aria-expanded', 'true');
+  await page.getByRole('menuitem', { name: 'Give Pixel away' }).click();
+  const trigger = page.getByRole('button', { name: 'More' });
+  await expect(trigger).toHaveAttribute('aria-expanded', 'false');
   await dialog(page).getByRole('button', { name: 'Close' }).click();
-  await expect(trigger).not.toHaveAttribute('aria-expanded', 'true');
+  await expect(trigger).toHaveAttribute('aria-expanded', 'false');
   await setWorker(page, { giftLink: accepted });
   await expect(dialog(page)).toBeVisible({ timeout: 7_000 });
-  await expect(trigger).not.toHaveAttribute('aria-expanded', 'true');
+  await expect(trigger).toHaveAttribute('aria-expanded', 'false');
 });
 
 // spec: add-gift › Gift flow › ссылка создана

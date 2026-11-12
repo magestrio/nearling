@@ -8,10 +8,11 @@ import type { FakeWorkerState } from '../src/seams/fakes';
 import type { VerificationThought } from '../src/seams/worker-types';
 
 test.use({ timezoneId: 'Etc/GMT-2' });
-/** The Watch entry stands in the «More» menu (add-game-layout › Pet actions menu screen); the menu may still be open. */
+/** The Watch entry stands in the «More» menu (add-game-layout › Pet actions menu screen). */
 const tapWatch = async (page: Page, name: 'Watch something' | 'Edit watch') => {
   if (!(await page.getByRole('menu', { name: 'More' }).isVisible())) await openMore(page);
   await page.getByRole('menuitem', { name }).click();
+  await expect(page.getByRole('button', { name: 'More' })).toHaveAttribute('aria-expanded', 'false');
 };
 const saved = { target: 'NEAR price', kind: 'topic' as const, savedHourUtc: 0, paused: false,
   nextCheck: '2026-11-12T00:00:00.000Z', latestResult: 'unchanged' as const,

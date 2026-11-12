@@ -57,6 +57,7 @@ export function useInvitationExperience({ pet, tokenOf, preselect, onOwnerLost }
   // The pet whose incoming debates were read once: the 10-second refresh after that keeps what it shows, since a
   // «Checking invitation…» card for the length of every read made the conversation jump.
   const cardsReadFor = useRef<string | null>(null);
+  const knownInvitation = useRef(false);
   const localOutcomeSequence = useRef(0);
   const dismissedCardIds = useRef(new Set<string>());
   const signedIn = auth.authenticated && !auth.sessionEnded;
@@ -67,6 +68,7 @@ export function useInvitationExperience({ pet, tokenOf, preselect, onOwnerLost }
     if (!accountId || draft.accountId === accountId) return;
     setDraft(readDraft(tokenId, accountId, sessionStorage, pet.memoryEpoch) ?? defaultDraft(tokenId, accountId, pet.memoryEpoch));
     setCards([]);
+    knownInvitation.current = false;
     dismissedCardIds.current.clear();
     setCardDismissed(false);
     setStatus(null);
@@ -77,6 +79,7 @@ export function useInvitationExperience({ pet, tokenOf, preselect, onOwnerLost }
     eraseDraft();
     setDraft(defaultDraft(tokenId, accountId, pet.memoryEpoch));
     setCards([]);
+    knownInvitation.current = false;
     setPastDebateCode(null);
   }, [draft.epoch, pet.memoryEpoch, tokenId, accountId]);
   useEffect(() => {
@@ -92,6 +95,7 @@ export function useInvitationExperience({ pet, tokenOf, preselect, onOwnerLost }
     eraseDraft();
     setDraft(defaultDraft(tokenId, accountId, pet.memoryEpoch));
     setCards([]);
+    knownInvitation.current = false;
     setPastDebateCode(null);
     if (had) setStatus({ id: '', kind: 'cleared' });
   }), [tokenId, pet.memoryEpoch, accountId]);
@@ -100,6 +104,7 @@ export function useInvitationExperience({ pet, tokenOf, preselect, onOwnerLost }
     eraseDraft();
     setDraft(defaultDraft(tokenId, accountId, pet.memoryEpoch));
     setCards([]);
+    knownInvitation.current = false;
     setPastDebateCode(null);
     onOwnerLost();
   }, [tokenId, pet.memoryEpoch, accountId, onOwnerLost]);
@@ -173,7 +178,7 @@ export function useInvitationExperience({ pet, tokenOf, preselect, onOwnerLost }
 
   const loadCards = useCallback(async () => {
     const sequence = ++readSequence.current;
-    if (!signedIn) { setCards([]); setCardLoading(false); cardsReadFor.current = null; return; }
+    if (!signedIn) { setCards([]); knownInvitation.current = false; setCardLoading(false); cardsReadFor.current = null; return; }
     if (cardsReadFor.current !== tokenId) setCardLoading(true);
     try {
       const token = await tokenOf();
@@ -183,6 +188,7 @@ export function useInvitationExperience({ pet, tokenOf, preselect, onOwnerLost }
       if (sequence !== readSequence.current) return;
       const currentCards = reads.filter(({ id, read }) => !dismissedCardIds.current.has(id) && read.status === 'invited' && !!read.firstPet && !!read.secondPet);
       setCards(currentCards);
+      knownInvitation.current = currentCards.length > 0;
       if (currentCards.length) setCardDismissed(false);
       const newest = history.records.find((record) => record.side === 'proposer' || record.status !== 'invited');
       if (newest) {
@@ -336,7 +342,7 @@ export function useInvitationExperience({ pet, tokenOf, preselect, onOwnerLost }
   const cardNodes = cardDismissed ? null : !signedIn ? <li><Stack gap={2}><Note>{copy.cardSignedOut}</Note>
       <Button size="compact" onClick={() => signIn.begin('signin')}>Sign in</Button></Stack></li>
     : cardLoading ? holding(copy.cardLoading, 'status', <Button size="compact" disabled>Accept debate</Button>)
-      : cardError ? holding(copy.cardError, 'error', <Button variant="secondary" size="compact" onClick={() => void loadCards()}>Try again</Button>)
+      : cardError ? knownInvitation.current ? holding(copy.cardError, 'error', <Button variant="secondary" size="compact" onClick={() => void loadCards()}>Try again</Button>) : null
         : cards.length ? <li><ul aria-label={copy.cardTitle} className="ds-stack" style={{ gap: 'var(--space-3)', listStyle: 'none', margin: 'var(--space-0)', padding: 'var(--space-0)' }}>
           {cards.map((card) => {
             const read = card.read;

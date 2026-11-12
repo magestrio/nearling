@@ -6,6 +6,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useLocation } from '../route';
 import { AuthContext, useProvider, type AuthApi } from '../seams/auth-context';
+import { isTransientAuthError } from '../seams/token';
 import { workerApi, WorkerError, type SignInRefusal } from '../seams/worker';
 import { clearJudgeCode, readJudgeCode } from './judgeCode';
 import { fromOf, markSignInUnderWay, peekReturnPlace } from './returnPlace';
@@ -60,7 +61,15 @@ export function SessionProvider({ children }: { children: ReactNode }) {
           const place = fresh ? peekReturnPlace() : null;
           const from = fresh ? (place ? fromOf(place.path) : 'home') : undefined;
           const judgeCode = fresh && place?.judge ? readJudgeCode() : null;
-          const answer = await workerApi.session(token, { fresh, ...(from ? { from } : {}), ...(judgeCode ? { judgeCode } : {}) });
+          const input = { fresh, ...(from ? { from } : {}), ...(judgeCode ? { judgeCode } : {}) };
+          let answer;
+          try { answer = await workerApi.session(token, input); }
+          catch (error) {
+            if (!isTransientAuthError(error)) throw error;
+            await new Promise<void>((resolve) => setTimeout(resolve, 600));
+            if (running.current !== key || !providerRef.current.authenticated) return;
+            answer = await workerApi.session(token, input);
+          }
           if (fresh) clearJudgeCode();
           if ('refused' in answer) {
             result = 'refused';

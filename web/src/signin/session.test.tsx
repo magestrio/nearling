@@ -16,6 +16,7 @@ vi.mock('../seams/worker', async (original) => ({ ...(await original<typeof impo
 
 let root: Root | null = null;
 let seen: AuthApi;
+const finishRetry = async () => act(async () => { await new Promise((resolve) => setTimeout(resolve, 700)); });
 
 function Probe() {
   seen = useAuth();
@@ -158,19 +159,34 @@ describe('the exchange', () => {
 
   // spec: add-pet › Connection rule › сервер недоступен
   it('is unreachable when the server gives no answer, and asks again on retry', async () => {
-    worker.session.mockRejectedValueOnce(new WorkerError(0, 'unreachable'));
+    worker.session.mockRejectedValue(new WorkerError(0, 'unreachable'));
     await show(provider());
+    await finishRetry();
     expect(seen).toMatchObject({ ready: true, authenticated: false, unreachable: true });
     await act(async () => seen.retrySession());
-    expect(worker.session).toHaveBeenCalledTimes(2);
-    expect(seen).toMatchObject({ authenticated: true, unreachable: false });
+    await finishRetry();
+    expect(worker.session).toHaveBeenCalledTimes(4);
+    expect(seen).toMatchObject({ authenticated: false, unreachable: true });
   });
 
   // spec: add-pet › Connection rule › сервер недоступен
   it('is unreachable on a 503 as well', async () => {
-    worker.session.mockRejectedValueOnce(new WorkerError(503, 'auth_unavailable'));
+    worker.session.mockRejectedValue(new WorkerError(503, 'auth_unavailable'));
     await show(provider());
+    await finishRetry();
     expect(seen.unreachable).toBe(true);
+  });
+
+  // spec: D-165 › transient session exchange keeps the Feed return place
+  it('retries one transient exchange with the same fresh Feed return place', async () => {
+    rememberReturnPlace({ path: '/pet/9', action: 'feed' });
+    worker.session.mockRejectedValueOnce(new WorkerError(503, 'auth_unavailable'));
+    await show(provider({ freshSignIn: true }));
+    await finishRetry();
+    expect(worker.session).toHaveBeenCalledTimes(2);
+    expect(worker.session).toHaveBeenNthCalledWith(1, 'identity-token', { fresh: true, from: 'link' });
+    expect(worker.session).toHaveBeenNthCalledWith(2, 'identity-token', { fresh: true, from: 'link' });
+    expect(seen).toMatchObject({ ready: true, authenticated: true, unreachable: false });
   });
 });
 

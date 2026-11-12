@@ -72,6 +72,18 @@ it('opens More with named menu items, arrow navigation, Escape and restored focu
   expect(document.activeElement).toBe(host.querySelector('[aria-haspopup="menu"]'));
 });
 
+// spec: D-159 › More item opens a sheet
+it.each(['Watch something', 'Give Pixel away', 'Debate with a known pet'])('closes More when %s opens its sheet', async (label) => {
+  const openSheet = vi.fn();
+  await show(<Hotbar items={[{ icon: 'more', label: 'More', more: true }]}
+    menu={[{ icon: 'watch', label, onClick: openSheet, haspopup: 'dialog' }]} />);
+  await click('.ds-hotbar__action[aria-haspopup="menu"]');
+  await click('[role="menuitem"]');
+  expect(openSheet).toHaveBeenCalledOnce();
+  expect(host.querySelector('[role="menu"]')).toBeNull();
+  expect(host.querySelector('[aria-haspopup="menu"]')?.getAttribute('aria-expanded')).toBe('false');
+});
+
 // spec: add-game-layout › Pet actions menu screen › success (sharing choices)
 it('says why a sharing choice is unavailable in place of the choices, and spends the line when the menu goes back or closes', async () => {
   const reset = vi.fn();

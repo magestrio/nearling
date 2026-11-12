@@ -72,6 +72,7 @@ it('checks the selected pair and sends the exact edited topic and opener only af
   expect([...host.querySelectorAll('button')].some((button) => button.textContent === 'Close')).toBe(true);
   expect(host.textContent).toContain('About 0.15¢ per pet');
   expect(host.querySelector<HTMLInputElement>('input[type="text"]')?.placeholder).toBe('e.g. Is rain better than sunshine?');
+  expect(host.querySelector<HTMLInputElement>('input[type="text"]')?.labels?.[0]?.textContent).toBe('Topic');
   expect(host.querySelector('[role="radiogroup"]')?.getAttribute('aria-label')).toBe('Who speaks first');
   expect(host.textContent).toContain('Each pet can spend up to 0.01 NEAR on two lines.');
   expect(host.textContent).toContain('Write a topic in 140 characters or less.');
@@ -204,6 +205,28 @@ it('keeps acceptance disabled before the incoming status is checked', async () =
   expect(host.textContent).toContain('Checking invitation…');
   expect(accept.disabled).toBe(true);
   expect(mocks.api.debateDecision).not.toHaveBeenCalled();
+});
+
+// spec: D-166 › failed invitation read with no known invitation
+it('shows no invitation card when both lists fail before any invitation was known', async () => {
+  mocks.api.debateIncoming.mockRejectedValue(new WorkerError(503, 'chain_unreachable'));
+  mocks.api.debateRecords.mockRejectedValue(new WorkerError(503, 'chain_unreachable'));
+  await act(async () => root.render(<Harness />));
+  await settle();
+  expect(host.textContent).not.toContain('Debate invitation');
+  expect(host.textContent).not.toContain('Could not check this invitation');
+});
+
+// spec: D-166 › failed invitation read after a known invitation
+it('keeps the retry card when a previously known invitation cannot be checked', async () => {
+  mocks.api.debateIncoming.mockResolvedValue({ ids: ['a'.repeat(64)] });
+  await act(async () => root.render(<Harness />));
+  await settle();
+  expect(host.textContent).toContain('Rain?');
+  mocks.api.debateIncoming.mockRejectedValue(new WorkerError(503, 'chain_unreachable'));
+  await act(async () => document.dispatchEvent(new Event('visibilitychange')));
+  await settle();
+  expect(host.textContent).toContain('Could not check this invitation');
 });
 
 // Bug: every 10-second refresh put «Checking invitation…» into the conversation for the length of the read, so the
