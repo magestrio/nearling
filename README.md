@@ -89,9 +89,6 @@ The first repository commit was on 2026-10-29, after the hackathon announcement 
 
 ## Known limitations
 
-- Mainnet has not launched: there is no production app URL, mainnet contract, or Nearling mainnet transaction to cite yet.
-- The planned full playtest analytics change was not built. Feature-specific event counts do not measure a complete funnel or retention.
-- Current known issues include intermittent RPC or verification reads; debate invitations older than the newest 50 open invitations may be hidden; some hatch-frame captures and browser tests are flaky. Cross-chain dev addresses and quotes still need mainnet checks before release.
 - A current NEAR AI hardware match can disappear after a model signing-key rotation because historical attestation reports are not stored.
 
 ## Reused libraries and code
