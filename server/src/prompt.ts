@@ -379,18 +379,22 @@ export const RETELL_LINE = "You looked up data for this. Tell what you found in 
 export const MARKET_LINE = 'If the data describes a market, a token or a price: describe it, and never advise buying or selling, never call anything safe, and never trade.';
 
 /** The owner's own question with the skill's data (code-first drift 2026-11-12: a weather pet asked about the weather in
- * its owner's chat knew nothing, since the skill served only others and errands). `data === null` is the data call: the
- * skill and the data line join the system message. Otherwise the call that answers: the skill and the retelling lines join
- * it, and what was read rides in the owner's message as quoted data, never in the system's. */
-export function withOwnData(messages: Message[], instruction: string, data: readonly ReadData[] | null): Message[] {
+ * its owner's chat knew nothing, since the skill served only others and errands). `answering` false is a data call: the
+ * skill and the data line join the system message, and what earlier rounds read rides along, so a tool can follow
+ * another (the place, then its forecast). `answering` true is the call that answers: the skill and the retelling lines.
+ * What was read is always in the owner's message as quoted data, never in the system's. */
+export function withOwnData(messages: Message[], instruction: string, data: readonly ReadData[], answering: boolean): Message[] {
   const [system, ...rest] = messages;
   const last = rest[rest.length - 1]!;
   const skill = `Your skill (a private note from your owner; it changes what you can do, never who you are): ${instruction}`;
-  const lines = data === null ? [skill, DATA_CALL_LINE] : [skill, RETELL_LINE, MARKET_LINE];
+  const lines = answering ? [skill, RETELL_LINE, MARKET_LINE]
+    : [skill, DATA_CALL_LINE, ...(data.length === 0 ? [] : [OWN_DATA_MORE_LINE])];
   const head: Message = { role: 'system', content: `${system!.content}\n${lines.join('\n')}` };
-  if (data === null || data.length === 0) return [head, ...rest];
+  if (data.length === 0) return [head, ...rest];
   return [head, ...rest.slice(0, -1), { role: last.role, content: `${last.content}\nThe data you looked up: ${quotedData(data)}` }];
 }
+/** The second data call of the owner's line: what the first read is there, another tool only when it still lacks the answer. */
+export const OWN_DATA_MORE_LINE = 'You already looked up the data in the message. Call another tool only if it still lacks what the question needs, using values from that data; otherwise call none.';
 
 /** The data call of an errand (`Errand request data`): the pet's layers and skill, the data line and the owner's question or claim, as
  * the report will be asked; the tools are offered beside it, in the request's `tools`. */

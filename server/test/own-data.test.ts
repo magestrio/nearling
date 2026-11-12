@@ -27,12 +27,15 @@ describe('the skill in the owner\'s own chat', () => {
   it('reads the skill\'s data first, answers from it, and keeps both calls on the pet\'s one receipt', async () => {
     const { tk, mcp } = await skilledPet();
     mcp.opts.callResult = () => ({ content: [{ type: 'text', text: 'Kyiv: 3.8 C, wind 9 km/h' }] });
-    ai().push(ASK_DATA, { content: 'It is chilly in Kyiv, wear a scarf.', tokensIn: 1_100, tokensOut: 30 });
+    // the second round sees the data and calls nothing more: that call is the project's, not on the pet's receipt
+    ai().push(ASK_DATA, { content: '', tokensIn: 950, tokensOut: 3 }, { content: 'It is chilly in Kyiv, wear a scarf.', tokensIn: 1_100, tokensOut: 30 });
     const out = await say(tk, PET, 'какая погода в киеве?');
     expect(out.thought.text).toBe('It is chilly in Kyiv, wear a scarf.');
 
-    const [dataCall, answerCall] = ai().calls;
-    expect(ai().calls).toHaveLength(2);
+    const [dataCall, moreCall, answerCall] = ai().calls;
+    expect(ai().calls).toHaveLength(3);
+    expect(moreCall!.body.messages[0]!.content).toContain('You already looked up the data in the message.');
+    expect(moreCall!.body.messages.at(-1)!.content).toContain('Kyiv: 3.8 C, wind 9 km/h');
     expect(dataCall!.body.tool_choice).toBe('auto');
     expect((dataCall!.body.tools as any[]).map((t) => t.function.name)).toEqual(['s1_events_on']);
     expect(dataCall!.body.messages[0]!.content).toContain('Say the temperature and what to wear.');
@@ -49,6 +52,21 @@ describe('the skill in the owner\'s own chat', () => {
     const calls = await rows('SELECT n, label, tokens_in, tokens_out FROM thought_calls WHERE thought_id = ? ORDER BY n', thought.id);
     expect(calls.map((c) => c.label)).toEqual(['data', null]);
     expect(BigInt(thought.price_yocto)).toBe(thoughtPrice(env, calls.map((c) => ({ tokensIn: c.tokens_in, tokensOut: c.tokens_out }))));
+  });
+
+  it('lets a second data call follow the first: the place, then its forecast, both on the receipt', async () => {
+    const { tk, mcp } = await skilledPet();
+    mcp.opts.callResult = (_name, args) => ({ content: [{ type: 'text', text: args.month === 11 ? 'lat 50.45 lon 30.52' : 'Kyiv tomorrow: 5 C, rain 60%' }] });
+    ai().push(ASK_DATA, { toolCalls: [{ name: 's1_events_on', arguments: '{"month": 12, "day": 1}' }], tokensIn: 950, tokensOut: 30 },
+      { content: 'Rain tomorrow, take an umbrella.', tokensIn: 1_200, tokensOut: 20 });
+    const out = await say(tk, PET, 'what about tomorrow in Kyiv?');
+    expect(out.thought.text).toBe('Rain tomorrow, take an umbrella.');
+    expect(mcp.requests.filter((r) => r.method === 'tools/call')).toHaveLength(2);
+    const last = ai().calls[2]!.body.messages.at(-1)!.content;
+    expect(last).toContain('lat 50.45 lon 30.52');
+    expect(last).toContain('Kyiv tomorrow: 5 C, rain 60%');
+    const [thought] = await rows("SELECT id FROM thoughts WHERE token_id = ? AND kind = 'reply'", PET);
+    expect((await rows('SELECT label FROM thought_calls WHERE thought_id = ? ORDER BY n', thought.id)).map((c) => c.label)).toEqual(['data', 'data', null]);
   });
 
   it('answers as before when the data call asks for no tool, and the pet does not pay for that call', async () => {

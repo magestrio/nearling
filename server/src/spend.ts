@@ -28,7 +28,7 @@ import {
   yoctoToUsdMicros,
 } from './pricing';
 import { buildMessages, hireLayer, inputBound, parseAsk, withOwnData, type Hired, type ThoughtJob } from './prompt';
-import { DATA_MAX_TOKENS, loadOffer, numbered, runDataStep, sourceLabelsOf } from './sources/step';
+import { DATA_MAX_TOKENS, loadOffer, numbered, runDataStep, sourceLabelsOf, type Read } from './sources/step';
 import { readSkill, SkillUnreadable } from './work/skill';
 import { gasIsLow, isPaused, setPause } from './servicePause';
 import { track } from './track';
@@ -305,20 +305,22 @@ interface Ctx {
   own: OwnData | null;
 }
 
-/** What the skill's data brought to the owner's own line: the request that answers, the signed data call, the labels of
- * the sources read and the price of that call. */
+/** What the skill's data brought to the owner's own line: the request that answers, the signed data calls that read
+ * something, the labels of the sources read and the price of those calls. */
 interface OwnData {
   messages: Message[];
-  call: SignedCall;
+  calls: SignedCall[];
   labels: string[];
   price: bigint;
 }
 
+/** How many data calls the owner's line may make: a second one follows a tool that brought what another needs. */
+const OWN_DATA_ROUNDS = 2;
+
 /** The data step of the owner's own line (code-first drift 2026-11-12, `Adapter call rule` widened to the owner's chat):
- * only for a pet whose skill has ticked tools or functions, and only when the data call at its ceiling and the cheapest
- * answer after it fit the food and the day's cap. A call the model makes with no tool, a lost call or no data read
- * leaves the line as it was; a lost call is the project's (`runDataStep`), one that ran without data is dropped and paid
- * by the project too, so the pet pays only for data it got. */
+ * only for a pet whose skill has ticked tools or functions, and each round only when its data call at the ceiling and the
+ * cheapest answer after it fit the food and the day's cap. A round that reads nothing ends the step; its call is the
+ * project's, so the pet pays only for calls that brought data. A lost call is the project's too (`runDataStep`). */
 async function ownData(env: Env, tokenId: string, messages: Message[], fs: FoodState): Promise<OwnData | null> {
   const offer = await loadOffer(env, tokenId);
   if (offer === null) return null;
@@ -331,23 +333,35 @@ async function ownData(env: Env, tokenId: string, messages: Message[], fs: FoodS
     return null;
   }
   if (skill === null) return null;
-  const dataMessages = withOwnData(messages, skill.instruction, null);
-  const dataBound = inputBound(dataMessages) + offer.toolsBytes;
-  const need = ceilingPrice(env, dataBound, DATA_MAX_TOKENS) + minCallPrice(env, inputBound(messages));
-  if (fs.room < need || fs.capLeft < need) return null;
-  const step = await runDataStep(env, offer, { tokenId, job: 'chat', messages: dataMessages, maxTokens: DATA_MAX_TOKENS, bound: dataBound });
-  if (step.kind !== 'ran') return null;
-  if (step.reads.length === 0) {
-    await projectPays(env, 'no_thought', usd12ToMicros(callsUsd12(env, [step.call.answer])));
-    return null;
+  const answerMin = minCallPrice(env, inputBound(messages));
+  const calls: SignedCall[] = [];
+  const reads: Read[] = [];
+  let spent = 0n;
+  for (let round = 0; round < OWN_DATA_ROUNDS; round += 1) {
+    const dataMessages = withOwnData(messages, skill.instruction, numbered(reads), false);
+    const dataBound = inputBound(dataMessages) + offer.toolsBytes;
+    const need = spent + ceilingPrice(env, dataBound, DATA_MAX_TOKENS) + answerMin;
+    if (fs.room < need || fs.capLeft < need) {
+      console.log('own_data:no_room');
+      break;
+    }
+    const step = await runDataStep(env, offer, { tokenId, job: 'chat', messages: dataMessages, maxTokens: DATA_MAX_TOKENS, bound: dataBound });
+    if (step.kind !== 'ran') {
+      console.log(`own_data:${step.kind}`);
+      break;
+    }
+    if (step.reads.length === 0) {
+      console.log(`own_data:${step.failed.length > 0 ? 'failed' : 'no_tool'}`);
+      await projectPays(env, 'no_thought', usd12ToMicros(callsUsd12(env, [step.call.answer])));
+      break;
+    }
+    calls.push(step.call);
+    reads.push(...step.reads);
+    spent = thoughtPrice(env, calls.map((c) => ({ tokensIn: c.answer.tokensIn, tokensOut: c.answer.tokensOut })));
   }
-  const answer = step.call.answer;
-  return {
-    messages: withOwnData(messages, skill.instruction, numbered(step.reads)),
-    call: step.call,
-    labels: sourceLabelsOf(step.reads),
-    price: thoughtPrice(env, [{ tokensIn: answer.tokensIn, tokensOut: answer.tokensOut }]),
-  };
+  if (calls.length === 0) return null;
+  console.log(`own_data:read:${calls.length}`);
+  return { messages: withOwnData(messages, skill.instruction, numbered(reads), true), calls, labels: sourceLabelsOf(reads), price: spent };
 }
 
 async function think(env: Env, tokenId: string, pet: PetRecord, job: ThoughtJob, fs: FoodState, ctx: Ctx): Promise<JobResult> {
@@ -355,7 +369,7 @@ async function think(env: Env, tokenId: string, pet: PetRecord, job: ThoughtJob,
   let plan = ctx.plan;
   const calls: SignedCall[] = [];
   const answers: Answer[] = [];
-  const dataAnswers = ctx.own === null ? [] : [ctx.own.call.answer];
+  const dataAnswers = ctx.own === null ? [] : ctx.own.calls.map((c) => c.answer);
 
   // First call.
   if (ctx.opts.ownerAccount !== undefined) {
@@ -397,7 +411,7 @@ async function think(env: Env, tokenId: string, pet: PetRecord, job: ThoughtJob,
     }
     calls.push({ answer, signed });
   }
-  if (ctx.own !== null) calls.unshift(ctx.own.call);
+  if (ctx.own !== null) calls.unshift(...ctx.own.calls);
 
   const now = Date.now();
   const socialResult = job.kind === 'diary'
@@ -519,8 +533,8 @@ async function think(env: Env, tokenId: string, pet: PetRecord, job: ThoughtJob,
         answer.tokensReasoning,
         // Per call, as the receipt says: whether this call stopped at its ceiling.
         answer.finishReason === 'length' ? 1 : 0,
-        // the data call of the owner's own line is the first one, named as an errand's and a worker's are
-        n === 0 && ctx.own !== null ? 'data' : null,
+        // the data calls of the owner's own line come first, named as an errand's and a worker's are
+        ctx.own !== null && n < ctx.own.calls.length ? 'data' : null,
       ),
     ),
     ...(job.kind === 'diary' ? socialLineStatements(env.DB, tokenId, job.day, ctx.epoch, socialResult.lines, ctx.social) : []),
