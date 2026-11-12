@@ -27,7 +27,7 @@ describe('the Worker\'s reads of the contract', () => {
     h.net().contract.addPet('5', NEAR_ACCOUNT(1), { name: 'Biscuit' });
     h.net().rpc.primaryStatus = status;
     expect((await petView(env, '5'))?.name).toBe('Biscuit');
-    expect(h.net().fetched).toContain('https://rpc.testnet.near.org');
+    expect(h.net().fetched).toContain('https://near-testnet.drpc.org');
   });
 });
 

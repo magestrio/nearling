@@ -73,7 +73,7 @@ describe('Conversation access data', () => {
     expect(visitor.status).toBe(503);
     expect(visitor.body).toEqual({ code: 'chain_unreachable' });
     // Nothing reached NEAR AI: reads may try both testnet RPCs before failing closed.
-    expect(h.net().fetched.every((u) => u === env.NEAR_RPC_URL || u === 'https://rpc.testnet.near.org' || u === 'https://privy.test/jwks.json')).toBe(true);
+    expect(h.net().fetched.every((u) => u === env.NEAR_RPC_URL || u === 'https://near-testnet.drpc.org' || u === 'https://rpc.testnet.near.org' || u === 'https://privy.test/jwks.json')).toBe(true);
   });
 
   // spec: add-pet › Conversation access data › чужой питомец

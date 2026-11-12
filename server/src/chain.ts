@@ -180,28 +180,45 @@ function sendRpcProvider(env: Pick<Env, 'NEAR_RPC_URL'>): JsonRpcProvider {
  * FailoverRpcProvider, but its installed implementation retries semantic errors and logs every
  * caught error. Here only unavailable RPCs fail over, and no request data is logged. */
 export function rpcProvider(env: Pick<Env, 'NEAR_RPC_URL'> & Partial<Pick<Env, 'NEAR_NETWORK'>>): JsonRpcProvider {
-  const fallback = String(env.NEAR_NETWORK) === 'mainnet' ? 'https://rpc.mainnet.near.org' : 'https://rpc.testnet.near.org';
-  // Four attempts per endpoint and the second endpoint remain available, while an
-  // unavailable pair exhausts its retry delays in under a second (300 ms each).
-  const options = { retries: 4, wait: 20, backoff: 2 };
-  const first = new JsonRpcProvider({ url: env.NEAR_RPC_URL }, options);
-  if (fallback === String(env.NEAR_RPC_URL)) return first;
-  const second = new JsonRpcProvider({ url: fallback }, options);
+  // near-api-js retries only 500/503/408 and network failures: a 429 or 502 throws at once. Public RPCs answer
+  // Cloudflare's shared addresses with 429 under load, so a read walks the list twice, a short pause between tries.
+  const fallbacks = String(env.NEAR_NETWORK) === 'mainnet'
+    ? ['https://near.drpc.org', 'https://rpc.mainnet.near.org']
+    : ['https://near-testnet.drpc.org', 'https://rpc.testnet.near.org'];
+  const urls = [String(env.NEAR_RPC_URL), ...fallbacks.filter((url) => url !== String(env.NEAR_RPC_URL))];
+  const options = { retries: 3, wait: 20, backoff: 2 };
+  const providers = urls.map((url) => new JsonRpcProvider({ url }, options));
+  const first = providers[0]!;
+  if (providers.length === 1) return first;
   return new Proxy(first, {
     get(target, key) {
       const method = Reflect.get(target, key);
       if (typeof method !== 'function') return method;
       if (typeof key === 'string' && key.startsWith('sendTransaction')) return method.bind(target);
       return async (...args: unknown[]) => {
-        try { return await method.apply(target, args); }
-        catch (error) {
-          const name = (error as { name?: string })?.name;
-          if (error instanceof AccessKeyDoesNotExistError || error instanceof AccountDoesNotExistError ||
-            error instanceof InvalidNonceError || error instanceof InvalidTransactionError ||
-            error instanceof NotEnoughBalanceError || error instanceof TransactionExecutionError ||
-            name === 'UnknownTransactionError' || name === 'TransactionTimeoutError') throw error;
-          return method.apply(second, args);
+        let last: unknown;
+        let throttled = false;
+        for (let round = 0; round < 2 && (round === 0 || throttled); round++) {
+          for (const [i, provider] of providers.entries()) {
+            try { return await method.apply(provider, args); }
+            catch (error) {
+              const name = (error as { name?: string })?.name;
+              if (error instanceof AccessKeyDoesNotExistError || error instanceof AccountDoesNotExistError ||
+                error instanceof InvalidNonceError || error instanceof InvalidTransactionError ||
+                error instanceof NotEnoughBalanceError || error instanceof TransactionExecutionError ||
+                name === 'UnknownTransactionError' || name === 'TransactionTimeoutError') throw error;
+              // the host and the refusal only: never the request
+              const cause = (error as { cause?: unknown })?.cause;
+              console.log('rpc_read_failed', new URL(urls[i]!).host, String(cause ?? name ?? 'error'));
+              last = error;
+              if (cause === 429 || cause === 502) {
+                throttled = true;
+                await new Promise((resolve) => setTimeout(resolve, 60 * (round + 1)));
+              }
+            }
+          }
         }
+        throw last;
       };
     },
   });

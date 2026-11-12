@@ -1358,7 +1358,7 @@ export function installNetwork(): Network {
       if (jwks.status === 0) throw new TypeError('Failed to fetch');
       return jwks.status === 200 ? Response.json({ keys: [publicJwk] }) : new Response('unavailable', { status: jwks.status });
     }
-    if (url === env.NEAR_RPC_URL || url === 'https://rpc.testnet.near.org' || url === 'https://rpc.mainnet.near.org') {
+    if (url === env.NEAR_RPC_URL || url === 'https://rpc.testnet.near.org' || url === 'https://rpc.mainnet.near.org' || url === 'https://near-testnet.drpc.org' || url === 'https://near.drpc.org') {
       if (url === env.NEAR_RPC_URL && rpc.primaryStatus !== 200) return new Response('unavailable', { status: rpc.primaryStatus });
       if (contract.down) return new Response('unavailable', { status: 503 });
       const request = JSON.parse(String(init?.body ?? (input instanceof Request ? await input.text() : '{}'))) as { id: string; method: string; params: Record<string, unknown> };
