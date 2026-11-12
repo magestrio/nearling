@@ -27,7 +27,9 @@ import {
   usd12ToMicros,
   yoctoToUsdMicros,
 } from './pricing';
-import { buildMessages, hireLayer, inputBound, parseAsk, type Hired, type ThoughtJob } from './prompt';
+import { buildMessages, hireLayer, inputBound, parseAsk, withOwnData, type Hired, type ThoughtJob } from './prompt';
+import { DATA_MAX_TOKENS, loadOffer, numbered, runDataStep, sourceLabelsOf } from './sources/step';
+import { readSkill, SkillUnreadable } from './work/skill';
 import { gasIsLow, isPaused, setPause } from './servicePause';
 import { track } from './track';
 import { recordWillEvent } from './will/events';
@@ -241,7 +243,7 @@ export async function run(env: Env, tokenId: string, job: ThoughtJob, epoch?: nu
     hireMode = await hireModeOf(env.DB, tokenId);
     candidates = await findCandidates(env, { tokenId, pet, food: fs }, hireMode, now);
   }
-  const messages = await buildMessages(
+  let messages = await buildMessages(
     env.DB,
     tokenId,
     pet,
@@ -250,6 +252,14 @@ export async function run(env: Env, tokenId: string, job: ThoughtJob, epoch?: nu
     { ...(candidates.length > 0 ? { hire: hireLayer(candidates) } : {}), ...(opts.turn?.hired === undefined ? {} : { hired: opts.turn.hired }), wish, invitation,
       friends: await friendsLayer(env, tokenId) },
   );
+  // The owner's own line may need the skill's data: the data call runs first, and what it read rides in the request
+  // that answers. Its call is the thought's first one, paid by the pet like the rest; the food it took is out of the plan.
+  let own: OwnData | null = null;
+  if (opts.turn === undefined && job.kind === 'reply') {
+    own = await ownData(env, tokenId, messages, fs);
+    if (own !== null) messages = own.messages;
+  }
+  const planFs = own === null ? fs : { ...fs, room: fs.room - own.price, capLeft: fs.capLeft - own.price };
   const bound = inputBound(messages);
   const minCall = minCallPrice(env, bound);
   // The re-ask of «Think hard» is paid before the first call is allowed to eat the room: 40 output
@@ -257,7 +267,7 @@ export async function run(env: Env, tokenId: string, job: ThoughtJob, epoch?: nu
   const reaskMin = deep ? ceilingPrice(env, bound, EDGE_CEILING, false) : 0n;
 
   // 1. The daily cap first: with no room for even the cheapest call there is no call and no spend.
-  if (fs.capLeft < minCall + reaskMin) {
+  if (planFs.capLeft < minCall + reaskMin) {
     await markTired(env.DB, tokenId, now);
     track('daily_cap_reached');
     return { code: 'tired', events: ['daily_cap_reached'] };
@@ -265,11 +275,11 @@ export async function run(env: Env, tokenId: string, job: ThoughtJob, epoch?: nu
 
   // 2/3. The edge of sleep, or the ceiling (design.md › «The call with a 40-token ceiling»).
   const fuse = deep ? FUSE_DEEP : FUSE_CHAT;
-  const plan = planOf(env, bound, fs, fuse, reaskMin);
+  const plan = planOf(env, bound, planFs, fuse, reaskMin);
   const reserve = ceilingPrice(env, bound, plan.ceiling) + reaskMin;
   await env.DB.prepare('INSERT OR REPLACE INTO pet_spend (token_id, reserve_yocto, job_id) VALUES (?, ?, ?)').bind(tokenId, reserve.toString(), null).run();
   try {
-    return await think(env, tokenId, pet, job, fs, { messages, bound, plan, deep, reserve, epoch: heldEpoch, candidates, hireMode, opts, social, wish, invitation });
+    return await think(env, tokenId, pet, job, fs, { messages, bound, plan, deep, reserve, epoch: heldEpoch, candidates, hireMode, opts, social, wish, invitation, own });
   } finally {
     await env.DB.prepare('DELETE FROM pet_spend WHERE token_id = ?').bind(tokenId).run();
   }
@@ -291,6 +301,53 @@ interface Ctx {
   /** How the pet hires in this turn: Auto goes on to the worker, Manual stops at an offer. */
   hireMode: HireMode;
   opts: RunOpts;
+  /** The data call of the owner's own line, if the skill's data was read for it. */
+  own: OwnData | null;
+}
+
+/** What the skill's data brought to the owner's own line: the request that answers, the signed data call, the labels of
+ * the sources read and the price of that call. */
+interface OwnData {
+  messages: Message[];
+  call: SignedCall;
+  labels: string[];
+  price: bigint;
+}
+
+/** The data step of the owner's own line (code-first drift 2026-11-12, `Adapter call rule` widened to the owner's chat):
+ * only for a pet whose skill has ticked tools or functions, and only when the data call at its ceiling and the cheapest
+ * answer after it fit the food and the day's cap. A call the model makes with no tool, a lost call or no data read
+ * leaves the line as it was; a lost call is the project's (`runDataStep`), one that ran without data is dropped and paid
+ * by the project too, so the pet pays only for data it got. */
+async function ownData(env: Env, tokenId: string, messages: Message[], fs: FoodState): Promise<OwnData | null> {
+  const offer = await loadOffer(env, tokenId);
+  if (offer === null) return null;
+  let skill: { instruction: string } | null;
+  try {
+    skill = await readSkill(env, tokenId);
+  } catch (e) {
+    if (!(e instanceof SkillUnreadable)) throw e;
+    console.log('skill_unreadable');
+    return null;
+  }
+  if (skill === null) return null;
+  const dataMessages = withOwnData(messages, skill.instruction, null);
+  const dataBound = inputBound(dataMessages) + offer.toolsBytes;
+  const need = ceilingPrice(env, dataBound, DATA_MAX_TOKENS) + minCallPrice(env, inputBound(messages));
+  if (fs.room < need || fs.capLeft < need) return null;
+  const step = await runDataStep(env, offer, { tokenId, job: 'chat', messages: dataMessages, maxTokens: DATA_MAX_TOKENS, bound: dataBound });
+  if (step.kind !== 'ran') return null;
+  if (step.reads.length === 0) {
+    await projectPays(env, 'no_thought', usd12ToMicros(callsUsd12(env, [step.call.answer])));
+    return null;
+  }
+  const answer = step.call.answer;
+  return {
+    messages: withOwnData(messages, skill.instruction, numbered(step.reads)),
+    call: step.call,
+    labels: sourceLabelsOf(step.reads),
+    price: thoughtPrice(env, [{ tokensIn: answer.tokensIn, tokensOut: answer.tokensOut }]),
+  };
 }
 
 async function think(env: Env, tokenId: string, pet: PetRecord, job: ThoughtJob, fs: FoodState, ctx: Ctx): Promise<JobResult> {
@@ -298,6 +355,7 @@ async function think(env: Env, tokenId: string, pet: PetRecord, job: ThoughtJob,
   let plan = ctx.plan;
   const calls: SignedCall[] = [];
   const answers: Answer[] = [];
+  const dataAnswers = ctx.own === null ? [] : [ctx.own.call.answer];
 
   // First call.
   if (ctx.opts.ownerAccount !== undefined) {
@@ -305,7 +363,7 @@ async function think(env: Env, tokenId: string, pet: PetRecord, job: ThoughtJob,
     if (current?.owner_id !== ctx.opts.ownerAccount) return { code: 'no_pet' };
   }
   const first = await complete(env, { messages, maxTokens: plan.ceiling, thinking: deep, timeoutMs: deep ? DEEP_TIMEOUT_MS : CHAT_TIMEOUT_MS });
-  const failure = await refusalOf(env, first, ctx.reserve);
+  const failure = await refusalOf(env, first, ctx.reserve, dataAnswers);
   if (failure !== null) return failure;
   const a1 = first as Answer;
   answers.push(a1);
@@ -320,7 +378,7 @@ async function think(env: Env, tokenId: string, pet: PetRecord, job: ThoughtJob,
     if (second !== null) {
       plan = second;
       const retry = await complete(env, { messages, maxTokens: second.ceiling, thinking: false, timeoutMs: CHAT_TIMEOUT_MS });
-      const bad = await refusalOf(env, retry, ctx.reserve, answers);
+      const bad = await refusalOf(env, retry, ctx.reserve, [...dataAnswers, ...answers]);
       if (bad !== null) return bad;
       answers.push(retry as Answer);
       reasked = true;
@@ -333,12 +391,13 @@ async function think(env: Env, tokenId: string, pet: PetRecord, job: ThoughtJob,
     const signed = await signatureOf(env, answer);
     if (signed === null) {
       // The tokens were used and nobody can prove the answer: the project pays them.
-      await projectPays(env, 'no_thought', usd12ToMicros(callsUsd12(env, answers)));
+      await projectPays(env, 'no_thought', usd12ToMicros(callsUsd12(env, [...dataAnswers, ...answers])));
       console.log('signature_missing');
       return { code: 'ai_unavailable' };
     }
     calls.push({ answer, signed });
   }
+  if (ctx.own !== null) calls.unshift(ctx.own.call);
 
   const now = Date.now();
   const socialResult = job.kind === 'diary'
@@ -358,7 +417,7 @@ async function think(env: Env, tokenId: string, pet: PetRecord, job: ThoughtJob,
   if (empty) {
     const n = await countEmpty(env, tokenId, utcDay(now));
     if (n <= FREE_EMPTY_ANSWERS) {
-      await projectPays(env, 'no_thought', usd12ToMicros(callsUsd12(env, answers)));
+      await projectPays(env, 'no_thought', usd12ToMicros(callsUsd12(env, [...dataAnswers, ...answers])));
       console.log('empty_free');
       return { code: 'ai_unavailable' };
     }
@@ -367,7 +426,7 @@ async function think(env: Env, tokenId: string, pet: PetRecord, job: ThoughtJob,
   // The pet pays by usage; at the edge of sleep all it has left, and the project the difference. A purchase
   // held in `sending` or `unknown` takes its price out of `room` and brings a pet with food to this branch
   // too: it answers short at the project's cost until the purchase settles (a known risk, D-92).
-  const usagePrice = thoughtPrice(env, answers.map((a) => ({ tokensIn: a.tokensIn, tokensOut: a.tokensOut })));
+  const usagePrice = thoughtPrice(env, [...dataAnswers, ...answers].map((a) => ({ tokensIn: a.tokensIn, tokensOut: a.tokensOut })));
   let price = plan.edge ? fs.room : usagePrice;
   if (price > fs.room) price = fs.room;
   if (price > fs.capLeft) price = fs.capLeft;
@@ -416,7 +475,7 @@ async function think(env: Env, tokenId: string, pet: PetRecord, job: ThoughtJob,
   }
   const statements = [
     env.DB.prepare(
-      "INSERT INTO thoughts (id, token_id, created_at, kind, player_text, reply_text, model, price_yocto, price_usd_micros, cut, reasked, payer, session_id, status, worker_id, worker_name, skilled, recall, turn_id, near_usd_rate) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pet', ?, 'unbilled', ?, ?, ?, ?, ?, ?)",
+      "INSERT INTO thoughts (id, token_id, created_at, kind, player_text, reply_text, model, price_yocto, price_usd_micros, cut, reasked, payer, session_id, status, worker_id, worker_name, skilled, recall, turn_id, near_usd_rate, data_labels) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pet', ?, 'unbilled', ?, ?, ?, ?, ?, ?, ?)",
     ).bind(
       thoughtId,
       tokenId,
@@ -439,10 +498,11 @@ async function think(env: Env, tokenId: string, pet: PetRecord, job: ThoughtJob,
       asked !== null ? (asked.skilled ? 0 : 1) : (ctx.opts.turn?.recall ?? 1),
       turnId,
       env.NEAR_USD_RATE,
+      ctx.own === null || empty ? null : JSON.stringify(ctx.own.labels),
     ),
     ...calls.map(({ answer, signed }, n) =>
       env.DB.prepare(
-        'INSERT INTO thought_calls (thought_id, n, req_bytes, res_bytes, req_sha256, res_sha256, signature, sig_kind, signer, completion_id, tokens_in, tokens_out, tokens_reasoning, cut) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+        'INSERT INTO thought_calls (thought_id, n, req_bytes, res_bytes, req_sha256, res_sha256, signature, sig_kind, signer, completion_id, tokens_in, tokens_out, tokens_reasoning, cut, label) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
       ).bind(
         thoughtId,
         n,
@@ -459,6 +519,8 @@ async function think(env: Env, tokenId: string, pet: PetRecord, job: ThoughtJob,
         answer.tokensReasoning,
         // Per call, as the receipt says: whether this call stopped at its ceiling.
         answer.finishReason === 'length' ? 1 : 0,
+        // the data call of the owner's own line is the first one, named as an errand's and a worker's are
+        n === 0 && ctx.own !== null ? 'data' : null,
       ),
     ),
     ...(job.kind === 'diary' ? socialLineStatements(env.DB, tokenId, job.day, ctx.epoch, socialResult.lines, ctx.social) : []),

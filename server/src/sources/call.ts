@@ -15,7 +15,7 @@ import { SkillUnreadable } from '../work/skill';
 export type SourceOutcome = 'ok' | 'cached' | 'busy' | 'slow' | 'down' | 'refused';
 export type Failure = Exclude<SourceOutcome, 'ok' | 'cached'>;
 /** Whose job calls: a test run of the code logs no `adapter_called` (`Data source call data` › «data source called»). */
-export type CallJob = 'hire' | 'advice' | 'errand' | 'test';
+export type CallJob = 'hire' | 'advice' | 'errand' | 'chat' | 'test';
 
 export const CALL_WAIT_MS = 5_000;
 /** One output, in characters (≈ 4,000 tokens). */

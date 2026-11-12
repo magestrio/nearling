@@ -108,7 +108,7 @@ export const SKILL_SAVE = 'Save skill';
 export const SKILL_FORGET = 'Forget this skill';
 /** `Skill sheet screen` › what the sheet says. */
 export const skillSaysLines = (name: string, time: string): string[] => [
-  `${name} uses this only when it answers for others or runs your errands, never in your chats. Other players can't read it, but we send it to NEAR AI with each job, and a clever question could coax out the gist — so leave out anything secret.`,
+  `${name} uses this when it answers for others, runs your errands, or looks up its data for your questions in chat. Other players can't read it, but we send it to NEAR AI with each job, and a clever question could coax out the gist — so leave out anything secret.`,
   `The game sets what others pay in food: it climbs with each job today and resets at ${time}.`,
 ];
 /** `Skill sheet screen` › error. */

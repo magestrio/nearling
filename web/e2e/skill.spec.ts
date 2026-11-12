@@ -84,7 +84,7 @@ test('skill already written: both fields hold the label and the instruction, wit
 test('what the sheet says: the two lines, the second with the reset time on the player\'s clock', async ({ page }) => {
   await open(page);
   await openSkill(page, TEACH);
-  await expect(sheet(page).getByText("Pixel uses this only when it answers for others or runs your errands, never in your chats. Other players can't read it, but we send it to NEAR AI with each job, and a clever question could coax out the gist — so leave out anything secret.")).toBeVisible();
+  await expect(sheet(page).getByText("Pixel uses this when it answers for others, runs your errands, or looks up its data for your questions in chat. Other players can't read it, but we send it to NEAR AI with each job, and a clever question could coax out the gist — so leave out anything secret.")).toBeVisible();
   await expect(sheet(page).getByText('The game sets what others pay in food: it climbs with each job today and resets at 02:00.')).toBeVisible();
 });
 
