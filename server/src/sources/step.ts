@@ -134,6 +134,8 @@ export interface StepArgs {
   bound: number;
   /** The screened caller writes any failure cost with its screening id. */
   screened?: boolean;
+  /** How long the data call may take; `DATA_TIMEOUT_MS` when absent. */
+  timeoutMs?: number;
 }
 
 /** The data call and the calls it asked for. A function that fails, a source that does not answer and a value the rule
@@ -144,7 +146,7 @@ export async function runDataStep(env: Env, offer: Offer, a: StepArgs): Promise<
     messages: a.messages,
     maxTokens: a.maxTokens,
     thinking: false,
-    timeoutMs: DATA_TIMEOUT_MS,
+    timeoutMs: a.timeoutMs ?? DATA_TIMEOUT_MS,
     extra: { tools: offer.tools, tool_choice: 'auto', nonce: hex(crypto.getRandomValues(new Uint8Array(16))) },
   });
   if (result.kind === 'paused') return { kind: 'paused' };

@@ -131,8 +131,9 @@ export async function complete(env: Pick<Env, 'NEARAI_API_KEY' | 'MODEL_ID'>, sp
       tokensReasoning: Number(parsed.usage.completion_tokens_details?.reasoning_tokens ?? 0),
       toolCalls: toolCallsOf(choice.message?.tool_calls),
     };
-  } catch {
-    // An abort, a dropped connection: no answer reached us in time.
+  } catch (e) {
+    // An abort, a dropped connection: no answer reached us in time. What was not our own abort is named in the log.
+    if (!abort.signal.aborted) console.log(`ai_error:${e instanceof Error ? e.name : 'unknown'}`);
     return { kind: 'timeout' };
   } finally {
     clearTimeout(timer);

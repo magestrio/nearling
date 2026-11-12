@@ -316,6 +316,8 @@ interface OwnData {
 
 /** How many data calls the owner's line may make: a second one follows a tool that brought what another needs. */
 const OWN_DATA_ROUNDS = 2;
+/** How long one data call of the owner's line may take: it answers in about 1.5 s, so a call this slow is stuck. */
+const OWN_DATA_TIMEOUT_MS = 12_000;
 
 /** The data step of the owner's own line (code-first drift 2026-11-12, `Adapter call rule` widened to the owner's chat):
  * only for a pet whose skill has ticked tools or functions, and each round only when its data call at the ceiling and the
@@ -345,7 +347,10 @@ async function ownData(env: Env, tokenId: string, messages: Message[], fs: FoodS
       console.log('own_data:no_room');
       break;
     }
-    const step = await runDataStep(env, offer, { tokenId, job: 'chat', messages: dataMessages, maxTokens: DATA_MAX_TOKENS, bound: dataBound });
+    const ask = () => runDataStep(env, offer, { tokenId, job: 'chat', messages: dataMessages, maxTokens: DATA_MAX_TOKENS, bound: dataBound, timeoutMs: OWN_DATA_TIMEOUT_MS });
+    // A data call that hangs is asked once more: the owner waits on it in a chat, not in an errand (dev, 2026-11-12).
+    let step = await ask();
+    if (step.kind === 'lost') step = await ask();
     if (step.kind !== 'ran') {
       console.log(`own_data:${step.kind}`);
       break;

@@ -69,6 +69,16 @@ describe('the skill in the owner\'s own chat', () => {
     expect((await rows('SELECT label FROM thought_calls WHERE thought_id = ? ORDER BY n', thought.id)).map((c) => c.label)).toEqual(['data', 'data', null]);
   });
 
+  // Bug (dev, Max, 2026-11-12): one data call hung to its 30 s timeout and the owner got an answer with no weather.
+  it('asks a data call that hangs once more, and answers from what the second one read', async () => {
+    const { tk, mcp } = await skilledPet();
+    mcp.opts.callResult = () => ({ content: [{ type: 'text', text: 'Milan: 12 C' }] });
+    ai().push({ hang: true }, ASK_DATA, { content: '', tokensIn: 950, tokensOut: 3 }, { content: 'Mild in Milan.', tokensIn: 1_100, tokensOut: 20 });
+    const out = await say(tk, PET, 'погода в милане?');
+    expect(out.thought.text).toBe('Mild in Milan.');
+    expect(ai().calls.at(-1)!.body.messages.at(-1)!.content).toContain('Milan: 12 C');
+  });
+
   it('answers as before when the data call asks for no tool, and the pet does not pay for that call', async () => {
     const { tk, mcp } = await skilledPet();
     ai().push({ content: '', tokensIn: 900, tokensOut: 5 }, { content: 'Hello!', tokensIn: 800, tokensOut: 10 });
