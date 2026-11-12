@@ -34,6 +34,7 @@ export function forgetStatements(db: D1Database, tokenId: string, now: number): 
     db.prepare("UPDATE jobs SET status = 'failed', result = ? WHERE token_id = ? AND status = 'queued'").bind(JSON.stringify(MEMORY_CLEARED), tokenId),
     db.prepare('UPDATE jobs SET payload = NULL WHERE token_id = ?').bind(tokenId),
     db.prepare('DELETE FROM memory_notes WHERE token_id = ?').bind(tokenId),
+    db.prepare('DELETE FROM pending_feed_wakes WHERE token_id = ?').bind(tokenId),
     // Active and staged experience, its approvals and its public field vanish in the same batch.
     // The on-chain counts and billed receipt pointers are deliberately outside pet memory.
     db.prepare('DELETE FROM experience_field WHERE token_id = ?').bind(tokenId),

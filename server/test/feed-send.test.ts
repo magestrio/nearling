@@ -8,6 +8,8 @@ import { recentBlockHash } from '../src/chain';
 import { settleFeedIntroductions, settleStaleFeedings } from '../src/cron';
 import { implicitKey } from '../src/feeding/portion';
 import { forgetStatements } from '../src/pet/forget';
+import { FEEDINGS_COLUMNS, settleFeeding, type FeedingRow } from '../src/pet/settle';
+import { pendingFriendWake } from '../src/pet/wake';
 import { setPause } from '../src/servicePause';
 import { api, harness } from './helpers/api';
 import { keyedPlayer, NEAR_ACCOUNT, token } from './helpers/network';
@@ -386,6 +388,25 @@ describe('a meal whose tab went away', () => {
     expect(await rows("SELECT * FROM jobs WHERE kind = 'wake'")).toHaveLength(1);
   });
 
+  // spec: add-pet › Sleep and wake flow › разбудил друг при открытой странице × cron settles before a readable pet view
+  it('keeps the cron-settled friend pending until the owner poll can claim the wake', async () => {
+    await asleepPet();
+    const owner = await token('did:privy:owner', OWNER);
+    const maya = await player(NEAR, 'Maya');
+    h.net().contract.mode = 'executed-but-silent';
+    await send(maya, await build(maya));
+    h.net().contract.mode = 'normal';
+    h.net().contract.failingViews.add('pet_view');
+    await settleStaleFeedings(env, Date.now() + 90_000);
+    expect(await rows('SELECT * FROM feedings')).toEqual([]);
+    expect(await rows('SELECT name FROM pending_feed_wakes')).toEqual([{ name: 'Maya' }]);
+    expect(await rows("SELECT * FROM jobs WHERE kind = 'wake'")).toEqual([]);
+    h.net().contract.failingViews.clear();
+    expect((await api('/api/pets/7/state?wakes=0', { token: owner })).body.friend).toBe('Maya');
+    expect(await rows('SELECT * FROM pending_feed_wakes')).toEqual([]);
+    expect(await rows("SELECT payload FROM jobs WHERE kind = 'wake'")).toHaveLength(1);
+  });
+
   // spec: add-feeding › Feeding outcome rule › исход неизвестен × the reference block expired
   it('is failed after 24 hours when the network never answered: the portion can no longer land', async () => {
     await awakePet();
@@ -501,6 +522,180 @@ describe('a read that fails right after the chain recorded the meal', () => {
     };
   };
 
+  // spec: add-pet › Sleep and wake flow › разбудил друг при открытой странице × overlapping state polls
+  it('keeps the named first thought when a second poll sees the first poll already awake', async () => {
+    await asleepPet();
+    const p = await player(NEAR, 'Maya');
+    readsFailAtTheSend();
+    expect((await feed(p)).body.status).toBe('ok');
+    h.net().contract.failingViews.clear();
+
+    let updated!: () => void;
+    let resume!: () => void;
+    const updateDone = new Promise<void>((resolve) => { updated = resolve; });
+    const release = new Promise<void>((resolve) => { resume = resolve; });
+    // On the old path, pause after the wake UPDATE commits but before the job INSERT.
+    // The second poll then observes an awake pet and cleans up the pending row.
+    const db = new Proxy(env.DB, {
+      get(target, key) {
+        if (key === 'prepare') return (sql: string) => {
+          const statement = target.prepare(sql);
+          if (!sql.startsWith('UPDATE pets SET slept_at = NULL') || sql.includes('AND EXISTS (SELECT 1 FROM jobs')) return statement;
+          return new Proxy(statement, {
+            get(prepared, method) {
+              if (method !== 'bind') return Reflect.get(prepared, method);
+              return (...values: unknown[]) => {
+                const bound = prepared.bind(...values);
+                return new Proxy(bound, {
+                  get(query, operation) {
+                    if (operation !== 'run') return Reflect.get(query, operation);
+                    return async () => {
+                      const result = await query.run();
+                      updated();
+                      await release;
+                      return result;
+                    };
+                  },
+                });
+              };
+            },
+          });
+        };
+        const value = Reflect.get(target, key);
+        return typeof value === 'function' ? value.bind(target) : value;
+      },
+    });
+    const wakeEnv = { ...env, DB: db } as Env;
+    const first = pendingFriendWake(wakeEnv, '7');
+    const order = await Promise.race([updateDone.then(() => 'paused'), first.then(() => 'complete')]);
+    if (order === 'paused') {
+      await pendingFriendWake(wakeEnv, '7');
+      resume();
+    } else {
+      await pendingFriendWake(wakeEnv, '7');
+    }
+    await first;
+    expect(await rows('SELECT * FROM pending_feed_wakes')).toEqual([]);
+    expect(await one("SELECT slept_at, wake_seq, wake_by FROM pets WHERE token_id = '7'"))
+      .toEqual({ slept_at: null, wake_seq: 1, wake_by: 'Maya' });
+    const jobs = await rows("SELECT payload FROM jobs WHERE kind = 'wake'");
+    expect(jobs).toHaveLength(1);
+    expect(JSON.parse(jobs[0].payload)).toMatchObject({ cause: 'link', friend: 'Maya' });
+  });
+
+  // spec: add-feeding › Feeding outcome rule › отправлено × settlement retry during a pending named wake
+  it('does not replace the pending attribution when settlement retries after the first claim', async () => {
+    await asleepPet();
+    const owner = await token('did:privy:owner', OWNER);
+    const maya = await player(NEAR, 'Maya');
+    const tx = await build(maya);
+    let stale: FeedingRow | null = null;
+    h.net().contract.meanwhile.send_tx = async () => {
+      stale = await env.DB.prepare(`SELECT ${FEEDINGS_COLUMNS} FROM feedings`).first<FeedingRow>();
+      h.net().contract.failingViews.add('pet_view');
+    };
+    expect((await send(maya, tx)).body.status).toBe('ok');
+    expect(stale).not.toBeNull();
+    expect(await settleFeeding(env, stale!, { status: 'ok' })).toBe(false);
+    expect(await rows('SELECT name FROM pending_feed_wakes')).toEqual([{ name: 'Maya' }]);
+    h.net().contract.failingViews.clear();
+    expect((await api('/api/pets/7/state?wakes=0', { token: owner })).body.friend).toBe('Maya');
+    expect(await rows("SELECT payload FROM jobs WHERE kind = 'wake'")).toHaveLength(1);
+  });
+
+  // spec: add-feeding › Feed by link flow › друг покормил × a second confirmed feed while the first wake is pending
+  it('keeps the first confirmed feeder as the wake claimant when another friend feeds before the poll', async () => {
+    await asleepPet();
+    const owner = await token('did:privy:owner', OWNER);
+    const maya = await player(NEAR, 'Maya');
+    const leo = await player(NEAR, 'Leo');
+    readsFailAtTheSend();
+    expect((await feed(maya)).body.status).toBe('ok');
+    h.net().contract.failingViews.clear();
+    const next = await build(leo);
+    readsFailAtTheSend();
+    expect((await send(leo, next)).body.status).toBe('ok');
+    expect(await rows('SELECT name FROM pending_feed_wakes')).toEqual([{ name: 'Maya' }]);
+    h.net().contract.failingViews.clear();
+
+    const told = (await api('/api/pets/7/state?wakes=0', { token: owner })).body;
+    expect(told.friend).toBe('Maya');
+    expect(await rows('SELECT * FROM pending_feed_wakes')).toEqual([]);
+    const jobs = await rows("SELECT payload FROM jobs WHERE kind = 'wake'");
+    expect(jobs).toHaveLength(1);
+    expect(JSON.parse(jobs[0].payload)).toMatchObject({ cause: 'link', friend: 'Maya' });
+    expect(await rows("SELECT name FROM memory_notes WHERE kind = 'fed_by' ORDER BY at, rowid"))
+      .toEqual([{ name: 'Maya' }, { name: 'Leo' }]);
+  });
+
+  // spec: add-account › Memory deletion data › стёрто × Clear memory after a named wake claim
+  it('clears a claimed named wake without leaving its pending row or job payload', async () => {
+    await asleepPet();
+    const owner = await token('did:privy:owner', OWNER);
+    const maya = await player(NEAR, 'Maya');
+    readsFailAtTheSend();
+    expect((await feed(maya)).body.status).toBe('ok');
+    h.net().contract.failingViews.clear();
+    expect((await api('/api/pets/7/state?wakes=0', { token: owner })).body.friend).toBe('Maya');
+    expect((await api('/api/pets/7/memory/clear', { token: owner, method: 'POST' })).status).toBe(200);
+    expect(await rows('SELECT * FROM pending_feed_wakes')).toEqual([]);
+    expect(await one("SELECT wake_by FROM pets WHERE token_id = '7'")).toEqual({ wake_by: null });
+    expect(await rows("SELECT payload FROM jobs WHERE kind = 'wake'")).toEqual([{ payload: null }]);
+  });
+
+  // spec: add-feeding › Feed by link flow › друг покормил × two stale pet views after confirmation
+  it('keeps a named wake pending while two readable views lag the confirmed meal', async () => {
+    await asleepPet();
+    const owner = await token('did:privy:owner', OWNER);
+    const p = await player(NEAR, 'Maya');
+    h.net().contract.meanwhile.send_tx = async () => {
+      const asleep = { ...h.net().contract.pets.get('7')! };
+      h.net().contract.stalePetViews = [asleep, asleep];
+    };
+    const res = await feed(p);
+    expect(res.body).toMatchObject({ status: 'ok', friend: 'Maya' });
+    expect(await rows('SELECT * FROM feedings')).toEqual([]);
+    expect(await rows('SELECT * FROM pending_feed_wakes')).toHaveLength(1);
+    expect(await rows("SELECT name FROM memory_notes WHERE kind = 'fed_by'")).toEqual([{ name: 'Maya' }]);
+    expect(await rows("SELECT * FROM jobs WHERE kind = 'wake'")).toEqual([]);
+
+    const told = (await api('/api/pets/7/state?wakes=0', { token: owner })).body;
+    expect(told.events).toEqual(['woke']);
+    expect(told.friend).toBe('Maya');
+    expect(await rows('SELECT * FROM pending_feed_wakes')).toEqual([]);
+    expect(await one("SELECT wake_seq, wake_by FROM pets WHERE token_id = '7'"))
+      .toEqual({ wake_seq: 1, wake_by: 'Maya' });
+    const wakes = await rows("SELECT payload FROM jobs WHERE kind = 'wake'");
+    expect(wakes).toHaveLength(1);
+    expect(JSON.parse(wakes[0].payload)).toMatchObject({ cause: 'link', friend: 'Maya' });
+    expect(await rows("SELECT name FROM memory_notes WHERE kind = 'fed_by'")).toEqual([{ name: 'Maya' }]);
+  });
+
+  // spec: add-account › Memory deletion data › стёрто
+  it('does not restore a feeder name or queue its wake thought when memory is cleared during the poll pet view', async () => {
+    await asleepPet();
+    const owner = await token('did:privy:owner', OWNER);
+    const p = await player(NEAR, 'Maya');
+    readsFailAtTheSend();
+    expect((await feed(p)).body.status).toBe('ok');
+    expect(await rows('SELECT * FROM pending_feed_wakes')).toHaveLength(1);
+    h.net().contract.failingViews.clear();
+
+    // ownedPet reads first. The next pet view is wakeDue's awaited read, after the
+    // pending row and its name have been cached by pendingFriendWake.
+    h.net().contract.meanwhile.pet_view = async () => {
+      h.net().contract.meanwhile.pet_view = async () => {
+        const clear = await api('/api/pets/7/memory/clear', { token: owner, method: 'POST' });
+        expect(clear.status).toBe(200);
+      };
+    };
+    await api('/api/pets/7/state?wakes=0', { token: owner });
+    expect(await rows('SELECT * FROM pending_feed_wakes')).toEqual([]);
+    expect(await one("SELECT wake_by FROM pets WHERE token_id = '7'")).toEqual({ wake_by: null });
+    expect(await rows("SELECT * FROM jobs WHERE kind = 'wake'")).toEqual([]);
+    expect(await rows("SELECT * FROM memory_notes WHERE token_id = '7'")).toEqual([]);
+  });
+
   // spec: add-feeding › Feed by link flow › друг покормил × the network unread after the meal
   it('keeps the friend\'s attribution pending until a readable pet view queues one named wake', async () => {
     await asleepPet();
@@ -510,19 +705,23 @@ describe('a read that fails right after the chain recorded the meal', () => {
     const res = await feed(p);
     expect(res.status).toBe(200);
     expect(res.body).toMatchObject({ status: 'ok', friend: 'Maya' });
-    expect(await rows('SELECT * FROM feedings')).toHaveLength(1);
-    expect(await rows('SELECT * FROM memory_notes')).toEqual([]);
+    expect(await rows('SELECT * FROM feedings')).toEqual([]);
+    expect(await rows('SELECT * FROM pending_feed_wakes')).toHaveLength(1);
+    expect(await rows("SELECT name FROM memory_notes WHERE kind = 'fed_by'")).toEqual([{ name: 'Maya' }]);
     expect(await rows("SELECT * FROM jobs WHERE kind = 'wake'")).toEqual([]);
     expect((await one("SELECT slept_at FROM pets WHERE token_id = '7'")).slept_at).not.toBeNull();
 
     h.net().contract.failingViews.clear();
-    await settleStaleFeedings(env, Date.now() + 90_000);
-    await settleStaleFeedings(env, Date.now() + 90_000);
+    await awakePet('8');
+    expect((await feed(p, '0.01', '8')).body.status).toBe('ok');
     expect(await rows('SELECT * FROM feedings')).toEqual([]);
-    expect((await rows("SELECT kind, name FROM memory_notes"))).toEqual([{ kind: 'fed_by', name: 'Maya' }]);
-    expect(await rows("SELECT * FROM jobs WHERE kind = 'wake'")).toHaveLength(1);
     const told = (await api('/api/pets/7/state?wakes=0', { token: owner })).body;
     expect(told.events).toEqual(['woke']);
+    expect(told.friend).toBe('Maya');
+    expect(await rows('SELECT * FROM feedings')).toEqual([]);
+    expect(await rows('SELECT * FROM pending_feed_wakes')).toEqual([]);
+    expect((await rows("SELECT kind, name FROM memory_notes WHERE token_id = '7'"))).toEqual([{ kind: 'fed_by', name: 'Maya' }]);
+    expect(await rows("SELECT * FROM jobs WHERE kind = 'wake'")).toHaveLength(1);
     expect((await one("SELECT slept_at FROM pets WHERE token_id = '7'")).slept_at).toBeNull();
   });
 
@@ -599,25 +798,27 @@ describe('the owner\'s poll while a friend\'s meal is on its way', () => {
   });
 
   // spec: add-feeding › Feed by link flow › друг покормил × owner's poll before the outcome is settled
-  it('finds the row or the awake pet, never a gap between them: a poll inside the settlement is not the owner\'s wake', async () => {
+  it('lets an owner poll inside confirmed settlement make the named wake once', async () => {
     await asleepPet();
     const owner = await token('did:privy:owner', OWNER);
     const p = await player(NEAR, 'Maya');
     const chain = h.net().contract;
     let polled: any = null;
-    // the first read of the pet after the meal is the settlement's: the poll lands inside it
+    // The poll lands on the first read after the confirmed row was released.
     chain.meanwhile.send_tx = async () => {
       chain.meanwhile.pet_view = async () => {
         polled = (await poll(owner, 0)).body;
       };
     };
     expect((await feed(p)).body.status).toBe('ok');
-    expect(polled.events).toEqual([]);
+    expect(polled.events).toEqual(['woke']);
+    expect(polled.friend).toBe('Maya');
     expect(await one("SELECT slept_at, wake_by, wake_seq FROM pets WHERE token_id = '7'")).toEqual({ slept_at: null, wake_by: 'Maya', wake_seq: 1 });
     expect(await rows("SELECT name FROM memory_notes WHERE kind = 'fed_by'")).toEqual([{ name: 'Maya' }]);
     expect(await rows("SELECT * FROM jobs WHERE kind = 'wake'")).toHaveLength(1);
-    const told = (await poll(owner, 0)).body;
-    expect(told).toMatchObject({ events: ['woke'], friend: 'Maya', wakes: 1 });
+    const told = (await poll(owner, 1)).body;
+    expect(told.events).toEqual([]);
+    expect(told.wakes).toBe(1);
   });
 
   // spec: add-feeding › Feed by link flow › друг покормил × owner's poll before the outcome is settled

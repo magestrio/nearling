@@ -130,6 +130,7 @@ describe('a friend\'s snack', () => {
   // spec: add-feeding › Feed by link flow › даёт перекус × the network unread after the snack
   it('answers ok for a snack the chain recorded when the pet cannot be read after it', async () => {
     await pet();
+    const owner = await as(OWNER);
     const tk = await as(FRIEND);
     h.net().contract.meanwhile.send_tx = async () => {
       h.net().contract.failingViews.add('pet_view');
@@ -137,12 +138,14 @@ describe('a friend\'s snack', () => {
     const res = await snack(tk);
     expect(res.status).toBe(200);
     expect(res.body).toMatchObject({ status: 'ok', friend: 'Maya' });
-    expect(await rows('SELECT tx_hash FROM feedings')).toEqual([{ tx_hash: expect.any(String) }]);
-    expect(await rows("SELECT kind, name FROM memory_notes")).toEqual([]);
+    expect(await rows('SELECT tx_hash FROM feedings')).toEqual([]);
+    expect(await rows('SELECT * FROM pending_feed_wakes')).toHaveLength(1);
+    expect(await rows("SELECT kind, name FROM memory_notes")).toEqual([{ kind: 'fed_by', name: 'Maya' }]);
     h.net().contract.failingViews.clear();
-    await settleStaleFeedings(env, Date.now() + 90_000);
-    await settleStaleFeedings(env, Date.now() + 90_000);
+    const told = (await api('/api/pets/7/state?wakes=0', { token: owner })).body;
+    expect(told).toMatchObject({ events: ['woke'], friend: 'Maya' });
     expect(await rows('SELECT * FROM feedings')).toEqual([]);
+    expect(await rows('SELECT * FROM pending_feed_wakes')).toEqual([]);
     expect(await rows("SELECT kind, name FROM memory_notes")).toEqual([{ kind: 'fed_by', name: 'Maya' }]);
     expect(await rows("SELECT * FROM jobs WHERE kind = 'wake'")).toHaveLength(1);
     expect(h.events().filter((e) => e.name === 'pet_fed')).toHaveLength(1);

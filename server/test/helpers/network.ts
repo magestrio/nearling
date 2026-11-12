@@ -202,6 +202,8 @@ export class FakeContract {
   /** How far behind the next `pet_view`s answer, in accepted debits, one number per read: the reads
    * of a debit may hit RPC nodes at different heights. */
   lag: number[] = [];
+  /** Stale snapshots returned by the next pet views, including after a feed or snack. */
+  stalePetViews: FakePet[] = [];
   /** Each runs once, inside the next RPC call of that name and before it answers: what the rest of
    * the world does while the Worker waits on that call. */
   meanwhile: { view_account?: () => Promise<void>; pet_view?: () => Promise<void>; hatch_view?: () => Promise<void>; send_tx?: () => Promise<void>; tx?: () => Promise<void> } = {};
@@ -259,6 +261,8 @@ export class FakeContract {
     if (this.failingViews.has(method)) throw new Error(`the fake node fails ${method}`);
     switch (method) {
       case 'pet_view': {
+        const stale = this.stalePetViews.shift();
+        if (stale !== undefined) return stale;
         const before = this.past.get(String(args.token_id)) ?? [];
         return before[before.length - (this.lag.shift() ?? 0)] ?? this.pets.get(String(args.token_id)) ?? null;
       }

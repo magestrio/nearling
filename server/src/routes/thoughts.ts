@@ -13,7 +13,7 @@ import { desk, enqueueJob, jobOf } from '../pet/desk';
 import { memoryEpoch } from '../pet/forget';
 import { settleRitual } from '../pet/ritual';
 import { ownerFields, wakeState } from '../pet/view';
-import { wakeIfFed } from '../pet/wake';
+import { pendingFriendWake, wakeIfFed } from '../pet/wake';
 import { isPaused, pauseReason } from '../servicePause';
 import { offerJobOnItsWay, standingOffer } from '../work/offer';
 import { priceView } from '../work/quote';
@@ -151,13 +151,14 @@ thoughtRoutes.get('/api/pets/:id/state', async (c) => {
   // The wake's source is the receipt that raised the food: a recorded `cross_chain_feed` credit is
   // «From another chain». While no such receipt has been read the wake carries no source line and no
   // name, and a friend's meal still on its way keeps its own line (and thanks) from the flow that sent it.
-  const crossChainCredit = friendOnItsWay !== null ? null : await c.env.DB.prepare(`SELECT 1 AS found FROM any_chain_delivery_evidence d
+  const named = await pendingFriendWake(c.env, id);
+  const crossChainCredit = friendOnItsWay !== null || named.pending || named.woke ? null : await c.env.DB.prepare(`SELECT 1 AS found FROM any_chain_delivery_evidence d
     JOIN any_chain_credit_evidence e ON e.credit_id = d.credit_id
     JOIN pets p ON p.token_id = d.token_id
     WHERE d.token_id = ? AND p.slept_at IS NOT NULL AND e.was_asleep = 1
       AND e.recorded_at >= p.slept_at LIMIT 1`).bind(id).first();
-  let woke = friendOnItsWay === null &&
-    (await wakeIfFed(c.env, id, crossChainCredit === null ? 'unattributed' : 'cross_chain'));
+  let woke = named.woke || (friendOnItsWay === null && !named.pending &&
+    (await wakeIfFed(c.env, id, crossChainCredit === null ? 'unattributed' : 'cross_chain')));
   // A wake that a feeding flow made since this page loaded is told by the counter, once per page
   // (`?wakes=<n>` of the page; a page that sends none is told of no old wake).
   const wakesSeen = c.req.query('wakes');

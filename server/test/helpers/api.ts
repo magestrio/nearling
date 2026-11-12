@@ -87,6 +87,7 @@ export function harness(): Harness {
     await env.DB.exec('DELETE FROM experience_field');
     await env.DB.exec('DELETE FROM society_relations');
     await env.DB.exec('DELETE FROM feed_introductions');
+    await env.DB.exec('DELETE FROM pending_feed_wakes');
     await env.DB.exec('DELETE FROM society_encounters');
     await env.DB.exec('DELETE FROM society_diary_lines');
     await env.DB.exec('DELETE FROM society_processed_hires');

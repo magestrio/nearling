@@ -9,8 +9,7 @@ import { KNOWN_RECORD_YOCTO, nearUsdRate, SNACK_YOCTO, yoctoToUsdMicros } from '
 import { lowerWalletSeen } from '../feeding/wallet';
 import { track } from '../track';
 import { noteFriend, noteMood } from './life';
-import { DIARY_WINDOW_MS } from './ritual';
-import { afterWake, wakeDue, wakeIfFed } from './wake';
+import { pendingFriendWake, wakeIfFed } from './wake';
 import { confirmedFunding } from '../errands/funding';
 import { startShared } from '../errands/sharedRun';
 
@@ -31,10 +30,7 @@ export interface FeedingRow {
 
 export type Outcome = { status: 'ok'; value?: string | null; burnt?: string } | { status: 'failed'; code: string };
 
-/** The node that executed the meal may be behind the one that answers a read a moment later; a wake
- * that finds the pet still asleep tries once more after this. */
 const SECOND_READ_MS = 1_000;
-
 const pause = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 
 export const FEEDINGS_COLUMNS = 'id, sub, account, token_id, source, via, deposit_yocto, tx_hash, created_at, job_hash';
@@ -66,35 +62,19 @@ export async function settleFeeding(env: Env, row: FeedingRow, outcome: Outcome)
     ).bind(funding.txHash, row.token_id, row.job_hash, row.account, row.source, funding.amount, Date.now(), funding.index));
   }
   let name = '';
-  let wakeClaimed = false;
   if (outcome.status === 'ok' && row.via === 'link') {
     const player = await env.DB.prepare('SELECT first_name FROM players WHERE sub = ?').bind(row.sub).first<{ first_name: string | null }>();
     // '' is a nameless friend: the pet and the owner say «a friend».
     name = player?.first_name ?? '';
-    // The owner's poll leaves the wake to this flow while the row stands, so the row and the friend's
-    // wake end in one write: a poll finds the row or the awake pet, never the sleep without the row.
-    let due: boolean;
-    try {
-      due = await friendWakeDue(env, row.token_id);
-    } catch (error) {
-      // The row keeps the friend's name and holds the owner's anonymous wake off. The feeder
-      // already gets the chain's confirmed outcome; a later settlement retries this decision.
-      if (error instanceof ChainUnreachable) return false;
-      throw error;
-    }
-    if (due) {
-      wakeClaimed = true;
-      claim.unshift(
-        // As `wakeIfFed`: a wake after the diary window notes the day without a diary.
-        env.DB.prepare(
-          'UPDATE pets SET slept_at = NULL, wake_seq = wake_seq + 1, wake_by = ?1, asleep_diary_day = CASE WHEN ?4 >= ?5 AND slept_at < ?5 THEN ?6 ELSE asleep_diary_day END WHERE token_id = ?2 AND slept_at IS NOT NULL AND EXISTS (SELECT 1 FROM feedings WHERE id = ?3)',
-        ).bind(name, row.token_id, row.id, Date.now(), utcDay(Date.now()) * 86_400_000 + DIARY_WINDOW_MS, utcDay(Date.now())),
-      );
-    }
+    // Commit the confirmed outcome now. The owner's poll can retry this named wake independently
+    // of the in-flight row, even if every pet view immediately after confirmation is stale.
+    claim.unshift(env.DB.prepare(`INSERT OR IGNORE INTO pending_feed_wakes (token_id, feed_id, name, created_at)
+      SELECT ?1, ?2, ?3, ?4 FROM pets WHERE token_id = ?1 AND slept_at IS NOT NULL
+        AND EXISTS (SELECT 1 FROM feedings WHERE id = ?2)`)
+      .bind(row.token_id, row.id, name, Date.now()));
   }
   const written = await env.DB.batch(claim);
   if (written.at(-1)!.results.length === 0) return false;
-  const friendWoke = wakeClaimed && written[0]!.meta.changes > 0;
 
   if (outcome.status === 'failed') {
     console.log(`${row.source === 'snack' ? 'snack' : 'feed'}_failed:${outcome.code}`);
@@ -139,11 +119,13 @@ export async function settleFeeding(env: Env, row: FeedingRow, outcome: Outcome)
   if (row.source === 'near' && row.deposit_yocto !== null) await lowerWalletSeen(env.DB, row.sub, BigInt(row.deposit_yocto));
 
   if (row.via === 'link') {
-    if (friendWoke) {
-      await afterWake(env, row.token_id, 'link', name);
-    } else {
-      // `afterWake` writes the note only for a wake; a meal that woke nothing is remembered here.
-      await env.DB.prepare("INSERT INTO memory_notes (token_id, kind, name, at) VALUES (?, 'fed_by', ?, ?)").bind(row.token_id, name, Date.now()).run();
+    await env.DB.prepare("INSERT INTO memory_notes (token_id, kind, name, at) VALUES (?, 'fed_by', ?, ?)").bind(row.token_id, name, Date.now()).run();
+    // A second provider read can see the just-confirmed food; the owner's poll remains the
+    // prompt retry if both reads lag or the RPC cannot be read.
+    const first = await pendingFriendWake(env, row.token_id);
+    if (first.pending) {
+      await pause(SECOND_READ_MS);
+      await pendingFriendWake(env, row.token_id);
     }
   } else {
     await unlessUnread(wakeIfFed(env, row.token_id, 'owner'));
@@ -151,19 +133,6 @@ export async function settleFeeding(env: Env, row: FeedingRow, outcome: Outcome)
   track('pet_fed', { via: row.via, source: row.source });
   if (row.job_hash != null) await startShared(env, row.token_id).catch(() => console.log('shared_start_failed'));
   return true;
-}
-
-/** Whether a friend's meal wakes the pet, read before the claim. The row holds the owner's poll off
- * meanwhile, also through the second read. */
-async function friendWakeDue(env: Env, tokenId: string): Promise<boolean> {
-  return (
-    (async () => {
-      if (await wakeDue(env, tokenId)) return true;
-      if (!(await isAsleep(env.DB, tokenId))) return false;
-      await pause(SECOND_READ_MS);
-      return wakeDue(env, tokenId);
-    })()
-  );
 }
 
 /** An owner meal can leave its wake to the owner's poll on an unreadable chain. */
@@ -174,9 +143,4 @@ async function unlessUnread(wake: Promise<boolean>): Promise<boolean> {
     if (e instanceof ChainUnreachable) return false;
     throw e;
   }
-}
-
-async function isAsleep(db: D1Database, tokenId: string): Promise<boolean> {
-  const row = await db.prepare('SELECT slept_at FROM pets WHERE token_id = ?').bind(tokenId).first<{ slept_at: number | null }>();
-  return row?.slept_at != null;
 }
