@@ -120,6 +120,7 @@
   --size-game-vacant-stage: 24rem;
   --size-game-vacant-stage-desktop: 28rem;
   --size-game-bubble: 22rem;
+  --size-game-chat: 44rem;
   --size-game-log: 5rem;
   --size-game-mobile-stage: calc(100dvh - 7rem);
   --size-game-hotbar-label-font: 0.75rem;

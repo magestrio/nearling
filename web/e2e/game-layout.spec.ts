@@ -822,3 +822,19 @@ test('a reload or erased site data brings More back closed', async ({ page, cont
   await page.reload();
   await expect(menu(page)).toHaveCount(0);
 });
+
+// Drift from the frames (2026-11-12): on a wide desktop the scene and the HUD reach the window's edges and only the
+// conversation keeps its reading width.
+test('a wide desktop (1728×1000): the scene and the HUD reach the edges, the conversation keeps its width', async ({ page }) => {
+  await page.setViewportSize({ width: 1728, height: 1000 });
+  await openPet(page);
+  await expect(feedButton(page)).toBeVisible();
+  const world = (await page.locator('.ds-stage__world').boundingBox())!;
+  const chat = (await page.locator('.ds-stage__chat').boundingBox())!;
+  const nameplate = (await plate(page).boundingBox())!;
+  expect(world.x).toBeLessThan(40);
+  expect(chat.x + chat.width).toBeGreaterThan(1728 - 40);
+  expect(chat.width).toBeLessThanOrEqual(704 + 1);
+  expect(nameplate.x).toBeLessThan(40);
+  if (process.env.SHOT_DIR) await page.screenshot({ path: `${process.env.SHOT_DIR}/desktop-1728.png` });
+});

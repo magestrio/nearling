@@ -1977,7 +1977,7 @@
 .ds-stage--game .ds-stage__chat .ds-convo-frame { min-height: var(--space-0); }
 .ds-stage--game .ds-stage__chat .ds-dock { margin-block-start: auto; padding: var(--space-2) var(--space-0) var(--space-0); }
 .ds-stage--game .ds-stage__hotbar { position: relative; grid-area: hotbar; min-width: var(--space-0); align-items: end; isolation: isolate; }
-.ds-stage--game .ds-stage__hotbar::before { content: ''; position: absolute; inset: var(--space-0); z-index: -1; background: radial-gradient(ellipse at top, var(--color-accent), transparent); opacity: var(--opacity-stage-horizon); }
+.ds-stage--game .ds-stage__hotbar::before { content: ''; position: absolute; inset: var(--space-0); z-index: -1; background: radial-gradient(ellipse at top, var(--color-accent), transparent); opacity: var(--opacity-stage-horizon); mask-image: radial-gradient(ellipse farthest-side at top, var(--color-bg-canvas) 50%, transparent); }
 .ds-bubble { box-sizing: border-box; position: relative; border-radius: var(--radius-xl); }
 .ds-bubble__foot { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); margin-block-start: var(--space-2); }
 .ds-bubble::after { content: ''; position: absolute; inset-block-end: calc(-1 * var(--size-game-bubble-tail)); inset-inline-end: var(--space-6); width: var(--size-game-bubble-tail); height: var(--size-game-bubble-tail); background: var(--color-bg-raised); border-inline-end: var(--stroke-control) solid var(--color-line-border); border-block-end: var(--stroke-control) solid var(--color-line-border); transform: rotate(var(--rotate-game-bubble-tail)); }
@@ -1993,6 +1993,17 @@
 .ds-pet-card__section .ds-link { width: 100%; min-height: var(--size-target); box-sizing: border-box; }
 .ds-pet-card__seal .ds-cluster { flex-wrap: nowrap; }
 .ds-pet-card__seal .ds-seal { flex: none; }
+
+/* Drift from the frames (2026-11-12): on desktop the game is the whole window. The scene and the HUD run to its
+   edges; only the conversation keeps a reading width. The sheets and menus anchored to the HUD follow its edges. */
+@media (min-width: 768px) {
+  .ds-hud__inner { max-width: none; }
+  .ds-stage--game { max-width: none; grid-template-columns: minmax(var(--space-0), 1fr) min(50%, var(--size-game-chat)); }
+  .ds-stage--game .ds-hotbar { max-width: var(--size-game-chat); }
+  .ds-shell__main:has(.ds-stage--game) > .ds-sheet-layer--column { inset-inline: auto var(--space-gutter-phone); width: min(calc((100% - 2 * var(--space-gutter-phone)) / 2), var(--size-game-chat)); }
+  :root:has(.ds-hud) .ds-menu { inset-inline-end: var(--space-gutter-phone); }
+  :root:has(.ds-hud) .ds-sheet-layer--popover .ds-sheet { inset-inline-start: var(--space-gutter-phone); }
+}
 
 /* The egg is a shell lit from within, with its light pooled on the ground. */
 .ds-egg::before { content: ''; position: absolute; inset: var(--space-0); background: radial-gradient(ellipse at center, var(--color-egg-shell), transparent); filter: blur(var(--blur-stage-pool)); opacity: var(--opacity-stage-pool); }
