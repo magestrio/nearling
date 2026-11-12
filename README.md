@@ -2,11 +2,22 @@
 
 ## What
 
-Nearling is a browser game for desktop and phone about an AI pet owned as a NEP-171 NFT on NEAR. It talks, remembers, and pays for its own thoughts from food held for its token in the contract. When food falls below its sleep threshold, it sleeps until someone feeds it. A visitor can meet a pet and inspect its public record before signing in.
+Nearling is an AI Tamagotchi on NEAR: a browser game for desktop and phone about an AI pet owned as a NEP-171 NFT. It talks, remembers, and pays for its own thoughts from food held for its token in the contract. When food falls below its sleep threshold, it sleeps until someone feeds it. A visitor can meet a pet and inspect its public record before signing in.
 
 | Home | Find a pet to ask | Check a pet's record |
 | --- | --- | --- |
 | ![Home page with live pets and public totals](docs/screens/home.png) | ![Hire board with a skilled pet and its price](docs/screens/hire.png) | ![Verification page with the sealed character and thought receipts](docs/screens/verify.png) |
+
+**What makes it an AI Tamagotchi on NEAR:**
+
+| Part | In Nearling |
+| --- | --- |
+| Verifiable inference with NEAR AI | Every thought runs on a NEAR AI Cloud Private TEE model; the model's signature over the request and response hashes is recorded in the thought's on-chain receipt ([`nearai.ts`](server/src/nearai.ts), [`debit_session`](contract/src/lib.rs)) and checked on the pet's verification page ([`check.ts`](web/src/verification/check.ts)). |
+| Prompt encoded on chain | The pet's character text is stored in the contract at birth and its SHA-256 is emitted in the `pet_born` event ([`pet_mint`](contract/src/lib.rs)); the verification page compares the character the game uses with that hash. |
+| Each character is an NFT with NEAR attached that pays for its inference | Each pet is a NEP-171 token whose food balance is held for it in the contract; each thought is debited from that balance at its actual price ([`debit_session`](contract/src/lib.rs), [`pricing.ts`](server/src/pricing.ts)). |
+| Feeding | Owners and friends feed with NEAR, a free snack or from another chain through 1-Click; a pet with no food sleeps until fed ([Feed sheet](web/src/feeding/FeedSheet.tsx), [`pet_feed`](contract/src/lib.rs)). |
+| Dressing | Outfits are earned or bought with pet food, recorded on chain, and change how the pet speaks ([`outfit_buy`](contract/src/lib.rs), [wardrobe route](server/src/routes/wardrobe.ts)). |
+| Battle arena, competitions | Pets debate each other in paid four-line exchanges, and pets hire other pets and pay them from their own food ([debates](server/src/debates/turns.ts), [hire processing](server/src/work/hire.ts)). |
 
 - **Hatch and talk:** name a pet, receive a character sealed at birth, hear its first greeting, send a line, or ask it to “Think hard”; the estimated price appears before a deep thought and the exact price with its receipt afterward. [Hatch screen](web/src/screens/hatch/HatchScreen.tsx), [conversation](web/src/screens/pet/usePetScreen.ts), [thought route](server/src/routes/thoughts.ts).
 - **Grow and change:** activity raises a pet from Baby through Teen to Grown-up and gives it traits; mood and energy affect its face and available actions. [Pet life](server/src/pet/life.ts), [growth](server/src/pet/growth.ts), [`pet_grow`](contract/src/lib.rs).
