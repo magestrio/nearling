@@ -21,6 +21,14 @@ describe('the Worker\'s reads of the contract', () => {
     chain.serverBalance = 123456789n;
     expect(await accountBalance(env, env.SERVER_ACCOUNT_ID)).toBe('123456789');
   });
+
+  // spec: D-168 › concurrent pet page reads › primary public RPC is throttled
+  it.each([429, 503])('reads through the same-network fallback when the configured RPC returns %i', async (status) => {
+    h.net().contract.addPet('5', NEAR_ACCOUNT(1), { name: 'Biscuit' });
+    h.net().rpc.primaryStatus = status;
+    expect((await petView(env, '5'))?.name).toBe('Biscuit');
+    expect(h.net().fetched).toContain('https://rpc.testnet.near.org');
+  });
 });
 
 describe('the queue of the server key', () => {

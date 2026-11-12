@@ -37,6 +37,16 @@ export async function releaseUnstartedScreening(env: Pick<Env, 'DB'>, worker: st
     .bind(screening.id, worker, screening.day).run();
 }
 
+/** A data step that failed, or an unbilled failed request, is not a will screening. The
+ * reservation was already counted before inference, so return its daily slot once. */
+export async function releaseStartedScreening(env: Pick<Env, 'DB'>, worker: string, screening: Screening): Promise<void> {
+  const first = await env.DB.prepare('INSERT OR IGNORE INTO will_screening_refunds (id, day) VALUES (?, ?) RETURNING id')
+    .bind(screening.id, screening.day).first();
+  if (first === null) return;
+  await env.DB.prepare('UPDATE will_screenings SET started = started - 1 WHERE worker_token = ? AND day = ? AND started > 0')
+    .bind(worker, screening.day).run();
+}
+
 export async function screeningCapacity(env: Pick<Env, 'DB'>, worker: string, now: number): Promise<boolean> {
   const day = utcDay(now);
   const row = await env.DB.prepare('SELECT started FROM will_screenings WHERE worker_token = ? AND day = ?')

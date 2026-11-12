@@ -3,7 +3,7 @@
 // A portion of NEAR or a snack is on its way as a `feedings` row (one per player). Whoever learns the
 // outcome first - `POST …/feed/send`, `GET …/feed`, the outcome route, the cron - settles it, and the
 // claim is `DELETE … RETURNING`: of all of them exactly one runs what follows, the rest only answer.
-import { allTokenIdsOf, ChainUnreachable } from '../chain';
+import { ChainUnreachable } from '../chain';
 import { utcDay } from '../http';
 import { KNOWN_RECORD_YOCTO, nearUsdRate, SNACK_YOCTO, yoctoToUsdMicros } from '../pricing';
 import { lowerWalletSeen } from '../feeding/wallet';
@@ -13,7 +13,6 @@ import { DIARY_WINDOW_MS } from './ritual';
 import { afterWake, wakeDue, wakeIfFed } from './wake';
 import { confirmedFunding } from '../errands/funding';
 import { startShared } from '../errands/sharedRun';
-import { feedIntroductionStatements } from '../society/relations';
 
 export interface FeedingRow {
   id: string;
@@ -50,10 +49,9 @@ export async function settleFeeding(env: Env, row: FeedingRow, outcome: Outcome)
       .bind(row.account, row.token_id, Date.now(), row.id));
   }
   if (outcome.status === 'ok' && row.via === 'link') {
-    // Read the feeder's currently owned pets before claiming the feed. If that chain read is
-    // unavailable, leave the feed row for the existing outcome retry instead of losing its bond.
-    const owned = await allTokenIdsOf(env, row.account);
-    claim.unshift(...feedIntroductionStatements(env.DB, row.id, row.token_id, owned, Date.now()));
+    // Keep this independent read for the cron. Its RPC cannot hold up a confirmed outcome.
+    claim.unshift(env.DB.prepare('INSERT OR IGNORE INTO feed_introductions (feed_id, account, token_id, created_at) VALUES (?, ?, ?, ?)')
+      .bind(row.id, row.account, row.token_id, Date.now()));
   }
   if (outcome.status === 'ok' && row.job_hash != null) {
     const funding = await confirmedFunding(env, row);
@@ -75,7 +73,16 @@ export async function settleFeeding(env: Env, row: FeedingRow, outcome: Outcome)
     name = player?.first_name ?? '';
     // The owner's poll leaves the wake to this flow while the row stands, so the row and the friend's
     // wake end in one write: a poll finds the row or the awake pet, never the sleep without the row.
-    if (await friendWakeDue(env, row.token_id)) {
+    let due: boolean;
+    try {
+      due = await friendWakeDue(env, row.token_id);
+    } catch (error) {
+      // The row keeps the friend's name and holds the owner's anonymous wake off. The feeder
+      // already gets the chain's confirmed outcome; a later settlement retries this decision.
+      if (error instanceof ChainUnreachable) return false;
+      throw error;
+    }
+    if (due) {
       wakeClaimed = true;
       claim.unshift(
         // As `wakeIfFed`: a wake after the diary window notes the day without a diary.
@@ -149,18 +156,17 @@ export async function settleFeeding(env: Env, row: FeedingRow, outcome: Outcome)
 /** Whether a friend's meal wakes the pet, read before the claim. The row holds the owner's poll off
  * meanwhile, also through the second read. */
 async function friendWakeDue(env: Env, tokenId: string): Promise<boolean> {
-  return unlessUnread(
+  return (
     (async () => {
       if (await wakeDue(env, tokenId)) return true;
       if (!(await isAsleep(env.DB, tokenId))) return false;
       await pause(SECOND_READ_MS);
       return wakeDue(env, tokenId);
-    })(),
+    })()
   );
 }
 
-/** A pet that cannot be read after the chain recorded the meal is no wake and no error: the rest of
- * the meal's consequences run, and the owner's poll wakes the pet. */
+/** An owner meal can leave its wake to the owner's poll on an unreadable chain. */
 async function unlessUnread(wake: Promise<boolean>): Promise<boolean> {
   try {
     return await wake;

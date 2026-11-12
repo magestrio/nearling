@@ -1339,6 +1339,7 @@ export interface Network {
   fetched: string[];
   /** Privy's key set answers with this status (0: the fetch itself fails). */
   jwks: { status: number };
+  rpc: { primaryStatus: number };
   restore: () => void;
 }
 
@@ -1349,6 +1350,7 @@ export function installNetwork(): Network {
   const web = new FakeWeb();
   const fetched: string[] = [];
   const jwks = { status: 200 };
+  const rpc = { primaryStatus: 200 };
   const spy = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
     const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
     fetched.push(url);
@@ -1356,7 +1358,8 @@ export function installNetwork(): Network {
       if (jwks.status === 0) throw new TypeError('Failed to fetch');
       return jwks.status === 200 ? Response.json({ keys: [publicJwk] }) : new Response('unavailable', { status: jwks.status });
     }
-    if (url === env.NEAR_RPC_URL) {
+    if (url === env.NEAR_RPC_URL || url === 'https://rpc.testnet.near.org' || url === 'https://rpc.mainnet.near.org') {
+      if (url === env.NEAR_RPC_URL && rpc.primaryStatus !== 200) return new Response('unavailable', { status: rpc.primaryStatus });
       if (contract.down) return new Response('unavailable', { status: 503 });
       const request = JSON.parse(String(init?.body ?? (input instanceof Request ? await input.text() : '{}'))) as { id: string; method: string; params: Record<string, unknown> };
       const answer = (await contract.handle(request.method, request.params)) as { result?: unknown; error?: unknown };
@@ -1383,7 +1386,7 @@ export function installNetwork(): Network {
     if (page !== null) return page;
     throw new Error(`a test must not reach the network: ${url}`);
   });
-  return { contract, ai, web, fetched, jwks, restore: () => spy.mockRestore() };
+  return { contract, ai, web, fetched, jwks, rpc, restore: () => spy.mockRestore() };
 }
 
 /** A player whose game wallet has a real key: the account id is the 64 hex characters of the public

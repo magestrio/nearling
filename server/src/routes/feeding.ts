@@ -52,7 +52,7 @@ feedingRoutes.get('/api/pets/:id/feed', async (c) => {
     // it is settled here (its consequences run once, whoever gets there first), and the sheet is read
     // after it - the wallet's funding is not counted while a row stands, nor right after a meal.
     let own = await rowOfPlayer(c.env.DB, session.accountId);
-    if (own !== null && (await outlive(c, askNetwork(c.env, own))) !== null) own = null;
+    if (own !== null && (await outlive(c, askNetwork(c.env, own))) !== null) own = await rowOfPlayer(c.env.DB, session.accountId);
     const { sheet } = await readSheet(c.env, session, id, pet, rate);
     // New cross-chain quote addresses are closed while project service spending is paused (`Cross-chain availability rule`).
     return c.json({ chain: true, ...sheet, crossChainPaused: await isPaused(c.env.DB, 'thought'),

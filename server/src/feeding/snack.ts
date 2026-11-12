@@ -82,6 +82,9 @@ export async function giveSnack(env: Env, session: Session, tokenId: string, rat
       if (SHEET_CODES.has(answer.code)) return gone();
       return { status: 200, body: await outcomeAnswer(env.DB, session.sub, 'failed', null, hatched, false) };
     }
+    // A confirmed send can still leave its feed row pending if the pet view needed for
+    // a named wake is unavailable. The cron needs this hash to finish that settlement.
+    await env.DB.prepare('UPDATE feedings SET tx_hash = ? WHERE id = ?').bind(answer.txHash, id).run();
     await settleFeeding(env, { ...row, tx_hash: answer.txHash }, { status: 'ok', value: answer.value, ...(answer.burnt !== undefined ? { burnt: answer.burnt } : {}) });
     return { status: 200, body: await outcomeAnswer(env.DB, session.sub, 'ok', null, hatched, via === 'link') };
   } catch (e) {

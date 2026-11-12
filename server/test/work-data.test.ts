@@ -121,16 +121,30 @@ describe('Adapter call rule', () => {
   // spec: add-pet-errands › Adapter call rule › hired answer line
   it('makes the worker\'s answer in a pet\'s own hire the same way and names the sources for the line under it', async () => {
     const { tk } = await hireWorld();
-    ai().push(ask(), ASK_DATA, { content: 'A rocket.', tokensIn: 1_000, tokensOut: 20 }, { content: 'Biscuit says a rocket.' });
+    ai().push(ask(), ASK_DATA, { content: 'No more lookup needed.' }, { content: 'A rocket.', tokensIn: 1_000, tokensOut: 20 }, { content: 'Biscuit says a rocket.' });
     const out = await say(tk, PAYER, 'What happened on 3 November?');
     expect(out.thought.text).toBe('Biscuit says a rocket.');
-    expect(ai().calls).toHaveLength(4);
+    expect(ai().calls).toHaveLength(5);
     const turn = await rows('SELECT kind, data_labels FROM thoughts WHERE token_id = ? ORDER BY created_at, rowid', PAYER);
     expect(turn.map((t) => [t.kind, t.data_labels])).toEqual([['hire_question', null], ['hire_answer', '["Daybook"]'], ['reply', null]]);
     const lines = (await api(`/api/pets/${PAYER}/conversation`, { token: tk })).body.lines;
     expect(lines.find((l: any) => l.who === 'worker')).toMatchObject({ dataLabels: ['Daybook'] });
     expect(adapterEvents()).toEqual([{ outcome: 'ok', job: 'hire' }]);
-    expect((await rows("SELECT thought_calls.label FROM thought_calls JOIN thoughts ON thoughts.id = thought_id WHERE kind = 'hire_answer' ORDER BY n")).map((c) => c.label)).toEqual(['data', 'report']);
+    expect((await rows("SELECT thought_calls.label FROM thought_calls JOIN thoughts ON thoughts.id = thought_id WHERE kind = 'hire_answer' ORDER BY n")).map((c) => c.label)).toEqual(['data', 'data', 'report']);
+  });
+
+  // spec: D-167 › skilled worker hire › chained data rounds
+  it('lets a hired worker use a second tool with the first tool result and keeps both on its receipt', async () => {
+    const { tk, mcp } = await hireWorld();
+    ai().push(ask(), ASK_DATA,
+      { toolCalls: [{ name: 's1_today', arguments: '{}' }] },
+      { content: 'Biscuit read both entries.' }, { content: 'I heard Biscuit.' });
+    await say(tk, PAYER, 'What happened on 3 November?');
+    expect(ai().calls[2]!.body.messages.at(-1)!.content).toContain('The data you looked up:');
+    expect(mcp.requests.filter((request) => request.method === 'tools/call').map((request) => request.params.name))
+      .toEqual(['events_on', 'today']);
+    expect((await rows("SELECT thought_calls.label FROM thought_calls JOIN thoughts ON thoughts.id = thought_id WHERE kind = 'hire_answer' ORDER BY n"))
+      .map((call) => call.label)).toEqual(['data', 'data', 'report']);
   });
 
   // spec: add-pet-errands › Adapter call rule › retold
@@ -153,9 +167,9 @@ describe('Adapter call rule', () => {
     const wt = await workerToken();
     expect((await testRun(wt, { code: CODE, fn: 'add', values: '1, 2' }, WORKER)).body.outcome).toBe('ok');
     expect((await saveCode(wt, { code: CODE, ticks: ['add'] }, WORKER)).status).toBe(200);
-    ai().push(ask(), { toolCalls: [{ name: 'code_add', arguments: '{"a": 2, "b": 3}' }] }, { content: 'Five.' }, { content: 'Biscuit says five.' });
+    ai().push(ask(), { toolCalls: [{ name: 'code_add', arguments: '{"a": 2, "b": 3}' }] }, { content: 'No more lookup needed.' }, { content: 'Five.' }, { content: 'Biscuit says five.' });
     await say(tk, PAYER, 'What is 2 + 3?');
-    expect(ai().calls[2]!.body.messages.at(-1)!.content).toContain('The data you looked up: [{"n":1,"from":"sums","data":"{\\"sum\\":5}"}]');
+    expect(ai().calls[3]!.body.messages.at(-1)!.content).toContain('The data you looked up: [{"n":1,"from":"sums","data":"{\\"sum\\":5}"}]');
     const [answer] = await rows("SELECT data_labels FROM thoughts WHERE kind = 'hire_answer'");
     expect(answer.data_labels).toBeNull();
     expect(h.events().filter((e) => e.name === 'skill_code_ran').at(-1)).toEqual({ name: 'skill_code_ran', props: { outcome: 'ok', job: 'hire' } });
@@ -203,6 +217,14 @@ describe('Skill code data', () => {
 });
 
 describe('Data source call data', () => {
+  // spec: D-167 › will screening › nothing was spent
+  it('releases a screening after an unbilled failed data request', async () => {
+    const { tk } = await adviceWorld();
+    ai().push({ status: 503 });
+    expect((await advise(tk)).code).toBe('screening_failed');
+    expect((await rows('SELECT started FROM will_screenings WHERE worker_token = ?', WORKER))[0]).toEqual({ started: 0 });
+    expect(await rows('SELECT * FROM project_spend')).toEqual([]);
+  });
   // spec: add-pet-will › Character refusal flow › no signed answer
   it.each([
     ['timeout', { hang: true }],
@@ -216,32 +238,35 @@ describe('Data source call data', () => {
     expect(spends[0]).toMatchObject({ kind: 'will_screening' });
     expect(spends[0].usd_micros).toBeGreaterThan(0);
     expect(spends[0].screening_id).toMatch(/^[0-9a-f]+$/);
-    expect((await rows('SELECT started FROM will_screenings WHERE worker_token = ?', WORKER))[0]).toEqual({ started: 1 });
+    expect((await rows('SELECT started FROM will_screenings WHERE worker_token = ?', WORKER))[0]).toEqual({ started: 0 });
   });
 
   // spec: add-pet-will › Character refusal flow › refusal capacity reached
   // spec: add-pet-will › Character refusal flow › third screening fails
-  it('counts failed signed data preparation before another model request and stops the fourth', async () => {
+  it('returns failed signed data preparations so a fourth request can try again', async () => {
     const { tk } = await adviceWorld();
     ai().push({ ...ASK_DATA, signature: 'never' }, { ...ASK_DATA, signature: 'never' }, { ...ASK_DATA, signature: 'never' });
     expect((await advise(tk)).code).toBe('screening_failed');
     expect((await advise(tk)).code).toBe('screening_failed');
-    expect((await advise(tk)).code).toBe('screening_exhausted');
-    expect((await advise(tk)).code).toBe('screening_capacity');
-    expect(ai().calls).toHaveLength(3);
-    expect((await rows('SELECT started FROM will_screenings WHERE worker_token = ?', WORKER))[0]).toEqual({ started: 3 });
-  });
+    expect((await advise(tk)).code).toBe('screening_failed');
+    ai().push({ ...ASK_DATA, signature: 'never' });
+    expect((await advise(tk)).code).toBe('screening_failed');
+    expect(ai().calls).toHaveLength(4);
+    expect((await rows('SELECT started FROM will_screenings WHERE worker_token = ?', WORKER))[0]).toEqual({ started: 0 });
+  }, 10_000);
 
   // spec: add-pet-will › Character refusal flow › third screening fails
-  it('closes advice after a third signed data call whose tool fails', async () => {
+  it('returns each failed data screening so a later attempt remains available', async () => {
     const { tk } = await adviceWorld({ callStatus: 503 });
     for (let i = 0; i < 3; i++) ai().push(ASK_DATA);
     expect((await advise(tk)).code).toBe('data_failed');
     expect((await advise(tk)).code).toBe('data_failed');
-    expect((await advise(tk)).code).toBe('screening_exhausted');
-    expect((await advise(tk)).code).toBe('screening_capacity');
-    expect(ai().calls).toHaveLength(3);
-    expect((await rows('SELECT kind FROM project_spend')).map((r) => r.kind)).toEqual(['will_screening', 'will_screening', 'will_screening']);
+    expect((await advise(tk)).code).toBe('data_failed');
+    ai().push(ASK_DATA);
+    expect((await advise(tk)).code).toBe('data_failed');
+    expect(ai().calls).toHaveLength(4);
+    expect((await rows('SELECT started FROM will_screenings WHERE worker_token = ?', WORKER))[0]).toEqual({ started: 0 });
+    expect((await rows("SELECT COUNT(*) AS n FROM project_spend WHERE kind = 'will_screening'"))[0].n).toBeGreaterThanOrEqual(4);
   });
   // spec: add-pet-errands › Adapter call rule › data failed in advice
   // spec: add-pet-errands › Data source call data › failed in a hire or advice
@@ -257,9 +282,9 @@ describe('Data source call data', () => {
     expect(await rows('SELECT * FROM thoughts WHERE token_id = ?', PAYER)).toEqual([]);
     expect(await rows('SELECT * FROM hires')).toEqual([]);
     expect(await level()).toBe(before);
-    // The place goes back; the worker's started screening remains counted.
+    // The place and the worker's screening both go back.
     expect(await places()).toMatchObject({ n: 0, held: 0, data_failed: 1 });
-    expect((await rows('SELECT started FROM will_screenings WHERE worker_token = ?', WORKER))[0]).toEqual({ started: 1 });
+    expect((await rows('SELECT started FROM will_screenings WHERE worker_token = ?', WORKER))[0]).toEqual({ started: 0 });
     expect((await rows('SELECT kind FROM project_spend')).map((r) => r.kind)).toEqual(['will_screening']);
     expect(adapterEvents()).toEqual([{ outcome: 'busy', job: 'advice' }]);
     expect(mcp.requests.filter((r) => r.method === 'tools/call')).toHaveLength(1);
@@ -293,7 +318,7 @@ describe('Data source call data', () => {
     ai().push(ASK_DATA);
     expect(await advise(tk, { text: 'q two' })).toMatchObject({ code: 'data_failed', paid: false });
     expect(adapterEvents().at(-1)).toEqual({ outcome: 'slow', job: 'advice' });
-    expect((await rows('SELECT started FROM will_screenings WHERE worker_token = ?', WORKER))[0]).toEqual({ started: 2 });
+    expect((await rows('SELECT started FROM will_screenings WHERE worker_token = ?', WORKER))[0]).toEqual({ started: 0 });
   });
 
   // spec: add-pet-errands › Adapter call rule › data failed in a hire

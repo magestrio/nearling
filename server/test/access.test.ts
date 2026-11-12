@@ -1,3 +1,4 @@
+import { env } from 'cloudflare:workers';
 import { describe, expect, it } from 'vitest';
 import { api, harness } from './helpers/api';
 import { NEAR_ACCOUNT, token } from './helpers/network';
@@ -71,8 +72,8 @@ describe('Conversation access data', () => {
     const visitor = await api('/api/pets/9');
     expect(visitor.status).toBe(503);
     expect(visitor.body).toEqual({ code: 'chain_unreachable' });
-    // Nothing reached NEAR AI: the only hosts fetched are the RPC and Privy's key set.
-    expect(h.net().fetched.every((u) => u.startsWith('https://test.rpc.fastnear.com') || u === 'https://privy.test/jwks.json')).toBe(true);
+    // Nothing reached NEAR AI: reads may try both testnet RPCs before failing closed.
+    expect(h.net().fetched.every((u) => u === env.NEAR_RPC_URL || u === 'https://rpc.testnet.near.org' || u === 'https://privy.test/jwks.json')).toBe(true);
   });
 
   // spec: add-pet › Conversation access data › чужой питомец

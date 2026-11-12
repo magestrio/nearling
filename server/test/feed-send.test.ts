@@ -5,7 +5,7 @@ import { env } from 'cloudflare:workers';
 import { actions, createTransaction, Transaction } from 'near-api-js';
 import { describe, expect, it } from 'vitest';
 import { recentBlockHash } from '../src/chain';
-import { settleStaleFeedings } from '../src/cron';
+import { settleFeedIntroductions, settleStaleFeedings } from '../src/cron';
 import { implicitKey } from '../src/feeding/portion';
 import { forgetStatements } from '../src/pet/forget';
 import { setPause } from '../src/servicePause';
@@ -502,7 +502,7 @@ describe('a read that fails right after the chain recorded the meal', () => {
   };
 
   // spec: add-feeding › Feed by link flow › друг покормил × the network unread after the meal
-  it('keeps the friend\'s memory and the event, and the owner\'s poll does the wake', async () => {
+  it('keeps the friend\'s attribution pending until a readable pet view queues one named wake', async () => {
     await asleepPet();
     const owner = await token('did:privy:owner', OWNER);
     const p = await player(NEAR, 'Maya');
@@ -510,15 +510,40 @@ describe('a read that fails right after the chain recorded the meal', () => {
     const res = await feed(p);
     expect(res.status).toBe(200);
     expect(res.body).toMatchObject({ status: 'ok', friend: 'Maya' });
-    expect(await rows('SELECT * FROM feedings')).toEqual([]);
-    expect(await rows("SELECT kind, name FROM memory_notes")).toEqual([{ kind: 'fed_by', name: 'Maya' }]);
-    expect(h.events().filter((e) => e.name === 'pet_fed')).toHaveLength(1);
+    expect(await rows('SELECT * FROM feedings')).toHaveLength(1);
+    expect(await rows('SELECT * FROM memory_notes')).toEqual([]);
+    expect(await rows("SELECT * FROM jobs WHERE kind = 'wake'")).toEqual([]);
     expect((await one("SELECT slept_at FROM pets WHERE token_id = '7'")).slept_at).not.toBeNull();
 
     h.net().contract.failingViews.clear();
-    const told = (await api('/api/pets/7/state', { token: owner })).body;
+    await settleStaleFeedings(env, Date.now() + 90_000);
+    await settleStaleFeedings(env, Date.now() + 90_000);
+    expect(await rows('SELECT * FROM feedings')).toEqual([]);
+    expect((await rows("SELECT kind, name FROM memory_notes"))).toEqual([{ kind: 'fed_by', name: 'Maya' }]);
+    expect(await rows("SELECT * FROM jobs WHERE kind = 'wake'")).toHaveLength(1);
+    const told = (await api('/api/pets/7/state?wakes=0', { token: owner })).body;
     expect(told.events).toEqual(['woke']);
     expect((await one("SELECT slept_at FROM pets WHERE token_id = '7'")).slept_at).toBeNull();
+  });
+
+  // spec: D-164 › confirmed friend feed › social introduction RPC is unavailable
+  it('returns a confirmed feed before the social read and retries introductions later', async () => {
+    await awakePet();
+    const p = await player(NEAR, 'Maya');
+    h.net().contract.addPet('8', p.account);
+    h.net().contract.failingViews.add('nft_tokens_for_owner');
+    const res = await feed(p);
+    expect(res.body).toMatchObject({ status: 'ok', friend: 'Maya' });
+    expect(h.net().contract.reads.some((r) => r.method === 'nft_tokens_for_owner')).toBe(false);
+    expect(await rows('SELECT * FROM feed_introductions')).toHaveLength(1);
+    await settleFeedIntroductions(env);
+    expect(await rows('SELECT * FROM feed_introductions')).toHaveLength(1);
+    h.net().contract.failingViews.clear();
+    await settleFeedIntroductions(env);
+    expect(await rows('SELECT * FROM feed_introductions')).toEqual([]);
+    expect(await rows("SELECT token_id, other_id FROM society_relations ORDER BY token_id")).toEqual([
+      { token_id: '7', other_id: '8' }, { token_id: '8', other_id: '7' },
+    ]);
   });
 
   // spec: add-feeding › Own pet feeding flow › разбудил × the network unread after the meal

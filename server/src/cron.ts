@@ -2,7 +2,7 @@
 // UTC day, the pause of the services, the riddle of the day, the ritual (the close of the days that
 // ended, the open rows of today), the stages to write and the cleaning of old rows. Each part fails alone: a part
 // that throws logs its code and the others still run.
-import { accountBalance, ChainUnreachable, petView, txStatus } from './chain';
+import { accountBalance, allTokenIdsOf, ChainUnreachable, petView, txStatus } from './chain';
 import { closeAndDebit } from './debit';
 import { expireDueInvitations } from './routes/debates';
 import { reconcileUnknownSweep } from './routes/anyChainSweep';
@@ -29,6 +29,7 @@ import { FEEDINGS_COLUMNS, settleFeeding, type FeedingRow } from './pet/settle';
 import { riddleTick } from './riddle/cron';
 import { cleanQuotes } from './work/quote';
 import { settleSocietyPending } from './society/settlement';
+import { feedIntroductionStatements } from './society/relations';
 import { clearPause, gasReserve, lastProbe, noteProbe, pauseReason, setPause } from './servicePause';
 import { monthOf } from './signin';
 import { dueWatches, queueWatchIfMissing, recoverUnqueuedWatches } from './watch/day';
@@ -114,6 +115,7 @@ export async function tick(env: Env, nowMs: number = Date.now()): Promise<void> 
     ['ritual', () => ritual(env, nowMs)],
     ['growth', () => growth(env, nowMs)],
     ['feedings', () => settleStaleFeedings(env, nowMs)],
+    ['feed_introductions', () => settleFeedIntroductions(env)],
     ['shared', () => startReadyShared(env)],
     ['shared_settle', () => finishDueShared(env)],
     ['shared_close', () => recoverDueSharedCloses(env)],
@@ -215,6 +217,25 @@ export async function growth(env: Env, nowMs: number): Promise<void> {
     .bind(utcDay(nowMs), nowMs - CLAIM_STALE_MS, GROWTH_PER_TICK)
     .all<{ token_id: string }>();
   for (const { token_id } of due.results) await writeDueGrowth(env, token_id);
+}
+
+/** Retry social hints independently of the confirmed feed and its named wake. */
+export async function settleFeedIntroductions(env: Env): Promise<void> {
+  const pending = await env.DB.prepare('SELECT feed_id, account, token_id FROM feed_introductions ORDER BY created_at LIMIT 10')
+    .all<{ feed_id: string; account: string; token_id: string }>();
+  for (const row of pending.results) {
+    let owned: string[];
+    try { owned = await allTokenIdsOf(env, row.account); }
+    catch (error) {
+      if (!(error instanceof ChainUnreachable)) throw error;
+      console.log('feed_introduction_unreachable');
+      continue;
+    }
+    await env.DB.batch([
+      ...feedIntroductionStatements(env.DB, row.token_id, owned, Date.now()),
+      env.DB.prepare('DELETE FROM feed_introductions WHERE feed_id = ?').bind(row.feed_id),
+    ]);
+  }
 }
 
 /** A meal or snack on its way whose tab went away: asked after by its hash a minute on, the
@@ -326,6 +347,7 @@ export async function clean(env: Env, nowMs: number): Promise<void> {
     env.DB.prepare("DELETE FROM jobs WHERE created_at < ? AND status IN ('done', 'failed')").bind(nowMs - 86_400_000),
     env.DB.prepare('DELETE FROM empty_answers WHERE day < ?').bind(utcDay(nowMs) - 1),
     env.DB.prepare('DELETE FROM will_screenings WHERE day < ?').bind(utcDay(nowMs) - 1),
+    env.DB.prepare('DELETE FROM will_screening_refunds WHERE day < ?').bind(utcDay(nowMs) - 1),
     env.DB.prepare('DELETE FROM will_screening_claims WHERE day < ? OR expires_at <= ?').bind(utcDay(nowMs) - 1, nowMs),
     // Refusals of past months (Sign-in data › «новый месяц»); the ended sessions after 24 hours (ADR-022).
     env.DB.prepare('DELETE FROM sign_in_refusals WHERE month <> ?').bind(monthOf(nowMs)),

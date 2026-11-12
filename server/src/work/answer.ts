@@ -4,8 +4,9 @@
 // it. It stores nothing of the asker's: the caller writes the thought and the hire in its own batch.
 //
 // The data step (`add-pet-errands`, `Adapter call rule`, ADR-023, ADR-024): a worker whose skill has data sources or code gets
-// one call first that may ask for them (label `data`), then the answer call with what they brought as quoted data; both
-// calls are on the worker's receipt. A tool that fails ends the job with no answer and no fee (`data_failed`).
+// a data call first that may ask for them (label `data`), then the answer call with what they brought as quoted data;
+// a hire may make one more data call when the first tool's output needs another. A tool that fails ends the job
+// with no answer and no fee (`data_failed`).
 import type { PetRecord } from '../chain';
 import { utcDay } from '../http';
 import { hasVisible } from '../name/clean';
@@ -14,15 +15,15 @@ import { eraseIfCleared, memoryEpoch } from '../pet/forget';
 import { energyLeft, moodOf, noteDeed, noteMood, readLife, spendEnergy } from '../pet/life';
 import { wornOf } from '../pet/outfits';
 import { foodState } from '../pet/view';
-import { ceilingFor, ceilingPrice, fullness, thoughtPrice } from '../pricing';
+import { ceilingFor, ceilingPrice, fullness, minCallPrice, thoughtPrice } from '../pricing';
 import { DATA_CALL_LINE, inputBound, MARKET_LINE, RETELL_LINE, workerMessages, type Exchange } from '../prompt';
 import { setPause } from '../servicePause';
 import { DATA_MAX_TOKENS, loadOffer, numbered, runDataStep, sourceLabelsOf, type Read } from '../sources/step';
-import { CHAT_TIMEOUT_MS, hex, randomId, yoctoMicros, type Answer, type SignedCall } from '../spend';
+import { CHAT_TIMEOUT_MS, hex, projectPays, randomId, yoctoMicros, type Answer, type SignedCall } from '../spend';
 import { approvedWorkNotes, workNoteData } from '../experience/use';
 import { pairInstruction, parseReaction } from '../society/reaction';
 import { CHARACTER_CHOICE_LINE, attemptedDecline, characterDecline } from '../will/refusal';
-import { beginScreening, claimScreening, releaseUnstartedScreening, screeningSpend, type Screening } from '../will/screening';
+import { beginScreening, claimScreening, releaseStartedScreening, releaseUnstartedScreening, screeningSpend, type Screening } from '../will/screening';
 import type { Stance, Reaction } from '../society/relations';
 import { quotesInstruction } from './leak';
 import { answered, release } from './quote';
@@ -54,8 +55,8 @@ export interface WorkerAsk {
 
 /** What the answer call was told beside the question: the data call that preceded it, and the data sources it read. */
 export interface WithData {
-  /** The worker's data call, signed, when one was made: call `n = 0` of the receipt, label `data`. */
-  data: SignedCall | null;
+  /** The worker's signed data calls, before the answer in receipt order. */
+  data: SignedCall[];
   /** A private approved note entered this request; its request bytes must never leave the Worker. */
   experience?: boolean;
 }
@@ -67,8 +68,8 @@ export type WorkerOutcome =
   // Signed and a line, but the paying pet's memory was cleared while the worker answered: the words are not kept,
   // no fee is owed, the worker earns nothing and its place is back; the paying pet pays the call by usage.
   | ({ kind: 'cleared'; call: SignedCall; price: bigint; skilled: boolean } & WithData)
-  // The paying pet's paid data-only failure after its third failed data call. A signed but empty
-  // answer call is a failed character screening instead; `only: 'data'` identifies this receipt.
+  // A paid data-only failure, if one is recorded. A signed but empty answer call is a failed
+  // character screening instead; `only: 'data'` identifies the data-only receipt.
   | ({ kind: 'empty'; call: SignedCall; price: bigint; skilled: boolean; stopped: boolean; only?: 'data' } & WithData)
   // A data source or the code did not give its data (`Adapter call rule`): no answer call, no fee, the place is back.
   // `call` is the data call, `price` its usage (cut under the fee), `paid` whether the paying pet pays it (past its three
@@ -77,10 +78,9 @@ export type WorkerOutcome =
   // Nothing to show and nothing owed: the place is back, the project paid what it had to.
   | { kind: 'failed'; code: 'ai_unavailable' | 'paused' | 'screening_failed' | 'screening_exhausted' | 'screening_capacity' };
 
-/** The paying pet's thought for a data call that failed past its three: a thought with no reply whose receipt is the data
- * call (`Adapter call rule` › «data failed in a hire, past three»). */
+/** The paying pet's data-only receipt, when a caller records one. */
 export function dataOnly(out: Extract<WorkerOutcome, { kind: 'data_failed' }>): Extract<WorkerOutcome, { kind: 'empty' }> {
-  return { kind: 'empty', call: out.call, data: null, price: out.price, skilled: true, stopped: false, only: 'data' };
+  return { kind: 'empty', call: out.call, data: [], price: out.price, skilled: true, stopped: false, only: 'data' };
 }
 
 /** The worker is out of Auto until 00:00 UTC (`Data source call data` › «a failed worker in Auto»): a mark by token id and
@@ -123,6 +123,7 @@ export async function workerCall(env: Env, ask: WorkerAsk): Promise<WorkerOutcom
   };
   const lost = async (answers: Answer[], uncertain = 0n, incurredMicros = 0): Promise<WorkerOutcome> => {
     await screeningSpend(env, screening, answers, uncertain, incurredMicros);
+    if (answers.length === 0 && uncertain === 0n && incurredMicros === 0) await releaseStartedScreening(env, worker.id, screening);
     return back({ kind: 'failed', code: screening.attempt === 3 ? 'screening_exhausted' : 'screening_failed' });
   };
 
@@ -137,36 +138,71 @@ export async function workerCall(env: Env, ask: WorkerAsk): Promise<WorkerOutcom
 
   // The data step: the worker's data call and the tools it asks for, run by the server. The call is cheaper than the fee
   // by construction, like the answer; a worker with no data to read makes none (`Adapter call rule`).
-  let data: SignedCall | null = null;
+  const data: SignedCall[] = [];
   let reads: Read[] = [];
   const offer = skill === null ? null : await loadOffer(env, worker.id);
   if (offer !== null && skill !== null) {
-    const dataMessages = workerMessages(worker.pet, ask.question + noteData, layers, skill.instruction, [DATA_CALL_LINE], ask.prior ?? null);
-    const dataBound = inputBound(dataMessages) + offer.toolsBytes;
-    const dataTokens = ceilingFor(env, dataBound, ask.fee - 1n, DATA_MAX_TOKENS);
-    if (dataTokens < 1) return unstarted({ kind: 'failed', code: 'ai_unavailable' });
-    screening = await beginScreening(env, worker.id, screening);
-    reservationActive = false;
-    const step = await runDataStep(env, offer, { tokenId: worker.id, job: ask.job, messages: dataMessages, maxTokens: dataTokens, bound: dataBound, screened: true });
-    if (step.kind === 'paused') {
-      await setPause(env.DB, 'ai', Date.now());
-      console.log('ai_402');
-      await screeningSpend(env, screening, []);
-      return back({ kind: 'failed', code: 'paused' });
-    }
-    if (step.kind === 'lost') return lost([], 0n, step.costMicros);
-    data = step.call;
-    reads = step.reads;
-    if (step.failed.length > 0) {
-      if (screening.attempt === 3) {
-        await markDataFailed(env, worker.id, ask.day);
-        return lost([data.answer]);
+    for (let round = 0; round < (ask.job === 'hire' ? 2 : 1); round += 1) {
+      const dataMessages = workerMessages(worker.pet, ask.question + noteData, layers, skill.instruction,
+        [DATA_CALL_LINE,
+          ...(reads.length === 0
+            ? ['If the question asks for current data an offered tool can read, call that tool before answering.']
+            : ['Call another tool only if the data already read does not answer the question.'])],
+        ask.prior ?? null, numbered(reads));
+      const dataBound = inputBound(dataMessages) + offer.toolsBytes;
+      const used = thoughtPriceOf(env, data.map((call) => ({ tokensIn: call.answer.tokensIn, tokensOut: call.answer.tokensOut })));
+      const answerFloor = minCallPrice(env, inputBound(workerMessages(worker.pet, ask.question + noteData,
+        layers, skill.instruction, [RETELL_LINE, MARKET_LINE, CHARACTER_CHOICE_LINE], ask.prior ?? null, numbered(reads))));
+      const dataTokens = ceilingFor(env, dataBound, ask.fee - 1n - used - answerFloor, DATA_MAX_TOKENS);
+      if (dataTokens < 1) {
+        if (data.length === 0) return unstarted({ kind: 'failed', code: 'ai_unavailable' });
+        break;
       }
-      return back(await dataFailed(env, ask, data, step.failed, screening));
+      if (reservationActive) {
+        screening = await beginScreening(env, worker.id, screening);
+        reservationActive = false;
+      }
+      const run = () => runDataStep(env, offer, { tokenId: worker.id, job: ask.job, messages: dataMessages,
+        maxTokens: dataTokens, bound: dataBound, screened: true, timeoutMs: 12_000 });
+      let step = await run();
+      // A missing answer gets one fresh data request, as in the owner's chat. A timeout's
+      // bounded possible cost remains on the project ledger even when the retry succeeds.
+      let lostMicros = 0;
+      if (step.kind === 'lost' && ask.job === 'hire') {
+        lostMicros = step.costMicros;
+        step = await run();
+      }
+      if (lostMicros > 0) await projectPays(env, 'no_thought', lostMicros);
+      if (step.kind === 'paused') {
+        await setPause(env.DB, 'ai', Date.now());
+        console.log('ai_402');
+        await screeningSpend(env, screening, data.map((call) => call.answer));
+        if (data.length === 0 && lostMicros === 0) await releaseStartedScreening(env, worker.id, screening);
+        return back({ kind: 'failed', code: 'paused' });
+      }
+      if (step.kind === 'lost') {
+        await screeningSpend(env, screening, data.map((call) => call.answer), 0n, step.costMicros);
+        await releaseStartedScreening(env, worker.id, screening);
+        return back({ kind: 'failed', code: screening.attempt === 3 ? 'screening_exhausted' : 'screening_failed' });
+      }
+      if (step.failed.length > 0) {
+        await markDataFailed(env, worker.id, ask.day);
+        await screeningSpend(env, screening, [...data.map((call) => call.answer), step.call.answer]);
+        await releaseStartedScreening(env, worker.id, screening);
+        return back({ kind: 'data_failed', call: step.call,
+          price: thoughtPrice(env, [{ tokensIn: step.call.answer.tokensIn, tokensOut: step.call.answer.tokensOut }]),
+          paid: false, labels: step.failed });
+      }
+      if (step.reads.length === 0) {
+        data.push(step.call);
+        break;
+      }
+      data.push(step.call);
+      reads.push(...step.reads);
     }
   }
-  const dataTokens = data === null ? [] : [{ tokensIn: data.answer.tokensIn, tokensOut: data.answer.tokensOut }];
-  const dataAnswers = data === null ? [] : [data.answer];
+  const dataTokens = data.map((call) => ({ tokensIn: call.answer.tokensIn, tokensOut: call.answer.tokensOut }));
+  const dataAnswers = data.map((call) => call.answer);
   const labels = sourceLabelsOf(reads);
 
   const messages = workerMessages(
@@ -181,7 +217,7 @@ export async function workerCall(env: Env, ask: WorkerAsk): Promise<WorkerOutcom
   const bound = inputBound(messages);
   // Cheaper than the fee by construction: the ceiling is what the fee less one yocto, less the data call's price, pays at
   // this input (the gas share is in the data call's price already).
-  const maxTokens = ceilingFor(env, bound, ask.fee - 1n - thoughtPriceOf(env, dataTokens), MAX_ANSWER_TOKENS, data === null);
+  const maxTokens = ceilingFor(env, bound, ask.fee - 1n - thoughtPriceOf(env, dataTokens), MAX_ANSWER_TOKENS, data.length === 0);
   if (maxTokens < 1) {
     if (dataAnswers.length > 0) return lost(dataAnswers);
     return unstarted({ kind: 'failed', code: 'ai_unavailable' });
@@ -201,7 +237,7 @@ export async function workerCall(env: Env, ask: WorkerAsk): Promise<WorkerOutcom
     await screeningSpend(env, screening, dataAnswers);
     return back({ kind: 'failed', code: 'paused' });
   }
-  if (result.kind !== 'answer') return lost(dataAnswers, result.kind === 'timeout' ? ceilingPrice(env, bound, maxTokens, data === null) : 0n);
+  if (result.kind !== 'answer') return lost(dataAnswers, result.kind === 'timeout' ? ceilingPrice(env, bound, maxTokens, data.length === 0) : 0n);
   const answer = result as Answer;
 
   const signed = await signatureOf(env, answer);
@@ -272,17 +308,6 @@ export async function workerCall(env: Env, ask: WorkerAsk): Promise<WorkerOutcom
 
 const thoughtPriceOf = (env: Env, calls: { tokensIn: number; tokensOut: number }[]): bigint => (calls.length === 0 ? 0n : thoughtPrice(env, calls));
 
-/** A tool of the worker's skill gave no data: no answer call or fee. The started screening
- * pays its data call from the project ledger; the worker stays out of Auto until UTC reset. */
-async function dataFailed(env: Env, ask: WorkerAsk, call: SignedCall, labels: string[], screening: Screening): Promise<WorkerOutcome> {
-  await markDataFailed(env, ask.worker.id, ask.day);
-  const usage = thoughtPrice(env, [{ tokensIn: call.answer.tokensIn, tokensOut: call.answer.tokensOut }]);
-  const price = usage < ask.fee ? usage : ask.fee - 1n;
-  await screeningSpend(env, screening, [call.answer]);
-  console.log('worker_data_failed');
-  return { kind: 'data_failed', call, price, paid: false, labels };
-}
-
 /** What the paying pet's batch stores of a worker's answer that reached it (shown, empty-and-paid, or cleared). */
 export interface StoredAnswer {
   /** `advice` (the player's question) or `hire_answer` (a pet's own hire). */
@@ -341,8 +366,8 @@ export function answerStatements(env: Env, a: StoredAnswer): { statements: D1Pre
     // The receipt: the worker's data call first (label `data`), then the call that answers (label `report` beside a data
     // call, as an errand's; none otherwise). A data call that failed past three is the whole of its receipt.
     ...[
-      ...(outcome.data === null ? [] : [{ ...outcome.data, label: 'data' as string | null }]),
-      { ...outcome.call, label: outcome.kind === 'empty' && outcome.only === 'data' ? 'data' : outcome.data === null ? null : 'report' },
+      ...outcome.data.map((call) => ({ ...call, label: 'data' as string | null })),
+      { ...outcome.call, label: outcome.kind === 'empty' && outcome.only === 'data' ? 'data' : outcome.data.length === 0 ? null : 'report' },
     ].map(({ answer, signed, label }, n) =>
       env.DB.prepare(
         'INSERT INTO thought_calls (thought_id, n, req_bytes, res_bytes, req_sha256, res_sha256, signature, sig_kind, signer, completion_id, tokens_in, tokens_out, tokens_reasoning, cut, label) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',

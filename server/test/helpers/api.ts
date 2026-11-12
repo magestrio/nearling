@@ -86,13 +86,14 @@ export function harness(): Harness {
     await env.DB.exec('DELETE FROM experience_notes');
     await env.DB.exec('DELETE FROM experience_field');
     await env.DB.exec('DELETE FROM society_relations');
+    await env.DB.exec('DELETE FROM feed_introductions');
     await env.DB.exec('DELETE FROM society_encounters');
     await env.DB.exec('DELETE FROM society_diary_lines');
     await env.DB.exec('DELETE FROM society_processed_hires');
     for (const table of ['debate_debit_operations', 'debate_lines', 'debate_started_days', 'debate_consents', 'debates', 'debate_ended_invites']) {
       await env.DB.exec(`DELETE FROM ${table}`);
     }
-    for (const table of ['pet_wishes', 'will_diary_lines', 'work_invitations', 'will_screening_claims', 'will_screenings', 'will_refusals', 'will_operations']) {
+    for (const table of ['pet_wishes', 'will_diary_lines', 'work_invitations', 'will_screening_claims', 'will_screening_refunds', 'will_screenings', 'will_refusals', 'will_operations']) {
       await env.DB.exec(`DELETE FROM ${table}`);
     }
     for (const table of ['shared_errand_contributions', 'shared_errands', 'watch_observations', 'watch_targets', 'watch_checks', 'shared_job_close_recovery', 'receipt_links', 'gift_flights', 'gift_links', 'known_pets', 'pet_public_ids', 'pets', 'thoughts', 'thought_calls', 'memory_notes', 'debit_sessions', 'pet_spend', 'empty_answers', 'jobs', 'project_spend', 'service_pause', 'births_in_flight', 'feedings', 'friend_snacks', 'known_index', 'pet_life', 'life_friends', 'pending_growth', 'ritual_days', 'riddles', 'riddle_answers', 'ritual_clock', 'wardrobe', 'outfit_grants', 'outfit_buys', 'item_sends', 'pet_transactions', 'hires', 'hire_modes', 'hire_offers', 'worker_answers', 'skills', 'work_records', 'errands', 'data_sources', 'catalog_entries', 'skill_code', 'code_tests', 'code_versions']) {

@@ -16,17 +16,16 @@ export interface Relation {
   created_at: number;
 }
 
-/** Statements used in the same D1 batch that claims the confirmed feed. */
-export function feedIntroductionStatements(db: D1Database, feedId: string, targetId: string,
+/** Directed introductions after a confirmed feed; duplicate retries do nothing. */
+export function feedIntroductionStatements(db: D1Database, targetId: string,
   feederPets: readonly string[], at: number): D1PreparedStatement[] {
   const statements: D1PreparedStatement[] = [];
   for (const otherId of new Set(feederPets)) {
     if (otherId === targetId) continue;
     for (const [subject, other] of [[targetId, otherId], [otherId, targetId]]) {
       statements.push(db.prepare(
-        `INSERT OR IGNORE INTO society_relations (token_id, other_id, created_at)
-         SELECT ?, ?, ? WHERE EXISTS (SELECT 1 FROM feedings WHERE id = ?)`,
-      ).bind(subject, other, at, feedId));
+        'INSERT OR IGNORE INTO society_relations (token_id, other_id, created_at) VALUES (?, ?, ?)',
+      ).bind(subject, other, at));
     }
   }
   return statements;

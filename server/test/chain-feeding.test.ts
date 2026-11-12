@@ -45,7 +45,7 @@ describe('the wallet of a player', () => {
     await expect(walletBalance(env, PLAYER)).rejects.toBeInstanceOf(ChainUnreachable);
     await expect(accessKeyNonce(env, PLAYER, KeyPairEd25519.fromRandom().getPublicKey())).rejects.toBeInstanceOf(ChainUnreachable);
     await expect(recentBlockHash(env)).rejects.toBeInstanceOf(ChainUnreachable);
-  });
+  }, 30_000);
 });
 
 describe('what a portion is built from', () => {

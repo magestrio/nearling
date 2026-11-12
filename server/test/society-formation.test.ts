@@ -1,5 +1,6 @@
 import { env } from 'cloudflare:workers';
 import { describe, expect, it } from 'vitest';
+import { settleFeedIntroductions } from '../src/cron';
 import { settleFeeding, type FeedingRow } from '../src/pet/settle';
 import { applySettledReaction, relation } from '../src/society/relations';
 import { api, harness } from './helpers/api';
@@ -20,6 +21,8 @@ describe('private relationship formation', () => {
     const response = await api('/api/pets/701/snack', { token: tk, method: 'POST' });
     expect(response.status).toBe(200);
     expect(response.body.status).toBe('ok');
+    expect(await relation(env.DB, '701', '702')).toBeNull();
+    await settleFeedIntroductions(env);
     expect((await relation(env.DB, '701', '702'))?.stance).toBe('neutral');
     expect((await relation(env.DB, '702', '701'))?.stance).toBe('neutral');
     expect((await relation(env.DB, '701', '702'))?.good_days).toBe(0);

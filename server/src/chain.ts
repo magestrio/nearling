@@ -171,10 +171,40 @@ const READ_TIMEOUT_MS = 8_000;
 const SEND_TIMEOUT_MS = 25_000;
 const SERVER_NONCE_RETRIES = 3;
 
-export function rpcProvider(env: Pick<Env, 'NEAR_RPC_URL'>): JsonRpcProvider {
-  // The library retries a 500, a 408 or a dropped fetch on its own; two quick attempts, then the
-  // route says the network is unreachable.
+function sendRpcProvider(env: Pick<Env, 'NEAR_RPC_URL'>): JsonRpcProvider {
+  // A signed transaction must never be broadcast again merely because an RPC answer was lost.
   return new JsonRpcProvider({ url: env.NEAR_RPC_URL }, { retries: 2, wait: 200, backoff: 1 });
+}
+
+/** Independent public RPCs on the same network for reads only. near-api-js offers
+ * FailoverRpcProvider, but its installed implementation retries semantic errors and logs every
+ * caught error. Here only unavailable RPCs fail over, and no request data is logged. */
+export function rpcProvider(env: Pick<Env, 'NEAR_RPC_URL'> & Partial<Pick<Env, 'NEAR_NETWORK'>>): JsonRpcProvider {
+  const fallback = String(env.NEAR_NETWORK) === 'mainnet' ? 'https://rpc.mainnet.near.org' : 'https://rpc.testnet.near.org';
+  // Four attempts per endpoint and the second endpoint remain available, while an
+  // unavailable pair exhausts its retry delays in under a second (300 ms each).
+  const options = { retries: 4, wait: 20, backoff: 2 };
+  const first = new JsonRpcProvider({ url: env.NEAR_RPC_URL }, options);
+  if (fallback === String(env.NEAR_RPC_URL)) return first;
+  const second = new JsonRpcProvider({ url: fallback }, options);
+  return new Proxy(first, {
+    get(target, key) {
+      const method = Reflect.get(target, key);
+      if (typeof method !== 'function') return method;
+      if (typeof key === 'string' && key.startsWith('sendTransaction')) return method.bind(target);
+      return async (...args: unknown[]) => {
+        try { return await method.apply(target, args); }
+        catch (error) {
+          const name = (error as { name?: string })?.name;
+          if (error instanceof AccessKeyDoesNotExistError || error instanceof AccountDoesNotExistError ||
+            error instanceof InvalidNonceError || error instanceof InvalidTransactionError ||
+            error instanceof NotEnoughBalanceError || error instanceof TransactionExecutionError ||
+            name === 'UnknownTransactionError' || name === 'TransactionTimeoutError') throw error;
+          return method.apply(second, args);
+        }
+      };
+    },
+  });
 }
 
 function withTimeout<T>(work: Promise<T>, ms: number): Promise<T> {
@@ -571,7 +601,7 @@ export type OnSigned = (txHash: string, signedBytes: Uint8Array) => Promise<void
 
 export function serverAccount(env: Pick<Env, 'NEAR_RPC_URL' | 'SERVER_ACCOUNT_ID' | 'NEAR_SERVER_KEY'>): { account: Account; signer: KeyPairSigner } {
   const signer = KeyPairSigner.fromSecretKey(env.NEAR_SERVER_KEY as KeyPairString);
-  return { account: new Account(env.SERVER_ACCOUNT_ID, rpcProvider(env), signer), signer };
+  return { account: new Account(env.SERVER_ACCOUNT_ID, sendRpcProvider(env), signer), signer };
 }
 
 function isInvalidNonce(e: unknown): boolean {
@@ -590,7 +620,7 @@ export function signAndSend(env: Pick<Env, 'CONTRACT_ID'>, keys: { account: Acco
 /** The gas account of the project (ADR-006): the key of `NEAR_GAS_ACCOUNT_KEY`, its own nonces. */
 export function gasAccount(env: Pick<Env, 'NEAR_RPC_URL' | 'GAS_ACCOUNT_ID' | 'NEAR_GAS_ACCOUNT_KEY'>): { account: Account; signer: KeyPairSigner } {
   const signer = KeyPairSigner.fromSecretKey(env.NEAR_GAS_ACCOUNT_KEY as KeyPairString);
-  return { account: new Account(env.GAS_ACCOUNT_ID, rpcProvider(env), signer), signer };
+  return { account: new Account(env.GAS_ACCOUNT_ID, sendRpcProvider(env), signer), signer };
 }
 
 /** A plain transfer of NEAR from the account of `keys` (the gas account's top-up of a wallet). */
@@ -662,7 +692,7 @@ export async function txHashOf(signed: SignedTransaction): Promise<string> {
 export async function sendSigned(env: Pick<Env, 'NEAR_RPC_URL'>, signed: SignedTransaction): Promise<SendResult> {
   const hash = await txHashOf(signed);
   try {
-    const out = await withTimeout(rpcProvider(env).sendTransactionUntil(signed, 'EXECUTED_OPTIMISTIC'), SEND_TIMEOUT_MS);
+    const out = await withTimeout(sendRpcProvider(env).sendTransactionUntil(signed, 'EXECUTED_OPTIMISTIC'), SEND_TIMEOUT_MS);
     const result = interpret(out as RawOutcome);
     if (result?.status === 'ok') return { status: 'ok', txHash: hash, value: result.value, ...(result.burnt !== undefined ? { burnt: result.burnt } : {}) };
     if (result?.status === 'failed') return { status: 'failed', txHash: hash, code: result.code };
