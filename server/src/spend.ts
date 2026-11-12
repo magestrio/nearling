@@ -35,6 +35,7 @@ import { findCandidates, type Candidate } from './work/candidates';
 import { continueHire } from './work/hire';
 import { hireModeOf, type HireMode } from './work/mode';
 import { composeSocial, pendingSocial, socialLineStatements, type SocialFact } from './society/diary';
+import { friendsLayer, lookLine } from './pet/self';
 import { parseWish, startPendingWish, wishOffer, wishStatements, type WishOffer } from './will/diary';
 import { invitationOffer, invitationStatement, parseInvitation, type InvitationOffer } from './will/invitation';
 
@@ -245,8 +246,9 @@ export async function run(env: Env, tokenId: string, job: ThoughtJob, epoch?: nu
     tokenId,
     pet,
     job,
-    { mood: moodOf(state, life.moodDay, today), energyPercent: energy * 10, outfit: await wornOf(env.DB, tokenId) },
-    { ...(candidates.length > 0 ? { hire: hireLayer(candidates) } : {}), ...(opts.turn?.hired === undefined ? {} : { hired: opts.turn.hired }), wish, invitation },
+    { mood: moodOf(state, life.moodDay, today), energyPercent: energy * 10, outfit: await wornOf(env.DB, tokenId), look: lookLine(tokenId, pet) },
+    { ...(candidates.length > 0 ? { hire: hireLayer(candidates) } : {}), ...(opts.turn?.hired === undefined ? {} : { hired: opts.turn.hired }), wish, invitation,
+      friends: await friendsLayer(env, tokenId) },
   );
   const bound = inputBound(messages);
   const minCall = minCallPrice(env, bound);

@@ -1,6 +1,7 @@
 import { SELF } from 'cloudflare:test';
 import { env } from 'cloudflare:workers';
 import { afterEach, beforeEach, vi } from 'vitest';
+import { lookLine } from '../../src/pet/self';
 import { setTrackSink, type TrackProps } from '../../src/track';
 import { installNetwork, NEAR_ACCOUNT, token, type Network } from './network';
 
@@ -136,8 +137,9 @@ export async function say(tk: string, tokenId: string, text: string, mode: 'chat
  * standard pet would send for this line: a throwaway pet answers it, its request is measured, and
  * the fake's record of calls is cleared. Pets with the same name and character and no history send
  * the same request, so a test can place a limit exactly at the price of that call. A hungry pet
- * speaks with the sleepy mood layer (`Mood rule`), a longer request: `hungry` makes the throwaway one too. */
-export async function learnBound(h: Harness, text: string, mode: 'chat' | 'deep' = 'chat', history: string[] = [], hungry = false): Promise<number> {
+ * speaks with the sleepy mood layer (`Mood rule`), a longer request: `hungry` makes the throwaway one too. The body
+ * line (`lookLine`) is drawn from the token id, so the bound is moved to the body line of `forToken`, the pet measured. */
+export async function learnBound(h: Harness, text: string, mode: 'chat' | 'deep' = 'chat', history: string[] = [], hungry = false, forToken = '5'): Promise<number> {
   const probeOwner = NEAR_ACCOUNT(900);
   h.net().contract.addPet('9000', probeOwner, hungry ? { project_food: (BigInt(env.STARTER_FOOD) / 2n).toString() } : {});
   await seedHistory('9000', history);
@@ -145,7 +147,9 @@ export async function learnBound(h: Harness, text: string, mode: 'chat' | 'deep'
   await say(await token('did:privy:probe', probeOwner), '9000', text, mode);
   const call = h.net().ai.calls[before]!;
   const enc = new TextEncoder();
-  const bound = call.body.messages.reduce((sum, m) => sum + enc.encode(m.content).length, 0);
+  const probe = h.net().contract.pets.get('9000')!;
+  const bound = call.body.messages.reduce((sum, m) => sum + enc.encode(m.content).length, 0)
+    - enc.encode(lookLine('9000', probe)).length + enc.encode(lookLine(forToken, probe)).length;
   h.net().ai.calls.length = 0;
   h.net().ai.signatureRequests.length = 0;
   h.events().length = 0;
