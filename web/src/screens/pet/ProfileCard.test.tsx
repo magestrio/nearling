@@ -140,6 +140,16 @@ it('keeps owner details readable but removes editing and hiring and offers Feed'
   expect(feed).toHaveBeenCalledOnce();
 });
 
+// Bug: asleep, «Pixel's wish» stood as plain text that opened nothing and said nothing; and an empty reserve read «0.0¢».
+it('says the wish waits while the pet sleeps, with no dead «{name}\'s wish» line, and an empty reserve reads 0¢', async () => {
+  await show(card({ ...owner, fullness: { state: 'asleep', level: 0 },
+    wish: { item: 'party-hat', reason: 'Fun.', status: 'active', reserveYocto: '0' } } as PetView));
+  expect(host.textContent).toContain('Pixel wants Party hat');
+  expect(host.textContent).toContain('The wish waits while Pixel sleeps.');
+  expect(host.textContent).not.toContain("Pixel's wish");
+  expect(host.textContent).toContain('Saved 0¢ of 0.76¢');
+});
+
 // spec: add-game-layout › Pet card screen › success (guest)
 it('shows only the public profile to guest and visitor', async () => {
   await show(card(guest));

@@ -3,6 +3,8 @@ import { formatCents } from './price';
 
 describe('{price}', () => {
   it('writes cents with two significant digits and the cent sign', () => {
+    // nothing saved yet read «0.0¢» (toPrecision of a zero)
+    expect(formatCents(0)).toBe('0¢');
     expect(formatCents(0.12)).toBe('0.12¢');
     expect(formatCents(0.13)).toBe('0.13¢');
     expect(formatCents(0.4)).toBe('0.40¢');

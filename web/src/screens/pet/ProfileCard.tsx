@@ -58,7 +58,7 @@ export function ProfileCard({ pet, boughtByOwner, pastDebateCode, error, seal, o
         ? <Text variant="small" tone="secondary">{`${name} has every outfit for now.`}</Text>
       : pet.wish ? <Stack gap={2}>
       <Text variant="small">{`${name} wants ${nameOf(pet.wish.item) ?? pet.wish.item}`}</Text>
-      {asleep ? <Text variant="small">{`${name}'s wish`}</Text> : <TextLink href="#wish" hit onClick={onWish}>{`${name}'s wish`}</TextLink>}
+      {asleep ? <Text variant="small" tone="secondary">{`The wish waits while ${name} sleeps.`}</Text> : <TextLink href="#wish" hit onClick={onWish}>{`${name}'s wish`}</TextLink>}
       <Text variant="small" tone="secondary">{wishProgress(pet.wish, pet.outfitPrice).cents}</Text>
       <Text variant="small" tone="secondary">{wishProgress(pet.wish, pet.outfitPrice).near}</Text>
     </Stack> : <Text variant="small" tone="secondary">{`No wish yet for ${name}.`}</Text> },
