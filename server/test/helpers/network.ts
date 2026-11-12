@@ -1301,6 +1301,8 @@ export interface TokenOptions {
   noPlayer?: boolean;
   /** The Google name in the token; default `Test Player`, `null` leaves the Google entry out. */
   name?: string | null;
+  /** More linked accounts after the wallet (an email or a phone sign-in). */
+  accounts?: Record<string, unknown>[];
 }
 
 /** An identity token as Privy would issue it for `sub`, carrying a NEAR embedded wallet. Unless
@@ -1317,6 +1319,7 @@ export async function token(sub: string, accountId: string, opts: TokenOptions =
     linked_accounts: JSON.stringify([
       ...(opts.name === null ? [] : [{ type: 'google_oauth', subject: 'g-1', name: opts.name ?? 'Test Player' }]),
       { type: 'wallet', chain_type: 'near', address: accountId, wallet_client_type: 'privy' },
+      ...(opts.accounts ?? []),
     ]),
   })
     .setProtectedHeader({ alg: 'ES256', kid: opts.kid ?? 'test-key' })

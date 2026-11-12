@@ -25,6 +25,9 @@ const privy = vi.hoisted(() => ({
   onError: undefined as ((code: string) => void) | undefined,
   at: [] as string[],
   gate: vi.fn(),
+  emailCode: vi.fn(),
+  smsCode: vi.fn(),
+  otpLogin: vi.fn(),
 }));
 
 vi.mock('./worker', async (original) => ({
@@ -41,6 +44,8 @@ vi.mock('@privy-io/react-auth', () => ({
     privy.onError = callbacks?.onError;
     return { initOAuth: (...args: unknown[]) => privy.oauth(...args) };
   },
+  useLoginWithEmail: () => ({ sendCode: async (...args: unknown[]) => privy.emailCode(...args), loginWithCode: async (...args: unknown[]) => privy.otpLogin('email', ...args) }),
+  useLoginWithSms: () => ({ sendCode: async (...args: unknown[]) => privy.smsCode(...args), loginWithCode: async (...args: unknown[]) => privy.otpLogin('sms', ...args) }),
   usePrivy: () => ({
     ready: true,
     authenticated: privy.authenticated,
@@ -120,6 +125,11 @@ beforeEach(() => {
   privy.at = [];
   privy.gate.mockReset();
   privy.gate.mockResolvedValue({ state: 'open' });
+  privy.emailCode.mockClear();
+  privy.smsCode.mockClear();
+  privy.otpLogin.mockClear();
+  localStorage.removeItem('nearling.testLogin');
+  vi.unstubAllEnvs();
   published = 0;
   api = null;
   seen = null;
@@ -284,6 +294,75 @@ describe('Bridge and the sign-in', () => {
     privy.email = null;
     await mount();
     expect(api).toMatchObject({ freshSignIn: false, email: null });
+  });
+});
+
+// Dev builds only: a scripted sign-in with Privy's test account (Google refuses automation), ending as a return from Google.
+describe('a dev build with a Privy test account in the browser', () => {
+  function signedOutAt(path: string) {
+    privy.authenticated = false;
+    privy.linked = null;
+    privy.otpLogin.mockImplementation(() => {
+      privy.authenticated = true;
+      privy.linked = 'test.testnet';
+    });
+    window.history.replaceState(null, '', path);
+  }
+
+  it('signs the test email in instead of Google and leads back to the place with the tapped Feed', async () => {
+    vi.stubEnv('VITE_DEV_ROUTE', 'true');
+    localStorage.setItem('nearling.testLogin', JSON.stringify({ email: 'test-1234@privy.io', code: '123456' }));
+    signedOutAt('/pet/0?via=feed');
+    await mount();
+    rememberReturnPlace({ path: '/pet/0?via=feed', action: 'feed' });
+    markSignInUnderWay(true);
+    await act(async () => {
+      api?.login();
+    });
+    expect(privy.oauth).not.toHaveBeenCalled();
+    expect(privy.emailCode).toHaveBeenCalledWith({ email: 'test-1234@privy.io' });
+    expect(privy.otpLogin).toHaveBeenCalledWith('email', { code: '123456' });
+    expect(api).toMatchObject({ authenticated: true, freshSignIn: true, nearAccountId: 'test.testnet' });
+    expect(window.location.pathname + window.location.search).toBe('/pet/0?via=feed');
+    expect(takePendingAction()).toBe('feed');
+  });
+
+  it('signs the test phone in by SMS', async () => {
+    vi.stubEnv('VITE_DEV_ROUTE', 'true');
+    localStorage.setItem('nearling.testLogin', JSON.stringify({ phone: '+1 555 555 1234', code: '123456' }));
+    signedOutAt('/pet/0');
+    await mount();
+    await act(async () => {
+      api?.login();
+    });
+    expect(privy.smsCode).toHaveBeenCalledWith({ phoneNumber: '+1 555 555 1234' });
+    expect(privy.otpLogin).toHaveBeenCalledWith('sms', { code: '123456' });
+    expect(privy.oauth).not.toHaveBeenCalled();
+  });
+
+  it('puts the place back and reports a failed sign-in when the test code is refused', async () => {
+    vi.stubEnv('VITE_DEV_ROUTE', 'true');
+    localStorage.setItem('nearling.testLogin', JSON.stringify({ email: 'test-1234@privy.io', code: '000000' }));
+    signedOutAt('/pet/0');
+    privy.otpLogin.mockImplementation(() => {
+      throw new Error('invalid code');
+    });
+    await mount();
+    await act(async () => {
+      api?.login();
+    });
+    expect(api?.signInError).toBe('failed');
+    expect(window.location.pathname).toBe('/pet/0');
+  });
+
+  it('goes to Google in a build without the dev route, whatever the browser holds', async () => {
+    vi.stubEnv('VITE_DEV_ROUTE', 'false');
+    localStorage.setItem('nearling.testLogin', JSON.stringify({ email: 'test-1234@privy.io', code: '123456' }));
+    signedOutAt('/pet/0');
+    await mount();
+    api?.login();
+    expect(privy.oauth).toHaveBeenCalledWith({ provider: 'google' });
+    expect(privy.emailCode).not.toHaveBeenCalled();
   });
 });
 

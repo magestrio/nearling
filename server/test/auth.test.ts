@@ -42,3 +42,27 @@ describe('Connection rule', () => {
     expect(out.kind).toBe('unavailable');
   });
 });
+
+// Dev only: a Privy test account (the dev build's scripted sign-in) has no Google name; `DEV_TEST_NAME` names it.
+describe('the name of a Privy test account on dev', () => {
+  const nameFor = async (opts: Parameters<typeof token>[2], devTestName: string | undefined) => {
+    const out = await identify(request(await token('did:privy:test', OWNER, opts)), { ...env, DEV_TEST_NAME: devTestName });
+    return out.kind === 'session' ? out.session.name : `no session: ${out.kind}`;
+  };
+
+  it('names the test email and the test phone by the dev var', async () => {
+    expect(await nameFor({ name: null, accounts: [{ type: 'email', address: 'test-4821@privy.io' }] }, 'Maya')).toBe('Maya');
+    expect(await nameFor({ name: null, accounts: [{ type: 'phone', phone_number: '+1 555 555 4821' }] }, 'Maya')).toBe('Maya');
+    expect(await nameFor({ name: null, accounts: [{ type: 'phone', number: '+15555554821' }] }, 'Maya')).toBe('Maya');
+  });
+
+  it('gives no name without the var, as in prod', async () => {
+    expect(await nameFor({ name: null, accounts: [{ type: 'email', address: 'test-4821@privy.io' }] }, undefined)).toBeNull();
+  });
+
+  it('keeps a Google name and names no ordinary email or phone', async () => {
+    expect(await nameFor({ name: 'Sam', accounts: [{ type: 'email', address: 'test-4821@privy.io' }] }, 'Maya')).toBe('Sam');
+    expect(await nameFor({ name: null, accounts: [{ type: 'email', address: 'test-4821@gmail.com' }] }, 'Maya')).toBeNull();
+    expect(await nameFor({ name: null, accounts: [{ type: 'phone', phone_number: '+1 555 123 4821' }] }, 'Maya')).toBeNull();
+  });
+});

@@ -1,4 +1,4 @@
-// A production-mode build must contain neither the day-1 checks route nor any seam fake.
+// A production-mode build must contain neither the day-1 checks route, nor any seam fake, nor the dev test sign-in.
 // Builds into ../build/web-prod-check (gitignored) and searches the emitted files for their markers.
 import { execFileSync } from 'node:child_process';
 import { readdirSync, readFileSync, statSync } from 'node:fs';
@@ -7,7 +7,7 @@ import { join, resolve } from 'node:path';
 const out = resolve('..', 'build', 'web-prod-check');
 execFileSync('npx', ['vite', 'build', '--mode', 'production', '--outDir', out, '--emptyOutDir'], { stdio: 'ignore' });
 
-const markers = ['Day-1 checks', '__NEARLING_FAKES__', 'fake-identity-token'];
+const markers = ['Day-1 checks', '__NEARLING_FAKES__', 'fake-identity-token', 'nearling.testLogin'];
 const found = [];
 const walk = (dir) => {
   for (const name of readdirSync(dir)) {

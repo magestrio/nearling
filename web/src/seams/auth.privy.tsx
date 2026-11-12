@@ -1,14 +1,19 @@
-// The only module that talks to Privy. Google only (ADR-001); the NEAR wallet is created on demand. The SDK is mounted
+// The only module that talks to Privy. Google only (ADR-001; a dev build also takes Privy test accounts); the NEAR wallet is created on demand. The SDK is mounted
 // lazily by auth.tsx: a browser with no session does not load it until a tap that needs it.
-import { PrivyProvider, getIdentityToken, useLoginWithOAuth, usePrivy, type PrivyClientConfig } from '@privy-io/react-auth';
+import { PrivyProvider, getIdentityToken, useLoginWithEmail, useLoginWithOAuth, useLoginWithSms, usePrivy, type PrivyClientConfig } from '@privy-io/react-auth';
 import { useCreateWallet, useSignRawHash } from '@privy-io/react-auth/extended-chains';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { config } from '../config';
 import type { ProviderApi, SignInError } from './auth-context';
 import { useNearWallet } from './nearWallet';
+import { readTestLogin } from './testLogin';
 import { makeTokenKeeper } from './token';
 
-const PRIVY_CONFIG: PrivyClientConfig = { loginMethods: ['google'], appearance: { theme: 'dark' } };
+// A dev build also takes Privy's test accounts (email, SMS) for a scripted sign-in (`testLogin.ts`); production is Google only.
+const PRIVY_CONFIG: PrivyClientConfig = {
+  loginMethods: import.meta.env.VITE_DEV_ROUTE === 'true' ? ['google', 'email', 'sms'] : ['google'],
+  appearance: { theme: 'dark' },
+};
 
 function hexToBytes(hex: string): Uint8Array {
   const clean = hex.startsWith('0x') ? hex.slice(2) : hex;
@@ -24,20 +29,23 @@ function Bridge({ onApi }: { onApi: (api: ProviderApi) => void }) {
   const [signInError, setSignInError] = useState<SignInError | null>(null);
   // This load came back from Google: Privy strips `privy_oauth_code` from the address once it has read it, so it is looked
   // at in the first render, before any effect of the SDK has run.
-  const [freshSignIn] = useState(() => /[?&]privy_oauth_code=/.test(window.location.search));
+  // A dev test sign-in comes back with no page load and no code in the address: it marks itself fresh when it is done.
+  const [freshSignIn, setFreshSignIn] = useState(() => /[?&]privy_oauth_code=/.test(window.location.search));
   const { initOAuth } = useLoginWithOAuth({
     // the player closed Google's window, or something else went wrong (`Sign-in flow` › «отменил вход», «вход не удался»)
     onError: useCallback((code: string) => setSignInError(code === 'oauth_user_denied' || code === 'exited_auth_flow' ? 'cancelled' : 'failed'), []),
   });
+  const testEmail = useLoginWithEmail();
+  const testSms = useLoginWithSms();
   const { createWallet } = useCreateWallet();
   const { signRawHash } = useSignRawHash();
   const tokens = useMemo(() => makeTokenKeeper(getIdentityToken), []);
 
   // Privy's hooks hand out new functions on every render. A published api renders this Bridge again through the provider
   // above, so an api that changed with them would be published for good (React error #185): it changes with the data only.
-  const privy = useRef({ initOAuth, logout, createWallet, signRawHash });
+  const privy = useRef({ initOAuth, logout, createWallet, signRawHash, testEmail, testSms });
   useLayoutEffect(() => {
-    privy.current = { initOAuth, logout, createWallet, signRawHash };
+    privy.current = { initOAuth, logout, createWallet, signRawHash, testEmail, testSms };
   });
 
   const linked = useMemo(() => {
@@ -79,7 +87,16 @@ function Bridge({ onApi }: { onApi: (api: ProviderApi) => void }) {
         }
         void (async () => {
           try {
-            await privy.current.initOAuth({ provider: 'google' });
+            const test = readTestLogin();
+            if (test === null) {
+              await privy.current.initOAuth({ provider: 'google' });
+            } else {
+              // the page stays: `/` with the place in the tab, as after Google, and `ReturnToPlace` leads it back
+              if ('email' in test) await privy.current.testEmail.sendCode({ email: test.email });
+              else await privy.current.testSms.sendCode({ phoneNumber: test.phone });
+              await ('email' in test ? privy.current.testEmail : privy.current.testSms).loginWithCode({ code: test.code });
+              setFreshSignIn(true);
+            }
           } catch {
             if (window.location.pathname === '/') window.history.replaceState(null, '', place);
             setSignInError('failed');

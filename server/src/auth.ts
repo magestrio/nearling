@@ -13,8 +13,9 @@ export interface Session {
   accountId: string;
   /** SHA-256 of the exact verified identity token, used only to reject this token after sign-out. */
   tokenHash: string;
-  /** The Google name as the `google_oauth` entry of `linked_accounts` carries it, unchecked. Only
-   * `POST /api/session` reads it (`Feeder identity data`); it is never logged. `null`: none. */
+  /** The Google name as the `google_oauth` entry of `linked_accounts` carries it, unchecked; on dev a
+   * Privy test account's is `DEV_TEST_NAME`. Only `POST /api/session` reads it (`Feeder identity data`);
+   * it is never logged. `null`: none. */
   name: string | null;
 }
 
@@ -56,6 +57,8 @@ interface LinkedAccount {
   chain_type?: unknown;
   address?: unknown;
   name?: unknown;
+  phone_number?: unknown;
+  number?: unknown;
 }
 
 /** The first NEAR wallet among the token's linked accounts: `{ type: 'wallet', chain_type: 'near',
@@ -88,20 +91,33 @@ function nearAccountOf(linkedAccounts: unknown): string | null {
   return null;
 }
 
-/** The name of the Google sign-in among the token's linked accounts, as sent. */
-function googleNameOf(linkedAccounts: unknown): string | null {
+/** Privy's test credentials (`test-XXXX@privy.io`, `+1 555 555 XXXX`; the legacy `test@privy.io`): no real player holds one. */
+const TEST_EMAIL = /^test(-[0-9a-z]+)?@privy\.io$/i;
+const TEST_PHONE_DIGITS = /^1555555\d{4}$/;
+
+function isTestAccount(a: LinkedAccount): boolean {
+  if (a?.type === 'email') return typeof a.address === 'string' && TEST_EMAIL.test(a.address);
+  // Privy's API answers `phone_number`, its user object says `number`: either
+  if (a?.type === 'phone') return TEST_PHONE_DIGITS.test(String(a.phone_number ?? a.number ?? '').replace(/\D/g, ''));
+  return false;
+}
+
+/** The name of the Google sign-in among the token's linked accounts, as sent. With no Google entry, a Privy test
+ * account is `devTestName` — set on dev only, for the scripted sign-in of the dev build (`web/src/seams/testLogin.ts`). */
+function nameOf(linkedAccounts: unknown, devTestName: string | undefined): string | null {
   if (typeof linkedAccounts !== 'string') return null;
   try {
     const list = JSON.parse(linkedAccounts) as LinkedAccount[];
     if (!Array.isArray(list)) return null;
     const entry = list.find((a) => a?.type === 'google_oauth');
-    return typeof entry?.name === 'string' ? entry.name : null;
+    if (typeof entry?.name === 'string') return entry.name;
+    return devTestName && list.some(isTestAccount) ? devTestName : null;
   } catch {
     return null;
   }
 }
 
-export async function identify(req: Request, env: Pick<Env, 'PRIVY_APP_ID' | 'PRIVY_JWKS_URL'>): Promise<Identity> {
+export async function identify(req: Request, env: Pick<Env, 'PRIVY_APP_ID' | 'PRIVY_JWKS_URL'> & { DEV_TEST_NAME?: string }): Promise<Identity> {
   const token = req.headers.get(TOKEN_HEADER);
   if (token === null || token === '') return { kind: 'none' };
   try {
@@ -117,7 +133,7 @@ export async function identify(req: Request, env: Pick<Env, 'PRIVY_APP_ID' | 'PR
     }
     const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(token));
     const tokenHash = Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, '0')).join('');
-    return { kind: 'session', session: { sub: payload.sub, accountId, tokenHash, name: googleNameOf(payload['linked_accounts']) } };
+    return { kind: 'session', session: { sub: payload.sub, accountId, tokenHash, name: nameOf(payload['linked_accounts'], env.DEV_TEST_NAME) } };
   } catch (e) {
     // A bad signature, an expired token, a wrong audience: no session.
     const code = (e as { code?: string } | null)?.code ?? '';
