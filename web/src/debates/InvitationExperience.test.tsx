@@ -206,6 +206,21 @@ it('keeps acceptance disabled before the incoming status is checked', async () =
   expect(mocks.api.debateDecision).not.toHaveBeenCalled();
 });
 
+// Bug: every 10-second refresh put «Checking invitation…» into the conversation for the length of the read, so the
+// chat jumped every 10 seconds with no invitation at all.
+it('shows the checking card on the first read only, never on the 10-second refresh', async () => {
+  vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] });
+  try {
+    await act(async () => root.render(<Harness />));
+    await settle();
+    expect(host.textContent).not.toContain('Checking invitation…');
+    mocks.api.debateIncoming.mockReturnValue(new Promise(() => undefined));
+    await act(async () => { vi.advanceTimersByTime(10_000); });
+    expect(mocks.api.debateIncoming).toHaveBeenCalledTimes(2);
+    expect(host.textContent).not.toContain('Checking invitation…');
+  } finally { vi.useRealTimers(); }
+});
+
 // spec: add-debates › Debate invitation card screen › signed-out
 it('hides the private card and offers sign-in after the session ends', async () => {
   mocks.auth.sessionEnded = true;

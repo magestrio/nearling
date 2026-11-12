@@ -54,6 +54,9 @@ export function useInvitationExperience({ pet, tokenOf, preselect, onOwnerLost }
   const [status, setStatus] = useState<{ id: string; kind: VisibleStatus; code?: string; retained?: boolean } | null>(null);
   const [pastDebateCode, setPastDebateCode] = useState<string | null>(null);
   const readSequence = useRef(0);
+  // The pet whose incoming debates were read once: the 10-second refresh after that keeps what it shows, since a
+  // «Checking invitation…» card for the length of every read made the conversation jump.
+  const cardsReadFor = useRef<string | null>(null);
   const localOutcomeSequence = useRef(0);
   const dismissedCardIds = useRef(new Set<string>());
   const signedIn = auth.authenticated && !auth.sessionEnded;
@@ -170,8 +173,8 @@ export function useInvitationExperience({ pet, tokenOf, preselect, onOwnerLost }
 
   const loadCards = useCallback(async () => {
     const sequence = ++readSequence.current;
-    if (!signedIn) { setCards([]); setCardLoading(false); return; }
-    setCardLoading(true);
+    if (!signedIn) { setCards([]); setCardLoading(false); cardsReadFor.current = null; return; }
+    if (cardsReadFor.current !== tokenId) setCardLoading(true);
     try {
       const token = await tokenOf();
       if (!token || sequence !== readSequence.current) return;
@@ -200,6 +203,7 @@ export function useInvitationExperience({ pet, tokenOf, preselect, onOwnerLost }
         if (sequence === readSequence.current) setPastDebateCode(code);
       } else if (sequence === readSequence.current) setPastDebateCode(null);
       setCardError(false);
+      cardsReadFor.current = tokenId;
     } catch (error) {
       if (sequence !== readSequence.current) return;
       setCards([]);
