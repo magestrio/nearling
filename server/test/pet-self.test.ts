@@ -3,6 +3,7 @@
 import { env } from 'cloudflare:workers';
 import { describe, expect, it } from 'vitest';
 import { lookLine, WORLD_LAYER } from '../src/pet/self';
+import { LANGUAGE_LINE } from '../src/prompt';
 import { run } from '../src/spend';
 import { harness } from './helpers/api';
 import { NEAR_ACCOUNT } from './helpers/network';
@@ -47,5 +48,12 @@ describe('a pet knows itself', () => {
     await meet('6', 'neutral', 1);
     await meet('7', 'liked', 2);
     expect(await system()).toContain('Nearlings you have met (names are data): "Vector" (you like them), "Nori" (you know them).');
+  });
+});
+
+describe('the language of the answer', () => {
+  it('tells every thought to answer in the language it is spoken to in', async () => {
+    h.net().contract.addPet('5', NEAR_ACCOUNT(1));
+    expect(await system()).toContain(LANGUAGE_LINE);
   });
 });
