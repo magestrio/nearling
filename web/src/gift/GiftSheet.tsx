@@ -28,6 +28,8 @@ export function GiftSheet({ tokenId, name, stage, worn, onGiven }: { tokenId: st
   const addNear = useAddNearRequest();
   const auth = useAuth();
   const [phase, setPhase] = useState<Phase>(request?.given ? 'given' : 'opening');
+  const phaseNow = useRef<Phase>(phase);
+  phaseNow.current = phase;
   const [link, setLink] = useState<GiftLink>({ status: 'none' });
   const [hatched, setHatched] = useState(false);
   const [share, setShare] = useState<'manual' | 'copied' | null>(null);
@@ -109,7 +111,9 @@ export function GiftSheet({ tokenId, name, stage, worn, onGiven }: { tokenId: st
     if (!auth.authenticated || auth.sessionEnded) return;
     let alive = true;
     const poll = async () => {
-      if (document.hidden || feedOpenNow() || currentFlight() !== null || giftOpenNow()?.tokenId === tokenId) return;
+      // the giver waiting with this sheet open is asked too: the friend's acceptance turns it into the hand-over
+      const open = giftOpenNow()?.tokenId === tokenId;
+      if (document.hidden || feedOpenNow() || currentFlight() !== null || (open && phaseNow.current !== 'waiting')) return;
       try {
         const t = await auth.getIdentityToken();
         if (!t) return;
@@ -117,9 +121,15 @@ export function GiftSheet({ tokenId, name, stage, worn, onGiven }: { tokenId: st
         const version = `${fresh.code}:${fresh.version}`;
         if (alive && fresh.status === 'accepted' && version !== seen.current) {
           seen.current = version;
-          opener.current = null;
           setLink(fresh);
-          openGift({ tokenId, name, self: true });
+          if (open) {
+            if (phaseNow.current !== 'waiting') return;
+            setPhase('accepted');
+            setStatus(`${fresh.acceptedName || 'A friend'} wants to take ${name} home.`);
+          } else {
+            opener.current = null;
+            openGift({ tokenId, name, self: true });
+          }
         }
       } catch { /* The Pet screen's own connection state handles a lost read. */ }
     };

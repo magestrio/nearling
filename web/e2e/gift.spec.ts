@@ -159,6 +159,17 @@ test('keeps focus inside the sheet as link and transfer controls are replaced', 
   await expect(dialog(page).locator('[data-gift-outcome]')).toBeFocused();
 });
 
+// spec: add-gift › Gift flow › друг принял — the giver who waits with the sheet open sees the friend without closing it
+test('turns an open waiting sheet into the hand-over when the friend accepts', async ({ page }) => {
+  await openPet(page, {}, { createGift: { status: 'waiting', code } });
+  await page.evaluate(() => { Object.defineProperty(navigator, 'share', { configurable: true, value: async () => undefined }); });
+  await openGive(page);
+  await dialog(page).getByRole('button', { name: 'Create gift link' }).click();
+  await expect(dialog(page).getByRole('button', { name: 'Share gift link' })).toBeVisible();
+  await setWorker(page, { giftLink: accepted });
+  await expect(dialog(page).getByRole('button', { name: 'Give Pixel to Maya' })).toBeVisible({ timeout: 8000 });
+});
+
 // spec: add-gift › Gift flow › передаёт × second tap/second tab
 // spec: add-gift › Gift flow › исход неизвестен × 10 seconds
 test('keeps transfer controls inactive while the chain outcome is unknown', async ({ page }) => {
