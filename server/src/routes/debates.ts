@@ -9,6 +9,7 @@ import { relation } from '../society/relations';
 import { runDebateTurn } from '../debates/turns';
 import { opaqueDebateId, recordDebateEvent, recordDebateOpen } from '../debates/events';
 import { intactDebateBytes, matchingDebateReceipt } from '../verification/receipt';
+import { debateLineText } from '../debates/prompt';
 
 export const debateRoutes = new Hono<AppEnv>();
 
@@ -440,7 +441,7 @@ debateRoutes.post('/api/debates/:id/decision', async (c) => {
 
 function publicLines(lines: LineRow[]) {
   return lines.map((line) => ({ order: line.line_order, speakerPet: line.speaker_pet, status: line.status,
-    text: line.text, requestBytes: line.status === 'settled' ? line.request_bytes : null,
+    text: debateLineText(line.text, line.line_order), requestBytes: line.status === 'settled' ? line.request_bytes : null,
     responseBytes: line.status === 'settled' ? line.response_bytes : null,
     signedCall: line.status === 'settled' ? line.signed_call : null,
     receiptTxHash: line.status === 'settled' ? line.receipt_tx_hash : null,

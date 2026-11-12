@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { debateMessages } from '../src/debates/prompt';
+import { debateLineText, debateMessages } from '../src/debates/prompt';
 import type { PetRecord } from '../src/chain';
 
 const pet = { name: 'Pixel', character: 'I notice small things.', stage: 'Teen', traits: ['thoughtful'],
@@ -29,5 +29,16 @@ describe('public debate input', () => {
     expect(text.indexOf('First public line.')).toBeLessThan(text.indexOf('Second public line.'));
     expect(text).toContain('Where is home?');
     expect(JSON.stringify(messages)).not.toContain('private memory');
+  });
+});
+
+describe('a debate line as readers see it', () => {
+  // the model marks a refusal with «REFUSE:» for us; a reader sees only the pet's words
+  it('drops the refusal marker of a first or second line and keeps any other line as written', () => {
+    expect(debateLineText("REFUSE: I'm too excited in my party hat to decide.", 1)).toBe("I'm too excited in my party hat to decide.");
+    expect(debateLineText('  REFUSE:  Not today.', 2)).toBe('Not today.');
+    expect(debateLineText('REFUSE: is a funny word.', 3)).toBe('REFUSE: is a funny word.');
+    expect(debateLineText('Snacks win.', 1)).toBe('Snacks win.');
+    expect(debateLineText(null, 1)).toBeNull();
   });
 });

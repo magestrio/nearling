@@ -16,3 +16,8 @@ export function debateMessages(pet: PetRecord, topic: string, earlier: readonly 
 export function debateRefusal(line: string, order: number): boolean {
   return order <= 2 && /^REFUSE:\s*\S/u.test(line.trim());
 }
+
+/** The line a reader sees: a refusal's `REFUSE:` marker is the model's signal to us, never shown. */
+export function debateLineText(line: string | null, order: number): string | null {
+  return line !== null && debateRefusal(line, order) ? line.trim().replace(/^REFUSE:\s*/u, '') : line;
+}
