@@ -16,7 +16,7 @@ vi.mock('../seams/worker', async () => ({
 }));
 
 import { WorkerError } from '../seams/worker';
-import { useAdapter, type AdapterHost } from './useAdapter';
+import { AUTO_TICK_MAX, useAdapter, type AdapterHost } from './useAdapter';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -52,6 +52,22 @@ afterEach(async () => {
 });
 
 describe('Adapter address check', () => {
+  // Bug: a gateway (Pipeworx, ~50 tools, Polymarket among them) came back with all 39 usable tools ticked, so a
+  // weather skill would have handed the pet every one of them.
+  it('ticks the usable tools of a small source, and none of a source with more than AUTO_TICK_MAX', async () => {
+    const tool = (name: string): ToolView => ({ ...TOOL, name });
+    await run(() => sheet.openNew());
+    await run(() => sheet.setAddress('https://small.example.com/mcp'));
+    mocks.checkSource.mockResolvedValue({ tools: [tool('a'), tool('b'), { ...tool('free'), tickable: false }] });
+    await run(() => sheet.check());
+    expect(sheet.ticks).toEqual(['a', 'b']);
+    await run(() => sheet.setAddress('https://gateway.example.com/mcp'));
+    mocks.checkSource.mockResolvedValue({ tools: Array.from({ length: AUTO_TICK_MAX + 1 }, (_, i) => tool(`t${i}`)) });
+    await run(() => sheet.check());
+    expect(sheet.tools).toHaveLength(AUTO_TICK_MAX + 1);
+    expect(sheet.ticks).toEqual([]);
+  });
+
   // spec: add-pet-errands › Adapter connect flow › address answered × address edited while checking
   it('does not restore old tools after the address changes during a check', async () => {
     await run(() => sheet.openNew());

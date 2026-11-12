@@ -101,3 +101,20 @@ export function toolsOf(raws: RawTool[]): Tool[] {
   }
   return tools;
 }
+
+/** Words of an address path that name no subject. */
+const PATH_NOISE = new Set(['mcp', 'sse', 'api', 'http', 'https', 'stream', 'server', 'servers', 'v1', 'v2', 'v3']);
+const wordsOf = (text: string): string[] => text.toLowerCase().split(/[^a-z0-9]+/).filter((w) => w !== '');
+/** Two words that are one subject: equal, or sharing their first four letters («coin» in coingecko and search_coins). */
+const sameSubject = (a: string, b: string): boolean => a === b || (a.length >= 4 && b.length >= 4 && a.slice(0, 4) === b.slice(0, 4));
+
+/** The tools the address names. A gateway serves its whole catalogue at every path (Pipeworx's `/open-meteo/mcp` gives
+ * ~50 tools, Polymarket among them, 2026-11-12): when the path names a subject, only the tools whose name shares a word
+ * with it are the source's. A path that names nothing (`/mcp`), or one no tool matches, keeps every tool. Drift from
+ * `Adapter connect flow`, code first. */
+export function toolsFor(address: URL, tools: Tool[]): Tool[] {
+  const subject = wordsOf(address.pathname).filter((w) => !PATH_NOISE.has(w));
+  if (subject.length === 0) return tools;
+  const named = tools.filter((t) => wordsOf(t.name).some((w) => subject.some((s) => sameSubject(w, s))));
+  return named.length > 0 ? named : tools;
+}

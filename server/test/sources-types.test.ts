@@ -1,7 +1,7 @@
 // The type rule of a data source's tools (`Adapter connect flow` › «a tool takes free text», ADR-024): only parameters
 // that are numbers, whole numbers, yes/no, a pick from a list or a string of at most 64 characters can be ticked.
 import { describe, expect, it } from 'vitest';
-import { toolOf, toolsOf } from '../src/sources/types';
+import { toolOf, toolsFor, toolsOf, type Tool } from '../src/sources/types';
 
 const tool = (properties: Record<string, unknown>, extra: Record<string, unknown> = {}) => toolOf({ name: 't', description: 'd', inputSchema: { type: 'object', properties, ...extra } })!;
 
@@ -48,5 +48,25 @@ describe('Adapter connect flow', () => {
     ]);
     expect(tools.map((t) => t.name)).toEqual(['a', 'b']);
     expect(tools.some((t) => t.tickable)).toBe(false);
+  });
+});
+
+// Bug: a gateway serves its whole catalogue at every path; Pipeworx's `/open-meteo/mcp` gave a weather skill ~50 tools,
+// Polymarket among them (2026-11-12).
+describe('the tools an address names', () => {
+  const tool = (name: string): Tool => ({ name, description: '', params: [], tickable: true });
+  const gateway = ['open_meteo_forecast', 'open_meteo_geocode', 'polymarket_arbitrage', 'ask_pipeworx', 'kalshi_weather_edge', 'search_coins'].map(tool);
+  const names = (address: string, tools = gateway) => toolsFor(new URL(address), tools).map((t) => t.name);
+
+  it('keeps only the tools that share a word with the path', () => {
+    expect(names('https://gateway.pipeworx.io/open-meteo/mcp')).toEqual(['open_meteo_forecast', 'open_meteo_geocode']);
+    // the first four letters are one subject: coingecko and search_coins
+    expect(names('https://gateway.pipeworx.io/coingecko/mcp')).toEqual(['search_coins']);
+  });
+
+  it('keeps every tool when the path names nothing, or when no tool matches it', () => {
+    expect(names('https://mcp-weather.example.com/mcp')).toHaveLength(gateway.length);
+    expect(names('https://example.com/api/v1/sse')).toHaveLength(gateway.length);
+    expect(names('https://example.com/zoology/mcp')).toHaveLength(gateway.length);
   });
 });

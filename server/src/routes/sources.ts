@@ -8,7 +8,7 @@ import { cleanName, hasVisible } from '../name/clean';
 import { hasInsult } from '../name/insult';
 import { McpError, addressOf, listTools } from '../sources/mcp';
 import { MAX_SOURCES, insertSource, openAddress, sourceCount, sourceRow, sourceViewOf, withTicks, type StoredTool } from '../sources/store';
-import { toolsOf, type Tool } from '../sources/types';
+import { toolsFor, toolsOf, type Tool } from '../sources/types';
 import { randomId } from '../spend';
 import { track } from '../track';
 import { ownedPet } from './thoughts';
@@ -29,7 +29,7 @@ export async function testAddress(text: string): Promise<Tool[] | null> {
     return null;
   }
   try {
-    const tools = toolsOf(await listTools(address));
+    const tools = toolsFor(address, toolsOf(await listTools(address)));
     console.log(tools.length > 0 ? 'source_check:ok' : 'source_check:no_tools');
     return tools.length > 0 ? tools : null;
   } catch (e) {

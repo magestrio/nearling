@@ -25,8 +25,14 @@ export function takesLine(params: readonly ToolParam[]): string | null {
   return `Takes: ${params.map((p) => `${p.name} (${typeWord(p)})`).join(', ')}.`;
 }
 
-/** The tool's description with its parameters after it, as the row shows them. */
+/** The server's `MAX_DESCRIPTION`: the model reads a tool's description cut to this, so the row shows no more of it.
+ * A gateway's tool can carry pages of text (Pipeworx's polymarket_arbitrage, 2026-11-12). */
+export const MAX_DESCRIPTION = 300;
+
+/** The tool's description, cut as the model reads it, with its parameters after it, as the row shows them. */
 export function toolDescription(tool: Pick<ToolView, 'description' | 'params'>): string {
+  const chars = [...tool.description];
+  const description = chars.length > MAX_DESCRIPTION ? `${chars.slice(0, MAX_DESCRIPTION).join('').trimEnd()}…` : tool.description;
   const takes = takesLine(tool.params);
-  return takes ? `${tool.description} ${takes}` : tool.description;
+  return takes ? `${description} ${takes}` : description;
 }

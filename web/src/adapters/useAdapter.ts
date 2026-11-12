@@ -24,6 +24,9 @@ export type AdapterRequest = 'check' | 'save' | 'remove' | 'publish' | 'unpublis
 /** The line at the body's top: a request that did not come back (with «Try again»), or the ended session. */
 export type AdapterTop = { kind: 'failed'; again: AdapterRequest } | { kind: 'session' };
 
+/** Up to this many usable tools come ticked after a check; a source with more (a gateway such as Pipeworx serves ~50,
+ * most off the skill's subject) comes with none, so the owner picks what the pet gets. */
+export const AUTO_TICK_MAX = 5;
 const statusOf = (e: unknown) => (e instanceof WorkerError ? e.status : 0);
 const codeOf = (e: unknown) => (e instanceof WorkerError ? e.code : '');
 
@@ -181,7 +184,8 @@ export function useAdapter(tokenId: string, host: AdapterHost) {
         (r) => {
           if (fields.current.address.trim() !== typed) return;
           setTools(r.tools);
-          setTicks(r.tools.filter((t) => t.tickable).map((t) => t.name));
+          const usable = r.tools.filter((t) => t.tickable).map((t) => t.name);
+          setTicks(usable.length <= AUTO_TICK_MAX ? usable : []);
           setAddressError(false);
           setRevealed(true);
         },
