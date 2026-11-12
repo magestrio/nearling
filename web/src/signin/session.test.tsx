@@ -4,9 +4,10 @@ import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { navigate } from '../route';
 import { ProviderContext, useAuth, type AuthApi, type ProviderApi } from '../seams/auth-context';
+import { makeTokenKeeper } from '../seams/token';
 import { WorkerError } from '../seams/worker-types';
 import { keepJudgeCode, readJudgeCode } from './judgeCode';
-import { markSignInUnderWay, rememberReturnPlace, signInUnderWay } from './returnPlace';
+import { markSignInUnderWay, peekReturnPlace, rememberReturnPlace, signInUnderWay } from './returnPlace';
 import { SessionProvider } from './session';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -187,6 +188,39 @@ describe('the exchange', () => {
     expect(worker.session).toHaveBeenNthCalledWith(1, 'identity-token', { fresh: true, from: 'link' });
     expect(worker.session).toHaveBeenNthCalledWith(2, 'identity-token', { fresh: true, from: 'link' });
     expect(seen).toMatchObject({ ready: true, authenticated: true, unreachable: false });
+  });
+
+  // spec: D-165 › Privy 429/5xx during sign-in keeps the Feed return place
+  it.each([429, 503])('retries a Privy %i once, then opens the session with Feed still pending', async (status) => {
+    rememberReturnPlace({ path: '/pet/9', action: 'feed' });
+    const askPrivy = vi.fn().mockRejectedValueOnce(Object.assign(new Error('Privy unavailable'), { status }))
+      .mockResolvedValue('identity-token');
+    const tokens = makeTokenKeeper(askPrivy);
+    await show(provider({ freshSignIn: true, getIdentityToken: tokens.get }));
+    expect(seen.ready).toBe(false);
+    await finishRetry();
+    expect(askPrivy).toHaveBeenCalledTimes(2);
+    expect(worker.session).toHaveBeenCalledWith('identity-token', { fresh: true, from: 'link' });
+    expect(seen).toMatchObject({ ready: true, authenticated: true, unreachable: false });
+    expect(peekReturnPlace()).toMatchObject({ path: '/pet/9', action: 'feed' });
+  });
+
+  // spec: D-165 › Privy 429 during sign-in exhausts the bounded retry
+  it('shows unreachable after the token keeper exhausts Privy 429 retries, keeping Feed pending', async () => {
+    rememberReturnPlace({ path: '/pet/9', action: 'feed' });
+    vi.useFakeTimers();
+    try {
+      const askPrivy = vi.fn().mockRejectedValue(Object.assign(new Error('rate limit'), { status: 429 }));
+      const tokens = makeTokenKeeper(askPrivy);
+      await show(provider({ freshSignIn: true, getIdentityToken: tokens.get }));
+      await act(async () => { await vi.advanceTimersByTimeAsync(5_100); });
+      expect(askPrivy).toHaveBeenCalledTimes(4);
+    } finally {
+      vi.useRealTimers();
+    }
+    expect(worker.session).not.toHaveBeenCalled();
+    expect(seen).toMatchObject({ ready: true, authenticated: false, unreachable: true });
+    expect(peekReturnPlace()).toMatchObject({ path: '/pet/9', action: 'feed' });
   });
 });
 

@@ -53,6 +53,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       let result: Outcome = 'unreachable';
       let refused: SignInRefusal | null = null;
       try {
+        // Privy's token keeper already bounds retries for 429/5xx. Starting it again here doubles the requests.
         const token = await providerRef.current.getIdentityToken();
         if (token === null) {
           result = 'unauthorized';
