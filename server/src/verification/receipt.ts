@@ -42,8 +42,10 @@ interface Outcome {
 function eventOf(log: string): ChainEvent | null {
   if (!log.startsWith('EVENT_JSON:')) return null;
   try {
-    const value = JSON.parse(log.slice(11)) as ChainEvent;
-    return value.standard === 'nearling' && value.version === '1.0.0' && Array.isArray(value.data) ? value : null;
+    // near-sdk's event_json writes a struct variant's `data` as one object; an array is read as well
+    const value = JSON.parse(log.slice(11)) as Omit<ChainEvent, 'data'> & { data: unknown };
+    if (value.standard !== 'nearling' || value.version !== '1.0.0' || typeof value.data !== 'object' || value.data === null) return null;
+    return { ...value, data: Array.isArray(value.data) ? value.data : [value.data] };
   } catch { return null; }
 }
 

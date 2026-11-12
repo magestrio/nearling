@@ -3,6 +3,7 @@
 //
 //  - Privy's JWKS (`PRIVY_JWKS_URL`): the public key of a key pair made for the test, so the test
 //    signs identity tokens the Worker verifies (`token()`).
+//  Events carry `data` as one object, as the contract's near-sdk `event_json` writes a struct variant.
 //  - The NEAR JSON-RPC (`NEAR_RPC_URL`): a small model of the Nearling contract answering
 //    `pet_view`, `hatch_view`, `nft_supply_for_owner`, `view_account`, and executing `pet_mint`
 //    from a transaction the Worker really signed and sent (`query`, `block`, `send_tx`, `tx` in the
@@ -875,7 +876,7 @@ export class FakeContract {
         const data = call.methodName === 'pet_feed'
           ? { token_id: String(args.token_id), feeder: tx.signerId, amount: call.deposit.toString(), ...(args.job_hash === undefined ? {} : { job_hash: args.job_hash, funding_index: fundingIndex }) }
           : { token_id: String(args.token_id), amount: env.SNACK_AMOUNT, kind: args.kind, ...(String(args.kind) === 'friend' ? { friend: args.feeder } : {}), ...(args.job_hash === undefined ? {} : { job_hash: args.job_hash, funding_index: fundingIndex }) };
-        logs.push(`EVENT_JSON:${JSON.stringify({ standard: 'nearling', version: '1.0.0', event: call.methodName === 'pet_feed' ? 'feed' : 'snack', data: [data] })}`);
+        logs.push(`EVENT_JSON:${JSON.stringify({ standard: 'nearling', version: '1.0.0', event: call.methodName === 'pet_feed' ? 'feed' : 'snack', data })}`);
       }
       if (call.methodName === 'debit_session' && typeof status === 'object' && status !== null && 'SuccessValue' in status) {
         for (const thought of args.thoughts as FakeThought[]) {
@@ -887,13 +888,13 @@ export class FakeContract {
               funding: (this.sharedEntries.get(String(args.token_id)) ?? []).flatMap((entry, index) => entry.spent === 0n ? [] : [{ index, kind: entry.kind, amount: entry.spent.toString() }]) }) };
           if (thought.debate !== undefined) Object.assign(receipt,
             { debate_id: thought.debate.id, line_order: thought.debate.line_order });
-          logs.push(`EVENT_JSON:${JSON.stringify({ standard: 'nearling', version: '1.0.0', event: 'receipt', data: [receipt] })}`);
+          logs.push(`EVENT_JSON:${JSON.stringify({ standard: 'nearling', version: '1.0.0', event: 'receipt', data: receipt })}`);
           if (thought.hire !== undefined) {
-            logs.push(`EVENT_JSON:${JSON.stringify({ standard: 'nearling', version: '1.0.0', event: 'hire', data: [{
+            logs.push(`EVENT_JSON:${JSON.stringify({ standard: 'nearling', version: '1.0.0', event: 'hire', data: {
               debit_id: Number(args.debit_id), hirer: String(args.token_id), worker: thought.worker,
               kind: thought.hire.kind, skill: thought.hire.skill, fee: thought.hire.fee,
               answer_cost: thought.price,
-            }] })}`);
+            } })}`);
           }
         }
       }

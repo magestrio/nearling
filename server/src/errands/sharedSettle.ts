@@ -69,9 +69,11 @@ export async function readSharedReceiptFunding(env: Env, txHash: string, hash: s
   for (const outcome of raw.receipts_outcome ?? []) for (const line of outcome.outcome?.logs ?? []) {
     if (!line.startsWith('EVENT_JSON:')) continue;
     try {
-      const event = JSON.parse(line.slice('EVENT_JSON:'.length)) as { standard?: string; event?: string; data?: Array<{ job_hash?: string; funding?: FundingSpend[] }> };
-      if (event.standard === 'nearling' && event.event === 'receipt') {
-        const record = event.data?.find((item) => item.job_hash === hash);
+      type Record = { job_hash?: string; funding?: FundingSpend[] };
+      const event = JSON.parse(line.slice('EVENT_JSON:'.length)) as { standard?: string; event?: string; data?: Record | Record[] };
+      if (event.standard === 'nearling' && event.event === 'receipt' && event.data) {
+        // the contract writes one object per event; an array is read as well
+        const record = (Array.isArray(event.data) ? event.data : [event.data]).find((item) => item.job_hash === hash);
         if (record !== undefined && Array.isArray(record.funding)) spent = record.funding;
       }
     } catch { /* A different contract log cannot prove attribution. */ }

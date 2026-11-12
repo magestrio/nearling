@@ -36,8 +36,9 @@ export async function confirmedFunding(env: Env, row: FeedingRow): Promise<{ txH
     if (!line.startsWith('EVENT_JSON:')) continue;
     let event: Event;
     try { event = JSON.parse(line.slice('EVENT_JSON:'.length)) as Event; } catch { continue; }
-    if (event.standard !== 'nearling' || event.event !== (row.source === 'near' ? 'feed' : 'snack') || !Array.isArray(event.data)) continue;
-    for (const item of event.data as FundingEvent[]) {
+    if (event.standard !== 'nearling' || event.event !== (row.source === 'near' ? 'feed' : 'snack') || typeof event.data !== 'object' || event.data === null) continue;
+    // the contract writes one object per event; an array is read as well
+    for (const item of (Array.isArray(event.data) ? event.data : [event.data]) as FundingEvent[]) {
       const contributor = row.source === 'near' ? item.feeder : item.friend;
       if (item.token_id !== row.token_id || item.job_hash !== row.job_hash || contributor !== row.account) continue;
       if (typeof item.amount !== 'string' || !/^[0-9]+$/.test(item.amount) || !Number.isInteger(item.funding_index)) continue;
