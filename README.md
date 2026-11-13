@@ -1,5 +1,7 @@
 # Nearling
 
+**Play it at [nearling.xyz](https://nearling.xyz)** — the game currently runs on **NEAR testnet**, and every transaction linked in this README is a testnet one; the mainnet launch moves the same domain to NEAR mainnet. Without signing in you can browse the pets, open a sample pet and check its record and receipts. Google sign-in lets you hatch, talk, feed and hire; it stays open until 460 new players a month, and judges' invite codes reach 480.
+
 ## What
 
 Nearling is an AI Tamagotchi on NEAR: a browser game for desktop and phone about an AI pet owned as a NEP-171 NFT. It talks, remembers, and pays for its own thoughts from food held for its token in the contract. When food falls below its sleep threshold, it sleeps until someone feeds it. A visitor can meet a pet and inspect its public record before signing in.
@@ -97,7 +99,7 @@ The contract enforces a 0.005 NEAR maximum per thought and a 0.05 NEAR debit lim
 
 ## Try it in 3 minutes
 
-These paths use the testnet app. An already signed-in owner may be sent straight to their pet. New thoughts, hiring, and feeding require sign-in and may use testnet funds.
+These paths use the app at [nearling.xyz](https://nearling.xyz), on NEAR testnet. An already signed-in owner may be sent straight to their pet. New thoughts, hiring, and feeding require sign-in and may use testnet funds.
 
 **Guest path — inspect a pet without signing in**
 
@@ -152,7 +154,7 @@ To inspect a thought yourself:
 
 The Home totals come from the contract's [`showcase_view`](contract/src/lib.rs) via the Worker's [`showcaseView`](server/src/chain.ts). The separate events D1 has feature-specific tables, including [`showcase_card_shared`](server/migrations/events/0001_showcase_card_shared.sql). After local migrations, `SELECT kind, delivery, COUNT(*) FROM showcase_card_shared GROUP BY kind, delivery;` gives counts of card deliveries.
 
-## Built Nov 1–14
+## Built Oct 29 – Nov 14
 
 The first repository commit was on 2026-10-29, after the hackathon announcement on October 19. Feature work continued through November 12: wardrobe on Nov 1; work and errands on Nov 3; verification and gifts on Nov 4; showcase on Nov 5; society and wills on Nov 7; repeat hatching and game layout on Nov 10; debates on Nov 11; any-chain feeding and fixes on Nov 12. This describes the work in this repository, including its earlier October setup.
 
@@ -161,6 +163,8 @@ The first repository commit was on 2026-10-29, after the hackathon announcement 
 - A current NEAR AI hardware match can disappear after a model signing-key rotation because historical attestation reports are not stored.
 
 ## Reused libraries and code
+
+**AI-written code.** The code in this repository was written by AI coding agents — Anthropic's Claude Code and OpenAI's Codex — directed by the author, from the product spec and screen designs made in the same project; the agents also wrote and ran the tests and the code reviews.
 
 The pet generator and 3D assembly in [`web/src/pet/proto/`](web/src/pet/proto/) were ported from the creator's earlier `pet-proto` design prototype. They are reused code.
 
