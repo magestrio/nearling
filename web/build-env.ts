@@ -37,7 +37,7 @@ const prod: BuildEnv = {
   VITE_CONTRACT_ID: '',
   VITE_SERVER_ACCOUNT_ID: '',
   VITE_TREASURY_ACCOUNT_ID: '',
-  VITE_PRIVY_APP_ID: '',
+  VITE_PRIVY_APP_ID: 'cmwertv2m00kr0il85l73cnf0',
   VITE_DEV_ROUTE: 'false',
   VITE_FAKES: undefined,
 };
