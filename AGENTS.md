@@ -49,6 +49,7 @@ Dev deployment is a separate operation requiring configured credentials. From `s
 
 - Keep dependency versions exact in the manifests and lockfiles. Add D1 migrations as new numbered files; do not edit migrations already applied to dev.
 - Anchor automated tests with `// spec: <change> › <Requirement> › <Scenario>` using the exact requirement and scenario headings.
+- The product spec and the screen reference frames behind the `// spec:` anchors and the `screens` verify step are kept outside this public repository.
 - Restricted contract methods check `env::predecessor_account_id()` against stored authority. Preserve contract caps and event records when changing transactions.
 - The client calls the Worker, NEAR RPC, and Privy through modules in `web/src/seams/`. Keep tests deterministic: mock outside calls, including paid inference, instead of making live calls in tests.
 - Keep secrets in ignored local vars or Worker secret bindings. `VITE_*` values are public and must never contain secrets. Do not commit keys or local environment files.

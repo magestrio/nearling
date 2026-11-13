@@ -29,7 +29,7 @@ Nearling is an AI Tamagotchi on NEAR: a browser game for desktop and phone about
 - **Dress the pet:** earn outfits from streaks and a solved riddle, buy an outfit with pet food, and choose what it wears and how that affects its manner of speaking. [Wardrobe route](server/src/routes/wardrobe.ts), [outfit methods](contract/src/lib.rs).
 - **Send errands:** ask the pet to read a page, find sources, or check a claim; see its report, citations, price, and receipt. Friends can fund a shared errand, and the pet can watch a public target daily. [Errand sheet](web/src/errands/ErrandSheet.tsx), [errand route](server/src/routes/errands.ts), [watch route](server/src/routes/watch.ts).
 - **Give it skills and data:** write a private skill instruction with a public label, connect keyless data sources, and test the pet's own bounded JavaScript skill code. The owner can browse published sources in the catalog. [Skill route](server/src/routes/work.ts), [sources](server/src/routes/sources.ts), [code](server/src/routes/code.ts), [catalog](server/src/routes/catalog.ts).
-- **Hire pets:** search the public board, ask another player's pet for paid advice, or let a pet ask a known pet during its own conversation. Auto lets it decide; Manual asks its owner first. The paying pet spends food, and the worker retains its fee after answer cost. [Hire board](web/src/work/HireBoardPage.tsx), [hire processing](server/src/work/hire.ts), [`debit_session`](contract/src/lib.rs).
+- **Hire pets:** search the public board, ask another player's pet for paid advice, or let a pet ask a known pet during its own conversation. Auto lets it decide; Ask me first waits for its owner's approval. The paying pet spends food, and the worker retains its fee after answer cost. [Hire board](web/src/work/HireBoardPage.tsx), [hire processing](server/src/work/hire.ts), [`debit_session`](contract/src/lib.rs).
 - **Give a pet away:** send a gift link and transfer the pet with its food, character, growth, outfits, streak, skills, conversation, and memory. [Gift page](web/src/gift/GiftPage.tsx), [`nft_transfer`](contract/src/lib.rs).
 - **Check a pet's record:** inspect its birth character, growth, outfits, thought prices, hashes and signatures; the owner or a deliberately published receipt link can also supply original bytes for a word-for-word check. [Verification page](web/src/verification/VerificationPage.tsx), [byte checks](web/src/verification/check.ts).
 - **Show a pet moment:** browse real pets and public totals on Home, open a sample pet, and save or share an owner-selected thought, growth, or outfit card. [Home](web/src/screens/home/HomeScreen.tsx), [card](web/src/showcase/usePetCard.tsx), [`showcase_view`](contract/src/lib.rs).
@@ -53,7 +53,7 @@ The intended player is an adult virtual-pet fan, including someone with no crypt
 
 - **Games With Real Economies** (`games`): food funds thoughts, work earns food, and hunger, sleep, feeding, and daily return shape the loop. [Google sign-in](web/src/signin/signIn.tsx) and [Privy's NEAR wallet seam](web/src/seams/auth.privy.tsx) support play without a separate wallet setup; [1-Click quotes](server/src/any-chain/quote.ts) bring NEAR Intents into feeding from another chain.
 - **NFTs That Do Something** (`nfts`): [NEP-171 ownership](contract/src/lib.rs) travels with contract-held food, character, stage, traits, streak, and wardrobe. These changing fields make the NFT dynamic; a pet is not a separate NEAR account. A [gift](web/src/gift/GiftPage.tsx) moves the entire pet.
-- **Agent Economy** (`agents`): pets spend their food on NEAR AI compute and paid search or data calls, earn food for answering or working, and hire known pets in Auto mode or with owner approval in Manual mode. [Work and hiring](server/src/work/hire.ts), [data calls](server/src/sources/step.ts), and [debates](server/src/debates/turns.ts) show the behavior; [Chain Signatures](contract/src/lib.rs) authorize pet-address source-chain sweeps with current-owner approval.
+- **Agent Economy** (`agents`): pets spend their food on NEAR AI compute and paid search or data calls, earn food for answering or working, and hire known pets in Auto mode or with owner approval in Ask me first mode. [Work and hiring](server/src/work/hire.ts), [data calls](server/src/sources/step.ts), and [debates](server/src/debates/turns.ts) show the behavior; [Chain Signatures](contract/src/lib.rs) authorize pet-address source-chain sweeps with current-owner approval.
 
 ## How it fits together
 
@@ -156,7 +156,7 @@ The Home totals come from the contract's [`showcase_view`](contract/src/lib.rs) 
 
 ## Built Oct 29 – Nov 14
 
-The first repository commit was on 2026-10-29, after the hackathon announcement on October 19. Feature work continued through November 12: wardrobe on Nov 1; work and errands on Nov 3; verification and gifts on Nov 4; showcase on Nov 5; society and wills on Nov 7; repeat hatching and game layout on Nov 10; debates on Nov 11; any-chain feeding and fixes on Nov 12. This describes the work in this repository, including its earlier October setup.
+The first repository commit was on 2026-10-29, after the hackathon announcement on October 19. Feature work continued through November 13: wardrobe on Nov 1; work and errands on Nov 3; verification and gifts on Nov 4; showcase on Nov 5; society and wills on Nov 7; repeat hatching and game layout on Nov 10; debates on Nov 11; any-chain feeding and fixes on Nov 12; hiring and debate fixes and the nearling.xyz domain on Nov 13. This describes the work in this repository, including its earlier October setup.
 
 ## Known limitations
 
@@ -172,4 +172,6 @@ The contract uses `near-sdk` and `near-contract-standards` 5.30.0; its test/buil
 
 ## Links
 
+- [Play at nearling.xyz](https://nearling.xyz) (NEAR testnet)
+- [Demo post on X](https://x.com/itsonetapman/status/2121212041385976231)
 - [Testnet contract `nearling-dev.testnet`](https://testnet.nearblocks.io/address/nearling-dev.testnet)
