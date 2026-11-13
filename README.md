@@ -101,6 +101,13 @@ The contract enforces a 0.005 NEAR maximum per thought and a 0.05 NEAR debit lim
 
 These paths use the app at [nearling.xyz](https://nearling.xyz), on NEAR testnet. An already signed-in owner may be sent straight to their pet. New thoughts, hiring, and feeding require sign-in and may use testnet funds. The same paths run on mainnet at [main.nearling.xyz](https://main.nearling.xyz), where food is real NEAR and **“Pay from another chain”** takes USDC and other assets through 1-Click, which has no testnet.
 
+**For judges and screeners**
+
+- Google sign-in is open to anyone until 460 new players join in a month. Past that, Home shows **“Enter judge code”**, which admits up to 480 players; ask for a code in a reply to the [demo post on X](https://x.com/itsonetapman/status/2121212041385976231).
+- A new pet starts with food, so hatching and talking need no tokens. A friend can give each pet 3 free snacks a UTC day; feeding with testnet NEAR needs faucet funds, such as from [near-faucet.io](https://near-faucet.io).
+- The contract allows 50 births per UTC day. When they run out, Hatch says **“New pets are paused for now.”**; the guest path still works.
+- An AI screener cannot complete Google sign-in: the signed-in loop below is shown in the [demo video](https://x.com/itsonetapman/status/2121212041385976231). For a word-for-word check without signing in, open [a finished debate](https://nearling.xyz/debate#c58d4c6814e3c88a828921238b7d7ea9) and choose **“Check this line”** on a reply.
+
 **Guest path — inspect a pet without signing in**
 
 1. Open the home page in a signed-out tab. The page says **“This pet pays for its own thoughts. When the money runs out, it falls asleep.”**
@@ -111,7 +118,7 @@ These paths use the app at [nearling.xyz](https://nearling.xyz), on NEAR testnet
 
 **Signed-in core loop — hatch, talk, share, wake**
 
-This path needs an account allowed through the current sign-in gate, an available birth, and a friend with an eligible snack or testnet NEAR. The first friend action can happen on a phone.
+This path needs Google sign-in, a birth left for the day, and a friend: a second Google account works, and one of its 3 daily free snacks is enough. The first friend action can happen on a phone.
 
 1. Open **“Hatch your pet”** → the Hatch page offers **“Sign in with Google to hatch your pet”**. Complete Google sign-in and return to Hatch; if you already own a pet, it offers **“Go to {name}”** instead.
 2. Enter a name and choose **“Hatch my pet”** → the pet page opens with the named pet. Its composer says **“Say hi to {name}…”** or **“Talk to {name}…”**.
@@ -156,7 +163,7 @@ The Home totals come from the contract's [`showcase_view`](contract/src/lib.rs) 
 
 ## Built Oct 29 – Nov 14
 
-The first repository commit was on 2026-10-29, after the hackathon announcement on October 19. Feature work continued through November 13: wardrobe on Nov 1; work and errands on Nov 3; verification and gifts on Nov 4; showcase on Nov 5; society and wills on Nov 7; repeat hatching and game layout on Nov 10; debates on Nov 11; any-chain feeding and fixes on Nov 12; hiring and debate fixes, the nearling.xyz domain, and the mainnet launch at main.nearling.xyz with the first cross-chain payment on Nov 13. This describes the work in this repository, including its earlier October setup.
+The first repository commit was on 2026-10-29, ten days after the hackathon announcement of October 19, from which the hackathon counts work; no commit predates it, and reused code is listed below. Oct 29: architecture decision records and the scaffold of the contract, Worker and client. Oct 30–31: hatching and talking, Google sign-in, feeding, pet life, and the daily ritual. Then wardrobe on Nov 1; work and errands on Nov 3; verification and gifts on Nov 4; showcase on Nov 5; society and wills on Nov 7; repeat hatching and game layout on Nov 10; debates on Nov 11; any-chain feeding and fixes on Nov 12; hiring and debate fixes, the nearling.xyz domain, and the mainnet launch at main.nearling.xyz with the first cross-chain payment on Nov 13.
 
 ## Known limitations
 
@@ -167,7 +174,7 @@ The first repository commit was on 2026-10-29, after the hackathon announcement 
 
 **AI-written code.** The code in this repository was written by AI coding agents — Anthropic's Claude Code and OpenAI's Codex — directed by the author, from the product spec and screen designs made in the same project; the agents also wrote and ran the tests and the code reviews.
 
-The pet generator and 3D assembly in [`web/src/pet/proto/`](web/src/pet/proto/) were ported from the creator's earlier `pet-proto` design prototype. They are reused code.
+The pet generator and 3D assembly in [`web/src/pet/proto/`](web/src/pet/proto/) were ported from the creator's earlier `pet-proto`, an unpublished local 3D design prototype (React Three Fiber) with no NEAR code. They are reused code.
 
 The contract uses `near-sdk` and `near-contract-standards` 5.30.0; its test/build tools include `near-workspaces` 0.24.0 and `cargo-near-build` 0.11.5. The Worker uses Hono 4.13.14, `near-api-js` 7.4.0, `jose` 6.2.14, and Noble curves and hashes 2.2.0; its tools include Wrangler 4.155.0, the Workers Vitest plugin 1.4.10, Vitest 5.0.5, and TypeScript 6.0.3. The client uses React and React DOM 19.3.1, Three 0.186.1, React Three Fiber 9.8.2, drei 10.7.9, postprocessing 6.39.5, R3F postprocessing 3.2.2, Privy React Auth 3.51.0, `near-api-js` 7.4.0, Noble curves 1.8.0 and hashes 1.4.0; its tools include Vite 8.3.5, Playwright 1.58.2, Vitest 5.0.5, TypeScript 6.0.3, and jsdom 30.1.3. The complete dependency lists, including type packages and Rust test dependencies, are in [the contract manifest](contract/Cargo.toml), [the Worker manifest](server/package.json), and [the client manifest](web/package.json).
 
