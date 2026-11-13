@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { accelerated } from './bvh.js';
 import { OFF_WHITE } from './generator.js';
 
 // The screen is a grid of ROWS pixel rows and as many square columns as its
@@ -210,7 +211,7 @@ function roundedRectOutline(w, h, rc, counts, grow = 0) {
 // Pushes flat points (x + dx, y + dy) along -z onto the body, then lifts each
 // one off the surface along the surface normal by its own amount.
 function projectOntoBody(bodyGeometry, flat, dx, dy, lifts) {
-  const target = new THREE.Mesh(bodyGeometry, new THREE.MeshBasicMaterial());
+  const target = accelerated(new THREE.Mesh(bodyGeometry, new THREE.MeshBasicMaterial()));
   const ray = new THREE.Raycaster();
   const origin = new THREE.Vector3();
   const dir = new THREE.Vector3(0, 0, -1);
@@ -296,7 +297,7 @@ export const rimOutside = (face) => RIM_OUTSIDE * (face.rim ?? 1);
 export function rimFits(bodyGeometry, face, minFacing = 0.35) {
   const { x, y, w, h } = face;
   const rc = cornerRadius(h);
-  const target = new THREE.Mesh(bodyGeometry, new THREE.MeshBasicMaterial());
+  const target = accelerated(new THREE.Mesh(bodyGeometry, new THREE.MeshBasicMaterial()));
   const ray = new THREE.Raycaster();
   const dir = new THREE.Vector3(0, 0, -1);
   return roundedRectOutline(w, h, rc, outlineCounts(w, h, rc), rimOutside(face)).every(([px, py]) => {

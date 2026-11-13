@@ -11,6 +11,7 @@
 // math only; nothing here needs WebGL. A worn item (outfits.js) is drawn
 // from its fitted geometry, as flat tones.
 import { Euler, Matrix4, Mesh, MeshBasicMaterial, PerspectiveCamera, Quaternion, Raycaster, Vector3 } from 'three';
+import { accelerated } from './bvh.js';
 import { assemblePet, CORE_DEPTH, FOOT, frameFor } from './assemble.js';
 import { CELL, makeScreenTexture, RIM_ROWS } from './face.js';
 import { HUES } from './generator.js';
@@ -264,7 +265,7 @@ function drawRing(ctx, runs, lower, upper, lift) {
 // The body's underside height at (x, z) in pet space, or null off the body
 // (as assemble.js finds it to seat the feet).
 function undersideOf(body) {
-  const mesh = new Mesh(body.geometry, new MeshBasicMaterial());
+  const mesh = accelerated(new Mesh(body.geometry, new MeshBasicMaterial()));
   mesh.matrixWorld.copy(compose(body.position, body.rotation, body.scale));
   const ray = new Raycaster();
   const up = new Vector3(0, 1, 0);

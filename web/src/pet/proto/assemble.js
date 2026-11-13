@@ -5,6 +5,7 @@
 // and the bounds used for framing. No DOM: it also runs
 // in Node (scripts/stills.mjs, scripts/pick-seeds.mjs).
 import * as THREE from 'three';
+import { accelerated } from './bvh.js';
 import { makePet } from './generator.js';
 import { projectRim, projectScreen, rimFits, rimOutside } from './face.js';
 import { OUTFITS } from './outfits.js';
@@ -229,7 +230,7 @@ function footGeometry(radius, height) {
 
 function cast(geometry, origin, dir) {
   const ray = new THREE.Raycaster(origin, dir);
-  return ray.intersectObject(new THREE.Mesh(geometry, new THREE.MeshBasicMaterial()))[0] ?? null;
+  return ray.intersectObject(accelerated(new THREE.Mesh(geometry, new THREE.MeshBasicMaterial())))[0] ?? null;
 }
 
 // keepAspect: shrink the width and height together (a younger stage keeps the
@@ -319,7 +320,7 @@ function headOf(shape, face, tops, ringPart, down, aboveGround) {
   const x0 = shape.topX;
   const material = new THREE.MeshBasicMaterial();
   const meshOf = (geometry, position = [0, 0, 0], rotation = [0, 0, 0]) => {
-    const m = new THREE.Mesh(geometry, material);
+    const m = accelerated(new THREE.Mesh(geometry, material));
     m.position.set(...position);
     m.rotation.set(...rotation);
     m.updateMatrixWorld();
