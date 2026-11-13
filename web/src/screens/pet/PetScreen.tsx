@@ -867,8 +867,6 @@ function OutsiderPage({ pet, s, seal, ownerChanged = false }: { pet: Exclude<Pet
     <Heading level={1} hidden>{name}</Heading>
     {changedLine ? <Banner tone="info">{changedLine}</Banner> : null}
     <Live>{changedLine}</Live>
-    {/* the advice column says it on the guest's advice page; here the page's own region does */}
-    <Live>{asleep ? asleepLine : ''}</Live>
     <ConnectionBanner banner={s.banner} name={name} tryAgain={s.tryAgain} />
     <SealBanner name={name} seal={seal} />
     <Inert on={anchorCardOpen || givenHere ? true : covered}><Stage asleep={asleep}
@@ -895,6 +893,9 @@ function OutsiderPage({ pet, s, seal, ownerChanged = false }: { pet: Exclude<Pet
     {anchorCardOpen && (profile.phase === 'error' || profile.phase === 'ready') ? <ProfileCard pet={profile.pet ?? pet} error={profile.phase === 'error'}
       seal={seal.state} onSealRetry={seal.retry} onRetry={() => void profile.open()} onClose={profile.close} /> : null}
     {tail}
+    {/* the advice column says it on the guest's advice page; here the page's own region does. Last, so the Stage keeps its
+        place when this page turns into the advice page and its pet is not drawn again */}
+    <Live>{asleep ? asleepLine : ''}</Live>
   </Shell>;
 }
 
