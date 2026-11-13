@@ -52,12 +52,14 @@ test('стал подростком × the open page: the line rises in under th
   await expect(stageWord(page, 'Teen')).toBeVisible();
   // the model is the teen's (`Growth flow` › «стал подростком»: «модель — подросток»)
   await expect(model(page)).toHaveAttribute('data-stage', 'teen');
-  await expect(stageWord(page, 'clever')).toBeVisible();
   // the pet's reply before the line is no longer the lead voice
   await expect(page.getByRole('log').locator('.ds-message--latest')).toHaveCount(0);
   // the next looks bring it no second time
   await lookAgain(page);
   await expect(growthLine(page)).toHaveCount(1);
+  // the trait stands in «Pixel's card» (`add-game-layout`: the card shows growth and traits)
+  await page.getByRole('button', { name: "Pixel's card" }).click();
+  await expect(stageWord(page, 'clever')).toBeVisible();
 });
 
 // spec: add-pet-life › Growth flow › переход записан позже ответа × the open page, a job in flight

@@ -101,11 +101,13 @@ test('вошёл с главной: «Sign in» on Home with no place — the cu
 });
 
 // spec: add-account › Sign-in flow › вошёл с главной
-test('вошёл с главной: a player with no pet of their own is on the Hatch screen', async ({ page }) => {
+// spec: add-hatch-again › Petless Home screen › empty
+test('вошёл с главной: a player with no pet of their own stays on Home, «Hatch your pet» leads to the Hatch screen', async ({ page }) => {
   await openWith(page, '/', {});
   await page.getByRole('button', { name: 'Sign in' }).click();
-  await expect(page).toHaveURL(/\/hatch$/);
-  await expect(page.getByLabel('Name your pet')).toBeVisible();
+  await expect(page.getByText('No pet of your own right now.').first()).toBeVisible();
+  await expect(page).toHaveURL(/\/$/);
+  await expect(page.getByRole('link', { name: 'Hatch your pet' }).first()).toHaveAttribute('href', '/hatch');
 });
 
 // spec: add-account › Sign-in flow › место потерялось

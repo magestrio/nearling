@@ -423,7 +423,8 @@ test('session ended, no tap yet × переход на другой адрес: 
     window.dispatchEvent(new PopStateEvent('popstate'));
   });
   await expect(page.getByRole('button', { name: 'Account' })).toHaveCount(0);
-  await expect(page.getByRole('link', { name: 'Go home' })).toBeVisible();
+  // the closed Hatch keeps its discovery exit (`add-hatch-again` › `Hatch again screen` › «birth paused»)
+  await expect(page.getByRole('link', { name: 'Find a pet to ask' })).toBeVisible();
   await setWorker(page, { hatchStatus: { open: true } });
   await lookAgain(page);
   await expect(page.getByRole('button', { name: 'Sign in with Google to hatch your pet' })).toBeVisible();

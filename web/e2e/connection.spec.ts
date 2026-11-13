@@ -95,7 +95,7 @@ test('AI-провайдер недоступен: «Pixel lost that thought. Not
   // «Try again» sends the same line again, once; the failed attempt leaves no second copy
   await setWorker(page, { petState: { thought: { id: 't1', text: 'Once upon a time.', cut: null } } });
   await page.getByRole('button', { name: 'Try again' }).click();
-  await expect(page.getByText('Once upon a time.')).toBeVisible();
+  await expect(page.getByRole('log').getByText('Once upon a time.')).toBeVisible();
   await expect(page.getByText('Pixel lost that thought.')).toHaveCount(0);
   await expect(page.getByRole('log').getByText('Tell me a story')).toHaveCount(1);
   expect((await calls(page)).filter((c) => c === 'worker:say:chat')).toHaveLength(2);
