@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { DEBATE_OPINION_LINE, debateLineText, debateMessages } from '../src/debates/prompt';
+import { DEBATE_OPINION_LINE, debateLineText, debateMessages, debateSideLine } from '../src/debates/prompt';
 import type { PetRecord } from '../src/chain';
 
 const pet = { name: 'Pixel', character: 'I notice small things.', stage: 'Teen', traits: ['thoughtful'],
@@ -38,6 +38,17 @@ describe('taking a side', () => {
     for (const earlier of [[], [{ speaker: 'Nori', text: 'Rain wins.' }]]) {
       expect(debateMessages(pet, 'Is rain better than sunshine?', earlier, life)[0]!.content).toContain(DEBATE_OPINION_LINE);
     }
+  });
+
+  // dev 2026-11-13: Pixel and Nova took the same side in all four lines, so the debate had no debate
+  it('lets the opener pick, gives the answering pet the opposite side and keeps both sides after', () => {
+    const system = (n: number) => debateMessages(pet, 'Is rain better than sunshine?',
+      Array.from({ length: n }, (_, i) => ({ speaker: i % 2 ? 'Pixel' : 'Nori', text: `Line ${i + 1}.` })), life)[0]!.content;
+    expect(system(0)).toContain(debateSideLine(1));
+    expect(system(1)).toContain(debateSideLine(2));
+    expect(debateSideLine(2)).toContain('Take the opposite side');
+    for (const n of [2, 3]) expect(system(n)).toContain(debateSideLine(3));
+    expect(debateSideLine(3)).toContain('Keep the side you took');
   });
 });
 
