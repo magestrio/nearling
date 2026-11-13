@@ -1,6 +1,6 @@
 # Nearling
 
-**Play it at [nearling.xyz](https://nearling.xyz)** — the game currently runs on **NEAR testnet**, and every transaction linked in this README is a testnet one; the mainnet launch moves the same domain to NEAR mainnet. Without signing in you can browse the pets, open a sample pet and check its record and receipts. Google sign-in lets you hatch, talk, feed and hire; it stays open until 460 new players a month, and judges' invite codes reach 480.
+**Play it at [nearling.xyz](https://nearling.xyz)** — NEAR testnet, with the sample pets this README links. **The same game is live on NEAR mainnet at [main.nearling.xyz](https://main.nearling.xyz)** (contract [`nearling-xyz.near`](https://nearblocks.io/address/nearling-xyz.near)): a pet was born there, paid for a reply from its food, and was fed with USDC sent from Solana through NEAR Intents 1-Click; the transactions are in [NEAR features](#near-features). Without signing in you can browse the pets, open a sample pet and check its record and receipts. Google sign-in lets you hatch, talk, feed and hire; it stays open until 460 new players a month, and judges' invite codes reach 480.
 
 ## What
 
@@ -76,30 +76,30 @@ The user holds the contract's full-access upgrade key. The Worker holds a contra
 
 ## NEAR features
 
-The examples below are **testnet** transactions for `nearling-dev.testnet`. Each cited example shows a successful method and the named event.
+Most examples below are **testnet** transactions for `nearling-dev.testnet`. Those marked **Mainnet** are transactions of [`nearling-xyz.near`](https://nearblocks.io/address/nearling-xyz.near), the same contract code on NEAR mainnet. Each cited example shows a successful method and the named event.
 
-| Behavior | Implementation | Testnet evidence |
+| Behavior | Implementation | Evidence |
 | --- | --- | --- |
-| Birth, ownership, and a character hash | [`pet_mint`, `nft_token`, `nft_tokens_for_owner`](contract/src/lib.rs), [`pet_born`](contract/src/events.rs) | [Pixel, token 0: `pet_mint`, `nft_mint`, `pet_born`](https://testnet.nearblocks.io/txns/3k7B8xjHntFZkWMvnqJ2cFpZPXmLDLVHnm2A2WPydusn) |
-| Food pays for a thought; the contract records price, model, call hashes, signature, and signer | [`debit_session`](contract/src/lib.rs), [`receipt`](contract/src/events.rs), [`closeAndDebit`](server/src/debit.ts), [NEAR AI call and signature handling](server/src/nearai.ts) | [Token 5: `debit_session` with a `receipt`](https://testnet.nearblocks.io/txns/4u51yf5YCEm51yZfy3MEzGfw95svt8jPsYRAwNe71yKD) |
+| Birth, ownership, and a character hash | [`pet_mint`, `nft_token`, `nft_tokens_for_owner`](contract/src/lib.rs), [`pet_born`](contract/src/events.rs) | [Pixel, token 0: `pet_mint`, `nft_mint`, `pet_born`](https://testnet.nearblocks.io/txns/3k7B8xjHntFZkWMvnqJ2cFpZPXmLDLVHnm2A2WPydusn). Mainnet: [Sharik, token 0: `pet_mint`, `nft_mint`, `pet_born`](https://nearblocks.io/txns/5j2kGhFJVQVyqmKTfvKPkJxGUXhPwcR7FXBMyL4gabnT) |
+| Food pays for a thought; the contract records price, model, call hashes, signature, and signer | [`debit_session`](contract/src/lib.rs), [`receipt`](contract/src/events.rs), [`closeAndDebit`](server/src/debit.ts), [NEAR AI call and signature handling](server/src/nearai.ts) | [Token 5: `debit_session` with a `receipt`](https://testnet.nearblocks.io/txns/4u51yf5YCEm51yZfy3MEzGfw95svt8jPsYRAwNe71yKD). Mainnet: [token 0, debit 1: `debit_session` with a `receipt`](https://nearblocks.io/txns/CnDbmKGzhyYwuzodkAgzyfJ3NomtEUWSV5LjcvQBnxgn) |
 | Paid advice from another pet | [`debit_session`](contract/src/lib.rs), [`hire`](contract/src/events.rs), [hire processing](server/src/work/hire.ts) | [Token 4 paid token 2 for three player-requested answers; `hire` events have `kind: player`](https://testnet.nearblocks.io/txns/HqMJxPgUypW39Vki3pVPo8KST6SnbpgiMnq6o4ZNLK3q). [In Auto mode, token 5 hired token 4 on its own during its owner's conversation; the `hire` event has `kind: pet`](https://testnet.nearblocks.io/txns/26JcLXLthkmjUhCFUwyUHoEJ1wqDMN2kWkHq4uG8MQAo). |
 | Feeding and waking | [`pet_feed`, `pet_snack`](contract/src/lib.rs), [feeding routes](server/src/routes/feeding.ts) | [Token 3: 0.01 NEAR `pet_feed` with a `feed` event](https://testnet.nearblocks.io/txns/6CeP291W3NJgScHuG8X43SzsxKmAuVsHyTHNzyoxHV9j). The event proves the feed; the transaction alone does not establish the pet's prior hunger state. |
 | Growth and daily streak | [`pet_grow`, `streak_mark`](contract/src/lib.rs) | [Token 0 grew to Adult](https://testnet.nearblocks.io/txns/5aBa415NaviDteg7DRDCghxoA9ESMbSWHk4kduQ87b1C); [token 4 recorded a streak](https://testnet.nearblocks.io/txns/4uPdfpCEwGZAv4C38XNkXGYGWmbniUnFxyNHNhSbJAxc) |
 | Daily riddle commit and reveal | [`riddle_commit`, `riddle_reveal`](contract/src/lib.rs) | [Successful commit](https://testnet.nearblocks.io/txns/4V5EXGVUCfRFFKZnU7RcewaXQenCC2raEMfJ47mrmRMq) and [successful reveal of a prior day's riddle](https://testnet.nearblocks.io/txns/J48j9f1UPK8HReL5D6Z3JgvEJecqHoipT1H9hdoihMhu) |
 | Wardrobe and giving a pet away | [`outfit_buy`, `nft_transfer`](contract/src/lib.rs) | [Token 4 bought an outfit](https://testnet.nearblocks.io/txns/D3XdTVfu7Aj8eY2t8ikHoz8sRwCiLHCSN89TfoZvAW2h); [token 0 was transferred](https://testnet.nearblocks.io/txns/F26e99kMrznnA8tK7vF57cLwkYeP1sytiRXiUQa4SmH) |
-| Feed from another chain or a pet address | [`ft_on_transfer`, `sweep_sign`](contract/src/lib.rs), [quote](server/src/routes/anyChainQuote.ts), [deposit](server/src/routes/anyChainDeposit.ts), [sweep](server/src/routes/anyChainSweep.ts) | No confirmed Nearling cross-chain food credit transaction was found. |
+| Feed from another chain or a pet address | [`ft_on_transfer`, `sweep_sign`](contract/src/lib.rs), [quote](server/src/routes/anyChainQuote.ts), [deposit](server/src/routes/anyChainDeposit.ts), [sweep](server/src/routes/anyChainSweep.ts) | Mainnet: [0.15 USDC sent on Solana became 0.0413 NEAR of food for token 0: wrap.near calls `ft_on_transfer`, with `cross_chain_pending` and `cross_chain_feed` events](https://nearblocks.io/txns/FkxJbky8aBV7PJ2vQnc1ZZhbR4YLQD25XBDyBzzWQDeT). No pet-address sweep is confirmed yet. |
 | NEAR AI Cloud Private TEE inference and signed answers | [`complete`, `signatureOf`](server/src/nearai.ts), [receipt checks](web/src/verification/check.ts) | The [token 5 `debit_session` receipt](https://testnet.nearblocks.io/txns/4u51yf5YCEm51yZfy3MEzGfw95svt8jPsYRAwNe71yKD) records signed-answer fields; the off-chain inference call is not a NEAR transaction. |
-| NEAR Intents 1-Click | [live quote](server/src/any-chain/quote.ts), [quote route](server/src/routes/anyChainQuote.ts), [`ft_on_transfer`](contract/src/lib.rs) | 1-Click runs on mainnet only. [A mainnet probe](https://nearblocks.io/txns/BDMX1MyDJezDjDgk4gVgP6JhgznfWjwe9sNcMfMxkYnX) delivered wNEAR through 1-Click to `ft_on_transfer` of a test receiver, carrying the game's routing message unchanged. |
+| NEAR Intents 1-Click | [live quote](server/src/any-chain/quote.ts), [quote route](server/src/routes/anyChainQuote.ts), [`ft_on_transfer`](contract/src/lib.rs) | 1-Click runs on mainnet only. Mainnet: [a player's 0.15 USDC on Solana reached token 0 as wNEAR through 1-Click](https://nearblocks.io/txns/FkxJbky8aBV7PJ2vQnc1ZZhbR4YLQD25XBDyBzzWQDeT); the `intents.near` withdrawal carries the game's route message unchanged to `ft_on_transfer`. |
 | Chain Signatures pet addresses | [address derivation](server/src/any-chain/addresses.ts), [`sweep_sign`](contract/src/lib.rs), [sweep route](server/src/routes/anyChainSweep.ts) | No confirmed pet-address sweep transaction was found. |
 | Server function-call key and project gas account for player transactions | [`serverAccount`, `gasAccount`](server/src/chain.ts), [contract caller check](contract/src/lib.rs) | The keys have different permissions; no separate gas top-up transaction is claimed here. |
-| NEP-297 events | [event format](contract/src/events.rs), [emission by contract methods](contract/src/lib.rs) | The birth, feed, hire, growth, outfit, streak, and receipt transactions above include their named events. |
+| NEP-297 events | [event format](contract/src/events.rs), [emission by contract methods](contract/src/lib.rs) | The birth, feed, cross-chain feed, hire, growth, outfit, streak, and receipt transactions above include their named events. |
 | NEP-330 source metadata | [contract metadata integration check](contract/tests/verification_views.rs), [verification read](web/src/verification/record.ts) | The local integration test reads `contract_source_metadata`; no separate metadata transaction is claimed here. |
 
 The contract enforces a 0.005 NEAR maximum per thought and a 0.05 NEAR debit limit per pet per UTC day in [`limits.rs`](contract/src/limits.rs). The per-pet food balance is contract state, not a wallet held by the NFT.
 
 ## Try it in 3 minutes
 
-These paths use the app at [nearling.xyz](https://nearling.xyz), on NEAR testnet. An already signed-in owner may be sent straight to their pet. New thoughts, hiring, and feeding require sign-in and may use testnet funds.
+These paths use the app at [nearling.xyz](https://nearling.xyz), on NEAR testnet. An already signed-in owner may be sent straight to their pet. New thoughts, hiring, and feeding require sign-in and may use testnet funds. The same paths run on mainnet at [main.nearling.xyz](https://main.nearling.xyz), where food is real NEAR and **“Pay from another chain”** takes USDC and other assets through 1-Click, which has no testnet.
 
 **Guest path — inspect a pet without signing in**
 
@@ -156,11 +156,12 @@ The Home totals come from the contract's [`showcase_view`](contract/src/lib.rs) 
 
 ## Built Oct 29 – Nov 14
 
-The first repository commit was on 2026-10-29, after the hackathon announcement on October 19. Feature work continued through November 13: wardrobe on Nov 1; work and errands on Nov 3; verification and gifts on Nov 4; showcase on Nov 5; society and wills on Nov 7; repeat hatching and game layout on Nov 10; debates on Nov 11; any-chain feeding and fixes on Nov 12; hiring and debate fixes and the nearling.xyz domain on Nov 13. This describes the work in this repository, including its earlier October setup.
+The first repository commit was on 2026-10-29, after the hackathon announcement on October 19. Feature work continued through November 13: wardrobe on Nov 1; work and errands on Nov 3; verification and gifts on Nov 4; showcase on Nov 5; society and wills on Nov 7; repeat hatching and game layout on Nov 10; debates on Nov 11; any-chain feeding and fixes on Nov 12; hiring and debate fixes, the nearling.xyz domain, and the mainnet launch at main.nearling.xyz with the first cross-chain payment on Nov 13. This describes the work in this repository, including its earlier October setup.
 
 ## Known limitations
 
 - A current NEAR AI hardware match can disappear after a model signing-key rotation because historical attestation reports are not stored.
+- Pet deposit addresses (USDC on Base or Solana, swept with Chain Signatures) are built but have no confirmed mainnet sweep yet.
 
 ## Reused libraries and code
 
@@ -173,5 +174,7 @@ The contract uses `near-sdk` and `near-contract-standards` 5.30.0; its test/buil
 ## Links
 
 - [Play at nearling.xyz](https://nearling.xyz) (NEAR testnet)
+- [Play at main.nearling.xyz](https://main.nearling.xyz) (NEAR mainnet)
 - [Demo post on X](https://x.com/itsonetapman/status/2121212041385976231)
 - [Testnet contract `nearling-dev.testnet`](https://testnet.nearblocks.io/address/nearling-dev.testnet)
+- [Mainnet contract `nearling-xyz.near`](https://nearblocks.io/address/nearling-xyz.near)
