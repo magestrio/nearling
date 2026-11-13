@@ -39,7 +39,8 @@ describe('Errand flow', () => {
   it('refuses a second errand and a line while the pet is away', async () => {
     addPet(h);
     const tk = await owner();
-    h.net().ai.push({ delay: 300 });
+    // the errand must still be on its way when the second one comes: under a loaded full run 300 ms was not enough
+    h.net().ai.push({ delay: 2000 });
     const first = await sendErrand(tk, 'read', 'First text to read.');
     expect(first.status).toBe(202);
     const second = await sendErrand(tk, 'read', 'Second text to read.');

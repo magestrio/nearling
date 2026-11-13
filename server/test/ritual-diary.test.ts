@@ -217,7 +217,7 @@ describe('GET …/diary', () => {
   }
   const riddle = (day: number, patch: { sealed?: boolean; revealed?: boolean; foreign?: number; answers?: string[] } = {}) =>
     env.DB.prepare('INSERT OR REPLACE INTO riddles (day, text, answers, salt, hash, sealed_at, revealed_at, foreign_hash) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
-      .bind(day, `Riddle ${day}?`, JSON.stringify(patch.answers ?? ['a piano', 'piano']), patch.revealed ? null : 'secret-salt', 'abc', patch.sealed === false ? null : 1, patch.revealed ? 2 : null, patch.foreign ?? 0)
+      .bind(day, `Riddle ${day}?`, JSON.stringify(patch.answers ?? ['a piano', 'piano']), patch.revealed ? null : 'secret-salt', 'secret-hash', patch.sealed === false ? null : 1, patch.revealed ? 2 : null, patch.foreign ?? 0)
       .run();
   const said = (day: number, text: string, correct: number) =>
     env.DB.prepare('INSERT INTO riddle_answers (token_id, day, text, correct, answered_at) VALUES (?, ?, ?, ?, 1)').bind('5', day, text, correct).run();
@@ -271,7 +271,7 @@ describe('GET …/diary', () => {
     const res = await get();
     expect(res.body.yesterday).toEqual({ kind: 'waiting' });
     const text = JSON.stringify(res.body);
-    for (const secret of ['a piano', 'piano', 'a clock', 'secret-salt', 'abc', 'answers', 'salt', 'hash', 'correct']) expect(text).not.toContain(secret);
+    for (const secret of ['a piano', 'piano', 'a clock', 'secret-salt', 'secret-hash', 'answers', 'salt', 'hash', 'correct']) expect(text).not.toContain(secret);
     // answered today: the owner's own words come back, the riddle's answers still do not
     await env.DB.exec(`INSERT OR REPLACE INTO ritual_days (token_id, day, riddle_at) VALUES ('5', ${DAY}, 1)`);
     await said(DAY, 'piano', 1);
