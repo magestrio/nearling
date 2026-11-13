@@ -8,7 +8,7 @@ import { useInvitationExperience } from './InvitationExperience';
 import { saveDraft } from './draft';
 
 const mocks = vi.hoisted(() => ({
-  auth: { authenticated: true, sessionEnded: false, nearAccountId: 'owner.near' },
+  auth: { authenticated: true, sessionEnded: false, nearAccountId: 'owner.near', needSession: vi.fn(() => false) },
   api: {
     debatePartners: vi.fn(), pet: vi.fn(), debateEligibility: vi.fn(), debateIncoming: vi.fn(),
     debateRecords: vi.fn(), debateRead: vi.fn(), debateInvite: vi.fn(), debateDecision: vi.fn(),
@@ -245,13 +245,32 @@ it('shows the checking card on the first read only, never on the 10-second refre
 });
 
 // spec: add-debates › Debate invitation card screen › signed-out
-it('hides the private card and offers sign-in after the session ends', async () => {
+it('hides the private card and offers sign-in when the pet opens with an expired session', async () => {
+  // a page opened with an expired session is a visitor's: the session keeper reports it signed out
+  mocks.auth.authenticated = false;
   mocks.auth.sessionEnded = true;
   await act(async () => root.render(<Harness />));
   expect(host.textContent).toContain('Sign in to see your invitations.');
   expect(host.textContent).not.toContain('Rain?');
   await act(async () => [...host.querySelectorAll('button')].find((button) => button.textContent === 'Sign in')!.click());
   expect(mocks.signIn).toHaveBeenCalledWith('signin');
+});
+
+// spec: add-account › Session expiry flow › session ended, no tap yet
+it('keeps the incoming card as it stood when the session ends under the open page; Accept asks for the session and sends nothing', async () => {
+  mocks.api.debateIncoming.mockResolvedValue({ ids: ['a'.repeat(64)] });
+  await act(async () => root.render(<Harness />));
+  await settle();
+  expect(host.textContent).toContain('Rain?');
+  mocks.auth.sessionEnded = true;
+  await act(async () => root.render(<Harness />));
+  await settle();
+  expect(host.textContent).toContain('Rain?');
+  expect(host.textContent).not.toContain('Sign in to see your invitations.');
+  const accept = [...host.querySelectorAll('button')].find((button) => button.textContent === 'Accept debate')!;
+  await act(async () => accept.click());
+  expect(mocks.auth.needSession).toHaveBeenCalled();
+  expect(mocks.api.debateDecision).not.toHaveBeenCalled();
 });
 
 // spec: add-debates › Debate invitation screen › signed-out

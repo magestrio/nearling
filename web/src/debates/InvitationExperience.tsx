@@ -61,6 +61,9 @@ export function useInvitationExperience({ pet, tokenOf, preselect, onOwnerLost }
   const localOutcomeSequence = useRef(0);
   const dismissedCardIds = useRef(new Set<string>());
   const signedIn = auth.authenticated && !auth.sessionEnded;
+  // a session that ended under the open page leaves the invitation card as it stood until a tap needs the session or the
+  // address changes (`Session expiry flow`); only a page opened without a session shows the sign-in row
+  const held = auth.authenticated && auth.sessionEnded;
   const selected = partners.find((row) => row.tokenId === draft.selectedPet) ?? null;
 
   useEffect(() => { if (accountId && draft.accountId === accountId) persist(draft); }, [draft, accountId]);
@@ -178,6 +181,7 @@ export function useInvitationExperience({ pet, tokenOf, preselect, onOwnerLost }
 
   const loadCards = useCallback(async () => {
     const sequence = ++readSequence.current;
+    if (held) return;
     if (!signedIn) { setCards([]); knownInvitation.current = false; setCardLoading(false); cardsReadFor.current = null; return; }
     if (cardsReadFor.current !== tokenId) setCardLoading(true);
     try {
@@ -216,7 +220,7 @@ export function useInvitationExperience({ pet, tokenOf, preselect, onOwnerLost }
       if (error instanceof WorkerError && error.code === 'not_owner') lost();
       else setCardError(true);
     } finally { if (sequence === readSequence.current) setCardLoading(false); }
-  }, [signedIn, tokenId, tokenOf, lost]);
+  }, [signedIn, held, tokenId, tokenOf, lost]);
   useEffect(() => { void loadCards(); return () => { readSequence.current += 1; }; }, [loadCards]);
   useEffect(() => {
     const visible = () => {
@@ -264,6 +268,7 @@ export function useInvitationExperience({ pet, tokenOf, preselect, onOwnerLost }
     } finally { setSending(false); }
   };
   const decide = async (card: Card, decision: 'accept' | 'decline') => {
+    if (held) { auth.needSession(); return; }
     if (!signedIn || cardBusy) return;
     setCardBusy(card.id);
     try {
@@ -339,7 +344,7 @@ export function useInvitationExperience({ pet, tokenOf, preselect, onOwnerLost }
     <Note tone={tone}>{line}</Note>
     <Actions>{action}</Actions>
   </Stack></Surface></li>;
-  const cardNodes = cardDismissed ? null : !signedIn ? <li><Stack gap={2}><Note>{copy.cardSignedOut}</Note>
+  const cardNodes = cardDismissed ? null : !signedIn && !held ? <li><Stack gap={2}><Note>{copy.cardSignedOut}</Note>
       <Button size="compact" onClick={() => signIn.begin('signin')}>Sign in</Button></Stack></li>
     : cardLoading ? holding(copy.cardLoading, 'status', <Button size="compact" disabled>Accept debate</Button>)
       : cardError ? knownInvitation.current ? holding(copy.cardError, 'error', <Button variant="secondary" size="compact" onClick={() => void loadCards()}>Try again</Button>) : null
