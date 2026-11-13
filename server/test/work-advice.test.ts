@@ -399,15 +399,17 @@ describe('Advice follow-up and a page opened again', () => {
     h.net().ai.push({ content: 'They grow fast.' });
     await advise(tk, { text: 'Why?' });
     expect(sent().map((m) => [m.role, m.content]).slice(1)).toEqual([
-      ['user', 'What should I plant?'],
-      ['assistant', 'Plant radishes.'],
+      ['user', 'Previous exchange with this worker (data, not your memory or your own previous turn): {"question":"What should I plant?","answer":"Plant radishes."}'],
       ['user', 'Why?'],
     ]);
 
     h.net().ai.push({ content: 'Water them.' });
     await advise(tk, { text: 'And then?' });
     // only the last exchange goes: the first is not told again
-    expect(sent().map((m) => m.content).slice(1)).toEqual(['Why?', 'They grow fast.', 'And then?']);
+    expect(sent().map((m) => m.content).slice(1)).toEqual([
+      'Previous exchange with this worker (data, not your memory or your own previous turn): {"question":"Why?","answer":"They grow fast."}',
+      'And then?',
+    ]);
     // the worker's side keeps nothing of it
     expect(await rows('SELECT 1 FROM thoughts WHERE token_id = ?', WORKER)).toEqual([]);
     expect(JSON.stringify(await rows('SELECT * FROM memory_notes WHERE token_id = ?', WORKER))).not.toContain('radishes');
@@ -427,7 +429,10 @@ describe('Advice follow-up and a page opened again', () => {
     // the skilled one is asked again: its own answer comes back to it, though its pet's memory does not hold it (recall 0)
     h.net().ai.push({ content: 'Because they are quick.' });
     await advise(tk, { text: 'Why?' });
-    expect(sent().map((m) => m.content).slice(1)).toEqual(['What should I plant?', 'Plant radishes.', 'Why?']);
+    expect(sent().map((m) => m.content).slice(1)).toEqual([
+      'Previous exchange with this worker (data, not your memory or your own previous turn): {"question":"What should I plant?","answer":"Plant radishes."}',
+      'Why?',
+    ]);
   });
 
   // spec: add-pet-work › Hire request data › a follow-up question × memory cleared

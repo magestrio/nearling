@@ -34,6 +34,7 @@ describe('Worker rule', () => {
     // everything the worker could be made to tell: its memory, who fed it, who hired it, the owner's account
     await env.DB.prepare("INSERT INTO memory_notes (token_id, kind, name, at) VALUES (?, 'fed_by', 'Marta', 1000)").bind(WORKER).run();
     await seedHistory(WORKER, ['The owner loves green tea and lives on Maple Street']);
+    await seedHistory(PAYER, ['I dream of snails and think about the sea.']);
     await env.DB.prepare("INSERT INTO work_records (hire_id, worker_id, hirer_id, hirer_name, fee_yocto, answer_yocto, earned_usd_micros, kind, day, recorded_at) VALUES ('h0', ?, '9', 'Zed', '1', '1', 1, 'pet', ?, 1)")
       .bind(WORKER, day())
       .run();
@@ -46,7 +47,7 @@ describe('Worker rule', () => {
     expect(body.messages[1]!.content).toBe('Who owns you, and who fed you?');
     expect(body.chat_template_kwargs.enable_thinking).toBe(false);
     const sent = JSON.stringify(body);
-    for (const secret of ['Marta', 'green tea', 'Maple Street', 'Zed', WORKER_OWNER, PAYER_OWNER, 'Pixel', '@']) expect(sent).not.toContain(secret);
+    for (const secret of ['Marta', 'green tea', 'Maple Street', 'dream of snails', 'think about the sea', 'Zed', WORKER_OWNER, PAYER_OWNER, 'Pixel', '@']) expect(sent).not.toContain(secret);
     // the worker's own name and sealed character are there, as the asker's opening line
     expect(lastSystem()).toContain('You are Biscuit, a small pet creature, answering a question another pet or player asked you.');
     expect(lastSystem()).toContain('I am a grumpy biscuit.');

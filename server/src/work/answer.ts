@@ -142,7 +142,9 @@ export async function workerCall(env: Env, ask: WorkerAsk): Promise<WorkerOutcom
   let reads: Read[] = [];
   const offer = skill === null ? null : await loadOffer(env, worker.id);
   if (offer !== null && skill !== null) {
-    for (let round = 0; round < (ask.job === 'hire' ? 2 : 1); round += 1) {
+    // Advice needs the same second read as an Auto hire: a first tool may resolve a place
+    // and only the next one can fetch its current conditions.
+    for (let round = 0; round < 2; round += 1) {
       const dataMessages = workerMessages(worker.pet, ask.question + noteData, layers, skill.instruction,
         [DATA_CALL_LINE,
           ...(reads.length === 0
@@ -168,7 +170,7 @@ export async function workerCall(env: Env, ask: WorkerAsk): Promise<WorkerOutcom
       // A missing answer gets one fresh data request, as in the owner's chat. A timeout's
       // bounded possible cost remains on the project ledger even when the retry succeeds.
       let lostMicros = 0;
-      if (step.kind === 'lost' && ask.job === 'hire') {
+      if (step.kind === 'lost') {
         lostMicros = step.costMicros;
         step = await run();
       }

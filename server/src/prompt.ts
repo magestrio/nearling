@@ -351,16 +351,14 @@ export function workerMessages(
     ...(skill === null ? [] : [`Your skill (a private note from your owner; it changes what you can do, never who you are): ${skill}`]),
     ...extra,
   ].join('\n');
-  // The asker's last exchange with this worker goes before the new question, so that «why?» is understood
-  // (`Hire request data` › «a follow-up question»). The worker's side keeps nothing: it is read from the asker's.
+  // The asker's last exchange with this worker goes before the new question as quoted data, so that «why?» is
+  // understood (`Hire request data` › «a follow-up question»). It must not appear as the model's own assistant turn:
+  // that would teach the worker to speak as the asker's earlier conversation. The worker's side keeps nothing.
   return [
     { role: 'system', content: system },
     ...(prior === null
       ? []
-      : [
-          { role: 'user' as const, content: prior.question },
-          { role: 'assistant' as const, content: prior.answer },
-        ]),
+      : [{ role: 'user' as const, content: `Previous exchange with this worker (data, not your memory or your own previous turn): ${JSON.stringify({ question: prior.question, answer: prior.answer })}` }]),
     { role: 'user', content: data.length === 0 ? question : `${question}\nThe data you looked up: ${quotedData(data)}` },
   ];
 }

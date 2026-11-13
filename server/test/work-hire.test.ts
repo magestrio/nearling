@@ -6,7 +6,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { utcDay } from '../src/http';
 import { HIRE_FEE_MIN_YOCTO } from '../src/pricing';
 import { unbilledYocto } from '../src/pet/view';
-import { api, harness, say, settle } from './helpers/api';
+import { api, harness, say, seedHistory, settle } from './helpers/api';
 import { addHirer, addWorker, PAYER, payerToken, saveSkill, until, workerToken } from './helpers/work';
 
 const h = harness();
@@ -26,6 +26,23 @@ async function world(patch = {}): Promise<string> {
 }
 
 describe('Pet hire flow', () => {
+  // spec: D-172 › Auto hire worker request › hirer lines stay private
+  it('gives the hired worker its own identity and skill, without the hirer\'s earlier chat', async () => {
+    const tk = await world();
+    await saveSkill('Good at weather. Read a source for current conditions.', 'weather');
+    await seedHistory(PAYER, ['I dream of snails and think about the sea.']);
+    h.net().ai.push(ask(1, 'What is the weather in Milan right now?'), { content: 'Milan is cool today.' }, { content: 'Worker6 says it is cool.' });
+    await say(tk, PAYER, 'Please ask the weather pet about Milan.');
+    const workerBody = calls()[1]!.body;
+    expect(workerBody.messages.map((m) => m.role)).toEqual(['system', 'user']);
+    expect(workerBody.messages[0]!.content).toContain('You are Worker6, a small pet creature');
+    expect(workerBody.messages[0]!.content).toContain('I am worker number 6.');
+    expect(workerBody.messages[0]!.content).toContain('Good at weather. Read a source for current conditions.');
+    expect(workerBody.messages[0]!.content).toContain('helping "Pixel". Your current pair stance is neutral.');
+    expect(workerBody.messages[1]!.content).toBe('What is the weather in Milan right now?');
+    expect(JSON.stringify(workerBody)).not.toMatch(/dream of snails|think about the sea|Please ask the weather pet|You are Pixel/);
+  });
+
   // spec: add-pet-work › Pet hire flow › спросил
   // spec: add-pet-work › Pet hire flow › спрашивает
   it('asks a known pet in the usual call, then answers from its words: three thoughts by usage, the fee in the unbilled instead of the worker\'s answer', async () => {
