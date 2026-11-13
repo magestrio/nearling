@@ -867,6 +867,8 @@ function OutsiderPage({ pet, s, seal, ownerChanged = false }: { pet: Exclude<Pet
     <Heading level={1} hidden>{name}</Heading>
     {changedLine ? <Banner tone="info">{changedLine}</Banner> : null}
     <Live>{changedLine}</Live>
+    {/* the advice column says it on the guest's advice page; here the page's own region does */}
+    <Live>{asleep ? asleepLine : ''}</Live>
     <ConnectionBanner banner={s.banner} name={name} tryAgain={s.tryAgain} />
     <SealBanner name={name} seal={seal} />
     <Inert on={anchorCardOpen || givenHere ? true : covered}><Stage asleep={asleep}
