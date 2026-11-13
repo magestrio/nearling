@@ -182,10 +182,13 @@ function sendRpcProvider(env: Pick<Env, 'NEAR_RPC_URL'>): JsonRpcProvider {
 export function rpcProvider(env: Pick<Env, 'NEAR_RPC_URL'> & Partial<Pick<Env, 'NEAR_NETWORK'>>): JsonRpcProvider {
   // near-api-js retries only 500/503/408 and network failures: a 429 or 502 throws at once. Public RPCs answer
   // Cloudflare's shared addresses with 429 under load, so a read walks the list twice, a short pause between tries.
-  const fallbacks = String(env.NEAR_NETWORK) === 'mainnet'
-    ? ['https://near.drpc.org', 'https://rpc.mainnet.near.org']
-    : ['https://near-testnet.drpc.org', 'https://rpc.testnet.near.org'];
-  const urls = [String(env.NEAR_RPC_URL), ...fallbacks.filter((url) => url !== String(env.NEAR_RPC_URL))];
+  // On mainnet fastnear answers nearly every Worker read with 429, so reads start at drpc. Sends stay on
+  // NEAR_RPC_URL (sendRpcProvider): drpc's free plan cuts every request at about 2 s, and a send waits
+  // longer than that for its execution.
+  const listed = String(env.NEAR_NETWORK) === 'mainnet'
+    ? ['https://near.drpc.org', String(env.NEAR_RPC_URL), 'https://rpc.mainnet.near.org']
+    : [String(env.NEAR_RPC_URL), 'https://near-testnet.drpc.org', 'https://rpc.testnet.near.org'];
+  const urls = listed.filter((url, i) => listed.indexOf(url) === i);
   const options = { retries: 3, wait: 20, backoff: 2 };
   const providers = urls.map((url) => new JsonRpcProvider({ url }, options));
   const first = providers[0]!;

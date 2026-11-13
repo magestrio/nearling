@@ -29,6 +29,17 @@ describe('the Worker\'s reads of the contract', () => {
     expect((await petView(env, '5'))?.name).toBe('Biscuit');
     expect(h.net().fetched).toContain('https://near-testnet.drpc.org');
   });
+
+  // spec: D-168 › concurrent pet page reads › primary public RPC is throttled
+  it('reads mainnet through drpc first and falls back to the configured RPC when drpc cuts a request', async () => {
+    h.net().contract.addPet('5', NEAR_ACCOUNT(1), { name: 'Biscuit' });
+    const mainnet = { ...env, NEAR_NETWORK: 'mainnet' as const };
+    expect((await petView(mainnet, '5'))?.name).toBe('Biscuit');
+    expect(h.net().fetched).toEqual(['https://near.drpc.org']);
+    h.net().rpc.drpcCut = true;
+    expect((await petView(mainnet, '5'))?.name).toBe('Biscuit');
+    expect(h.net().fetched.slice(1)).toEqual(['https://near.drpc.org', env.NEAR_RPC_URL]);
+  });
 });
 
 describe('the queue of the server key', () => {

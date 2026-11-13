@@ -1344,7 +1344,8 @@ export interface Network {
   fetched: string[];
   /** Privy's key set answers with this status (0: the fetch itself fails). */
   jwks: { status: number };
-  rpc: { primaryStatus: number };
+  /** drpcCut: near.drpc.org answers with its free plan's request-timeout error. */
+  rpc: { primaryStatus: number; drpcCut: boolean };
   restore: () => void;
 }
 
@@ -1355,7 +1356,7 @@ export function installNetwork(): Network {
   const web = new FakeWeb();
   const fetched: string[] = [];
   const jwks = { status: 200 };
-  const rpc = { primaryStatus: 200 };
+  const rpc = { primaryStatus: 200, drpcCut: false };
   const spy = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
     const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
     fetched.push(url);
@@ -1365,6 +1366,8 @@ export function installNetwork(): Network {
     }
     if (url === env.NEAR_RPC_URL || url === 'https://rpc.testnet.near.org' || url === 'https://rpc.mainnet.near.org' || url === 'https://near-testnet.drpc.org' || url === 'https://near.drpc.org') {
       if (url === env.NEAR_RPC_URL && rpc.primaryStatus !== 200) return new Response('unavailable', { status: rpc.primaryStatus });
+      if (url === 'https://near.drpc.org' && rpc.drpcCut)
+        return Response.json({ jsonrpc: '2.0', id: 1, error: { code: 30, message: 'Request timeout on the free plan, please upgrade to paid plan' } });
       if (contract.down) return new Response('unavailable', { status: 503 });
       const request = JSON.parse(String(init?.body ?? (input instanceof Request ? await input.text() : '{}'))) as { id: string; method: string; params: Record<string, unknown> };
       const answer = (await contract.handle(request.method, request.params)) as { result?: unknown; error?: unknown };
