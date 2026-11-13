@@ -10,6 +10,7 @@ import { usePetMotion } from './proto/useMotion.js';
 import { fakeState } from '../seams/fakes';
 import { ELEVATION, ReadySignal, registerPetDraw, useContextLoss } from './PetFigure';
 import { stillOf } from './meadowStills';
+import { blocked, CAMERA_DISTANCE, standAt, type Body } from './meadowSpace';
 import { MEADOW_HOPS_PER_BURST, MEADOW_HOP_SECONDS, MEADOW_REST_SECONDS, MEADOW_SPEED_PX_SECOND } from '../ds/meadowMotion';
 import type { Group, Material, Mesh, Object3D, PointLight, ShaderMaterial } from 'three';
 
@@ -128,9 +129,9 @@ function matchWorldScale(root: Object3D, scale: number): void {
 
 // The ten samples share one WebGL context. The ground's CSS coordinates are the source of their size and position;
 // one orthographic world unit is 100 CSS pixels, so the model's generated height can be fitted to the DS size.
-function Sample({ pet, width, height, rem, playing, motion, index, onMove }: {
+function Sample({ pet, width, height, rem, playing, motion, index, crowd, onMove }: {
   pet: MeadowPet; width: number; height: number; rem: number; playing: boolean; motion: Hub; index: number;
-  onMove?: (index: number, x: number) => void;
+  crowd: Map<number, Body>; onMove?: (index: number, x: number) => void;
 }) {
   const assembly = useMemo(() => assemblePet(String(pet.seed), pet.state, pet.stage, pet.outfit ?? 'none'), [pet]);
   const desktop = width >= 768;
@@ -146,8 +147,16 @@ function Sample({ pet, width, height, rem, playing, motion, index, onMove }: {
   const boxWidth = size * still.aspect;
   const worldX = (x: number) => (x * width + (0.5 - x) * boxWidth - width / 2) / 100;
   const feetY = (0.3 + 0.66 * pet.depth) * height - size * (1 - still.feet);
-  // the camera looks down by ELEVATION (the ground's light shows): a point's screen height is y·cos − z·sin
-  const worldY = ((0.5 * height - feetY) / 100 + pet.depth * SIN) / COS;
+  const { y: worldY, z: worldZ } = standAt((0.5 * height - feetY) / 100, pet.depth);
+  // the body on screen, for the pets of its row (meadowSpace.ts › blocked): its centre is the box's, its width the model's
+  // at three-quarter
+  const centerOf = (x: number) => x * width + (0.5 - x) * boxWidth;
+  const half = assembly.bounds.width34 * scale * 50;
+  const top = feetY - size * still.height;
+  useLayoutEffect(() => {
+    crowd.set(index, { center: centerOf(travel.current.x), half, top, bottom: feetY });
+    return () => { crowd.delete(index); };
+  }, [crowd, index, half, top, feetY, width, boxWidth]);
   useLayoutEffect(() => {
     if (pet.state === 'asleep' && group.current) dimAsleep(group.current);
   }, [pet.state, assembly]);
@@ -166,16 +175,24 @@ function Sample({ pet, width, height, rem, playing, motion, index, onMove }: {
       if (t.left === 0) t.left = MEADOW_HOPS_PER_BURST;
     }
     const pace = MEADOW_SPEED_PX_SECOND * (0.62 + 0.38 * pet.depth) * (pet.state === 'hungry' ? 0.5 : 1);
-    if (state.clock.elapsedTime < t.movingUntil) t.x += t.direction * pace * Math.min(delta, MEADOW_HOP_SECONDS) / width;
+    if (state.clock.elapsedTime < t.movingUntil) {
+      const step = t.direction * pace * Math.min(delta, MEADOW_HOP_SECONDS) / width;
+      const me = { center: centerOf(t.x), half, top, bottom: feetY };
+      if (!blocked(crowd, index, me, centerOf(t.x + step))) t.x += step;
+      // a pet in the way turns it round; with one behind it too, it hops on the spot
+      else if (!blocked(crowd, index, me, centerOf(t.x - step))) t.direction *= -1;
+    }
     if (t.x > 0.97 || t.x < 0.03) { t.x = Math.max(0.03, Math.min(0.97, t.x)); t.direction *= -1; }
     group.current.position.x = worldX(t.x);
+    const body = crowd.get(index);
+    if (body) body.center = centerOf(t.x);
     onMove?.(index, t.x);
     group.current.rotation.y = t.direction < 0 ? -Math.PI / 4 : Math.PI / 4;
   });
   return (
     <group
       ref={group}
-      position={[worldX(pet.x), worldY, pet.depth]}
+      position={[worldX(pet.x), worldY, worldZ]}
       rotation-y={pet.flip ? -Math.PI / 4 : Math.PI / 4}
       scale={scale}
     >
@@ -212,6 +229,7 @@ export function MeadowScene({ pets, width, height, rem, paused, onLost, onMove }
   onMove?: (index: number, x: number) => void;
 }) {
   const motion = usePetMotion();
+  const [crowd] = useState(() => new Map<number, Body>());
   const hidden = useRef(document.hidden);
   const [visible, setVisible] = useState(!document.hidden);
   const [level, setLevel] = useState(0);
@@ -228,7 +246,7 @@ export function MeadowScene({ pets, width, height, rem, paused, onLost, onMove }
       className="ds-meadow__canvas"
       style={{ pointerEvents: 'none' }}
       orthographic
-      camera={{ position: [0, 30 * SIN, 30 * COS], zoom: 100, near: 0.1, far: 100 }}
+      camera={{ position: [0, CAMERA_DISTANCE * SIN, CAMERA_DISTANCE * COS], zoom: 100, near: 0.1, far: 2 * CAMERA_DISTANCE }}
       onCreated={({ gl, camera }) => {
         camera.lookAt(0, 0, 0);
         watchContext(gl.domElement);
@@ -246,7 +264,7 @@ export function MeadowScene({ pets, width, height, rem, paused, onLost, onMove }
       </Environment>
       <directionalLight position={[-3, 5, 4]} intensity={0.8} />
       {pets.map((pet, index) => width >= 768 || !pet.wide ? (
-        <Sample key={index} index={index} pet={pet} width={width} height={height} rem={rem} playing={playing} motion={motion} onMove={onMove} />
+        <Sample key={index} index={index} pet={pet} width={width} height={height} rem={rem} playing={playing} motion={motion} crowd={crowd} onMove={onMove} />
       ) : null)}
       <Tick playing={playing} />
       {import.meta.env.VITE_FAKES === 'true' ? <CaptureReady /> : null}
