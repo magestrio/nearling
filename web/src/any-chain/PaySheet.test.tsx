@@ -107,9 +107,12 @@ it('counts acceptance transit against the destination lifetime', async () => {
   const clock = vi.spyOn(performance, 'now').mockImplementation(() => elapsed);
   await act(async () => { button('Get payment address').dispatchEvent(new MouseEvent('click', { bubbles: true })); });
   elapsed = 2000;
-  await act(async () => finishAccept({ ...quote, serverTime: new Date().toUTCString(), quote: {
+  // the Worker's time has whole seconds: the address's times count from it, or the sub-second remainder decides the outcome
+  const serverTime = new Date().toUTCString();
+  const server = Date.parse(serverTime);
+  await act(async () => finishAccept({ ...quote, serverTime, quote: {
     ...quote.quote, depositAddress: '0x' + 'c'.repeat(40),
-    timeWhenInactive: new Date(Date.now() + 2500).toISOString(), deadline: new Date(Date.now() + 60_000).toISOString(),
+    timeWhenInactive: new Date(server + 2500).toISOString(), deadline: new Date(server + 60_000).toISOString(),
   } }));
   expect(host.textContent).toContain('This quote expired. Get a new quote before sending.');
   expect(host.querySelectorAll('textarea[readonly]')).toHaveLength(0);
