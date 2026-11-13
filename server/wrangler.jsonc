@@ -96,15 +96,16 @@
       "secrets": { "required": ["NEARAI_API_KEY", "NEAR_GAS_ACCOUNT_KEY", "NEAR_SERVER_KEY", "INSULT_LIST", "RIDDLE_LIST", "SKILL_KEY", "BASE_GAS_WALLET_KEY", "SOLANA_GAS_WALLET_KEY"] }
     },
 
-    // prod: names only. Its ids, accounts and Privy app are the main session's, at R1 mainnet; the
-    // zero ids make a deploy fail instead of provisioning a database. Nobody runs --env prod before R1.
+    // prod: NEAR mainnet, contract nearling-xyz.near (R1, 2026-11-13).
     "prod": {
-      // The account's workers.dev subdomain carries a personal name: prod stays off it. The project's own
-      // domains (nearling.xyz, api.nearling.xyz) serve dev until R1 mainnet and move here then.
+      // The account's workers.dev subdomain carries a personal name: prod stays off it. Mainnet is served on
+      // main.nearling.xyz; nearling.xyz and api.nearling.xyz keep the testnet game for judges (the user, 2026-11-13).
       "workers_dev": false,
       "preview_urls": false,
+      "routes": [{ "pattern": "main.nearling.xyz", "custom_domain": true }],
+      // Its own build output, so a dev deploy from web/dist never ships the mainnet client or the reverse.
       "assets": {
-        "directory": "../web/dist",
+        "directory": "../web/dist-prod",
         "not_found_handling": "single-page-application",
         "run_worker_first": ["/api/*", "/health"]
       },
@@ -116,22 +117,22 @@
       "vars": {
         "ENVIRONMENT": "prod",
         "NEAR_NETWORK": "mainnet",
-        "NEAR_RPC_URL": "",
-        "CONTRACT_ID": "",
-        "SERVER_ACCOUNT_ID": "",
-        "GAS_ACCOUNT_ID": "",
-        "TREASURY_ACCOUNT_ID": "",
+        "NEAR_RPC_URL": "https://rpc.mainnet.fastnear.com",
+        "CONTRACT_ID": "nearling-xyz.near",
+        "SERVER_ACCOUNT_ID": "server.nearling-xyz.near",
+        "GAS_ACCOUNT_ID": "gas.nearling-xyz.near",
+        "TREASURY_ACCOUNT_ID": "treasury.nearling-xyz.near",
         "PRIVY_APP_ID": "cmwertv2m00kr0il85l73cnf0",
         "PRIVY_JWKS_URL": "https://auth.privy.io/api/v1/apps/cmwertv2m00kr0il85l73cnf0/jwks.json",
         "MODEL_ID": "Qwen/Qwen3.8-27B",
         "PRICE_IN_USD_PER_MTOK": "0.04",
         "PRICE_OUT_USD_PER_MTOK": "1.35",
-        "NEAR_USD_RATE": "",
+        "NEAR_USD_RATE": "4.59",
         "SEARCH_USD_PER_CALL": "0.005"
       },
       "d1_databases": [
-        { "binding": "DB", "database_name": "nearling-db-prod", "database_id": "00000000-0000-0000-0000-000000000000", "migrations_dir": "migrations/db" },
-        { "binding": "EVENTS", "database_name": "nearling-events-prod", "database_id": "00000000-0000-0000-0000-000000000000", "migrations_dir": "migrations/events" }
+        { "binding": "DB", "database_name": "nearling-db-prod", "database_id": "f296d7e1-c22b-463a-8521-07d34e9f6c6b", "migrations_dir": "migrations/db" },
+        { "binding": "EVENTS", "database_name": "nearling-events-prod", "database_id": "488c37bb-74f3-4434-8010-cfb238087566", "migrations_dir": "migrations/events" }
       ],
       "durable_objects": { "bindings": [{ "name": "PET_DESK", "class_name": "PetDesk" }, { "name": "LIMITER", "class_name": "Limiter" }, { "name": "GUEST_VIEW", "class_name": "GuestView" }, { "name": "SERVER_KEY", "class_name": "ServerKey" }, { "name": "SOURCE_CACHE", "class_name": "SourceCache" }, { "name": "SHOWCASE", "class_name": "Showcase" }] },
       "migrations": [{ "tag": "v1", "new_sqlite_classes": ["PetDesk", "Limiter", "GuestView", "ServerKey"] }, { "tag": "v2", "new_sqlite_classes": ["SourceCache"] }, { "tag": "v3", "new_sqlite_classes": ["Showcase"] }],

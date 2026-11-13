@@ -2,6 +2,7 @@ build/
 target/
 node_modules/
 dist/
+dist-prod/
 .wrangler/
 .DS_Store
 

@@ -29,14 +29,14 @@ const dev: BuildEnv = {
   VITE_FAKES: undefined,
 };
 
-// Names only until R1 mainnet fills them (main session, on the user's yes).
+// NEAR mainnet, served on main.nearling.xyz (R1, 2026-11-13).
 const prod: BuildEnv = {
   VITE_ENV: 'prod',
   VITE_NEAR_NETWORK: 'mainnet',
-  VITE_NEAR_RPC_URL: '',
-  VITE_CONTRACT_ID: '',
-  VITE_SERVER_ACCOUNT_ID: '',
-  VITE_TREASURY_ACCOUNT_ID: '',
+  VITE_NEAR_RPC_URL: 'https://rpc.mainnet.fastnear.com',
+  VITE_CONTRACT_ID: 'nearling-xyz.near',
+  VITE_SERVER_ACCOUNT_ID: 'server.nearling-xyz.near',
+  VITE_TREASURY_ACCOUNT_ID: 'treasury.nearling-xyz.near',
   VITE_PRIVY_APP_ID: 'cmwertv2m00kr0il85l73cnf0',
   VITE_DEV_ROUTE: 'false',
   VITE_FAKES: undefined,
