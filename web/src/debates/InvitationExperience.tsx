@@ -216,11 +216,13 @@ export function useInvitationExperience({ pet, tokenOf, preselect, onOwnerLost }
       cardsReadFor.current = tokenId;
     } catch (error) {
       if (sequence !== readSequence.current) return;
+      // the read met the session's end before the page's own poll: the card stands as it was (`Session expiry flow`)
+      if (error instanceof WorkerError && error.status === 401) { auth.endSession(); return; }
       setCards([]);
       if (error instanceof WorkerError && error.code === 'not_owner') lost();
       else setCardError(true);
     } finally { if (sequence === readSequence.current) setCardLoading(false); }
-  }, [signedIn, held, tokenId, tokenOf, lost]);
+  }, [signedIn, held, tokenId, tokenOf, lost, auth.endSession]);
   useEffect(() => { void loadCards(); return () => { readSequence.current += 1; }; }, [loadCards]);
   useEffect(() => {
     const visible = () => {
@@ -275,6 +277,8 @@ export function useInvitationExperience({ pet, tokenOf, preselect, onOwnerLost }
       const token = await tokenOf();
       if (!token) return;
       const answer = await workerApi.debateDecision(token, card.id, decision);
+      // a read still on its way from before the decision must not bring the decided card back
+      dismissedCardIds.current.add(card.id);
       setCards((now) => now.filter((item) => item.id !== card.id));
       localOutcomeSequence.current = readSequence.current + 1;
       setStatus({ id: card.id, kind: answer.status, ...(answer.code ? { code: answer.code } : {}) });

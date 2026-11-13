@@ -8,7 +8,7 @@ import { useInvitationExperience } from './InvitationExperience';
 import { saveDraft } from './draft';
 
 const mocks = vi.hoisted(() => ({
-  auth: { authenticated: true, sessionEnded: false, nearAccountId: 'owner.near', needSession: vi.fn(() => false) },
+  auth: { authenticated: true, sessionEnded: false, nearAccountId: 'owner.near', needSession: vi.fn(() => false), endSession: vi.fn() },
   api: {
     debatePartners: vi.fn(), pet: vi.fn(), debateEligibility: vi.fn(), debateIncoming: vi.fn(),
     debateRecords: vi.fn(), debateRead: vi.fn(), debateInvite: vi.fn(), debateDecision: vi.fn(),

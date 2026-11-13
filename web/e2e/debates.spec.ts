@@ -283,17 +283,18 @@ test('card error: says it could not check, and Try again reads it again', async 
   await expect(named(page, 'Accept debate')).toBeVisible();
 });
 
-// spec: add-debates › Debate invitation card screen › signed-out
-// spec: add-debates › Debate invitation card screen › signed-out × Sign in
-// spec: add-debates › Debate invitation card screen › success × session expiry
-test('card signed-out: the private card is hidden and Sign in starts the sign-in', async ({ page }) => {
+// spec: add-account › Session expiry flow › session ended, no tap yet
+// spec: add-account › Session expiry flow › сессия кончилась при открытом экране
+test('card × the session ends on the open page: the card stands until a tap; Accept debate gets the line, sends nothing, and Sign in starts the sign-in', async ({ page }) => {
   await openPet(page, incoming());
   await expect(named(page, 'Accept debate')).toBeVisible();
   await setWorker(page, { sessionExpired: true });
   await lookAgain(page);
-  await expect(page.getByText('Sign in to see your invitations.')).toBeVisible();
-  await expect(card(page)).toHaveCount(0);
-  await expect(page.getByText('Should the moon keep a notebook')).toHaveCount(0);
+  await expect(page.getByText('Sign in to see your invitations.')).toHaveCount(0);
+  await expect(card(page)).toBeVisible();
+  await named(page, 'Accept debate').click();
+  await expect(page.getByText("You've been signed out. Sign in to pick up where you left off.").first()).toBeVisible();
+  expect(await countOf(page, 'worker:debateDecision')).toBe(0);
   await page.getByRole('button', { name: 'Sign in' }).first().click();
   await expect.poll(async () => (await calls(page)).includes('privy:login')).toBe(true);
 });
