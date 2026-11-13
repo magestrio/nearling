@@ -44,6 +44,11 @@
     "dev": {
       "workers_dev": true,
       "preview_urls": false,
+      // Until R1 mainnet the public domains show the working testnet game; at R1 they move to prod.
+      "routes": [
+        { "pattern": "nearling.xyz", "custom_domain": true },
+        { "pattern": "api.nearling.xyz", "custom_domain": true }
+      ],
       "assets": {
         "directory": "../web/dist",
         "not_found_handling": "single-page-application",
@@ -94,13 +99,10 @@
     // prod: names only. Its ids, accounts and Privy app are the main session's, at R1 mainnet; the
     // zero ids make a deploy fail instead of provisioning a database. Nobody runs --env prod before R1.
     "prod": {
-      // The game and its API on the project's own domain; the account's workers.dev subdomain stays off.
+      // The account's workers.dev subdomain carries a personal name: prod stays off it. The project's own
+      // domains (nearling.xyz, api.nearling.xyz) serve dev until R1 mainnet and move here then.
       "workers_dev": false,
       "preview_urls": false,
-      "routes": [
-        { "pattern": "nearling.xyz", "custom_domain": true },
-        { "pattern": "api.nearling.xyz", "custom_domain": true }
-      ],
       "assets": {
         "directory": "../web/dist",
         "not_found_handling": "single-page-application",
