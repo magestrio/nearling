@@ -101,12 +101,16 @@ anyChainQuoteRoutes.post('/api/any-chain/quotes/:id/accept', async (c) => {
     if (claim.meta.changes !== 1) throw new QuoteUnavailable('quote_expired');
     const request = quoteRequest(c.env, id, row.token_id, row.origin_asset, row.amount_in, row.refund_to, false, row.request_deadline);
     const answer = await liveQuote(request, true);
-    if (BigInt(answer.quote.minAmountOut) < BigInt(row.min_out) || Date.parse(answer.quote.deadline!) <= Date.now() ||
+    // The payable quote is priced seconds after the dry one the player saw; on a moving rate its
+    // minimum lands slightly lower. Within the quote's own 1% slippage the payment-address screen
+    // shows the new minimum (liveQuote still holds it at or above the minimum portion); a larger
+    // drop is a changed quote.
+    if (BigInt(answer.quote.minAmountOut) * 100n < BigInt(row.min_out) * 99n || Date.parse(answer.quote.deadline!) <= Date.now() ||
       Date.parse(answer.quote.timeWhenInactive!) <= Date.now() || !addressValid(row.origin_asset, answer.quote.depositAddress))
       throw new QuoteUnavailable('quote_expired');
-    const changed = await c.env.DB.prepare(`UPDATE any_chain_routes SET state = 'accepted', quote_json = ?,
+    const changed = await c.env.DB.prepare(`UPDATE any_chain_routes SET state = 'accepted', quote_json = ?, min_out = ?,
       deposit_address = ?, deposit_memo = ?, provider_deadline = ?, inactive_at = ? WHERE id = ? AND state = 'accepting'`)
-      .bind(JSON.stringify(answer), answer.quote.depositAddress, answer.quote.depositMemo ?? null,
+      .bind(JSON.stringify(answer), answer.quote.minAmountOut, answer.quote.depositAddress, answer.quote.depositMemo ?? null,
         answer.quote.deadline, answer.quote.timeWhenInactive, id).run();
     if (changed.meta.changes !== 1) throw new QuoteUnavailable('quote_expired');
     await recordAnyChainEvent(c.env, { name: 'cross_chain_quote_created', key: id, routeId: id,

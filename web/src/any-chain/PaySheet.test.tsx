@@ -64,6 +64,20 @@ it('quotes without a session, shows live facts, and accepts only after the quote
   expect(host.querySelectorAll('textarea[readonly]')).toHaveLength(2);
 });
 
+// spec: add-any-chain-feed › Cross-chain availability rule › changed quote
+it('shows the payable minimum on the payment-address screen when it moved within 1%', async () => {
+  mocks.accept.mockResolvedValue({ ...quote, serverTime: new Date(Date.now()).toUTCString(), refundTo: '0x' + 'b'.repeat(40), quote: {
+    ...quote.quote, minAmountOut: '48100000000000000000000', depositAddress: '0x' + 'c'.repeat(40),
+    timeWhenInactive: new Date(Date.now() + 300_000).toISOString(), deadline: new Date(Date.now() + 600_000).toISOString(),
+  } });
+  await type('Return address', '0x' + 'b'.repeat(40));
+  await click(button('Get payment address'));
+  expect(host.textContent).toContain('0.04851 NEAR');
+  await click(button('Get payment address'));
+  expect(host.textContent).toContain('Minimum food after exchange0.0481 NEAR');
+  expect(host.textContent).not.toContain('0.04851 NEAR');
+});
+
 // spec: add-any-chain-feed › Cross-chain quote flow › quote created
 it('copies the accepted chain, asset and exact amount with the destination', async () => {
   const writeText = vi.fn().mockResolvedValue(undefined);

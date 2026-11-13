@@ -164,7 +164,8 @@ export function PaySheet({ request, onClose, onBack, column }: { request: PayReq
       {accepted ? <>
         <Facts items={[{ label: payCopy.sourceChain, value: chainLabel(acceptedOrigin?.blockchain ?? '') },
           { label: payCopy.sourceAsset, value: acceptedOrigin?.symbol ?? '—' },
-          { label: payCopy.sourceAmount, value: amountToSend }]} />
+          { label: payCopy.sourceAmount, value: amountToSend },
+          { label: payCopy.minimumFood, value: `${formatUnits(accepted.quote.minAmountOut, 24)} NEAR` }]} />
         {destinationExpired ? <Note tone="error" silent>{issueLine.changed}</Note> : <>
           <CopyField mono label={payCopy.depositAddress} copyLabel={payCopy.copyDepositAddress} value={accepted.quote.depositAddress!} onCopy={() => void copy(accepted.quote.depositAddress!)} />
           {accepted.quote.depositMemo ? <CopyField label={payCopy.memo} copyLabel={payCopy.copyMemo} value={accepted.quote.depositMemo} onCopy={() => void copy(accepted.quote.depositMemo!)} /> : null}

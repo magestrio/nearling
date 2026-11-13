@@ -194,7 +194,7 @@ describe('any-chain live quote', () => {
   });
 
   // spec: add-any-chain-feed › Cross-chain availability rule › changed quote
-  it('never issues an old address after the payable minimum drops', async () => {
+  it('never issues an address after the payable minimum drops more than 1%', async () => {
     const control: ReplyControl = {};
     network(control);
     const dry = await api('/api/any-chain/quote', { body });
@@ -205,6 +205,28 @@ describe('any-chain live quote', () => {
     const row = await env.DB.prepare('SELECT deposit_address FROM any_chain_routes WHERE id = ?').bind(dry.body.id)
       .first<{ deposit_address: string | null }>();
     expect(row?.deposit_address).toBeNull();
+  });
+
+  // spec: add-any-chain-feed › Cross-chain availability rule › changed quote
+  // spec: add-any-chain-feed › Cross-chain quote flow › quote created
+  it('accepts a payable minimum within 1% of the shown one and returns the new minimum', async () => {
+    const control: ReplyControl = {};
+    network(control);
+    const shown = BigInt(fixture.quote.minAmountOut);
+    const floor = (shown * 99n + 99n) / 100n;
+    const below = await api('/api/any-chain/quote', { body });
+    const within = await api('/api/any-chain/quote', { body });
+    control.expected = '41000000000000000000000';
+    control.payableMinimum = String(floor - 1n);
+    expect((await api(`/api/any-chain/quotes/${below.body.id}/accept`, { method: 'POST' })).body.code).toBe('quote_expired');
+    control.payableMinimum = String(floor);
+    const accepted = await api(`/api/any-chain/quotes/${within.body.id}/accept`, { method: 'POST' });
+    expect(accepted.status).toBe(200);
+    expect(accepted.body.quote.minAmountOut).toBe(String(floor));
+    expect(accepted.body.quote.depositAddress).toBe(depositAddress);
+    const row = await env.DB.prepare('SELECT state, min_out FROM any_chain_routes WHERE id = ?').bind(within.body.id)
+      .first<{ state: string; min_out: string }>();
+    expect(row).toEqual({ state: 'accepted', min_out: String(floor) });
   });
 
   // spec: add-any-chain-feed › Cross-chain pay sheet screen › error
