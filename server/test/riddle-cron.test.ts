@@ -273,6 +273,19 @@ describe('the reveal', () => {
     expect((await row()).revealed_at).not.toBeNull();
   });
 
+  // spec: D-71 › riddle reveal retry › permanent refusal is parked
+  it.each(['bad_reveal', 'no_commit', 'failed'])('sends a permanently refused reveal once across later ticks: %s', async (code) => {
+    await sealed();
+    h.net().contract.revealFails = code;
+    await riddleTick(env, at(0, 1, 0, DAY + 1));
+    expect((await row()).reveal_refused_at).toBe(at(0, 1, 0, DAY + 1));
+    expect(h.logs().filter((line) => line === `reveal_refused:${code}`)).toHaveLength(1);
+    await riddleTick(env, at(0, 2, 0, DAY + 1));
+    await riddleTick(env, at(0, 3, 0, DAY + 1));
+    expect(sentMethods().filter((method) => method === 'riddle_reveal')).toHaveLength(1);
+    expect(h.logs().filter((line) => line === `reveal_refused:${code}`)).toHaveLength(1);
+  });
+
   // spec: add-daily-ritual › Riddle reveal contract › раскрытие записано × the outcome was lost
   it('finds a reveal whose answer was lost on the chain and sends none again', async () => {
     await sealed();

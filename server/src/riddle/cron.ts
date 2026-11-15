@@ -2,7 +2,7 @@
 // the commit that seals it on chain (the riddle opens only after that), and the reveal of the riddles
 // of past days. Each send follows ADR-008: the chain is read before a transaction is signed, so a send
 // whose outcome was lost is found there and never sent twice.
-import { chainDay, ChainUnreachable, RIDDLE_COMMIT_TGAS, RIDDLE_REVEAL_TGAS, riddleView } from '../chain';
+import { chainDay, ChainUnreachable, isNodeRefusal, RIDDLE_COMMIT_TGAS, RIDDLE_REVEAL_TGAS, riddleView } from '../chain';
 import { utcDay } from '../http';
 import { nearUsdRate, yoctoToUsdMicros } from '../pricing';
 import { isPaused } from '../servicePause';
@@ -121,11 +121,11 @@ async function seal(env: Env, day: number, nowMs: number, burnt: string | null):
 /** The reveals of sealed rows of past days, oldest first. A riddle whose commit is no longer on chain
  * was revealed by a send whose answer was lost: it is finished, nothing is sent. */
 async function revealPast(env: Env, nowMs: number): Promise<void> {
-  const rows = await env.DB.prepare('SELECT day, text, answers, salt, hash, sealed_at, foreign_hash FROM riddles WHERE sealed_at IS NOT NULL AND revealed_at IS NULL AND day < ? ORDER BY day LIMIT ?')
+  const rows = await env.DB.prepare('SELECT day, text, answers, salt, hash, sealed_at, foreign_hash FROM riddles WHERE sealed_at IS NOT NULL AND revealed_at IS NULL AND reveal_refused_at IS NULL AND day < ? ORDER BY day LIMIT ?')
     .bind(utcDay(nowMs), REVEALS_PER_TICK)
     .all<RiddleRow>();
   for (const row of rows.results) {
-    const claim = await env.DB.prepare('UPDATE riddles SET reveal_claim_at = ?2 WHERE day = ?1 AND revealed_at IS NULL AND (reveal_claim_at IS NULL OR reveal_claim_at < ?3) RETURNING day')
+    const claim = await env.DB.prepare('UPDATE riddles SET reveal_claim_at = ?2 WHERE day = ?1 AND revealed_at IS NULL AND reveal_refused_at IS NULL AND (reveal_claim_at IS NULL OR reveal_claim_at < ?3) RETURNING day')
       .bind(row.day, nowMs, nowMs - RIDDLE_CLAIM_STALE_MS)
       .first();
     if (claim === null) continue;
@@ -145,8 +145,14 @@ async function revealPast(env: Env, nowMs: number): Promise<void> {
         await finishReveal(env, row.day, nowMs, answer.burnt ?? null);
         continue;
       }
-      await release();
-      console.log(answer.status === 'unknown' ? 'reveal_unknown' : `reveal_failed:${answer.status === 'failed' ? answer.code : 'unreachable'}`);
+      if (answer.status === 'failed' && answer.code !== 'reveal_too_early' && !isNodeRefusal(answer.code)) {
+        const parked = await env.DB.prepare('UPDATE riddles SET reveal_refused_at = ?2, reveal_claim_at = NULL WHERE day = ?1 AND revealed_at IS NULL AND reveal_refused_at IS NULL RETURNING day')
+          .bind(row.day, nowMs).first();
+        if (parked !== null) console.log(`reveal_refused:${answer.code}`);
+      } else {
+        await release();
+        console.log(answer.status === 'unknown' ? 'reveal_unknown' : `reveal_failed:${answer.status === 'failed' ? answer.code : 'unreachable'}`);
+      }
     } catch (e) {
       if (!(e instanceof ChainUnreachable)) throw e;
       await release();
