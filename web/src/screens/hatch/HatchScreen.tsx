@@ -120,7 +120,7 @@ export function HatchScreen({ from }: { from: string | null }) {
       break;
     case 'signed-out':
       action = (
-        <Button block onClick={() => begin('signin')}>
+        <Button block onClick={() => begin('signin', { text: name })}>
           Sign in with Google to hatch your pet
         </Button>
       );
