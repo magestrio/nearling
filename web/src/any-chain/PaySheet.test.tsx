@@ -47,6 +47,32 @@ async function type(label: string, value: string) {
 const button = (name: string) => [...host.querySelectorAll('button')].find((b) => b.textContent?.includes(name))!;
 const click = (element: Element) => act(async () => { element.dispatchEvent(new MouseEvent('click', { bubbles: true })); });
 
+// spec: D-173 › pay quote form › invalid inputs stay at their fields
+it('keeps missing refund and malformed amount on the form with focus and linked field errors', async () => {
+  await type('Amount to send', 'oops');
+  await click(button('Get payment address'));
+  const amountInput = field('Amount to send');
+  const refundInput = field('Return address');
+  expect(document.activeElement).toBe(amountInput);
+  expect(amountInput.getAttribute('aria-invalid')).toBe('true');
+  expect(refundInput.getAttribute('aria-invalid')).toBe('true');
+  expect(document.getElementById(amountInput.getAttribute('aria-describedby')!)?.textContent).toContain('Enter an amount, like 5 or 0.5.');
+  expect(document.getElementById(refundInput.getAttribute('aria-describedby')!)?.textContent).toContain('Enter the address to refund to.');
+  expect(button('Get payment address')).toBeDefined();
+  expect(host.textContent).not.toContain('No payable quote right now.');
+  expect(mocks.quote).not.toHaveBeenCalled();
+});
+
+// spec: D-173 › pay quote form › invalid inputs stay at their fields
+it('focuses the refund field when the amount is valid and the address is empty', async () => {
+  await click(button('Get payment address'));
+  const refundInput = field('Return address');
+  expect(document.activeElement).toBe(refundInput);
+  expect(refundInput.getAttribute('aria-invalid')).toBe('true');
+  expect(field('Amount to send').getAttribute('aria-invalid')).toBeNull();
+  expect(mocks.quote).not.toHaveBeenCalled();
+});
+
 // spec: add-any-chain-feed › Cross-chain quote flow › guest quote
 // spec: add-any-chain-feed › Cross-chain pay sheet screen › success
 it('quotes without a session, shows live facts, and accepts only after the quote', async () => {

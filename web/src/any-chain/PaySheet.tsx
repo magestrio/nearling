@@ -51,11 +51,14 @@ export function PaySheet({ request, onClose, onBack, column }: { request: PayReq
   const [assetId, setAssetId] = useState('');
   const [amount, setAmount] = useState('0.25');
   const [refundTo, setRefundTo] = useState('');
+  const [fieldErrors, setFieldErrors] = useState<{ amount?: string; refund?: string }>({});
   const [phase, setPhase] = useState<PayPhase>({ kind: 'draft' });
   const [copyFailed, setCopyFailed] = useState(false);
   const [tick, setTick] = useState(0);
   const acceptedAt = useRef(0);
   const generation = useRef(0);
+  const amountField = useRef<HTMLDivElement>(null);
+  const refundField = useRef<HTMLDivElement>(null);
   const alive = useRef(true);
 
   useEffect(() => {
@@ -84,7 +87,7 @@ export function PaySheet({ request, onClose, onBack, column }: { request: PayReq
     return () => window.clearTimeout(timer);
   }, [phase]);
 
-  const change = () => { generation.current++; setCopyFailed(false); setPhase({ kind: 'draft' }); };
+  const change = () => { generation.current++; setCopyFailed(false); setFieldErrors({}); setPhase({ kind: 'draft' }); };
   const quote = async () => {
     const current = ++generation.current;
     setPhase({ kind: 'quoting' });
@@ -93,8 +96,15 @@ export function PaySheet({ request, onClose, onBack, column }: { request: PayReq
       if (alive.current && current === generation.current) setTokens(currentTokens);
       const selected = supportedToken(currentTokens, chain, assetId || undefined);
       if (!selected) { if (alive.current && current === generation.current) setPhase({ kind: 'issue', issue: 'unsupported' }); return; }
-      if (decimalUnits(amount, selected.decimals) === null || refundTo.trim() === '') {
-        if (alive.current && current === generation.current) setPhase({ kind: 'issue', issue: 'error' });
+      const invalidAmount = decimalUnits(amount, selected.decimals) === null;
+      const invalidRefund = refundTo.trim() === '';
+      if (invalidAmount || invalidRefund) {
+        if (alive.current && current === generation.current) {
+          setFieldErrors({ ...(invalidAmount ? { amount: 'Enter an amount, like 5 or 0.5.' } : {}),
+            ...(invalidRefund ? { refund: 'Enter the address to refund to.' } : {}) });
+          setPhase({ kind: 'draft' });
+          (invalidAmount ? amountField : refundField).current?.querySelector('input')?.focus();
+        }
         return;
       }
       const answer = await workerApi.anyChainQuote({ tokenId: request.tokenId, originAsset: selected.assetId, amount, refundTo: refundTo.trim() });
@@ -182,10 +192,10 @@ export function PaySheet({ request, onClose, onBack, column }: { request: PayReq
         <ChoiceList label={payCopy.sourceAsset} quote={false} options={assets.map((token) => ({ value: token.assetId, text: token.symbol,
           meta: `$${Number(token.price).toLocaleString('en-US', { maximumSignificantDigits: 6 })}` }))}
           value={selected?.assetId ?? ''} onChange={(value) => { setAssetId(value); change(); }} />
-        <TextField label={payCopy.sourceAmount} value={amount} onChange={(value) => { setAmount(value); change(); }}
-          error={issue === 'below' || issue === 'above' ? issueLine[issue] : undefined} />
-        <TextField label={payCopy.refundInput} value={refundTo}
-          onChange={(value) => { setRefundTo(value); change(); }} mono />
+        <div ref={amountField} style={{ display: 'contents' }}><TextField label={payCopy.sourceAmount} value={amount} onChange={(value) => { setAmount(value); change(); }}
+          error={fieldErrors.amount ?? (issue === 'below' || issue === 'above' ? issueLine[issue] : undefined)} /></div>
+        <div ref={refundField} style={{ display: 'contents' }}><TextField label={payCopy.refundInput} value={refundTo}
+          onChange={(value) => { setRefundTo(value); change(); }} error={fieldErrors.refund} mono /></div>
         {issue && issue !== 'below' && issue !== 'above' ? <Note tone="error" silent>{issueLine[issue]}</Note> : null}
         {shown ? <QuoteFacts answer={shown} refundTo={refundTo} name={request.name} selected={quotedOrigin} /> : null}
       </>}
