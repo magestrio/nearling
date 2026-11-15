@@ -369,7 +369,7 @@ const GUEST_ELSEWHERE = [
   { line: "Your {my_pet} pays from its food. {name}'s owner won't see your question or the answer.", change: 'add-pet-work' },
 ];
 const ME_PIXEL = { accountId: 'a'.repeat(64), hatched: PIXEL_REF, currentPet: PIXEL_REF, ownedCount: 1 };
-const HOOK = 'This pet pays for its own thoughts. When the money runs out, it falls asleep.';
+const HOOK = 'Every thought costs it a crumb.';
 // A phone page whose content leaves the meadow's ground no height (home-error: the banner and the numbers fill it, as the
 // frame draws) never mounts the canvas; wait for the ground's size instead of a canvas there.
 const meadowReady = async (page: Page) => {

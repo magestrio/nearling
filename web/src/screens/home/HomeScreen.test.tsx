@@ -67,7 +67,7 @@ it('keeps Hatch, board and known pet reachable while births are paused', async (
 it('puts sign-in in the header and the hatch action above the live meadow on desktop and in the phone dock', async () => {
   await show();
   expect(host.querySelector('.ds-header__end button')?.textContent).toBe('Sign in');
-  expect(host.querySelector('h1')?.textContent).toBe('This pet pays for its own thoughts. When the money runs out, it falls asleep.');
+  expect(host.querySelector('h1')?.textContent).toBe('Every thought costs it a crumb.');
   expect(host.querySelector('[data-meadow]')?.getAttribute('data-meadow')).toBe('10');
   expect(host.querySelector('.ds-only--desktop a')?.textContent).toBe('Hatch your pet');
   expect(host.querySelector('.ds-dock a')?.getAttribute('href')).toBe('/hatch');
@@ -126,7 +126,7 @@ it('leaves both entry controls inactive while the game is opening', async () => 
 it('keeps the hook and inactive entries under the connection line until Try again', async () => {
   mocks.view = { kind: 'error' };
   await show();
-  expect(host.querySelector('h1')?.textContent).toContain('This pet pays');
+  expect(host.querySelector('h1')?.textContent).toContain('Every thought costs');
   expect(host.querySelector('.ds-banner')?.textContent).toContain("We can't reach the game right now.");
   expect(host.querySelector<HTMLButtonElement>('.ds-header__end button')?.disabled).toBe(true);
   expect(host.querySelector('.ds-only--desktop button')?.getAttribute('disabled')).not.toBeNull();

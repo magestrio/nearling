@@ -1,8 +1,8 @@
 import { expect, test } from '@playwright/test';
 import { calls, CLOSED_ALL, CLOSED_NEW, openWith, privyCalls, setWorker, SIGNED_IN } from './helpers';
 
-const HOOK = 'This pet pays for its own thoughts. When the money runs out, it falls asleep.';
-const LEAD = 'Hatch a pet that talks with you, remembers you and grows up.';
+const HOOK = 'Every thought costs it a crumb.';
+const LEAD = 'An AI pet that pays for every answer out of its own food. No food, and it naps until someone feeds it.';
 const OPENING = 'Opening the game…';
 const UNREACHABLE = "We can't reach the game right now. Try again in a moment.";
 const BUSY = 'Lots of visitors right now. Try again in a minute.';

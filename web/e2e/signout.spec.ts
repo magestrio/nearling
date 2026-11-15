@@ -1,7 +1,7 @@
 import { expect, test, type Page } from '@playwright/test';
 import { BISCUIT, calls, CLOSED_NEW, openWith, OWNER, PIXEL, privyCalls, SIGNED_IN } from './helpers';
 
-const HOOK = 'This pet pays for its own thoughts. When the money runs out, it falls asleep.';
+const HOOK = 'Every thought costs it a crumb.';
 const LINE = "You're signed out. See you soon!";
 const UNREACHABLE = "We can't reach the game right now. Try again in a moment.";
 const ME_PIXEL = { accountId: 'a'.repeat(64), hatched: { tokenId: '9', name: 'Pixel' }, currentPet: { tokenId: '9', name: 'Pixel' }, ownedCount: 1 };

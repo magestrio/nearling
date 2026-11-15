@@ -17,8 +17,8 @@ import './home.css';
 // Home screen (add-account › Home screen, Sign-out flow) follows design/bundle/screens/account.js › home: the header,
 // hook, action and Meadow in the room below. The public copy is independent of admission.
 // A signed-in player with a pet goes to it; a petless player stays with the public meadow and discovery paths.
-const HOOK = 'This pet pays for its own thoughts. When the money runs out, it falls asleep.';
-const LEAD = 'Hatch a pet that talks with you, remembers you and grows up.';
+const HOOK = 'Every thought costs it a crumb.';
+const LEAD = 'An AI pet that pays for every answer out of its own food. No food, and it naps until someone feeds it.';
 const OPENING = 'Opening the game…';
 const UNREACHABLE = "We can't reach the game right now. Try again in a moment.";
 const BUSY = 'Lots of visitors right now. Try again in a minute.';
