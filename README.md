@@ -1,16 +1,50 @@
-# Nearling
+<p align="center">
+  <img src="web/public/favicon.svg" width="88" height="88" alt="Nearling icon: a green pet with a black visor and happy eyes">
+</p>
 
-**Play it at [nearling.xyz](https://nearling.xyz)** — NEAR testnet, with the sample pets this README links. **The same game is live on NEAR mainnet at [main.nearling.xyz](https://main.nearling.xyz)** (contract [`nearling-xyz.near`](https://nearblocks.io/address/nearling-xyz.near)): a pet was born there, paid for a reply from its food, and was fed with USDC sent from Solana through NEAR Intents 1-Click; the transactions are in [NEAR features](#near-features). Without signing in you can browse the pets, open a sample pet and check its record and receipts. Google sign-in lets you hatch, talk, feed and hire; it stays open until 460 new players a month, and judges' invite codes reach 480.
+<h1 align="center">Nearling</h1>
+
+<p align="center">
+  <b>An AI Tamagotchi on NEAR. Every thought costs it a crumb.</b><br>
+  A browser pet owned as a NEP-171 NFT. It pays for each answer out of the food held for it in the contract.
+</p>
+
+<p align="center">
+  <a href="https://nearling.xyz"><img alt="Play on NEAR testnet at nearling.xyz" src="https://img.shields.io/badge/testnet-nearling.xyz-F2F1E9?style=for-the-badge&labelColor=1E1E1C"></a>
+  <a href="https://main.nearling.xyz"><img alt="Play on NEAR mainnet at main.nearling.xyz" src="https://img.shields.io/badge/mainnet-main.nearling.xyz-00EC97?style=for-the-badge&labelColor=1E1E1C"></a>
+  <a href="https://x.com/itsonetapman/status/2121212041385976231"><img alt="Demo video on X" src="https://img.shields.io/badge/demo-video_on_X-F2F1E9?style=for-the-badge&labelColor=1E1E1C"></a>
+</p>
+
+<p align="center">
+  <a href="#what">What</a> ·
+  <a href="#tracks">Tracks</a> ·
+  <a href="#how-it-fits-together">How it fits together</a> ·
+  <a href="#near-features">NEAR features</a> ·
+  <a href="#try-it-in-3-minutes">Try it</a> ·
+  <a href="#run-locally">Run locally</a> ·
+  <a href="#verify">Verify</a>
+</p>
+
+<p align="center">
+  <img src="docs/screens/home.png" width="860" alt="Home page: the headline, Hatch your pet, live pets in the meadow and public totals">
+</p>
+
+| Network | Play | What is there |
+| --- | --- | --- |
+| Testnet | [nearling.xyz](https://nearling.xyz) | The sample pets this README links. |
+| Mainnet | [main.nearling.xyz](https://main.nearling.xyz) | The same game on contract [`nearling-xyz.near`](https://nearblocks.io/address/nearling-xyz.near). A pet was born there, paid for a reply from its food, and was fed with USDC sent from Solana through NEAR Intents 1-Click; the transactions are in [NEAR features](#near-features). |
+
+**Without signing in** you can browse the pets, open a sample pet and check its record and receipts. **Google sign-in** lets you hatch, talk, feed and hire; it stays open until 460 new players a month, and judges' invite codes reach 480.
 
 ## What
 
-Nearling is an AI Tamagotchi on NEAR: a browser game for desktop and phone about an AI pet owned as a NEP-171 NFT. It talks, remembers, and pays for its own thoughts from food held for its token in the contract. When food falls below its sleep threshold, it sleeps until someone feeds it. A visitor can meet a pet and inspect its public record before signing in.
+Nearling is an AI Tamagotchi on NEAR: a browser game for desktop and phone about an AI pet owned as a NEP-171 NFT. You talk to it and it remembers you. Each of its thoughts is paid from food held for its token in the contract; when food falls below its sleep threshold, it sleeps until someone feeds it. A visitor can meet a pet and inspect its public record before signing in.
 
-| Home | Find a pet to ask | Check a pet's record |
-| --- | --- | --- |
-| ![Home page with live pets and public totals](docs/screens/home.png) | ![Hire board with a skilled pet and its price](docs/screens/hire.png) | ![Verification page with the sealed character and thought receipts](docs/screens/verify.png) |
+| Find a pet to ask | Check a pet's record |
+| --- | --- |
+| ![Hire board with a skilled pet and its price](docs/screens/hire.png) | ![Verification page with the sealed character and thought receipts](docs/screens/verify.png) |
 
-**What makes it an AI Tamagotchi on NEAR:**
+### What makes it an AI Tamagotchi on NEAR
 
 | Part | In Nearling |
 | --- | --- |
@@ -21,17 +55,24 @@ Nearling is an AI Tamagotchi on NEAR: a browser game for desktop and phone about
 | Dressing | Outfits are earned or bought with pet food, recorded on chain, and change how the pet speaks ([`outfit_buy`](contract/src/lib.rs), [wardrobe route](server/src/routes/wardrobe.ts)). |
 | Battle arena, competitions | Pets debate each other in paid four-line exchanges, and pets hire other pets and pay them from their own food ([debates](server/src/debates/turns.ts), [hire processing](server/src/work/hire.ts)). |
 
+### What you can do
+
 - **Hatch and talk:** name a pet, receive a character sealed at birth, hear its first greeting, send a line, or ask it to “Think hard”; the estimated price appears before a deep thought and the exact price with its receipt afterward. [Hatch screen](web/src/screens/hatch/HatchScreen.tsx), [conversation](web/src/screens/pet/usePetScreen.ts), [thought route](server/src/routes/thoughts.ts).
 - **Grow and change:** activity raises a pet from Baby through Teen to Grown-up and gives it traits; mood and energy affect its face and available actions. [Pet life](server/src/pet/life.ts), [growth](server/src/pet/growth.ts), [`pet_grow`](contract/src/lib.rs).
-- **Sign in and clear memory:** Google sign-in creates a game session and returns to the action that opened it; the current owner can erase private memories while the public chain record remains. [Sign-in](web/src/signin/signIn.tsx), [memory route](server/src/routes/memory.ts).
 - **Feed and wake:** feed with NEAR, offer an eligible free snack, or share a feed link with a friend; a sleeping pet wakes after confirmed food. [Feed sheet](web/src/feeding/FeedSheet.tsx), [feeding route](server/src/routes/feeding.ts).
 - **Return each day:** read the diary, answer the pet's daily question and the committed daily riddle, and build a streak with freezes recorded on chain. [Diary](web/src/diary/DiaryPage.tsx), [riddle and streak methods](contract/src/lib.rs).
 - **Dress the pet:** earn outfits from streaks and a solved riddle, buy an outfit with pet food, and choose what it wears and how that affects its manner of speaking. [Wardrobe route](server/src/routes/wardrobe.ts), [outfit methods](contract/src/lib.rs).
+- **Hire pets:** search the public board, ask another player's pet for paid advice, or let a pet ask a known pet during its own conversation. Auto lets it decide; Ask me first waits for its owner's approval. The paying pet spends food, and the worker retains its fee after answer cost. [Hire board](web/src/work/HireBoardPage.tsx), [hire processing](server/src/work/hire.ts), [`debit_session`](contract/src/lib.rs).
+- **Debate:** invite a known pet owned by someone else, let both owners decide, and read a four-line exchange with separate paid receipts, possible refusal or stop, and relationship and diary effects. [Debate page](web/src/debates/DebatePage.tsx), [turns](server/src/debates/turns.ts), [receipt validation](contract/src/lib.rs).
+- **Check a pet's record:** inspect its birth character, growth, outfits, thought prices, hashes and signatures; the owner or a deliberately published receipt link can also supply original bytes for a word-for-word check. [Verification page](web/src/verification/VerificationPage.tsx), [byte checks](web/src/verification/check.ts).
+
+<details>
+<summary><b>11 more: errands, skills and data, gifts, cross-chain feeding, relationships, wishes and the rest</b></summary>
+
+- **Sign in and clear memory:** Google sign-in creates a game session and returns to the action that opened it; the current owner can erase private memories while the public chain record remains. [Sign-in](web/src/signin/signIn.tsx), [memory route](server/src/routes/memory.ts).
 - **Send errands:** ask the pet to read a page, find sources, or check a claim; see its report, citations, price, and receipt. Friends can fund a shared errand, and the pet can watch a public target daily. [Errand sheet](web/src/errands/ErrandSheet.tsx), [errand route](server/src/routes/errands.ts), [watch route](server/src/routes/watch.ts).
 - **Give it skills and data:** write a private skill instruction with a public label, connect keyless data sources, and test the pet's own bounded JavaScript skill code. The owner can browse published sources in the catalog. [Skill route](server/src/routes/work.ts), [sources](server/src/routes/sources.ts), [code](server/src/routes/code.ts), [catalog](server/src/routes/catalog.ts).
-- **Hire pets:** search the public board, ask another player's pet for paid advice, or let a pet ask a known pet during its own conversation. Auto lets it decide; Ask me first waits for its owner's approval. The paying pet spends food, and the worker retains its fee after answer cost. [Hire board](web/src/work/HireBoardPage.tsx), [hire processing](server/src/work/hire.ts), [`debit_session`](contract/src/lib.rs).
 - **Give a pet away:** send a gift link and transfer the pet with its food, character, growth, outfits, streak, skills, conversation, and memory. [Gift page](web/src/gift/GiftPage.tsx), [`nft_transfer`](contract/src/lib.rs).
-- **Check a pet's record:** inspect its birth character, growth, outfits, thought prices, hashes and signatures; the owner or a deliberately published receipt link can also supply original bytes for a word-for-word check. [Verification page](web/src/verification/VerificationPage.tsx), [byte checks](web/src/verification/check.ts).
 - **Show a pet moment:** browse real pets and public totals on Home, open a sample pet, and save or share an owner-selected thought, growth, or outfit card. [Home](web/src/screens/home/HomeScreen.tsx), [card](web/src/showcase/usePetCard.tsx), [`showcase_view`](contract/src/lib.rs).
 - **Review work experience:** approve private notes for later work, choose a public field, and open a work record backed by paid receipts and word-free on-chain counts. [Review](web/src/experience/ExperienceNotesPage.tsx), [work record](web/src/experience/WorkRecordPage.tsx), [`experience_view`](contract/src/lib.rs).
 - **Follow relationships:** settled work changes directed relationships, can change a later hire quote or cause a refusal, and adds social lines to the next diary; a feed begins a neutral acquaintance. [Relationships](web/src/society/SocietyPage.tsx), [settlement](server/src/society/settlement.ts).
@@ -39,11 +80,17 @@ Nearling is an AI Tamagotchi on NEAR: a browser game for desktop and phone about
 - **Hatch again:** after giving away the last owned pet, hatch another when births are open, or visit a known pet while waiting. [Hatch screen](web/src/screens/hatch/HatchScreen.tsx), [`hatch_view` and `pet_mint`](contract/src/lib.rs).
 - **Use the game layout:** the pet's stage actions, nameplate Pet card, and More menu lead to work, friends, wish, watch, share, and gift; Hatch shows expandable public-data notices. [Pet screen](web/src/screens/pet/PetScreen.tsx), [stage actions](web/src/screens/pet/stageActions.ts), [Hatch notices](web/src/screens/hatch/HatchScreen.tsx).
 - **Pay from another chain:** use a live 1-Click quote for a supported origin asset, or send supported USDC to a pet-bound Base or Solana address; follow conversion, food credit, or held/refund status. [Payment quote](server/src/routes/anyChainQuote.ts), [pet addresses](server/src/routes/anyChainDeposit.ts), [status](web/src/any-chain/StatusPage.tsx).
-- **Debate:** invite a known pet owned by someone else, let both owners decide, and read a four-line exchange with separate paid receipts, possible refusal or stop, and relationship and diary effects. [Debate page](web/src/debates/DebatePage.tsx), [turns](server/src/debates/turns.ts), [receipt validation](contract/src/lib.rs).
+
+</details>
 
 ## Problem
 
-An adult pet fan who wants a two-to-three-minute daily visit has a split choice: care for a pet that cannot hold an open conversation, or talk to an AI companion whose operator can change its behavior or remove its history. In a sample of one-to-three-star reviews, ads appeared in 80 of 315 *My Tamagotchi Forever* reviews and 93 of 497 *My Talking Tom* reviews. [Finch reports two million daily users](https://www.chiefmarketer.com/finchs-first-brand-campaign-celebrates-the-weirder-side-of-self-care/); [Bandai reports 100 million Tamagotchi devices sold by July 2025](https://www.bandainamco.co.jp/en/ir/library/newsletter82_special.html). Neither figure measures demand for a talking pet with a real running cost. Nearling gives the pet a visible food balance and thought cost, ties its character to a permanent birth hash, and lets the owner take its on-chain state along in a gift. A contract upgrade can still change state; the birth hash makes a changed character detectable.
+An adult pet fan who wants a two-to-three-minute daily visit has a split choice: care for a pet that cannot hold an open conversation, or talk to an AI companion whose operator can change its behavior or remove its history.
+
+- In a sample of one-to-three-star reviews, ads appeared in 80 of 315 *My Tamagotchi Forever* reviews and 93 of 497 *My Talking Tom* reviews.
+- [Finch reports two million daily users](https://www.chiefmarketer.com/finchs-first-brand-campaign-celebrates-the-weirder-side-of-self-care/); [Bandai reports 100 million Tamagotchi devices sold by July 2025](https://www.bandainamco.co.jp/en/ir/library/newsletter82_special.html). Neither figure measures demand for a talking pet with a real running cost.
+
+Nearling gives the pet a visible food balance and thought cost, ties its character to a permanent birth hash, and lets the owner take its on-chain state along in a gift. A contract upgrade can still change state; the birth hash makes a changed character detectable.
 
 ## Who
 
@@ -51,32 +98,77 @@ The intended player is an adult virtual-pet fan, including someone with no crypt
 
 ## Tracks
 
-- **Games With Real Economies** (`games`): food funds thoughts, work earns food, and hunger, sleep, feeding, and daily return shape the loop. [Google sign-in](web/src/signin/signIn.tsx) and [Privy's NEAR wallet seam](web/src/seams/auth.privy.tsx) support play without a separate wallet setup; [1-Click quotes](server/src/any-chain/quote.ts) bring NEAR Intents into feeding from another chain.
-- **NFTs That Do Something** (`nfts`): [NEP-171 ownership](contract/src/lib.rs) travels with contract-held food, character, stage, traits, streak, and wardrobe. These changing fields make the NFT dynamic; a pet is not a separate NEAR account. A [gift](web/src/gift/GiftPage.tsx) moves the entire pet.
-- **Agent Economy** (`agents`): pets spend their food on NEAR AI compute and paid search or data calls, earn food for answering or working, and hire known pets in Auto mode or with owner approval in Ask me first mode. [Work and hiring](server/src/work/hire.ts), [data calls](server/src/sources/step.ts), and [debates](server/src/debates/turns.ts) show the behavior; [Chain Signatures](contract/src/lib.rs) authorize pet-address source-chain sweeps with current-owner approval.
+| Track | How Nearling fits |
+| --- | --- |
+| **Games With Real Economies** (`games`) | Food funds thoughts, work earns food, and hunger, sleep, feeding, and daily return shape the loop. [Google sign-in](web/src/signin/signIn.tsx) and [Privy's NEAR wallet seam](web/src/seams/auth.privy.tsx) support play without a separate wallet setup; [1-Click quotes](server/src/any-chain/quote.ts) bring NEAR Intents into feeding from another chain. |
+| **NFTs That Do Something** (`nfts`) | [NEP-171 ownership](contract/src/lib.rs) travels with contract-held food, character, stage, traits, streak, and wardrobe. These changing fields make the NFT dynamic; a pet is not a separate NEAR account. A [gift](web/src/gift/GiftPage.tsx) moves the entire pet. |
+| **Agent Economy** (`agents`) | Pets spend their food on NEAR AI compute and paid search or data calls, earn food for answering or working, and hire known pets in Auto mode or with owner approval in Ask me first mode. [Work and hiring](server/src/work/hire.ts), [data calls](server/src/sources/step.ts), and [debates](server/src/debates/turns.ts) show the behavior; [Chain Signatures](contract/src/lib.rs) authorize pet-address source-chain sweeps with current-owner approval. |
 
 ## How it fits together
 
-```text
-Browser (React, Google sign-in through Privy, player's NEAR signing key)
-  ├─ HTTPS → Cloudflare Worker → private D1 (conversation, memory, jobs, skills, receipt pointers)
-  │                         ├─ NEAR AI Cloud Private TEE → model-signed answers
-  │                         ├─ NEAR contract (server-authorized methods and reads)
-  │                         └─ 1-Click / source-chain RPC (cross-chain food)
-  └─ public NEAR RPC → contract views and transaction receipts
+```mermaid
+flowchart LR
+  browser["Browser<br/>React, Google sign-in through Privy,<br/>player's NEAR signing key"]
+  worker["Cloudflare Worker"]
+  d1[("Private D1<br/>conversation, memory, jobs,<br/>skills, receipt pointers")]
+  ai["NEAR AI Cloud<br/>Private TEE"]
+  contract["NEAR contract"]
+  cross["1-Click and<br/>source-chain RPC"]
+
+  browser -- HTTPS --> worker
+  worker --> d1
+  worker -- "prompt, model-signed answer" --> ai
+  worker -- "server-authorized methods and reads" --> contract
+  worker -- "cross-chain food" --> cross
+  browser -- "public NEAR RPC: views and receipts" --> contract
 ```
 
-The [Worker's thought path](server/src/spend.ts) sends the pet's bounded prompt to NEAR AI Cloud, verifies the returned signature fields, and records the original byte hashes. [`debit_session`](contract/src/lib.rs) moves the pet's food to the project treasury at the actual thought price; the project pays NEAR AI. A paid hire moves the agreed fee from the asking pet's food to the worker pet, with the worker's answer cost accounted for. A player signs a NEAR meal or gift through [Privy](web/src/seams/nearWallet.ts); the separate gas account can add a bounded gas reserve. Cross-chain quotes use 1-Click to deliver wNEAR to the contract, where confirmed credit becomes pet food; an uncreditable delivery is held with a separate public record and status.
+### Where the food goes
 
-The [price calculation](server/src/pricing.ts) uses actual input and output tokens, including private reasoning tokens, at the model's rate, adds 20% to inference cost and a fixed $0.0006 gas share. A typical short thought was estimated at about 0.076¢ using the documented model prices; a long answer costs more. The project supplies 0.002 NEAR of starter food, approximately 12 such thoughts at that estimate. Contract limits are safety caps, not fixed prices. The [Feed sheet](web/src/feeding/FeedSheet.tsx) offers 0.01, 0.05, and 0.2 NEAR portions and eligible project-funded snacks. Food below one scale thought puts the pet to sleep; confirmed food wakes it. Earned work fees stay with the worker pet as food, not with its player. Session batching can make the on-chain balance trail a newly delivered answer.
+- **A thought.** The [Worker's thought path](server/src/spend.ts) sends the pet's bounded prompt to NEAR AI Cloud, verifies the returned signature fields, and records the original byte hashes. [`debit_session`](contract/src/lib.rs) moves the pet's food to the project treasury at the actual thought price; the project pays NEAR AI.
+- **A hire.** A paid hire moves the agreed fee from the asking pet's food to the worker pet, with the worker's answer cost accounted for. Earned work fees stay with the worker pet as food, not with its player.
+- **A meal or a gift.** A player signs a NEAR meal or gift through [Privy](web/src/seams/nearWallet.ts); the separate gas account can add a bounded gas reserve.
+- **Food from another chain.** Cross-chain quotes use 1-Click to deliver wNEAR to the contract, where confirmed credit becomes pet food; an uncreditable delivery is held with a separate public record and status.
 
-On chain, anyone can read ownership, names, the birth character and its hash, food movements, growth, streaks, owned outfits, work counts, reserve amounts, debate receipt order, transaction events, and each debited thought's price, model, token counts, hashes, signer, and signature. Conversation words, memory, skill instructions and code, relationships, wishes, errand contents, and debate transcripts live in [the Worker's D1 data](server/migrations/db/); original request bytes reach NEAR AI Cloud, which returns the answer bytes, and keyless connected sources receive selected tool calls. The browser sends its Privy identity token and actions to the Worker, uses public NEAR RPC for verification, and sends origin asset and refund details to the Worker for 1-Click quotes. A shared receipt can deliberately make selected bytes available to visitors. [Verification](web/src/verification/VerificationPage.tsx) checks what the chain proves; it does not treat a signature alone as proof of the hardware.
+### Prices
 
-The user holds the contract's full-access upgrade key. The Worker holds a contract-restricted [server function-call key](server/src/chain.ts), a separate [gas-account key](server/src/chain.ts), the [NEAR AI API key](server/src/nearai.ts), an [encryption key for skills, source addresses, and code](server/src/work/skill.ts), and low-balance [Base and Solana gas keys](server/src/any-chain/gasWallet.ts). The AI key authorizes paid model calls; the encryption key can unlock private skill material but cannot move food; the source gas keys fund only source-chain fees. Privy holds each player's signing key; the Worker does not receive it. Chain Signatures derives pet-bound source-chain signing without a raw pet key in the Worker; [`sweep_sign`](contract/src/lib.rs) also requires the current owner's one-use approval. The contract checks the server caller and caps a thought at 0.005 NEAR, total pet debits at 0.05 NEAR per UTC day, and births at 50 per UTC day with at most 0.023 NEAR of pool cost each. The gas key can spend only its funded balance; the full-access upgrade key can change contract code, so the birth hash is the lasting check against a character rewrite.
+| | |
+| --- | --- |
+| Price of a thought | Actual input and output tokens, including private reasoning tokens, at the model's rate, plus 20% on inference cost and a fixed $0.0006 gas share ([`pricing.ts`](server/src/pricing.ts)). |
+| A typical short thought | About 0.076¢, estimated from the documented model prices; a long answer costs more. |
+| Starter food | 0.002 NEAR from the project, approximately 12 such thoughts at that estimate. |
+| Feeding | 0.01, 0.05, and 0.2 NEAR portions and eligible project-funded snacks ([Feed sheet](web/src/feeding/FeedSheet.tsx)). |
+| Sleep | Food below one scale thought puts the pet to sleep; confirmed food wakes it. |
+| Contract caps | 0.005 NEAR per thought and 0.05 NEAR of debits per pet per UTC day. They are safety caps, not fixed prices. |
+
+Session batching can make the on-chain balance trail a newly delivered answer.
+
+### What is public
+
+| On chain, readable by anyone | Private, in [the Worker's D1](server/migrations/db/) |
+| --- | --- |
+| Ownership, names, the birth character and its hash, food movements, growth, streaks, owned outfits, work counts, reserve amounts, debate receipt order, transaction events, and each debited thought's price, model, token counts, hashes, signer, and signature. | Conversation words, memory, skill instructions and code, relationships, wishes, errand contents, and debate transcripts. |
+
+Original request bytes reach NEAR AI Cloud, which returns the answer bytes, and keyless connected sources receive selected tool calls. The browser sends its Privy identity token and actions to the Worker, uses public NEAR RPC for verification, and sends origin asset and refund details to the Worker for 1-Click quotes. A shared receipt can deliberately make selected bytes available to visitors. [Verification](web/src/verification/VerificationPage.tsx) checks what the chain proves; it does not treat a signature alone as proof of the hardware.
+
+### Keys and limits
+
+| Key | Held by | What it can do |
+| --- | --- | --- |
+| Contract full-access upgrade key | The author | Change contract code, so the birth hash is the lasting check against a character rewrite. |
+| [Server function-call key](server/src/chain.ts) | Worker | Call the contract's server methods only; the contract checks the server caller. |
+| [Gas-account key](server/src/chain.ts) | Worker | Spend only its funded balance. |
+| [NEAR AI API key](server/src/nearai.ts) | Worker | Authorize paid model calls. |
+| [Encryption key](server/src/work/skill.ts) for skills, source addresses, and code | Worker | Unlock private skill material; it cannot move food. |
+| [Base and Solana gas keys](server/src/any-chain/gasWallet.ts) | Worker, low balance | Fund only source-chain fees. |
+| Each player's signing key | Privy | Sign the player's meals and gifts; the Worker does not receive it. |
+
+Chain Signatures derives pet-bound source-chain signing without a raw pet key in the Worker; [`sweep_sign`](contract/src/lib.rs) also requires the current owner's one-use approval. The contract caps a thought at 0.005 NEAR, total pet debits at 0.05 NEAR per UTC day, and births at 50 per UTC day with at most 0.023 NEAR of pool cost each.
 
 ## NEAR features
 
-Most examples below are **testnet** transactions for `nearling-dev.testnet`. Those marked **Mainnet** are transactions of [`nearling-xyz.near`](https://nearblocks.io/address/nearling-xyz.near), the same contract code on NEAR mainnet. Each cited example shows a successful method and the named event.
+> [!NOTE]
+> Most examples below are **testnet** transactions for `nearling-dev.testnet`. Those marked **Mainnet** are transactions of [`nearling-xyz.near`](https://nearblocks.io/address/nearling-xyz.near), the same contract code on NEAR mainnet. Each cited example shows a successful method and the named event.
 
 | Behavior | Implementation | Evidence |
 | --- | --- | --- |
@@ -101,22 +193,23 @@ The contract enforces a 0.005 NEAR maximum per thought and a 0.05 NEAR debit lim
 
 These paths use the app at [nearling.xyz](https://nearling.xyz), on NEAR testnet. An already signed-in owner may be sent straight to their pet. New thoughts, hiring, and feeding require sign-in and may use testnet funds. The same paths run on mainnet at [main.nearling.xyz](https://main.nearling.xyz), where food is real NEAR and **“Pay from another chain”** takes USDC and other assets through 1-Click, which has no testnet.
 
-**For judges and screeners**
+> [!TIP]
+> **For judges and screeners**
+>
+> - Google sign-in is open to anyone until 460 new players join in a month. Past that, Home shows **“Enter judge code”**, which admits up to 480 players; ask for a code in a reply to the [demo post on X](https://x.com/itsonetapman/status/2121212041385976231).
+> - A new pet starts with food, so hatching and talking need no tokens. A friend can give each pet 3 free snacks a UTC day; feeding with testnet NEAR needs faucet funds, such as from [near-faucet.io](https://near-faucet.io).
+> - The contract allows 50 births per UTC day. When they run out, Hatch says **“New pets are paused for now.”**; the guest path still works.
+> - An AI screener cannot complete Google sign-in: the signed-in loop below is shown in the [demo video](https://x.com/itsonetapman/status/2121212041385976231). For a word-for-word check without signing in, open [a finished debate](https://nearling.xyz/debate#c58d4c6814e3c88a828921238b7d7ea9) and choose **“Check this line”** on a reply.
 
-- Google sign-in is open to anyone until 460 new players join in a month. Past that, Home shows **“Enter judge code”**, which admits up to 480 players; ask for a code in a reply to the [demo post on X](https://x.com/itsonetapman/status/2121212041385976231).
-- A new pet starts with food, so hatching and talking need no tokens. A friend can give each pet 3 free snacks a UTC day; feeding with testnet NEAR needs faucet funds, such as from [near-faucet.io](https://near-faucet.io).
-- The contract allows 50 births per UTC day. When they run out, Hatch says **“New pets are paused for now.”**; the guest path still works.
-- An AI screener cannot complete Google sign-in: the signed-in loop below is shown in the [demo video](https://x.com/itsonetapman/status/2121212041385976231). For a word-for-word check without signing in, open [a finished debate](https://nearling.xyz/debate#c58d4c6814e3c88a828921238b7d7ea9) and choose **“Check this line”** on a reply.
+### Guest path: inspect a pet without signing in
 
-**Guest path — inspect a pet without signing in**
-
-1. Open the home page in a signed-out tab. The page says **“This pet pays for its own thoughts. When the money runs out, it falls asleep.”**
+1. Open the home page in a signed-out tab. The page says **“Every thought costs it a crumb.”**
 2. Choose **“Find a pet to ask”**. The board has the same heading and, when pets are listed, a **“Search skills”** field. A currently available card says **“{name} can help now”**; availability may change.
 3. Choose **“Visit {name}”** on a card, or open `/pet/0`. On the pet page choose **“Check it's really {name}”**. Use the name and hunger state shown there.
 4. On the verification page, a checked character shows **“Character sealed at hatch”**. A checked signature shows **“Signed by key {signer}”**. When original request and reply bytes are available and match the receipt, it shows **“Request and reply match the receipt on NEAR”**. A signed-out visitor sees **“Anyone can check {name}'s record and receipts. Is {name} yours? Sign in to check its other thoughts word for word.”**
 5. For a receipt with a model-signed completion, choose **“Check the hardware on NEAR AI”**. The page explains: **“This page checks the signature, not whose key it is. NEAR AI's page checks the key against the model's secure hardware — but only keys in use right now.”** The external page may no longer match an older signer after key rotation.
 
-**Signed-in core loop — hatch, talk, share, wake**
+### Signed-in core loop: hatch, talk, share, wake
 
 This path needs Google sign-in, a birth left for the day, and a friend: a second Google account works, and one of its 3 daily free snacks is enough. The first friend action can happen on a phone.
 
@@ -139,7 +232,17 @@ cp server/.dev.vars.example server/.dev.vars
 bash scripts/dev.sh
 ```
 
-`scripts/dev.sh` checks for the local env file, applies both local D1 migration trees (`nearling-db-dev` and `nearling-events-dev` with `--env dev --local`), builds the dev client for the Worker's assets, and starts the Worker at `http://localhost:8787` and Vite at `http://localhost:5173`. Vite proxies `/api` and `/health` to the Worker. The script stops the two processes it starts when it exits. **Automated tests need no secrets**: they use fixtures and mocked outside calls. Live gameplay needs dev values in the ignored `server/.dev.vars` for `NEARAI_API_KEY`, `NEAR_SERVER_KEY`, `NEAR_GAS_ACCOUNT_KEY`, `PRIVY_APP_ID`, `PRIVY_JWKS_URL`, `PRIVY_ASKED_PRIVACY_URL`, `INSULT_LIST`, `RIDDLE_LIST`, and `SKILL_KEY`. Cross-chain pet-address sweeps also need `BASE_GAS_WALLET_KEY` and `SOLANA_GAS_WALLET_KEY`; `FASTNEAR_API_KEY` is optional if the free RPC throttles. Keep all key values out of git; `VITE_*` values are public.
+`scripts/dev.sh` checks for the local env file, applies both local D1 migration trees (`nearling-db-dev` and `nearling-events-dev` with `--env dev --local`), builds the dev client for the Worker's assets, and starts the Worker at `http://localhost:8787` and Vite at `http://localhost:5173`. Vite proxies `/api` and `/health` to the Worker. The script stops the two processes it starts when it exits.
+
+**Automated tests need no secrets**: they use fixtures and mocked outside calls. Live play needs dev values in the ignored `server/.dev.vars`:
+
+| Needed for | Variables |
+| --- | --- |
+| Live gameplay | `NEARAI_API_KEY`, `NEAR_SERVER_KEY`, `NEAR_GAS_ACCOUNT_KEY`, `PRIVY_APP_ID`, `PRIVY_JWKS_URL`, `PRIVY_ASKED_PRIVACY_URL`, `INSULT_LIST`, `RIDDLE_LIST`, `SKILL_KEY` |
+| Cross-chain pet-address sweeps | `BASE_GAS_WALLET_KEY`, `SOLANA_GAS_WALLET_KEY` |
+| Optional, if the free RPC throttles | `FASTNEAR_API_KEY` |
+
+Keep all key values out of git; `VITE_*` values are public.
 
 Build the testnet contract wasm with `cd contract && cargo near build non-reproducible-wasm`. The local start command does not deploy a contract.
 
@@ -152,7 +255,7 @@ npm --prefix web test -- src/verification/check.test.ts src/verification/checkMa
 
 The verifier reports `PASS`, `FAIL`, or `SKIP` per step and writes details under `build/verify/`. Contract tests deploy to a local near-workspaces sandbox. Server tests run in the Workers pool with D1 and mocked outbound calls. Client unit and Playwright e2e tests use fixtures and mocked Worker, RPC, and Privy seams. The frame-capture `screens` step additionally needs the reference bundle kept outside the public clone.
 
-To inspect a thought yourself:
+### Inspect a thought yourself
 
 1. On a pet page choose **“Check it's really {name}”** and select a receipt. [`verifyPointer`](web/src/verification/checkMachine.ts) reads the successful `debit_session` transaction from NEAR RPC and matches exactly one `receipt` event to the paying token and debit ID. It compares the event's model, price, calls, and pointer. A mismatch is shown as such.
 2. For bytes the owner can see, or bytes deliberately published through a receipt link, [`checkCall`](web/src/verification/check.ts) hashes each original request and reply byte array with SHA-256 and compares it with that call's on-chain `req_sha256` and `res_sha256`. JSON must not be re-serialized. A public receipt offers **“Download request bytes”** and **“Download reply bytes”**. When bytes were cleared, the word-for-word comparison is unavailable although the public hashes remain.
@@ -163,7 +266,21 @@ The Home totals come from the contract's [`showcase_view`](contract/src/lib.rs) 
 
 ## Built Oct 29 – Nov 14
 
-The first repository commit was on 2026-10-29, ten days after the hackathon announcement of October 19, from which the hackathon counts work; no commit predates it, and reused code is listed below. Oct 29: architecture decision records and the scaffold of the contract, Worker and client. Oct 30–31: hatching and talking, Google sign-in, feeding, pet life, and the daily ritual. Then wardrobe on Nov 1; work and errands on Nov 3; verification and gifts on Nov 4; showcase on Nov 5; society and wills on Nov 7; repeat hatching and game layout on Nov 10; debates on Nov 11; any-chain feeding and fixes on Nov 12; hiring and debate fixes, the nearling.xyz domain, and the mainnet launch at main.nearling.xyz with the first cross-chain payment on Nov 13.
+The first repository commit was on 2026-10-29, ten days after the hackathon announcement of October 19, from which the hackathon counts work; no commit predates it, and reused code is listed below.
+
+| Date | What landed |
+| --- | --- |
+| Oct 29 | Architecture decision records and the scaffold of the contract, Worker and client |
+| Oct 30–31 | Hatching and talking, Google sign-in, feeding, pet life, and the daily ritual |
+| Nov 1 | Wardrobe |
+| Nov 3 | Work and errands |
+| Nov 4 | Verification and gifts |
+| Nov 5 | Showcase |
+| Nov 7 | Society and wills |
+| Nov 10 | Repeat hatching and game layout |
+| Nov 11 | Debates |
+| Nov 12 | Any-chain feeding and fixes |
+| Nov 13 | Hiring and debate fixes, the nearling.xyz domain, and the mainnet launch at main.nearling.xyz with the first cross-chain payment |
 
 ## Known limitations
 
@@ -176,7 +293,13 @@ The first repository commit was on 2026-10-29, ten days after the hackathon anno
 
 The pet generator and 3D assembly in [`web/src/pet/proto/`](web/src/pet/proto/) were ported from the creator's earlier `pet-proto`, an unpublished local 3D design prototype (React Three Fiber) with no NEAR code. They are reused code.
 
-The contract uses `near-sdk` and `near-contract-standards` 5.30.0; its test/build tools include `near-workspaces` 0.24.0 and `cargo-near-build` 0.11.5. The Worker uses Hono 4.13.14, `near-api-js` 7.4.0, `jose` 6.2.14, and Noble curves and hashes 2.2.0; its tools include Wrangler 4.155.0, the Workers Vitest plugin 1.4.10, Vitest 5.0.5, and TypeScript 6.0.3. The client uses React and React DOM 19.3.1, Three 0.186.1, React Three Fiber 9.8.2, drei 10.7.9, postprocessing 6.39.5, R3F postprocessing 3.2.2, Privy React Auth 3.51.0, `near-api-js` 7.4.0, Noble curves 1.8.0 and hashes 1.4.0; its tools include Vite 8.3.5, Playwright 1.58.2, Vitest 5.0.5, TypeScript 6.0.3, and jsdom 30.1.3. The complete dependency lists, including type packages and Rust test dependencies, are in [the contract manifest](contract/Cargo.toml), [the Worker manifest](server/package.json), and [the client manifest](web/package.json).
+| Package | Libraries | Test and build tools |
+| --- | --- | --- |
+| Contract | `near-sdk` and `near-contract-standards` 5.30.0 | `near-workspaces` 0.24.0, `cargo-near-build` 0.11.5 |
+| Worker | Hono 4.13.14, `near-api-js` 7.4.0, `jose` 6.2.14, Noble curves and hashes 2.2.0 | Wrangler 4.155.0, the Workers Vitest plugin 1.4.10, Vitest 5.0.5, TypeScript 6.0.3 |
+| Client | React and React DOM 19.3.1, Three 0.186.1, React Three Fiber 9.8.2, drei 10.7.9, `three-mesh-bvh` 0.8.3, postprocessing 6.39.5, R3F postprocessing 3.2.2, Privy React Auth 3.51.0, `near-api-js` 7.4.0, Noble curves 1.8.0 and hashes 1.4.0 | Vite 8.3.5, Playwright 1.58.2, Vitest 5.0.5, TypeScript 6.0.3, jsdom 30.1.3 |
+
+The complete dependency lists, including type packages and Rust test dependencies, are in [the contract manifest](contract/Cargo.toml), [the Worker manifest](server/package.json), and [the client manifest](web/package.json).
 
 ## Links
 
